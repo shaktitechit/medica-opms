@@ -1,0 +1,108 @@
+# Medica stack: MongoDB + Redis + API + Next.js frontend
+#
+# Quick start:
+#   cp .env.docker.example .env.docker
+#   # Edit .env.docker — set JWT_SECRET at minimum
+#   docker compose up --build
+#
+# App URLs (from your machine):
+#   Frontend  http://localhost:3000
+#   API       http://localhost:5000
+#   API docs  http://localhost:5000/api-docs (if enabled)
+#   Health    http://localhost:5000/health
+
+name: medica
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - path: .env.docker
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongo:27017/medica
+      MONGODB_URI: mongodb://mongo:27017/medica
+      REDIS_URL: redis://redis:6379
+      MONGODB_LOOKUP_FAMILY: "4"
+      API_PUBLIC_BASE_URL: http://localhost:5000
+      JWT_SECRET: ${JWT_SECRET:-medica-docker-dev-secret-change-me}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      SEED_PASSWORD: ${SEED_PASSWORD:-ChangeMe123!}
+      SEED_CORE_USERS_ONLY: ${SEED_CORE_USERS_ONLY:-true}
+      SEED_EXTRA_USERS: ${SEED_EXTRA_USERS:-false}
+      FILE_MANAGEMENT_API_URL: ${FILE_MANAGEMENT_API_URL:-}
+      FILE_MANAGEMENT_API_KEY: ${FILE_MANAGEMENT_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://127.0.0.1:5000/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Browser calls the API on the host-mapped port (not the Docker service name).
+        NEXT_PUBLIC_API_ORIGIN: http://localhost:5000
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_ORIGIN: http://localhost:5000
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mongo_data:
+  redis_data:
