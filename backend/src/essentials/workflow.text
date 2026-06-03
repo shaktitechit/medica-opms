@@ -1,0 +1,64 @@
+Order process workflow (canonical order.status string on each line)
+
+Source of truth — implementation: backend/src/modules/workflow/workflow.service.js (transitionOrderStatus)
+Graph of allowed moves: backend/src/modules/workflow/workflow.transitions.js
+Who may move: backend/src/modules/workflow/workflow.rules.js (departmentAllowsTransition + admin override)
+
+1. Main lifecycle (human label → API status)
+
+draft
+   ↓ submitted
+submitted
+   ↓ sales_approved  (or on_hold, cancelled)
+sales_approved
+   ↓ finance_review
+finance_review
+   ↓ finance_approved | finance_rejected | on_hold
+finance_rejected
+   ↓ submitted | cancelled
+finance_approved
+   ↓ dispatch_pending
+dispatch_pending
+   ↓ dispatch_planned | on_hold
+dispatch_planned
+   ↓ partially_dispatched | dispatched
+partially_dispatched
+   ↓ partially_dispatched | dispatched
+dispatched
+   ↓ transport_assigned
+transport_assigned
+   ↓ in_transit
+in_transit
+   ↓ delivered
+delivered
+   ↓ invoice_generated
+invoice_generated
+   ↓ collection_pending
+collection_pending
+   ↓ partially_paid | paid
+partially_paid
+   ↓ paid
+paid
+   ↓ closed
+
+on_hold may resume to: submitted, finance_review, dispatch_pending, or cancelled (department rules apply — see workflow.rules.js).
+
+2. Transition side effects (same service)
+
+- Same status → rejected (no-op).
+- Allowed edge checked against workflow.transitions.js; department checked per target status (admin department always allowed).
+- Finance move to finance_rejected requires non-empty rejection_reason (or remarks used as reason).
+- Open OrderFlag with blocks_order=true may block the next status (see flag-blocking-rules.text / flagBlocksTransition).
+- paid_amount may be supplied on transition; order payment_status and balance are recalculated (pending | partial | paid).
+- Guards: partially_paid requires 0 < paid < grand_total; paid and closed require paid >= grand_total.
+- When entering dispatch-related order statuses, order.dispatch_status is synced: pending, planned, partial, dispatched (Order model field — not the same string set as Dispatch document status).
+- finance_approved / finance_rejected → OrderApproval row (finance_approval).
+- invoice_generated → ensure Invoice exists for order.
+- collection_pending → ensure Collection exists (after invoice).
+- partially_paid / paid → update Invoice and Collection paid/collected fields and status.
+- Always append OrderStatusHistory; write Activity (status_changed); notify (notificationService); recompute flag aggregates.
+
+3. Related domain constants
+
+Order status enums: backend/src/constants/domain.js → ORDER_STATUS
+Also documented in essentials/order-starus.text

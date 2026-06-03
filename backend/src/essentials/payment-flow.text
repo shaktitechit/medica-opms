@@ -1,0 +1,31 @@
+7. Payment workflow — two concepts
+
+(A) Payment records (payments collection)
+Used for cheque / bank / ledger lines submitted against an order.
+
+Document status enum (Mongo payment schema):
+
+  submitted → verified | rejected
+
+Finance verification should set verified_by / verified_at or rejection_reason on reject.
+
+(B) Order-level money snapshot (same Order fields)
+Workflow transitions drive business collection states:
+  collection_pending ↔ partially_paid → paid → closed
+
+Fields on Order:
+
+- paid_amount — set via transitionOrderStatus({ paid_amount }) when moving into partially_paid / paid stages (and related guards).
+- payment_status — derived on each transition by workflow.service.applyOrderPaymentDerived: pending | partial | paid (schema also allows rejected).
+
+(C) Invoice (invoices collection) status enum
+
+  draft | generated | partially_paid | paid | cancelled
+
+Workflow updates invoice paid_amount/balance_amount when order hits partially_paid or paid — see transitionOrderStatus.
+
+Rules:
+
+- Partials allowed until grand_total met.
+- Rejected Payment lines must carry actionable rejection_reason text.
+- Order cannot reach closed until paid_amount ≥ grand_total (blocked in assertPaymentGuards).

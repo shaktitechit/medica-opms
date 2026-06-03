@@ -1,0 +1,24 @@
+10. Collection workflow
+
+Order.status ladder (collection phase):
+invoice_generated → collection_pending → partially_paid → paid → closed
+
+Collection record (collections collection) statuses:
+
+export const COLLECTION_STATUS = {
+  PENDING: "pending",
+  FOLLOW_UP: "follow_up",
+  PARTIALLY_COLLECTED: "partially_collected",
+  COLLECTED: "collected",
+  OVERDUE: "overdue",
+};
+
+Canon: backend/src/constants/domain.js
+
+Rules:
+
+- Collection row is ensured when workflow reaches collection_pending (after invoice exists).
+- Follow-ups are stored embedded on Collection (followups[] with note, dates, added_by).
+- Overdue transitions are usually driven by schedulers/reporting jobs; overdue should surface flags if needed.
+- When order reaches partially_paid / paid transitions, workflow service syncs Collection.collected_amount, due_amount, and status (partially_collected | collected) from final order totals.
+- Fully paid order satisfies paid → closed guards (paid_amount vs grand_total).

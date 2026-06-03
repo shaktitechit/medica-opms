@@ -1,0 +1,287 @@
+"use client";
+
+import { useMemo } from "react";
+import { DashboardCard } from "@/components/widgets";
+import { useListDispatchesQuery, useListTransportsQuery, useListUsersQuery } from "@/store/api";
+
+type DispatchesTabProps = {
+  orderId: string;
+  detail: Record<string, any> | null;
+  refetchOrder?: () => void;
+};
+
+function pickList(raw: unknown): Record<string, any>[] {
+  if (Array.isArray(raw)) return raw as Record<string, any>[];
+  if (raw && typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    if (Array.isArray(o.items)) return o.items as Record<string, any>[];
+    if (Array.isArray(o.data)) return o.data as Record<string, any>[];
+  }
+  return [];
+}
+
+function formatDate(v: unknown): string {
+  if (v == null || v === "") return "—";
+  const d = v instanceof Date ? v : new Date(String(v));
+  if (Number.isNaN(d.getTime())) return String(v);
+  return d.toLocaleString();
+}
+
+export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
+  const dispatchesQ = useListDispatchesQuery({ order: orderId });
+  const transportsQ = useListTransportsQuery({ order: orderId });
+  const usersQ = useListUsersQuery({});
+
+  const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
+  const transports = useMemo(() => pickList(transportsQ.data), [transportsQ.data]);
+  const users = useMemo(() => pickList(usersQ.data), [usersQ.data]);
+
+  const userNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const u of users) {
+      const id = String(u._id ?? u.id ?? "");
+      if (id) map[id] = String(u.username || u.name || id);
+    }
+    return map;
+  }, [users]);
+
+  const orderItems = useMemo(() => {
+    if (!detail || !Array.isArray(detail.order_items)) return [];
+    return detail.order_items;
+  }, [detail]);
+
+  return (
+    <div className="space-y-6">
+      <DashboardCard
+        title="Recorded Dispatch Batches"
+        description="View dispatch details, dispatched items list, and associated logistics assignments."
+      >
+        {dispatchesQ.isLoading ? (
+          <p className="text-sm text-slate-500 font-sans">Loading dispatches...</p>
+        ) : dispatches.length === 0 ? (
+          <p className="text-sm text-slate-500 font-sans">No dispatch batches recorded yet.</p>
+        ) : (
+          <div className="space-y-6 font-sans">
+            {dispatches.map((disp: any) => {
+              const dispId = String(disp._id ?? disp.id ?? "");
+              const dispatchStatus = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
+              const dispatchItems = Array.isArray(disp.dispatch_items) ? disp.dispatch_items : disp.items || [];
+              
+              // Resolve packing and dispatch staff names
+              const packedByVal = disp.packed_by;
+              const dispatchedByVal = disp.dispatched_by;
+              
+              const packedByName = typeof packedByVal === "object" && packedByVal !== null
+                ? (packedByVal.name || packedByVal.username || "")
+                : typeof packedByVal === "string"
+                  ? (userNameById[packedByVal] || packedByVal)
+                  : "";
+                  
+              const dispatchedByName = typeof dispatchedByVal === "object" && dispatchedByVal !== null
+                ? (dispatchedByVal.name || dispatchedByVal.username || "")
+                : typeof dispatchedByVal === "string"
+                  ? (userNameById[dispatchedByVal] || dispatchedByVal)
+                  : "";
+
+              // Check if a transport record matches this dispatch
+              const transport = transports.find((tr) => {
+                const trDispatchId = typeof tr.dispatch === "object" && tr.dispatch !== null
+                  ? String(tr.dispatch._id ?? tr.dispatch.id ?? "")
+                  : String(tr.dispatch ?? "");
+                return trDispatchId === dispId;
+              });
+
+              return (
+                <div
+                  key={dispId}
+                  className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4 dark:border-white/5">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <h4 className="text-base font-bold text-slate-900 dark:text-slate-50">
+                          {disp.dispatch_no || "Batch Details"}
+                        </h4>
+                        {disp.finance_approval && (
+                          <span className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-mono">
+                            Release: {typeof disp.finance_approval === "object" ? disp.finance_approval.approval_no : disp.finance_approval}
+                          </span>
+                        )}
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                            dispatchStatus === "cancelled"
+                              ? "bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-400"
+                              : dispatchStatus === "fully_dispatched"
+                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
+                              : "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
+                          }`}
+                        >
+                          {dispatchStatus.replace(/_/g, " ")}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Dispatch Date: {formatDate(disp.dispatched_at ?? disp.dispatch_date)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-6 mt-4 sm:grid-cols-3">
+                    <div className="sm:col-span-2">
+                      <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">
+                        Dispatched Items
+                      </h5>
+                      <div className="overflow-x-auto rounded-lg border border-slate-200/60 dark:border-white/5">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-medium">
+                            <tr>
+                              <th className="px-3 py-2">Product</th>
+                              <th className="px-3 py-2 text-center w-24">Ordered</th>
+                              <th className="px-3 py-2 text-right w-24">This Batch</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                            {dispatchItems.map((item: any, idx: number) => {
+                              const matchItem = orderItems.find(
+                                (oi: any) => String(oi._id ?? oi.id ?? "") === String(item.order_item_id)
+                              );
+                              const productName = matchItem?.product_name || item.product_name || item.product?.product_name || "—";
+                              const orderedQty = matchItem 
+                                ? (matchItem.ordered_quantity ?? matchItem.quantity ?? 0) 
+                                : (item.ordered_quantity ?? "—");
+
+                              return (
+                                <tr key={String(item.order_item_id || idx)} className="bg-white dark:bg-slate-900">
+                                  <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                                    {productName}
+                                  </td>
+                                  <td className="px-3 py-2 text-center text-slate-600 dark:text-slate-400">
+                                    {orderedQty}
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-semibold text-blue-600 dark:text-blue-400">
+                                    {item.dispatched_quantity ?? item.dispatch_quantity ?? "—"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-lg bg-slate-50/50 p-4 border border-slate-100 dark:bg-slate-950/10 dark:border-white/5 text-xs">
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Warehouse Location
+                        </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                          {disp.warehouse_location || disp.warehouse || "—"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Remarks
+                        </span>
+                        <span className="italic text-slate-800 dark:text-slate-200">
+                          {disp.remarks || "No remarks"}
+                        </span>
+                      </div>
+                      {packedByName && (
+                        <div>
+                          <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                            Packed By
+                          </span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">
+                            {packedByName} {disp.packed_at && `on ${formatDate(disp.packed_at)}`}
+                          </span>
+                        </div>
+                      )}
+                      {dispatchedByName && (
+                        <div>
+                          <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                            Dispatched By
+                          </span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">
+                            {dispatchedByName} {disp.dispatched_at && `on ${formatDate(disp.dispatched_at)}`}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {transport && (
+                    <div className="mt-5 border-t border-slate-100 pt-4 dark:border-white/5">
+                      <h5 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1.5 font-sans">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10M13 16h6a1 1 0 001-1v-4a1 1 0 00-.316-.707l-4-4A1 1 0 0015 6h-2m6 10a2 2 0 100-4 2 2 0 000 4z" />
+                        </svg>
+                        Associated Transit Logistics
+                      </h5>
+                      <div className="grid gap-4 rounded-lg bg-slate-50/50 p-4 border border-slate-100 dark:bg-slate-950/20 dark:border-white/5 sm:grid-cols-3 text-xs font-sans">
+                        <div className="space-y-2">
+                          <div>
+                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Shipment No</span>
+                            <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">{transport.shipment_no}</span>
+                          </div>
+                          <div>
+                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Shipment Status</span>
+                            <span className={`inline-flex items-center rounded-full mt-1 px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300`}>
+                              {String(transport.shipment_status ?? "created").replace(/_/g, " ").toUpperCase()}
+                            </span>
+                          </div>
+                          {transport.source_location && (
+                            <div>
+                              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Source Location</span>
+                              <span className="text-slate-800 dark:text-slate-200">{transport.source_location}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          <div>
+                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Driver Details</span>
+                            <span className="font-semibold text-slate-800 dark:text-slate-200 block">{transport.driver_name || "—"}</span>
+                            {(transport.driver_mobile || transport.driver_phone) && (
+                              <span className="text-slate-500 block mt-0.5">{transport.driver_mobile || transport.driver_phone}</span>
+                            )}
+                          </div>
+                          <div>
+                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Vehicle Number</span>
+                            <span className="font-semibold text-slate-900 dark:text-slate-100 uppercase">{transport.vehicle_number || transport.vehicle_no || "—"}</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div>
+                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">LR / E-way Bill</span>
+                            <span className="text-slate-800 dark:text-slate-200 font-mono">
+                              LR: {transport.lr_number || "—"} / Eway: {transport.eway_bill_no || "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Expected Delivery</span>
+                            <span className="text-slate-800 dark:text-slate-200">
+                              {formatDate(transport.expected_delivery_date)}
+                            </span>
+                          </div>
+                          {transport.tracking_number && (
+                            <div>
+                              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Tracking Number</span>
+                              <span className="text-slate-800 dark:text-slate-200 font-mono">{transport.tracking_number}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </DashboardCard>
+    </div>
+  );
+}
+
+export default DispatchesTab;

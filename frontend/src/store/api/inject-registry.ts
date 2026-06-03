@@ -1,0 +1,22 @@
+/**
+ * Side-effect imports: register all RTK Query endpoints on `medicaApi`
+ * before `store.ts` reads `medicaApi.reducer`.
+ */
+import "./slices/activityApi";
+import "./slices/approvalsApi";
+import "./slices/attachmentsApi";
+import "./slices/authApi";
+import "./slices/partiesApi";
+import "./slices/dashboardApi";
+import "./slices/dispatchApi";
+import "./slices/driversApi";
+import "./slices/transportAgentsApi";
+import "./slices/financeApi";
+import "./slices/flagsApi";
+import "./slices/notificationsApi";
+import "./slices/ordersApi";
+import "./slices/orderFinanceApprovalApi";
+import "./slices/productsApi";
+import "./slices/transportApi";
+import "./slices/usersApi";
+import "./slices/vehiclesApi";

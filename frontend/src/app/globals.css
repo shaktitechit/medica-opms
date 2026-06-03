@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/* Professional blue + slate system (light / dark via prefers-color-scheme) */
+:root {
+  color-scheme: light;
+  --background: #f4f7fb;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --primary: #1d4ed8;
+  --primary-hover: #1e40af;
+  --primary-muted: #eff6ff;
+  --ring: #2563eb;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-muted: var(--primary-muted);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /*
+   * Compact production density.
+   * Tailwind v4 utilities read these tokens, so this trims app-wide
+   * paddings, margins, gaps, icon sizes, and text without touching every view.
+   */
+  --spacing: 0.21875rem;
+
+  --text-xs: 0.6875rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.125rem;
+  --text-base: 0.925rem;
+  --text-base--line-height: 1.375rem;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.1875rem;
+  --text-xl--line-height: 1.625rem;
+  --text-2xl: 1.375rem;
+  --text-2xl--line-height: 1.875rem;
+  --text-3xl: 1.675rem;
+  --text-3xl--line-height: 2.125rem;
+  --text-4xl: 2rem;
+  --text-4xl--line-height: 2.375rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --background: #020617;
+    --foreground: #f1f5f9;
+    --card: #0f172a;
+    --muted: #94a3b8;
+    --border: rgba(148, 163, 184, 0.16);
+    --primary: #3b82f6;
+    --primary-hover: #60a5fa;
+    --primary-muted: rgba(59, 130, 246, 0.12);
+    --ring: #60a5fa;
+  }
+}
+
+body {
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.825rem;
+  line-height: 1.25;
+  font-family:
+    var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+table {
+  font-size: 0.625rem;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 28%, transparent);
+  color: var(--foreground);
+}

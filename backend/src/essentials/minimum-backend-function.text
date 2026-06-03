@@ -1,0 +1,38 @@
+11. Minimum backend function — transitionOrderStatus
+
+Expose (and implement) a single workflow entrypoint used by approvals / orders API:
+
+transitionOrderStatus({
+  orderId,
+  nextStatus,
+  userId,
+  remarks,
+  rejectionReason,   // required when nextStatus is finance_rejected (else falls back to remarks)
+  paid_amount,       // optional; when set, updates order.paid_amount before payment guards
+  ip_address,
+  user_agent,
+});
+
+Implementation checklist (matches backend/src/modules/workflow/workflow.service.js):
+
+1. Load active User by userId → reject if inactive / missing (401 Unauthorized).
+2. Load Order by orderId → 404 if missing.
+3. Reject if order.status === nextStatus (already there).
+4. Check transition allowed: workflow.rules.isTransitionAllowed (workflow.transitions.js graph).
+5. Check department allowed: workflow.rules.departmentAllowsTransition (admin bypass; special cases for on_hold resume and finance_rejected).
+6. If nextStatus === finance_rejected → require non-empty rejection_reason (or trimmed remarks).
+7. Load blocking flags: OrderFlag where status=open, blocks_order=true; if workflow.rules.flagBlocksTransition(flag_type, nextStatus) → 409.
+8. Build merged patch: status, updated_by, optional remarks merge, optional paid_amount, map order status → order.dispatch_status for dispatch lifecycle (pending | planned | partial | dispatched).
+9. Derive payment_status / balance_amount from paid_amount and grand_total (applyOrderPaymentDerived).
+10. assertPaymentGuards for partially_paid, paid, closed.
+11. Persist Order (save).
+12. recordFinanceApproval when entering finance_approved / finance_rejected.
+13. Create OrderStatusHistory (from_status, to_status, changed_by, remarks).
+14. Create Activity (entity_type order, action status_changed).
+15. invoice_generated → ensure Invoice row exists.
+16. collection_pending → ensure Invoice + Collection rows exist.
+17. Send notifications (notifyOrderTransition).
+18. flagService.recomputeOrderFlagAggregates(orderId).
+19. If partially_paid or paid → sync Invoice + Collection totals/status from final order.
+
+Return the updated order (plain JSON shape).

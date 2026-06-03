@@ -1,0 +1,23 @@
+5. Blocking rules (non-negotiable backend rules)
+
+Domain order (enforced by transition graph + guards in workflow.service.js / workflow.rules.js):
+
+- Order cannot reach finance_review before sales_approved.
+- Dispatch states cannot start before finance_approved (graph: finance_approved → dispatch_pending → …).
+- Transport cannot start before dispatch complete (dispatched → transport_assigned → …).
+- Invoice generation is tied to order status delivered → invoice_generated (service ensures Invoice exists at that transition and after).
+- Collection record is ensured when reaching collection_pending (after invoice exists).
+- Order cannot reach closed until paid_amount covers grand_total (409 / 400 from assertPaymentGuards).
+- Pricing / line edits after finance approval: enforced in order service via workflow.rules.salesMayEditPricing (financeApprovedLockedStatuses).
+
+Finance rejection must carry a reason — API rejects finance_rejected without rejection_reason (or trimmed remarks used as rejection_reason).
+
+OrderStatusHistory row is appended on every successful transition.
+
+ActivityLog (activity service) records status_changed with from/to payloads.
+
+Finance / collection correctness:
+- payment_status on Order is derived: pending | partial | paid from paid_amount vs grand_total.
+- partially_paid requires strictly between 0 and grand_total; paid requires full clearance.
+
+Operational records (customers, orders, invoices, dispatch, …) support soft-delete in the REST API where implemented; User accounts do not expose soft-delete (hard lifecycle only).

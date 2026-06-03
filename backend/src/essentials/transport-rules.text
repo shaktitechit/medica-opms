@@ -1,0 +1,23 @@
+9. Transport workflow
+
+Order.status slice:
+dispatched → transport_assigned → in_transit → delivered → invoice_generated → …
+
+Operational Transport record statuses (Mongo transport schema):
+
+export const TRANSPORT_STATUS = {
+  PENDING: "pending",
+  ASSIGNED: "assigned",
+  IN_TRANSIT: "in_transit",
+  DELIVERED: "delivered",
+  FAILED: "failed",
+  CANCELLED: "cancelled",
+};
+
+Const export in code: backend/src/constants/domain.js → TRANSPORT_STATUS.
+
+Rules:
+
+- Transport flow does not proceed before order has completed dispatch readiness (workflow graph: dispatched before transport_assigned).
+- Delivery should attach proof-of-delivery (Attachment ref on Transport when captured).
+- failed should record failure_reason and typically raise / link a dispatch or vehicle flag.

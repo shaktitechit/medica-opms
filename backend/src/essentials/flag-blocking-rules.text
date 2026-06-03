@@ -1,0 +1,16 @@
+6. Flag blocking logic (matches flagBlocksTransition in backend/src/modules/workflow/workflow.rules.js)
+
+Allowed flag_type values appear in backend/src/constants/flagTypes.js (urgent, payment_issue, dispatch_issue, …).
+
+Blocking uses only orders’ open flags: OrderFlag with status === 'open' and blocks_order === true.
+
+Before commit of a transition, if any blocking flag triggers for the attempted next status, transition fails (HTTP 409 with flag type in message).
+
+Mapping (open + blocks_order):
+
+- payment_issue, stock_issue, dispatch_issue — block moving into any “dispatch-like” forward stage: from dispatch_pending through closed (see DISPATCH_LIKE set in workflow.rules.js).
+- vehicle_issue — blocks moving into post-delivery bucket: invoice_generated through closed (POST_DELIVERY set).
+- pod_missing — blocks only transition into closed.
+- customer_dispute — blocks collection/payment completion targets: partially_paid, paid, closed (COLLECTION_PAY set).
+
+Other flag types exist for visibility (e.g. document_missing); they do not gate transitions unless wired with blocks_order in your business logic.

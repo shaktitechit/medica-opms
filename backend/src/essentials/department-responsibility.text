@@ -1,0 +1,27 @@
+4. Department responsibility — who may set order.status as `toStatus` on `POST …/transition`
+
+Canonical code: `DEPT_CAN_SET_STATUS` + `departmentAllowsTransition` in backend/src/modules/workflow/workflow.rules.js.
+
+The transition graph (`workflow.transitions.js`) still limits which edges exist; RBAC narrowswho may use each edge.
+
+Department → allowed targets (explicit sets; admin does **not** bypass):
+- sales → submitted, cancelled
+- admin → submitted, cancelled, sales_approved, on_hold (submitted/cancelled match sales so admin accounts can run draft steps)
+- finance → finance_review, finance_approved, finance_rejected, dispatch_pending
+- dispatch → dispatch_pending, dispatch_planned, partially_dispatched, dispatched
+- transport → transport_assigned, in_transit, delivered, invoice_generated
+- collection → collection_pending, partially_paid, paid, closed
+
+Exceptions (same file):
+
+A) Leaving on_hold (from on_hold toward another status)
+- submitted → sales
+- finance_review → finance
+- dispatch_pending → dispatch
+- cancelled → sales, finance, admin
+
+B) Leaving finance_rejected
+- submitted → sales
+- cancelled → sales, finance, admin
+
+Note: Finance no longer transitions to invoice_generated / collection_* or paid/closed directly; finance still moves finance_approved → dispatch_pending after approval.

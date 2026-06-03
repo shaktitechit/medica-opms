@@ -1,0 +1,22 @@
+8. Dispatch workflow
+
+Order.status (high level):
+dispatch_pending → dispatch_planned → partially_dispatched / dispatched → transport_assigned → …
+
+Two different “dispatch” status enums in the backend (do not mix):
+
+1) Order.dispatch_status — denormalized on the Order record for UI / filters.
+   Stored values: pending | planned | partial | dispatched (see workflow.service.js DISPATCH_STATUS_MAP when order transitions).
+
+2) Dispatch document (.status on Dispatch model in mongoRegistry) — line-level fulfillment entity.
+   Enum: pending | planned | partially_dispatched | dispatched | cancelled.
+
+Rule of thumb:
+- Order transition drives Order.dispatch_status.
+- Operational dispatch batches use Dispatch.status strings with partially_dispatched (full word).
+
+Dispatch rules:
+- Dispatch can be partial across multiple Dispatch records / line quantities.
+- Dispatch quantity cannot exceed remaining order quantities (enforce in dispatch service/API).
+- Every dispatched quantity must tie to order line items.
+- Finance approval precedes meaningful dispatch progression (workflow graph + DISPATCH_LIKE guards).
