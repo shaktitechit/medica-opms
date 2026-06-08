@@ -20,8 +20,8 @@ async function main() {
     const models = getModels();
     for (const name of Object.keys(models)) {
       const model = models[name];
-      if (model && typeof model.deleteMany === 'function') {
-        await model.deleteMany({});
+      if (model && model.collection) {
+        await model.collection.deleteMany({});
         console.log(`[seed] Cleared collection for model: ${name}`);
       }
     }
