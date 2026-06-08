@@ -199,6 +199,13 @@ async function get(id) {
 
 async function create(body, user) {
   const skuTrim = body.sku != null ? String(body.sku).trim().toUpperCase() : '';
+  if (skuTrim) {
+    const existing = await getModels().Product.findOne({ sku: skuTrim }).withDeleted();
+    if (existing) {
+      throw new ApiError(400, `Product with SKU "${skuTrim}" already exists${existing.deletedAt ? ' (soft-deleted)' : ''}`);
+    }
+  }
+
   const gstPercent = Number(body.gst_percent ?? 18);
   if (!Number.isFinite(gstPercent) || gstPercent < 0 || gstPercent > 100) {
     throw new ApiError(400, 'Invalid GST percent');
@@ -273,6 +280,16 @@ async function update(id, patch, user) {
   const sanitized = sanitizePatch(patch);
   if (Object.keys(sanitized).length === 0) {
     throw new ApiError(400, 'No valid fields to patch');
+  }
+
+  if (sanitized.sku && typeof sanitized.sku === 'string' && sanitized.sku.trim() !== '') {
+    const skuUpper = sanitized.sku.trim().toUpperCase();
+    if (skuUpper !== doc.sku) {
+      const existing = await getModels().Product.findOne({ sku: skuUpper, _id: { $ne: id } }).withDeleted();
+      if (existing) {
+        throw new ApiError(400, `Product with SKU "${skuUpper}" already exists`);
+      }
+    }
   }
 
   if (user) {
@@ -383,8 +400,25 @@ async function bulkCreate(items, user) {
       payload.created_by = user._id;
     }
 
-    const doc = await Product.create(payload);
-    createdProducts.push(toPlain(doc.toObject()));
+    let doc;
+    if (skuTrim) {
+      doc = await Product.findOne({ sku: skuTrim }).withDeleted();
+    }
+
+    if (doc) {
+      // Update existing product, restore it if soft-deleted
+      doc.set(payload);
+      doc.set('deletedAt', null);
+      if (user) {
+        doc.set('updated_by', user._id);
+      }
+      await doc.save();
+      createdProducts.push(toPlain(doc.toObject()));
+    } else {
+      // Create new
+      doc = await Product.create(payload);
+      createdProducts.push(toPlain(doc.toObject()));
+    }
   }
 
   if (createdProducts.length > 0 && user) {
