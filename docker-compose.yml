@@ -7,9 +7,9 @@
 #
 # App URLs (from your machine):
 #   Frontend  http://localhost:3000
-#   API       http://localhost:5000
-#   API docs  http://localhost:5000/api-docs (if enabled)
-#   Health    http://localhost:5000/health
+#   API       http://localhost:5001
+#   API docs  http://localhost:5001/api-docs (if enabled)
+#   Health    http://localhost:5001/health
 
 name: medica
 
@@ -17,12 +17,13 @@ services:
   mongo:
     image: mongo:7
     restart: unless-stopped
+    command: [ "--replSet", "rs0", "--bind_ip_all" ]
     ports:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: [ "CMD-SHELL", "mongosh --eval \"try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }); }\"" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -36,7 +37,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -48,25 +49,22 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "5001:5001"
     env_file:
       - path: .env.docker
         required: false
     environment:
       NODE_ENV: production
-      PORT: 5000
-      MONGO_URI: mongodb://mongo:27017/medica
-      MONGODB_URI: mongodb://mongo:27017/medica
+      PORT: 5001
+      MONGO_URI: mongodb+srv://devpajitkumar_db_user:Ajit%402025@cluster0.retpy7y.mongodb.net/medica
+      MONGODB_URI: mongodb+srv://devpajitkumar_db_user:Ajit%402025@cluster0.retpy7y.mongodb.net/medica
       REDIS_URL: redis://redis:6379
       MONGODB_LOOKUP_FAMILY: "4"
-      API_PUBLIC_BASE_URL: http://localhost:5000
+      API_PUBLIC_BASE_URL: http://localhost:5001
       JWT_SECRET: ${JWT_SECRET:-medica-docker-dev-secret-change-me}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
-      SEED_PASSWORD: ${SEED_PASSWORD:-ChangeMe123!}
-      SEED_CORE_USERS_ONLY: ${SEED_CORE_USERS_ONLY:-true}
-      SEED_EXTRA_USERS: ${SEED_EXTRA_USERS:-false}
-      FILE_MANAGEMENT_API_URL: ${FILE_MANAGEMENT_API_URL:-}
-      FILE_MANAGEMENT_API_KEY: ${FILE_MANAGEMENT_API_KEY:-}
+      FILE_MANAGEMENT_API_URL: https://fapi.spspl.com/api
+      FILE_MANAGEMENT_API_KEY: m_60c47d610757d0464d17f97e_62db78791122e07b423ae4a7eb7311d32c13f65dc97333e00e594041b8e08f53
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
@@ -77,11 +75,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "node -e \"require('http').get('http://127.0.0.1:5000/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
-        ]
+      test: [ "CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:5001/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"" ]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -93,15 +87,28 @@ services:
       dockerfile: Dockerfile
       args:
         # Browser calls the API on the host-mapped port (not the Docker service name).
-        NEXT_PUBLIC_API_ORIGIN: http://localhost:5000
+        NEXT_PUBLIC_API_ORIGIN: http://localhost:5001
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "5002:3000"
     environment:
-      NEXT_PUBLIC_API_ORIGIN: http://localhost:5000
+      NEXT_PUBLIC_API_ORIGIN: http://localhost:5001
     depends_on:
       backend:
         condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
 volumes:
   mongo_data:

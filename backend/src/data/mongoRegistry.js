@@ -152,6 +152,7 @@ function registerModels() {
     { timestamps: true }
   );
   
+  customerSchema.plugin(softDeletePlugin);
   mongoose.model("Customer", customerSchema);
 
   // --- Schemas from Product.js ---
@@ -327,6 +328,7 @@ function registerModels() {
     },
     { timestamps: true }
   );
+  warehouseSchema.plugin(softDeletePlugin);
   mongoose.model("Warehouse", warehouseSchema);
 
   const partyAddressSchema = new mongoose.Schema(
@@ -368,6 +370,7 @@ function registerModels() {
   );
   partySchema.index({ party_name: 1 });
   partySchema.index({ gst_no: 1 }, { sparse: true });
+  partySchema.plugin(softDeletePlugin);
   mongoose.model("Party", partySchema);
 
   const batchSchema = new mongoose.Schema(
@@ -398,6 +401,7 @@ function registerModels() {
   );
   batchSchema.index({ product: 1, expiry_date: 1 });
   batchSchema.index({ product: 1, batch_no: 1 }, { unique: true });
+  batchSchema.plugin(softDeletePlugin);
   mongoose.model("Batch", batchSchema);
 
   const partyProductLastRateSchema = new mongoose.Schema(
@@ -633,6 +637,7 @@ function registerModels() {
   );
   transportAgentSchema.index({ agent_type: 1, status: 1 });
   transportAgentSchema.index({ agent_name: 1, is_active: 1 });
+  transportAgentSchema.plugin(softDeletePlugin);
   mongoose.model('TransportAgent', transportAgentSchema);
 
   // --- Schemas from Vehicle.js ---
@@ -675,6 +680,7 @@ function registerModels() {
     { timestamps: true }
   );
   vehicleSchema.index({ transport_agent: 1, status: 1 });
+  vehicleSchema.plugin(softDeletePlugin);
   mongoose.model('Vehicle', vehicleSchema);
 
   // --- Schemas from Driver.js ---
@@ -713,6 +719,7 @@ function registerModels() {
     { timestamps: true }
   );
   driverSchema.index({ transport_agent: 1, status: 1 });
+  driverSchema.plugin(softDeletePlugin);
   mongoose.model('Driver', driverSchema);
 
   // --- Schemas from Order.js ---
@@ -998,6 +1005,7 @@ function registerModels() {
   orderSchema.index({ workflow_stage: 1, lifecycle_status: 1 });
   orderSchema.index({ current_assignee: 1, workflow_stage: 1 });
 
+  orderSchema.plugin(softDeletePlugin);
   mongoose.model("Order", orderSchema);
 
   // --- Schemas from OrderWorkflow.js ---
@@ -1341,6 +1349,7 @@ function registerModels() {
     { timestamps: true }
   );
   
+  attachmentSchema.plugin(softDeletePlugin);
   mongoose.model("Attachment", attachmentSchema);
 
   // --- Schemas from OrderDispatch.js ---
@@ -1559,20 +1568,35 @@ function registerModels() {
   
   mongoose.model("Notification", notificationSchema);
 
+  // --- Schemas for Message ---
+  const messageSchema = new mongoose.Schema(
+    {
+      recipient: { type: String, required: true, index: true },
+      channel: { type: String, enum: ['email', 'whatsapp'], required: true, index: true },
+      status: {
+        type: String,
+        enum: ['pending', 'queued', 'sending', 'sent', 'failed'],
+        default: 'pending',
+        index: true,
+      },
+      subject: { type: String },
+      body: { type: String },
+      templateName: { type: String },
+      templateParams: { type: mongoose.Schema.Types.Mixed },
+      error: { type: String },
+      attempts: { type: Number, default: 0 },
+      metadata: { type: mongoose.Schema.Types.Mixed },
+      sentAt: { type: Date },
+      failedAt: { type: Date },
+    },
+    { timestamps: true }
+  );
+
+  mongoose.model("Message", messageSchema);
+
 
   // --- Apply plugins ---
-  customerSchema.plugin(softDeletePlugin);
-  warehouseSchema.plugin(softDeletePlugin);
-  partySchema.plugin(softDeletePlugin);
-  batchSchema.plugin(softDeletePlugin);
-  productSchema.plugin(softDeletePlugin);
-  transportAgentSchema.plugin(softDeletePlugin);
-  vehicleSchema.plugin(softDeletePlugin);
-  driverSchema.plugin(softDeletePlugin);
-  orderSchema.plugin(softDeletePlugin);
-  attachmentSchema.plugin(softDeletePlugin);
-  partyProductMappingSchema.plugin(softDeletePlugin);
-  partyProductRateSchema.plugin(softDeletePlugin);
+  // Plugins are applied immediately after schema definitions to ensure correct compilation of models.
 
   return {
     Permission: mongoose.models.Permission || mongoose.model('Permission', permissionSchema),
@@ -1603,6 +1627,7 @@ function registerModels() {
       mongoose.models.TransportShipment || mongoose.model('TransportShipment', transportShipmentSchema),
     ActivityLog: mongoose.models.ActivityLog || mongoose.model('ActivityLog', activityLogSchema),
     Notification: mongoose.models.Notification || mongoose.model('Notification', notificationSchema),
+    Message: mongoose.models.Message || mongoose.model('Message', messageSchema),
     PartyProductMapping:
       mongoose.models.PartyProductMapping || mongoose.model('PartyProductMapping', partyProductMappingSchema),
     PartyProductRate:

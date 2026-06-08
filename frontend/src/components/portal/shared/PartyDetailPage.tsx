@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Edit,
@@ -25,7 +25,21 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  RefreshCw,
+  UserCheck,
+  Truck,
 } from "lucide-react";
+
+import { ConfirmDeleteDraftModal } from "@/components/portal/sales/components/modals/ConfirmDeleteDraftModal";
+import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
+import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
+import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { pickOrders } from "@/components/portal/shared/pickOrders";
+import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
 
 import {
   useGetPartyQuery,
@@ -38,6 +52,8 @@ import {
   useDeletePartyProductRateMutation,
   useApprovePartyProductRateMutation,
   useListProductsQuery,
+  useListOrdersQuery,
+  useDeleteOrderMutation,
 } from "@/store/api";
 import { PartyDetailModal } from "./PartyDetailModal";
 import { toast } from "@/lib/toast";
@@ -47,6 +63,82 @@ export type PartyDetailPageProps = {
   id: string;
   portalHome: string;
 };
+
+function orderKey(row: unknown): string {
+  if (row && typeof row === "object") {
+    const o = row as { _id?: unknown; id?: unknown };
+    if (o._id != null) return String(o._id);
+    if (o.id != null) return String(o.id);
+  }
+  return "";
+}
+
+function getAdminOrderTabCategory(order: unknown): "pending_review" | "open" | "draft" | "closed" | "on_hold" | "cancelled" | "rejected" {
+  if (!order || typeof order !== "object") return "open";
+  const row = order as Record<string, unknown>;
+  const status = deriveOrderWorkflowStatus(row);
+
+  if (status === "draft") return "draft";
+  if (status === "on_hold") return "on_hold";
+  if (status === "cancelled") return "cancelled";
+  if (status === "finance_rejected") return "rejected";
+  if (status === "submitted") return "pending_review";
+
+  const items = Array.isArray(row.order_items) ? row.order_items : [];
+  let ordered = 0;
+  let delivered = 0;
+  items.forEach((line: any) => {
+    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
+    delivered += Number(line.delivered_quantity ?? 0);
+  });
+
+  if (ordered > 0 && delivered >= ordered) {
+    return "closed";
+  }
+
+  return "open";
+}
+
+function renderPriorityBadge(priority: string) {
+  const p = String(priority).toLowerCase();
+  if (p === "urgent") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25">
+        Urgent
+      </span>
+    );
+  }
+  if (p === "high") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955 dark:text-amber-400 dark:ring-amber-500/20">
+        High
+      </span>
+    );
+  }
+  if (p === "normal") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955 dark:text-blue-400 dark:ring-blue-500/20">
+        Normal
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
+      Low
+    </span>
+  );
+}
+
+function formatDateShort(v: unknown): string {
+  if (v == null || v === "") return "—";
+  const d = v instanceof Date ? v : new Date(String(v));
+  if (Number.isNaN(d.getTime())) return String(v);
+  return d.toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 const labelClass = "text-xs font-semibold text-slate-500 dark:text-slate-400";
 const valueClass = "text-sm font-semibold text-slate-800 dark:text-slate-200 mt-0.5";
@@ -62,7 +154,164 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
 
   // Modal & Tab states
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "addresses" | "products">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "addresses" | "products" | "orders">("profile");
+
+  // Orders related state
+  const [orderSearchQuery, setOrderSearchQuery] = useState("");
+  const [debouncedOrderSearch, setDebouncedOrderSearch] = useState("");
+  const [orderStageTab, setOrderStageTab] = useState<"all" | "pending_review" | "open" | "closed" | "on_hold" | "cancelled" | "rejected">("all");
+  const [orderPriorityFilter, setOrderPriorityFilter] = useState("all");
+  const [orderCurrentPage, setOrderCurrentPage] = useState(1);
+  const [orderItemsPerPage, setOrderItemsPerPage] = useState(10);
+  const [deleteOrderTarget, setDeleteOrderTarget] = useState<{ id: string; label: string } | null>(null);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedOrderSearch(orderSearchQuery);
+    }, 350);
+    return () => clearTimeout(handler);
+  }, [orderSearchQuery]);
+
+  const queryParams = useMemo(() => {
+    const params: Record<string, string> = {
+      party: id,
+      paginate: "true",
+      page: String(orderCurrentPage),
+      limit: String(orderItemsPerPage),
+    };
+    if (debouncedOrderSearch.trim()) {
+      params.search = debouncedOrderSearch.trim();
+    }
+    if (orderStageTab !== "all") {
+      params.status = orderStageTab;
+    }
+    if (orderPriorityFilter !== "all") {
+      params.priority = orderPriorityFilter;
+    }
+    return params;
+  }, [id, orderCurrentPage, orderItemsPerPage, debouncedOrderSearch, orderStageTab, orderPriorityFilter]);
+
+  const { data: rawOrders, isFetching: isOrdersFetching, isError: isOrdersError, refetch: refetchOrders } = useListOrdersQuery(queryParams);
+  const { data: rawAllPartyOrders } = useListOrdersQuery({ party: id });
+
+  const [deleteOrder, { isLoading: isDeletingOrder }] = useDeleteOrderMutation();
+
+  const closeDeleteOrderModal = useCallback(() => setDeleteOrderTarget(null), []);
+
+  const confirmDeleteOrderDraft = useCallback(async () => {
+    if (!deleteOrderTarget) return;
+    const { id } = deleteOrderTarget;
+    try {
+      await deleteOrder(id).unwrap();
+      toast.success(mutationSuccessCopy("deleteOrder"));
+      setDeleteOrderTarget(null);
+      refetchOrders();
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }, [deleteOrder, deleteOrderTarget, refetchOrders]);
+
+  const allPartyOrders = useMemo(() => pickOrders(rawAllPartyOrders) as any[], [rawAllPartyOrders]);
+
+  const orderMetrics = useMemo(() => {
+    let totalSpent = 0;
+    let openCount = 0;
+    let closedCount = 0;
+    let totalItems = 0;
+    let deliveredItems = 0;
+
+    allPartyOrders.forEach((o) => {
+      const total = Number(o.grand_total ?? o.total ?? 0);
+      if (Number.isFinite(total)) {
+        totalSpent += total;
+      }
+
+      const cat = getAdminOrderTabCategory(o);
+      if (cat === "open" || cat === "pending_review" || cat === "on_hold") {
+        openCount++;
+      } else if (cat === "closed") {
+        closedCount++;
+      }
+
+      const items = Array.isArray(o.order_items) ? o.order_items : [];
+      items.forEach((item: any) => {
+        const qty = Number(item.ordered_quantity ?? item.quantity ?? 0);
+        const del = Number(item.delivered_quantity ?? 0);
+        totalItems += qty;
+        deliveredItems += del;
+      });
+    });
+
+    const fulfillmentRate = totalItems > 0 ? Math.min(100, Math.round((deliveredItems / totalItems) * 100)) : 0;
+
+    return {
+      totalCount: allPartyOrders.length,
+      totalSpent,
+      openCount,
+      closedCount,
+      fulfillmentRate,
+    };
+  }, [allPartyOrders]);
+
+  const tabCounts = useMemo(() => {
+    const counts = {
+      all: 0,
+      pending_review: 0,
+      open: 0,
+      draft: 0,
+      closed: 0,
+      on_hold: 0,
+      rejected: 0,
+      cancelled: 0,
+    };
+
+    allPartyOrders.forEach((o) => {
+      if (orderPriorityFilter !== "all" && (o.priority || "").toLowerCase() !== orderPriorityFilter.toLowerCase()) {
+        return;
+      }
+      if (orderSearchQuery.trim()) {
+        const query = orderSearchQuery.toLowerCase();
+        const oid = orderKey(o);
+        const ref = (
+          typeof o.order_no === "string"
+            ? o.order_no
+            : typeof o.order_number === "string"
+              ? o.order_number
+              : oid || ""
+        ).toLowerCase();
+        if (!ref.includes(query)) return;
+      }
+
+      counts.all++;
+      const cat = getAdminOrderTabCategory(o) as keyof typeof counts;
+      if (counts[cat] !== undefined) {
+        counts[cat]++;
+      }
+    });
+
+    return counts;
+  }, [allPartyOrders, orderPriorityFilter, orderSearchQuery]);
+
+  const filteredOrders = useMemo(() => pickOrders(rawOrders) as any[], [rawOrders]);
+
+  const paginatedOrders = filteredOrders;
+
+  const totalFilteredCount = useMemo(() => {
+    if (rawOrders && typeof rawOrders === "object" && "total" in rawOrders) {
+      return Number((rawOrders as any).total) || 0;
+    }
+    return filteredOrders.length;
+  }, [rawOrders, filteredOrders]);
+
+  const orderTotalPages = useMemo(() => {
+    if (rawOrders && typeof rawOrders === "object" && "pages" in rawOrders) {
+      return Number((rawOrders as any).pages) || 1;
+    }
+    return 1;
+  }, [rawOrders]);
+
+  const orderStartEntry = totalFilteredCount > 0 ? (orderCurrentPage - 1) * orderItemsPerPage + 1 : 0;
+  const orderEndEntry = Math.min(orderCurrentPage * orderItemsPerPage, totalFilteredCount);
 
   // Party-Product Mappings State
   const [searchQuery, setSearchQuery] = useState("");
@@ -248,6 +497,17 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
           }`}
         >
           <Layers className="h-4 w-4" /> Products & Rates
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("orders")}
+          className={`border-b-2 px-6 py-3.5 text-sm font-semibold transition -mb-px flex items-center gap-2 ${
+            activeTab === "orders"
+              ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-500"
+              : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+          }`}
+        >
+          <FileText className="h-4 w-4" /> Orders ({allPartyOrders.length})
         </button>
       </div>
 
@@ -719,6 +979,464 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
             )}
           </div>
         )}
+
+        {activeTab === "orders" && (
+          <div className="space-y-6">
+            {/* Summary Metrics Grid */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {/* Card 1: Total Orders */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 flex items-center gap-4">
+                <div className="rounded-lg bg-blue-50 p-2.5 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Orders</p>
+                  <h4 className="text-xl font-bold text-slate-900 dark:text-slate-50 mt-0.5">{orderMetrics.totalCount}</h4>
+                </div>
+              </div>
+
+              {/* Card 2: Total Volume */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 flex items-center gap-4">
+                <div className="rounded-lg bg-emerald-50 p-2.5 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
+                  <DollarSign className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Volume</p>
+                  <h4 className="text-xl font-bold text-slate-900 dark:text-slate-50 mt-0.5">
+                    ${orderMetrics.totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </h4>
+                </div>
+              </div>
+
+              {/* Card 3: Open Orders */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 flex items-center gap-4">
+                <div className="rounded-lg bg-amber-50 p-2.5 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400">
+                  <Package className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Open Orders</p>
+                  <h4 className="text-xl font-bold text-slate-900 dark:text-slate-50 mt-0.5">{orderMetrics.openCount}</h4>
+                </div>
+              </div>
+
+              {/* Card 4: Fulfillment Rate */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 flex items-center gap-4">
+                <div className="rounded-lg bg-purple-50 p-2.5 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400">
+                  <Truck className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Fulfillment Rate</p>
+                  <h4 className="text-xl font-bold text-slate-900 dark:text-slate-50 mt-0.5">{orderMetrics.fulfillmentRate}%</h4>
+                </div>
+              </div>
+            </div>
+
+            {/* Search and Filters */}
+            <div className="flex flex-col gap-4">
+              {/* Universal Search Bar */}
+              <div className="relative rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm p-4">
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">
+                  Search Orders
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
+                    <Search className="h-4 w-4" />
+                  </span>
+                  <input
+                    type="text"
+                    value={orderSearchQuery}
+                    onChange={(e) => {
+                      setOrderSearchQuery(e.target.value);
+                      setOrderCurrentPage(1);
+                    }}
+                    placeholder="Search by order #..."
+                    className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-955 dark:text-slate-50 dark:focus:border-blue-500"
+                  />
+                  {orderSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrderSearchQuery("");
+                        setOrderCurrentPage(1);
+                      }}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Horizontal Nav Tabs & Priority Filter */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/10 pb-2 md:pb-0">
+                {orderSearchQuery.trim() ? (
+                  <div className="flex items-center gap-2.5 py-3">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Showing <span className="font-bold text-blue-600 dark:text-blue-400">{totalFilteredCount}</span> search results for <span className="italic font-bold text-slate-900 dark:text-slate-100">"{orderSearchQuery}"</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrderSearchQuery("");
+                        setOrderCurrentPage(1);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer"
+                    >
+                      <X className="h-3 w-3" />
+                      Clear
+                    </button>
+                  </div>
+                ) : (
+                  <nav className="-mb-px flex space-x-6 overflow-x-auto pb-px scrollbar-none" aria-label="Order stages">
+                    {[
+                      { id: "all", label: "All Orders" },
+                      { id: "pending_review", label: "Pending Review" },
+                      { id: "open", label: "Open Orders" },
+                      { id: "closed", label: "Closed Orders" },
+                      { id: "on_hold", label: "On Hold" },
+                      { id: "rejected", label: "Rejected" },
+                      { id: "cancelled", label: "Cancelled" },
+                    ].map((tab) => {
+                      const isActive = orderStageTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => {
+                            setOrderStageTab(tab.id as any);
+                            setOrderCurrentPage(1);
+                          }}
+                          className={`group border-b-2 py-4 px-1 text-sm font-semibold transition whitespace-nowrap inline-flex items-center gap-2 cursor-pointer ${
+                            isActive
+                              ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
+                              : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                          }`}
+                        >
+                          <span>{tab.label}</span>
+                          {!isOrdersFetching && (
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              isActive
+                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                                : "bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-400"
+                            }`}>
+                              {tabCounts[tab.id as keyof typeof tabCounts] ?? 0}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </nav>
+                )}
+
+                <div className="flex items-center gap-2 self-start md:self-center pb-2 md:pb-0">
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    Priority:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={orderPriorityFilter}
+                      onChange={(e) => {
+                        setOrderPriorityFilter(e.target.value);
+                        setOrderCurrentPage(1);
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 cursor-pointer"
+                    >
+                      <option value="all">All Priorities</option>
+                      {PRIORITY_OPTIONS.map((pr) => (
+                        <option key={pr.value} value={pr.value}>
+                          {pr.label}
+                        </option>
+                      ))}
+                    </select>
+                    {(orderSearchQuery || orderStageTab !== "all" || orderPriorityFilter !== "all") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrderSearchQuery("");
+                          setOrderStageTab("all");
+                          setOrderPriorityFilter("all");
+                          setOrderCurrentPage(1);
+                        }}
+                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 pl-1 cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Orders Cards List */}
+            <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
+              {isOrdersFetching && (
+                <div className="flex flex-col items-center justify-center py-16 space-y-2">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                  <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Loading orders...</p>
+                </div>
+              )}
+
+              {isOrdersError && (
+                <div className="text-center py-16 px-4">
+                  <span className="text-2xl">⚠️</span>
+                  <h3 className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    Failed to load orders
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Please try refreshing the page.
+                  </p>
+                </div>
+              )}
+
+              {!isOrdersFetching && !isOrdersError && filteredOrders.length === 0 && (
+                <div className="text-center py-16 px-4">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-955 text-slate-400 text-xl border border-slate-100 dark:border-white/5">
+                    📋
+                  </div>
+                  <h3 className="mt-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    No orders found
+                  </h3>
+                  <p className="mt-1.5 text-xs text-slate-500 max-w-xs mx-auto">
+                    {allPartyOrders.length === 0
+                      ? "No orders exist for this party."
+                      : "No orders match your search and filter parameters."}
+                  </p>
+                </div>
+              )}
+
+              {!isOrdersFetching && !isOrdersError && filteredOrders.length > 0 && (
+                <>
+                  <div className="p-4 flex flex-col gap-3.5 bg-slate-50/10 dark:bg-slate-955/10">
+                    {paginatedOrders.map((o) => {
+                      const oid = orderKey(o);
+                      const ref =
+                        typeof o.order_no === "string"
+                          ? o.order_no
+                          : typeof o.order_number === "string"
+                            ? o.order_number
+                            : oid || "—";
+                      const total = Number(o.grand_total ?? o.total ?? 0);
+                      const pri = typeof o.priority === "string" ? o.priority : "normal";
+                      const deptBoxes = computeDepartmentStageBoxes(
+                        o as Record<string, unknown>,
+                        null,
+                      );
+                      const adminBox = deptBoxes.find((b) => b.id === "admin");
+                      const financeBox = deptBoxes.find((b) => b.id === "finance");
+                      const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
+                      const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
+
+                      const adminStatusDim = adminBox?.status;
+                      const financeStatusDim = financeBox?.status;
+                      const dispatchStatusDim = dispatchBox?.status;
+                      const deliveryStatusDim = deliveryBox?.status;
+
+                      const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
+                      const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {
+                        return acc + (Number(item.ordered_quantity ?? item.quantity) || 0);
+                      }, 0));
+
+                      const statusRaw = deriveOrderWorkflowStatus(o) || "draft";
+                      const isDraftRow = statusRaw === "draft";
+                      const orderDateStr = formatDateShort(o.order_date ?? o.created_at ?? o.createdAt);
+                      const expectedDeliveryStr = formatDateShort(o.expected_delivery_date);
+
+                      let stripeColor = "bg-slate-350 dark:bg-slate-700";
+                      if (pri === "urgent") stripeColor = "bg-rose-500";
+                      else if (pri === "high") stripeColor = "bg-amber-500";
+                      else if (pri === "normal") stripeColor = "bg-blue-500";
+
+                      return (
+                        <div
+                          key={oid || ref}
+                          onClick={() => {
+                            if (oid) {
+                              router.push(`${portalHome}/order/${oid}`);
+                            }
+                          }}
+                          className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 transition-all duration-300 hover:shadow-md hover:border-blue-500/20 dark:border-white/10 dark:bg-slate-900 flex flex-col gap-4 pl-5 animate-fadeIn cursor-pointer"
+                        >
+                          {/* Priority Accent Stripe */}
+                          <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${stripeColor}`} />
+
+                          {/* Top Row: Ref, Badges, Financials & Dates, Actions */}
+                          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
+                            {/* Ref & Badges */}
+                            <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[130px] lg:shrink-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
+                                  {ref}
+                                </span>
+                                {renderPriorityBadge(pri)}
+                              </div>
+
+                              {/* Mobile Actions (hidden on lg and up) */}
+                              {isDraftRow && oid ? (
+                                <div className="flex items-center gap-2 lg:hidden">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteOrderTarget({ id: oid, label: ref });
+                                    }}
+                                    disabled={isDeletingOrder}
+                                    className="inline-flex items-center justify-center rounded border border-slate-200 hover:border-rose-350 p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                                    title="Delete Draft Order"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+
+                            {/* Party Title (Already on Party's Detail Page, but keep label for consistent horizontal spacing / layout) */}
+                            <span
+                              className="text-xs font-semibold text-slate-500 dark:text-slate-400 lg:flex-1 break-words whitespace-normal"
+                            >
+                              Party Order
+                            </span>
+
+                            {/* Financials & Dates */}
+                            <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-8 lg:w-[280px] lg:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
+                              <div className="flex flex-col min-w-[90px]">
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                  Grand Total
+                                </span>
+                                <span className="mt-0.5 font-bold tabular-nums text-slate-900 dark:text-slate-50 text-xs">
+                                  ${Number.isFinite(total) ? total.toFixed(2) : "0.00"}
+                                </span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                  Created
+                                </span>
+                                <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
+                                  {orderDateStr}
+                                </span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                  Expected Delivery
+                                </span>
+                                <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
+                                  {expectedDeliveryStr}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Desktop Actions (hidden on lg and below) */}
+                            <div className="hidden lg:flex lg:items-center lg:gap-2 lg:w-[40px] lg:shrink-0 lg:justify-end">
+                              {isDraftRow && oid ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleteOrderTarget({ id: oid, label: ref });
+                                  }}
+                                  disabled={isDeletingOrder}
+                                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 hover:border-rose-350 p-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                                  title="Delete Draft Order"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {/* Bottom Row: Pipeline */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5">
+                            <span className="text-slate-400 dark:text-slate-500 font-bold text-[9px] uppercase tracking-wider">
+                              Fulfillment Pipeline
+                            </span>
+                            <div className="flex items-center gap-4 sm:gap-6">
+                              <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderedQty} icon={UserCheck} />
+                              <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderedQty} icon={DollarSign} />
+                              <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderedQty} icon={Package} />
+                              <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderedQty} icon={Truck} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Pagination Navigation Footer */}
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-t border-slate-200/60 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="text-xs">
+                        Showing <span className="font-semibold text-slate-800 dark:text-slate-200">{orderStartEntry}</span> to{" "}
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">{orderEndEntry}</span> of{" "}
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">{totalFilteredCount}</span> entries
+                      </span>
+                      <span className="text-slate-350 dark:text-slate-700">|</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] font-medium text-slate-500">Rows per page:</span>
+                        <select
+                          value={orderItemsPerPage}
+                          onChange={(e) => {
+                            setOrderItemsPerPage(Number(e.target.value));
+                            setOrderCurrentPage(1);
+                          }}
+                          className="rounded bg-transparent border-none py-0.5 text-xs font-semibold text-slate-750 focus:ring-0 cursor-pointer dark:text-slate-200"
+                        >
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 self-center sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => setOrderCurrentPage(1)}
+                        disabled={orderCurrentPage === 1}
+                        className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
+                        title="First Page"
+                      >
+                        <ChevronsLeft className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOrderCurrentPage((pg) => Math.max(1, pg - 1))}
+                        disabled={orderCurrentPage === 1}
+                        className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
+                        title="Previous Page"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+
+                      <span className="text-xs font-semibold px-2">
+                        Page {orderCurrentPage} of {orderTotalPages || 1}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOrderCurrentPage((pg) => Math.min(orderTotalPages, pg + 1))
+                        }
+                        disabled={orderCurrentPage === orderTotalPages || orderTotalPages === 0}
+                        className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
+                        title="Next Page"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOrderCurrentPage(orderTotalPages)}
+                        disabled={orderCurrentPage === orderTotalPages || orderTotalPages === 0}
+                        className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
+                        title="Last Page"
+                      >
+                        <ChevronsRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Map New Product Modal */}
@@ -783,6 +1501,15 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
           isDeleting={isDeletingRate}
         />
       )}
+
+      {/* Delete Order Confirmation */}
+      <ConfirmDeleteDraftModal
+        orderId={deleteOrderTarget?.id ?? null}
+        orderLabel={deleteOrderTarget?.label ?? ""}
+        isDeleting={isDeletingOrder}
+        onClose={closeDeleteOrderModal}
+        onConfirm={confirmDeleteOrderDraft}
+      />
     </div>
   );
 }

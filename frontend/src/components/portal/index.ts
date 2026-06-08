@@ -44,6 +44,7 @@ export { default as SuperAdminUsersPage } from "./super_admin/SuperAdminUsersPag
 export { default as ListSuperAdminOrdersPage } from "./super_admin/order/ListSuperAdminOrdersPage";
 export { default as SuperAdminOrderDetail } from "./super_admin/order/SuperAdminOrderDetail";
 
+export { default as ProfilePage } from "./shared/ProfilePage";
 export { default as PortalOverviewShell } from "./shared/PortalOverviewShell";
 export { usePortalDashboardKpi } from "./shared/usePortalDashboardKpi";
 export { pickOrders } from "./shared/pickOrders";

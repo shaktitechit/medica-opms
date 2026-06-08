@@ -1,17 +1,15 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
-import { DashboardCard } from "@/components/widgets";
 import {
   buildPartyNameById,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import {
   mutationRejectedMessage,
-  mutationSuccessCopy,
 } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import {
@@ -33,14 +31,13 @@ import {
   useGetOrderFulfillmentQuery,
 } from "@/store/api";
 
-import { OrderTab } from "./components/OrderTab";
 import { FlagsTab } from "./components/FlagsTab";
-import { AttachmentsTab } from "./components/AttachmentsTab";
+import AttachmentsTab from "./components/AttachmentsTab";
 import { ApprovalAllocationsTab } from "./components/ApprovalAllocationsTab";
 import { DispatchesTab } from "./components/DispatchesTab";
 import { TransportsTab } from "./components/TransportsTab";
 
-import { ALL_FLAG_TYPES, ALLOWED_FLAGS_BY_DEPARTMENT, FLAGS_FOR_TARGET_DEPARTMENT } from "@/components/portal/shared/flagTypes";
+import { ALL_FLAG_TYPES, FLAGS_FOR_TARGET_DEPARTMENT } from "@/components/portal/shared/flagTypes";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
@@ -48,9 +45,15 @@ import {
   orderHasDispatchReviewHandoff,
 } from "@/components/portal/shared/financeApprovalStatus";
 import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
+import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
+import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
+import { UserCheck, DollarSign, Package, Truck } from "lucide-react";
+import OrderDetailsModal from "./components/OrderDetailsModal";
+import PartyDetailsModal from "./components/PartyDetailsModal";
+import OrderItemsModal from "./components/OrderItemsModal";
 
 const inputClass =
-  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
+  "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-955 dark:text-slate-50";
 const labelClass = "text-xs font-medium text-slate-700 dark:text-slate-300";
 const btnSecondaryClass =
   "rounded-lg border border-slate-200/95 px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5";
@@ -62,19 +65,14 @@ const departmentLabels: Record<string, string> = {
   admin: "Admin",
 };
 
-function pickList(raw: unknown): unknown[] {
-  if (Array.isArray(raw)) return raw;
+function pickList(raw: unknown): Record<string, unknown>[] {
+  if (Array.isArray(raw)) return raw as Record<string, unknown>[];
   if (raw && typeof raw === "object") {
     const o = raw as Record<string, unknown>;
-    if (Array.isArray(o.items)) return o.items;
-    if (Array.isArray(o.data)) return o.data;
+    if (Array.isArray(o.items)) return o.items as Record<string, unknown>[];
+    if (Array.isArray(o.data)) return o.data as Record<string, unknown>[];
   }
   return [];
-}
-
-function formatMoney(v: unknown): string {
-  const n = Number(v);
-  return Number.isFinite(n) ? n.toFixed(2) : "—";
 }
 
 function formatDate(v: unknown): string {
@@ -95,54 +93,13 @@ function formatDateShort(v: unknown): string {
   });
 }
 
-function formatStatusLabel(v: string): string {
-  return v
-    ? v
-      .split("_")
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ")
-    : "—";
-}
-
-function statusBadgeClass(status: string): string {
-  if (status === "cancelled" || status.includes("rejected")) {
-    return "bg-rose-50 text-rose-700 ring-1 ring-rose-600/15 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-500/20";
+function detailRefId(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    return String(o._id ?? o.id ?? "");
   }
-  if (status === "on_hold" || status === "submitted") {
-    return "bg-amber-50 text-amber-700 ring-1 ring-amber-600/15 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-500/20";
-  }
-  if (status.includes("dispatch") || status.includes("transport")) {
-    return "bg-blue-50 text-blue-700 ring-1 ring-blue-600/15 dark:bg-blue-950/30 dark:text-blue-300 dark:ring-blue-500/20";
-  }
-  if (status === "delivered" || status.includes("approved")) {
-    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20";
-  }
-  return "bg-slate-100 text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-900 dark:text-slate-300 dark:ring-white/10";
-}
-
-function formatStructuredAddress(addr: unknown): string {
-  if (!addr || typeof addr !== "object") return "—";
-  const a = addr as Record<string, unknown>;
-  const parts: string[] = [];
-  if (a.address_line_1) parts.push(String(a.address_line_1).trim());
-  if (a.address_line_2) parts.push(String(a.address_line_2).trim());
-  const cityLine = [a.city, a.state, a.pincode]
-    .map((x) => (x ? String(x).trim() : ""))
-    .filter(Boolean)
-    .join(", ");
-  if (cityLine) parts.push(cityLine);
-  if (a.country && String(a.country).trim() !== "India") {
-    parts.push(String(a.country).trim());
-  }
-  return parts.length ? parts.join("\n") : "—";
-}
-
-function partyIdFromDetail(detail: Record<string, unknown> | null): string {
-  if (!detail) return "";
-  const p = detail.party;
-  if (typeof p === "string") return p.trim();
-  if (p && typeof p === "object" && "_id" in p)
-    return String((p as { _id: unknown })._id ?? "");
   return "";
 }
 
@@ -150,6 +107,36 @@ function readId(value: unknown): string {
   if (!value || typeof value !== "object") return "";
   const row = value as Record<string, unknown>;
   return String(row._id ?? row.id ?? "");
+}
+
+function renderPriorityBadge(priority: string) {
+  const p = String(priority || "normal").toLowerCase();
+  if (p === "urgent") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
+        Urgent
+      </span>
+    );
+  }
+  if (p === "high") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-455/90 dark:ring-amber-500/20">
+        High
+      </span>
+    );
+  }
+  if (p === "normal") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
+        Normal
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
+      Low
+    </span>
+  );
 }
 
 export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
@@ -218,7 +205,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
   );
 
   const currentPartyId = useMemo(() => {
-    return detail ? partyIdFromDetail(detail) : "";
+    return detail ? detailRefId(detail.party) : "";
   }, [detail]);
 
   const partyDetailQ = useGetPartyQuery(currentPartyId, {
@@ -235,9 +222,10 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
   const [transitionRemarks, setTransitionRemarks] = useState("");
 
   const [activeTab, setActiveTab] = useState<"flags" | "attachments" | "approval_allocations" | "dispatches" | "transports">("approval_allocations");
+  const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
   // Order Patch Mutation
-  const [patchOrder] = usePatchOrderMutation();
+  const [patchOrder, { isLoading: isPatching }] = usePatchOrderMutation();
 
   // Approve & Dispatch state
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
@@ -245,7 +233,6 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
   const [dispatchAssignee, setDispatchAssignee] = useState("");
   const [dispatchUploadFile, setDispatchUploadFile] = useState<File | null>(null);
   const [isApprovingAndDispatching, setIsApprovingAndDispatching] = useState(false);
-
 
   const [showRaiseFlagModal, setShowRaiseFlagModal] = useState(false);
   const [newFlagDept, setNewFlagDept] = useState("sales");
@@ -261,10 +248,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
       setNewFlagType(allowed[0]);
     }
   }, [newFlagDept]);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadRemarks, setUploadRemarks] = useState("");
-  const [createAttachment, { isLoading: isUploading }] = useCreateAttachmentMutation();
+  const [createAttachment] = useCreateAttachmentMutation();
 
   const flagsQ = useListFlagsQuery({ order: orderId });
   const [createFlag, { isLoading: isCreatingFlag }] = useCreateFlagMutation();
@@ -289,6 +273,22 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     const list = pickList(usersQ.data);
     return list as Record<string, unknown>[];
   }, [usersQ.data]);
+
+  // Modular Modals Overlay states
+  const [isFulfillmentModalOpen, setIsFulfillmentModalOpen] = useState(false);
+  const [isOrderItemsModalOpen, setIsOrderItemsModalOpen] = useState(false);
+  const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
+  const [isPartyDetailsModalOpen, setIsPartyDetailsModalOpen] = useState(false);
+
+  const resolveUserId = useCallback((userVal: unknown): string => {
+    if (!userVal) return "";
+    if (typeof userVal === "string") return userVal;
+    if (typeof userVal === "object" && userVal !== null) {
+      const o = userVal as Record<string, unknown>;
+      return String(o._id ?? o.id ?? "");
+    }
+    return "";
+  }, []);
 
   const resolveUser = useCallback(
     (userVal: unknown): { name: string; phone: string } => {
@@ -391,29 +391,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     ],
   );
 
-  const handleUploadSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!uploadFile) {
-      toast.error("Please select a file first");
-      return;
-    }
-    try {
-      const formData = new FormData();
-      formData.append("file", uploadFile);
-      formData.append("entity_type", "order");
-      formData.append("entity_id", orderId);
-      formData.append("remarks", uploadRemarks.trim());
 
-      await createAttachment(formData).unwrap();
-      toast.success("Attachment uploaded successfully");
-      setUploadFile(null);
-      setUploadRemarks("");
-      setIsUploadModalOpen(false);
-      handleRefetch();
-    } catch (rejected) {
-      toast.error(mutationRejectedMessage(rejected));
-    }
-  };
 
   const executeTransition = useCallback(
     async (nextStatus: string) => {
@@ -553,8 +531,6 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     ]
   );
 
-
-
   const custLabel = detail
     ? resolveOrderCounterparty(detail, partyNameById)
     : "—";
@@ -609,22 +585,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     ].includes(status);
   }, [status]);
 
-  const busy = isSubmitting || isApprovingAndDispatching;
-
-  const resolveUserId = useCallback((userVal: unknown): string => {
-    if (!userVal) return "";
-    if (typeof userVal === "string") return userVal;
-    if (typeof userVal === "object" && userVal !== null) {
-      const o = userVal as Record<string, unknown>;
-      return String(o._id ?? o.id ?? "");
-    }
-    return "";
-  }, []);
-
-  const adminName = useMemo(() => {
-    const id = resolveUserId(detail?.assigned_admin_user);
-    return (id && userNameById[id]) || "Admin";
-  }, [detail, resolveUserId, userNameById]);
+  const busy = isPatching || isSubmitting || isApprovingAndDispatching;
 
   const orderKpis = useMemo(() => {
     const totalLines = readOnlyItems.length;
@@ -665,12 +626,33 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     };
   }, [detail, financeCaps, fulfillmentTotals, readOnlyItems, rawFlags]);
 
+  const createdBy = useMemo(() => {
+    const id = resolveUserId(detail?.created_by);
+    return (id && userNameById[id]) || "Sales";
+  }, [detail, resolveUserId, userNameById]);
+
+  const deptBoxes = useMemo(() => {
+    if (!detail) return [];
+    return computeDepartmentStageBoxes(detail, fulfillmentSnapshot);
+  }, [detail, fulfillmentSnapshot]);
+
+  const adminBox = useMemo(() => deptBoxes.find((b) => b.id === "admin"), [deptBoxes]);
+  const financeBox = useMemo(() => deptBoxes.find((b) => b.id === "finance"), [deptBoxes]);
+  const dispatchBox = useMemo(() => deptBoxes.find((b) => b.id === "dispatch"), [deptBoxes]);
+  const deliveryBox = useMemo(() => deptBoxes.find((b) => b.id === "delivery"), [deptBoxes]);
+
+  const adminStatusDim = adminBox?.status;
+  const financeStatusDim = financeBox?.status;
+  const dispatchStatusDim = dispatchBox?.status;
+  const deliveryStatusDim = deliveryBox?.status;
+
   return (
-    <div className="space-y-6">
+    <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden space-y-4 pb-20 md:pb-0">
+      {/* Transitions Dialog */}
       {transitioningTo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 capitalize">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-555 dark:text-slate-50 capitalize">
               Transition to {transitioningTo.replace("_", " ")}
             </h3>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
@@ -690,7 +672,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   value={transitionRemarks}
                   onChange={(e) => setTransitionRemarks(e.target.value)}
                   rows={3}
-                  className="w-full mt-1.5 rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 font-sans"
+                  className="w-full mt-1.5 rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-550 dark:text-slate-50 font-sans"
                   placeholder={
                     transitioningTo === "finance_rejected"
                       ? "Type rejection reason..."
@@ -703,7 +685,10 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
             <div className="mt-6 flex justify-end gap-3 font-sans font-medium">
               <button
                 type="button"
-                onClick={() => setTransitioningTo(null)}
+                onClick={() => {
+                  setTransitioningTo(null);
+                  setTransitionRemarks("");
+                }}
                 className="rounded-lg border border-slate-200/95 px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5"
               >
                 Cancel
@@ -720,21 +705,23 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {isUploadModalOpen && (
+      {/* Send to Dispatch Modal */}
+      {isDispatchModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all">
+          <div className="w-full max-w-2xl rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-                Upload Attachment
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 font-sans">
+                Send to Dispatch
               </h3>
               <button
                 type="button"
                 onClick={() => {
-                  setIsUploadModalOpen(false);
-                  setUploadFile(null);
-                  setUploadRemarks("");
+                  setIsDispatchModalOpen(false);
+                  setDispatchRemarks("");
+                  setDispatchAssignee("");
+                  setDispatchUploadFile(null);
                 }}
-                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1"
+                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
               >
                 <span className="sr-only">Close</span>
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -743,96 +730,127 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
               </button>
             </div>
 
-            <form onSubmit={handleUploadSubmit} className="mt-4 space-y-4">
-              <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-700 p-6 text-center hover:border-blue-500 transition cursor-pointer relative">
-                <input
-                  type="file"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      setUploadFile(e.target.files[0]);
-                    }
-                  }}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
-                
-                <svg className="mx-auto h-12 w-12 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-
-                <div className="mt-4 flex text-sm text-slate-600 dark:text-slate-400 font-sans">
-                  <span className="relative rounded-md font-semibold text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                    Upload a file
-                  </span>
-                  <p className="pl-1">or drag and drop</p>
-                </div>
-                <p className="text-xs text-slate-500 font-sans">Any file up to 50MB</p>
-              </div>
-
-              {uploadFile && (
-                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-950 border border-slate-100 dark:border-white/5 flex items-center justify-between font-sans">
-                  <div className="flex items-center space-x-2 min-w-0">
-                    <svg className="h-5 w-5 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <div className="min-w-0 text-left">
-                      <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[200px]" title={uploadFile.name}>
-                        {uploadFile.name}
-                      </p>
-                      <p className="text-[10px] text-slate-500">
-                        {(uploadFile.size / 1024 / 1024).toFixed(2)} MB
-                      </p>
-                    </div>
+            <form onSubmit={(e) => void handleApproveAndDispatch(e)} className="mt-4 space-y-5">
+              <div className="bg-slate-50 dark:bg-slate-950/40 border border-slate-200/50 dark:border-white/5 rounded-xl p-4 space-y-3 font-sans">
+                <div className="grid grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <span className="block text-slate-500 font-semibold uppercase tracking-wider">Party</span>
+                    <span className="block mt-1 font-semibold text-slate-900 dark:text-slate-100">{custLabel}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setUploadFile(null)}
-                    className="text-xs text-rose-500 hover:underline font-medium"
-                  >
-                    Remove
-                  </button>
+                  <div>
+                    <span className="block text-slate-500 font-semibold uppercase tracking-wider">Order Reference</span>
+                    <span className="block mt-1 font-semibold text-slate-900 dark:text-slate-100">#{detail?.order_no ? String(detail.order_no) : "—"}</span>
+                  </div>
                 </div>
-              )}
+              </div>
 
-              <div>
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 font-sans">
-                  Remarks (Optional)
-                </label>
+              {/* Assign Dispatch Operator */}
+              <div className="space-y-1.5">
+                <label htmlFor="dispatch-assignee" className={labelClass}>Assign Dispatch Operator *</label>
+                <select
+                  id="dispatch-assignee"
+                  value={dispatchAssignee}
+                  onChange={(e) => setDispatchAssignee(e.target.value)}
+                  className={inputClass}
+                  required
+                >
+                  <option value="">— Select Dispatch Operator —</option>
+                  {dispatchUsers.map((u) => {
+                    const uid = String(u._id ?? u.id ?? "");
+                    return (
+                      <option key={uid} value={uid}>
+                        {String(u.username || u.name || uid)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Remarks */}
+              <div className="space-y-1.5">
+                <label htmlFor="dispatch-remarks" className={labelClass}>Remarks (Optional)</label>
                 <textarea
-                  value={uploadRemarks}
-                  onChange={(e) => setUploadRemarks(e.target.value)}
-                  rows={2}
-                  className="w-full mt-1.5 rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 font-sans"
-                  placeholder="Add remarks or notes for this attachment..."
+                  id="dispatch-remarks"
+                  rows={3}
+                  value={dispatchRemarks}
+                  onChange={(e) => setDispatchRemarks(e.target.value)}
+                  className={inputClass}
+                  placeholder="Add remarks or notes for this dispatch..."
                 />
               </div>
 
-              <div className="mt-6 flex justify-end gap-3 font-sans font-medium">
+              {/* Upload Bill Attachment (Optional) */}
+              <div className="space-y-1.5">
+                <label className={labelClass}>Upload Bill Document (Optional)</label>
+                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-5 text-center hover:border-blue-500 transition cursor-pointer relative bg-slate-50/20 dark:bg-slate-950/10">
+                  <input
+                    type="file"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setDispatchUploadFile(e.target.files[0]);
+                      }
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <svg className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <p className="mt-2 text-xs font-semibold text-blue-600">Select bill file</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">PDF, Image, or DOC up to 50MB</p>
+                </div>
+
+                {dispatchUploadFile && (
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950/40 border border-slate-200/50 dark:border-white/5 font-sans text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <svg className="h-4 w-4 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <span className="text-slate-700 dark:text-slate-300 truncate max-w-[280px]" title={dispatchUploadFile.name}>
+                        {dispatchUploadFile.name}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">({(dispatchUploadFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDispatchUploadFile(null)}
+                      className="text-xs font-semibold text-rose-600 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Submit Actions */}
+              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-white/5 font-sans font-medium">
                 <button
                   type="button"
                   onClick={() => {
-                    setIsUploadModalOpen(false);
-                    setUploadFile(null);
-                    setUploadRemarks("");
+                    setIsDispatchModalOpen(false);
+                    setDispatchRemarks("");
+                    setDispatchAssignee("");
+                    setDispatchUploadFile(null);
                   }}
                   className={btnSecondaryClass}
+                  disabled={isApprovingAndDispatching}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isUploading || !uploadFile}
-                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isApprovingAndDispatching || !dispatchAssignee}
+                  className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isUploading ? (
+                  {isApprovingAndDispatching ? (
                     <>
                       <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
-                      Uploading...
+                      Processing...
                     </>
                   ) : (
-                    "Upload"
+                    "Confirm & Send to Dispatch"
                   )}
                 </button>
               </div>
@@ -841,171 +859,75 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {!isFetching && !isError && detail && (
-        <div className="space-y-3">
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                  <button
-                    type="button"
-                    onClick={() => router.back()}
-                    className="font-medium text-blue-600 hover:underline dark:text-blue-400"
-                  >
-                    Orders
-                  </button>
-                  <span>/</span>
-                  <span className="font-semibold text-slate-700 dark:text-slate-200">
-                    Order Details
-                  </span>
-                </div>
-                <h1 className="truncate text-xl font-bold tracking-tight text-slate-950 dark:text-slate-50">
-                  {detail.order_no ? String(detail.order_no) : "Order"}
-                </h1>
-                <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  <span>
-                    Party:{" "}
-                    <b className="font-semibold text-slate-700 dark:text-slate-200">
-                      {custLabel}
-                    </b>
-                  </span>
-                  <span>Order Date: {formatDateShort(detail.order_date)}</span>
-                  <span>
-                    Expected: {formatDateShort(detail.expected_delivery_date)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-right text-[10px] text-slate-500 dark:text-slate-400 sm:grid-cols-4">
-                <div>
-                  <span className="block uppercase tracking-wide">Created By</span>
-                  <b className="text-[11px] text-slate-800 dark:text-slate-100">
-                    Sales
-                  </b>
-                </div>
-                <div>
-                  <span className="block uppercase tracking-wide">Created On</span>
-                  <b className="text-[11px] text-slate-800 dark:text-slate-100">
-                    {formatDateShort(detail.createdAt)}
-                  </b>
-                </div>
-                <div>
-                  <span className="block uppercase tracking-wide">Last Modified</span>
-                  <b className="text-[11px] text-slate-800 dark:text-slate-100">
-                    {formatDateShort(detail.updatedAt)}
-                  </b>
-                </div>
-                <div>
-                  <span className="block uppercase tracking-wide">Priority</span>
-                  <b className="capitalize text-[11px] text-slate-800 dark:text-slate-100">
-                    {String(detail.priority || "normal")}
-                  </b>
-                </div>
-              </div>
+      {/* Item Fulfillment Details Modal */}
+      {isFulfillmentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-4xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5 font-sans">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-555 dark:text-slate-50">
+                Item Fulfillment Details
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsFulfillmentModalOpen(false)}
+                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
+              >
+                <span className="sr-only">Close</span>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="mt-4 overflow-y-auto flex-1 pr-1">
+              <OrderDepartmentFulfillmentPanel
+                order={detail}
+                fulfillmentSnapshot={fulfillmentSnapshot}
+                showDepartmentBoxes={false}
+                showItemsTable={true}
+              />
             </div>
 
-            <OrderDepartmentFulfillmentPanel
-              className="mt-3"
-              order={detail}
-              fulfillmentSnapshot={fulfillmentSnapshot}
-            />
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3 dark:border-white/10">
-              <div className="flex flex-wrap items-center gap-2">
-                {detail ? (
-                  <button
-                    type="button"
-                    disabled={!canClickSendToDispatch || busy}
-                    title={
-                      sentToDispatchReview
-                        ? "Already sent to dispatch review"
-                        : !financeCaps.hasFinanceApprovalRecord
-                          ? "Create at least one finance approval in Approval & Allocations first"
-                          : !hasApprovedFinanceApproval && financeCaps.approvedQty <= 0
-                            ? "Approve a finance approval with quantities before sending to dispatch"
-                            : financeCaps.financeApprovalStatus === "rejected"
-                              ? "Finance approval was rejected"
-                              : undefined
-                    }
-                    onClick={() => setIsDispatchModalOpen(true)}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400"
-                  >
-                    Send to Dispatch
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={!canReject || busy}
-                  onClick={() => setTransitioningTo("finance_rejected")}
-                  className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Reject
-                </button>
-                <button
-                  type="button"
-                  disabled={!canHold || busy}
-                  onClick={() => setTransitioningTo("on_hold")}
-                  className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Hold
-                </button>
-                <button
-                  type="button"
-                  disabled={status !== "on_hold" || busy}
-                  onClick={() => setTransitioningTo("finance_review")}
-                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Resume to Review
-                </button>
-                <button
-                  type="button"
-                  disabled={!(status === "on_hold" || status === "dispatch_pending") || busy}
-                  onClick={() => setTransitioningTo("cancelled")}
-                  className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Cancel
-                </button>
-              </div>
-              <button type="button" onClick={handleRefetch} className={btnSecondaryClass}>
-                Refresh
+            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3 dark:border-white/5">
+              <button
+                type="button"
+                onClick={() => setIsFulfillmentModalOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer font-sans"
+              >
+                Close
               </button>
             </div>
           </div>
-
-          {/* <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
-            {[
-              ["Total Items", String(orderKpis.totalLines), "Catalog lines"],
-              ["Total Qty", String(orderKpis.totalQty), "Ordered quantity"],
-              ["Pending Finance", String(orderKpis.pendingFinanceQty), "Qty awaiting finance"],
-              ["Finance Approved", String(orderKpis.financeApprovedQty), "Approved by finance"],
-              ["Pending Dispatch", String(orderKpis.pendingDispatchQty), "Approved but not dispatched"],
-              ["Dispatched", String(orderKpis.dispatchedQty), "Dispatched qty"],
-              ["Total Amount", formatMoney(orderKpis.grandTotal), "Grand total"],
-              [
-                "Risk / Flags",
-                String(orderKpis.openFlags),
-                orderKpis.openFlags > 0 ? "Needs attention" : "No open flags",
-              ],
-            ].map(([label, value, help]) => (
-              <div
-                key={label}
-                className="rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-slate-900"
-              >
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  {label}
-                </div>
-                <div className="mt-1 text-base font-bold tabular-nums text-slate-950 dark:text-slate-50">
-                  {value}
-                </div>
-                <div className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                  {help}
-                </div>
-              </div>
-            ))}
-          </div> */}
         </div>
       )}
 
+      <OrderItemsModal
+        isOpen={isOrderItemsModalOpen}
+        onClose={() => setIsOrderItemsModalOpen(false)}
+        detail={detail}
+        status={status}
+        readOnlyItems={readOnlyItems}
+        refetchOrder={handleRefetch}
+      />
+
+      <OrderDetailsModal
+        isOpen={isOrderDetailsModalOpen}
+        onClose={() => setIsOrderDetailsModalOpen(false)}
+        detail={detail}
+        createdBy={createdBy}
+        resolveUser={resolveUser}
+      />
+
+      <PartyDetailsModal
+        isOpen={isPartyDetailsModalOpen}
+        onClose={() => setIsPartyDetailsModalOpen(false)}
+        isFetching={partyDetailQ.isFetching}
+        isError={partyDetailQ.isError}
+        partyData={partyDetailQ.data}
+        custLabel={custLabel}
+      />
+
+      {/* Loading & Error Indicators */}
       {(isFetching || isError || !detail) && (
         <div className="flex justify-end gap-2">
           <button type="button" onClick={() => router.back()} className={btnSecondaryClass}>
@@ -1018,580 +940,442 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
         <p className="text-sm text-slate-500 dark:text-slate-400 font-sans">Loading order...</p>
       )}
       {isError && (
-        <p className="text-sm text-rose-600 dark:text-rose-400 font-sans">
+        <p className="text-sm text-rose-600 dark:text-rose-400 font-sans font-medium">
           Could not load order details.
         </p>
       )}
 
+      {/* Order Main Content */}
       {!isFetching && !isError && detail && (
         <>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
-              <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-3 dark:border-white/10">
-                <div>
-                  <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">
-                    Order Details
-                  </h2>
-                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                    Status, routing, and delivery information.
-                  </p>
+          <div className="flex-shrink-0 space-y-3">
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
+
+              {/* ── Top row: breadcrumb + title + meta ── */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  {/* Breadcrumb */}
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    <button
+                      type="button"
+                      onClick={() => router.back()}
+                      className="font-medium text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      Orders
+                    </button>
+                    <span>/</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">Order Details</span>
+                  </div>
+
+                  {/* Title + priority inline */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="truncate text-lg sm:text-xl font-bold tracking-tight text-slate-950 dark:text-slate-50">
+                      {detail.order_no ? String(detail.order_no) : "Order"}
+                    </h1>
+                    <span className="shrink-0">
+                      {renderPriorityBadge(typeof detail.priority === "string" ? detail.priority : "normal")}
+                    </span>
+                  </div>
+
+                  {/* Meta info */}
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    <span>
+                      Party:{" "}
+                      <b className="font-semibold text-slate-700 dark:text-slate-200">{custLabel}</b>
+                    </span>
+                    <span>Date: {formatDateShort(detail.order_date)}</span>
+                    <span>EDD: {formatDateShort(detail.expected_delivery_date)}</span>
+                  </div>
                 </div>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(status)}`}
+
+                {/* Refresh button – top-right on all sizes */}
+                <button
+                  type="button"
+                  onClick={handleRefetch}
+                  className="shrink-0 rounded-lg border border-slate-200/95 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5"
+                  title="Refresh"
                 >
-                  {formatStatusLabel(status)}
-                </span>
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
               </div>
 
-              <dl className="grid gap-3 text-xs sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs font-medium text-slate-500">Order No</dt>
-                  <dd className="mt-0.5 font-mono font-semibold text-slate-900 dark:text-slate-100">
-                    {String(detail.order_no ?? "—")}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-slate-500">Priority</dt>
-                  <dd className="mt-0.5 capitalize font-semibold text-slate-900 dark:text-slate-100">
-                    {typeof detail.priority === "string" ? detail.priority : "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-slate-500">Order Date</dt>
-                  <dd className="mt-0.5 text-slate-900 dark:text-slate-100">
-                    {formatDate(detail.order_date)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-slate-500">Expected Delivery</dt>
-                  <dd className="mt-0.5 text-slate-900 dark:text-slate-100">
-                    {formatDate(detail.expected_delivery_date)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-slate-500">Assigned Sales</dt>
-                  <dd className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
-                    {resolveUser(detail.assigned_sales_user).name}
-                    {resolveUser(detail.assigned_sales_user).phone && (
-                      <span className="ml-1 text-slate-500 font-normal">
-                        ({resolveUser(detail.assigned_sales_user).phone})
-                      </span>
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-slate-500">Assigned Admin</dt>
-                  <dd className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
-                    {resolveUser(detail.assigned_admin_user).name}
-                    {resolveUser(detail.assigned_admin_user).phone && (
-                      <span className="ml-1 text-slate-500 font-normal">
-                        ({resolveUser(detail.assigned_admin_user).phone})
-                      </span>
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-slate-500">Assigned Finance</dt>
-                  <dd className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
-                    {resolveUser(detail.assigned_finance_user).name}
-                    {resolveUser(detail.assigned_finance_user).phone && (
-                      <span className="ml-1 text-slate-500 font-normal">
-                        ({resolveUser(detail.assigned_finance_user).phone})
-                      </span>
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-slate-500">Assigned Dispatch</dt>
-                  <dd className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
-                    {resolveUser(detail.assigned_dispatch_user).name}
-                    {resolveUser(detail.assigned_dispatch_user).phone && (
-                      <span className="ml-1 text-slate-500 font-normal">
-                        ({resolveUser(detail.assigned_dispatch_user).phone})
-                      </span>
-                    )}
-                  </dd>
-                </div>
-                <div className="sm:col-span-2">
-                  <dt className="text-xs font-medium text-slate-500">Remarks</dt>
-                  <dd className="mt-0.5 min-h-8 whitespace-pre-wrap rounded-lg bg-slate-50 p-2 text-slate-900 dark:bg-slate-950/40 dark:text-slate-100 font-sans">
-                    {typeof detail.remarks === "string" && detail.remarks.trim()
-                      ? detail.remarks
-                      : "—"}
-                  </dd>
-                </div>
-              </dl>
-            </section>
+              {/* ── Info buttons: 3-col grid on mobile, inline on sm+ ── */}
+              <div className="mt-3 grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 font-sans font-medium">
+                <button
+                  type="button"
+                  onClick={() => setIsOrderDetailsModalOpen(true)}
+                  className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]"
+                >
+                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span>Order Info</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPartyDetailsModalOpen(true)}
+                  className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]"
+                >
+                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  <span>Party Info</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsOrderItemsModalOpen(true)}
+                  className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]"
+                >
+                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                  </svg>
+                  <span>Items List</span>
+                </button>
+              </div>
 
-            <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
-              <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-3 dark:border-white/10">
-                <div>
-                  <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">
-                    Party Details
-                  </h2>
-                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                    Counterparty profile and delivery addresses.
-                  </p>
-                </div>
-                {partyDetailQ.data && typeof partyDetailQ.data === "object" && "party_type" in partyDetailQ.data ? (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold capitalize text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-950 dark:text-slate-300 dark:ring-white/10">
-                    {String((partyDetailQ.data as Record<string, unknown>).party_type ?? "party")}
+              {/* ── Fulfillment pipeline ── */}
+              <div className="mt-4 border-t border-slate-100 pt-4 dark:border-white/10 flex flex-col w-full bg-slate-50/50 p-3 sm:p-4 rounded-2xl dark:bg-slate-950/20">
+                <div className="flex items-center justify-between mb-3 w-full gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-tight">
+                    Fulfillment Pipeline
+                    <span className="hidden sm:inline"> (vs {orderKpis.totalQty} ordered)</span>
                   </span>
-                ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setIsFulfillmentModalOpen(true)}
+                    className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-blue-200/80 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[10px] sm:text-xs font-bold text-blue-600 shadow-sm transition dark:border-white/10 dark:bg-slate-950 dark:text-blue-400 dark:hover:bg-white/5 cursor-pointer active:scale-[0.98]"
+                  >
+                    Details
+                  </button>
+                </div>
+                {/* Horizontally scrollable on mobile */}
+                <div className="overflow-x-auto -mx-1 px-1 pb-1">
+                  <div className="grid grid-cols-7 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
+                    <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderKpis.totalQty} icon={UserCheck} />
+                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
+                    <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderKpis.totalQty} icon={DollarSign} />
+                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
+                    <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderKpis.totalQty} icon={Package} />
+                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
+                    <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderKpis.totalQty} icon={Truck} />
+                  </div>
+                </div>
               </div>
 
-              {partyDetailQ.isFetching ? (
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
-                  Loading party details...
-                </p>
-              ) : partyDetailQ.isError ? (
-                <p className="text-xs text-rose-600 dark:text-rose-400 font-sans">
-                  Error loading party details.
-                </p>
-              ) : partyDetailQ.data ? (
-                (() => {
-                  const p = partyDetailQ.data as Record<string, unknown>;
-                  return (
-                    <div className="space-y-3 text-xs">
-                      <dl className="grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <dt className="text-xs font-medium text-slate-500">
-                            Party Name
-                          </dt>
-                          <dd className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
-                            {(p.party_name as string) || custLabel}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-xs font-medium text-slate-500">
-                            Contact
-                          </dt>
-                          <dd className="mt-0.5 text-slate-900 dark:text-slate-100">
-                            {(p.contact_person as string) || "—"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-xs font-medium text-slate-500">
-                            Mobile
-                          </dt>
-                          <dd className="mt-0.5 text-slate-900 dark:text-slate-100">
-                            {(p.mobile as string) || "—"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-xs font-medium text-slate-500">
-                            Email
-                          </dt>
-                          <dd className="mt-0.5 truncate text-slate-900 dark:text-slate-100">
-                            {(p.email as string) || "—"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-xs font-medium text-slate-500">
-                            GST Number
-                          </dt>
-                          <dd className="mt-0.5 font-mono text-slate-900 dark:text-slate-100">
-                            {(p.gst_no as string) || "—"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-xs font-medium text-slate-500">
-                            Payment Terms
-                          </dt>
-                          <dd className="mt-0.5 text-slate-900 dark:text-slate-100">
-                            {(p.payment_terms as string) || "—"}
-                          </dd>
-                        </div>
-                      </dl>
-                      <div className="grid gap-3 border-t border-slate-100 pt-3 dark:border-white/10 sm:grid-cols-2 font-sans">
-                        <div>
-                          <dt className="text-xs font-medium text-slate-500">
-                            Billing Address
-                          </dt>
-                          <dd className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-2 text-[11px] text-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
-                            {formatStructuredAddress(p.billing_address)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-xs font-medium text-slate-500">
-                            Shipping Address
-                          </dt>
-                          <dd className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-2 text-[11px] text-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
-                            {formatStructuredAddress(p.shipping_address)}
-                          </dd>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()
-              ) : (
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
-                  No party linked on this order.
-                </p>
-              )}
-            </section>
+              {/* ── Action buttons bar ── */}
+              <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/10">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 font-sans font-medium">
+                  {detail ? (
+                    <button
+                      type="button"
+                      disabled={!canClickSendToDispatch || busy}
+                      title={
+                        sentToDispatchReview
+                          ? "Already sent to dispatch review"
+                          : !financeCaps.hasFinanceApprovalRecord
+                            ? "Create at least one finance approval in Approval & Allocations first"
+                            : !hasApprovedFinanceApproval && financeCaps.approvedQty <= 0
+                              ? "Approve a finance approval with quantities before sending to dispatch"
+                              : financeCaps.financeApprovalStatus === "rejected"
+                                ? "Finance approval was rejected"
+                                : undefined
+                      }
+                      onClick={() => setIsDispatchModalOpen(true)}
+                      className="rounded-lg bg-emerald-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400 active:scale-[0.98]"
+                    >
+                      Send to Dispatch
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={!canReject || busy}
+                    onClick={() => setTransitioningTo("finance_rejected")}
+                    className="rounded-lg bg-rose-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canHold || busy}
+                    onClick={() => setTransitioningTo("on_hold")}
+                    className="rounded-lg bg-amber-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                  >
+                    Hold
+                  </button>
+                  <button
+                    type="button"
+                    disabled={status !== "on_hold" || busy}
+                    onClick={() => setTransitioningTo("finance_review")}
+                    className="rounded-lg bg-blue-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                  >
+                    Resume
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!(status === "on_hold" || status === "dispatch_pending") || busy}
+                    onClick={() => setTransitioningTo("cancelled")}
+                    className="rounded-lg bg-rose-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+
+            </div>
           </div>
 
-          <OrderTab
-            detail={detail}
-            status={status}
-            formatMoney={formatMoney}
-            readOnlyItems={readOnlyItems}
-            refetchOrder={handleRefetch}
-          />
+          {/* ── DESKTOP: Independently Scrollable Tab Content ── */}
+          <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
+            {activeTab === "flags" && (
+              <FlagsTab
+                orderId={orderId}
+                flagsQ={flagsQ}
+                rawFlags={rawFlags}
+                formatDate={formatDate}
+                userNameById={userNameById}
+                setShowRaiseFlagModal={setShowRaiseFlagModal}
+                currentDepartment="finance"
+                refetchOrder={handleRefetch}
+              />
+            )}
 
-          <OrderDetailTabsNav
-            tabs={[
-              {
-                id: "flags",
-                name: "Flags",
-                count: rawFlags.filter((f) => f.status === "open").length,
-                dangerBadge: true,
-              },
-              { id: "attachments", name: "Attachments", count: attachments.length },
-              { id: "approval_allocations", name: "Approval & Allocations" },
-              { id: "dispatches", name: "Dispatches" },
-              { id: "transports", name: "Transports" },
-            ]}
-            activeId={activeTab}
-            onChange={(id) => setActiveTab(id as typeof activeTab)}
-          />
+            {activeTab === "attachments" && (
+              <AttachmentsTab
+                orderId={orderId}
+                attachments={attachments}
+                isLoading={attachmentsQ.isFetching}
+                onUploadSuccess={handleRefetch}
+              />
+            )}
 
-          {/* TABS CONTENT */}
+            {activeTab === "approval_allocations" && (
+              <ApprovalAllocationsTab
+                orderId={orderId}
+                detail={detail}
+                refetchOrder={handleRefetch}
+              />
+            )}
 
-          {activeTab === "flags" && (
-            <FlagsTab
-              orderId={orderId}
-              flagsQ={flagsQ}
-              rawFlags={rawFlags}
-              formatDate={formatDate}
-              userNameById={userNameById}
-              setShowRaiseFlagModal={setShowRaiseFlagModal}
-              currentDepartment="finance"
-              refetchOrder={handleRefetch}
+            {activeTab === "dispatches" && (
+              <DispatchesTab
+                orderId={orderId}
+                detail={detail}
+                refetchOrder={handleRefetch}
+              />
+            )}
+
+            {activeTab === "transports" && (
+              <TransportsTab
+                orderId={orderId}
+                detail={detail}
+                refetchOrder={handleRefetch}
+              />
+            )}
+          </div>
+
+          {/* ── DESKTOP: Fixed Footer Tab Nav ── */}
+          <div className="hidden md:block flex-shrink-0 pt-2 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-slate-955/20 p-2 rounded-xl">
+            <OrderDetailTabsNav
+              tabs={[
+                {
+                  id: "flags",
+                  name: "Flags",
+                  count: rawFlags.filter((f) => f.status === "open").length,
+                  dangerBadge: true,
+                },
+                { id: "attachments", name: "Attachments", count: attachments.length },
+                { id: "approval_allocations", name: "Approval & Allocations" },
+                { id: "dispatches", name: "Dispatches" },
+                { id: "transports", name: "Transports" },
+              ]}
+              activeId={activeTab}
+              onChange={(id) => setActiveTab(id as typeof activeTab)}
             />
-          )}
+          </div>
 
-          {activeTab === "attachments" && (
-            <AttachmentsTab
-              orderId={orderId}
-              attachments={attachments}
-              isLoading={attachmentsQ.isFetching}
-              onUploadClick={() => setIsUploadModalOpen(true)}
-            />
-          )}
-
-          {activeTab === "approval_allocations" && (
-            <ApprovalAllocationsTab
-              orderId={orderId}
-              detail={detail}
-              refetchOrder={handleRefetch}
-            />
-          )}
-
-          {activeTab === "dispatches" && (
-            <DispatchesTab
-              orderId={orderId}
-              detail={detail}
-              refetchOrder={handleRefetch}
-            />
-          )}
-
-          {activeTab === "transports" && (
-            <TransportsTab
-              orderId={orderId}
-              detail={detail}
-              refetchOrder={handleRefetch}
-            />
-          )}
-
-          {/* Raise Flag Modal Dialog */}
-          {showRaiseFlagModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-              <div className="w-full max-w-lg rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-                    Raise Departmental Flag
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowRaiseFlagModal(false)}
-                    className="text-slate-400 hover:text-slate-500 dark:hover:text-slate-300"
-                  >
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-
-                <form onSubmit={(e) => void handleRaiseFlag(e)} className="mt-4 space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <label htmlFor="flag-dept" className={labelClass}>Target Department</label>
-                      <select
-                        id="flag-dept"
-                        value={newFlagDept}
-                        onChange={(e) => setNewFlagDept(e.target.value)}
-                        className={inputClass}
-                        required
-                      >
-                        {Object.entries(departmentLabels)
-                          .filter(([val]) => val !== "finance")
-                          .map(([val, label]) => (
-                            <option key={val} value={val}>{label}</option>
-                          ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label htmlFor="flag-type" className={labelClass}>Flag Type</label>
-                      <select
-                        id="flag-type"
-                        value={newFlagType}
-                        onChange={(e) => setNewFlagType(e.target.value)}
-                        className={inputClass}
-                        required
-                      >
-                        {(FLAGS_FOR_TARGET_DEPARTMENT[newFlagDept] ?? Object.keys(ALL_FLAG_TYPES)).map((val) => (
-                          <option key={val} value={val}>
-                            {ALL_FLAG_TYPES[val]?.label || val}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <label htmlFor="flag-severity" className={labelClass}>Severity</label>
-                      <select
-                        id="flag-severity"
-                        value={newFlagSeverity}
-                        onChange={(e) => setNewFlagSeverity(e.target.value)}
-                        className={inputClass}
-                        required
-                      >
-                        <option value="low">Low</option>
-                        <option value="medium">Medium</option>
-                        <option value="high">High</option>
-                        <option value="critical">Critical</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label htmlFor="flag-due" className={labelClass}>Due Date (Optional)</label>
-                      <input
-                        id="flag-due"
-                        type="date"
-                        value={newFlagDueDate}
-                        onChange={(e) => setNewFlagDueDate(e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label htmlFor="flag-title" className={labelClass}>Flag Title</label>
-                    <input
-                      id="flag-title"
-                      type="text"
-                      value={newFlagTitle}
-                      onChange={(e) => setNewFlagTitle(e.target.value)}
-                      className={inputClass}
-                      placeholder="E.g., Missing delivery address details"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label htmlFor="flag-desc" className={labelClass}>Description / Instructions</label>
-                    <textarea
-                      id="flag-desc"
-                      rows={3}
-                      value={newFlagDesc}
-                      onChange={(e) => setNewFlagDesc(e.target.value)}
-                      className={inputClass}
-                      placeholder="Add detailed context for the assigned department..."
-                    />
-                  </div>
-
-                  <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-white/5 font-sans font-medium">
-                    <button
-                      type="button"
-                      onClick={() => setShowRaiseFlagModal(false)}
-                      className={btnSecondaryClass}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isCreatingFlag}
-                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
-                    >
-                      {isCreatingFlag ? "Raising Flag..." : "Raise Flag"}
-                    </button>
-                  </div>
-                </form>
+          {/* ── MOBILE: Full-screen tab content popup ── */}
+          {mobileTabOpen && (
+            <div className="md:hidden fixed inset-0 z-[60] flex flex-col bg-white dark:bg-slate-900 animate-in slide-in-from-bottom duration-300">
+              {/* Mobile popup header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-0 z-10">
+                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-50 capitalize">
+                  {activeTab === "flags" && "Flags"}
+                  {activeTab === "attachments" && "Attachments"}
+                  {activeTab === "approval_allocations" && "Approval & Allocations"}
+                  {activeTab === "dispatches" && "Dispatches"}
+                  {activeTab === "transports" && "Transports"}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setMobileTabOpen(false)}
+                  className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10 transition active:scale-95"
+                  aria-label="Close panel"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
               </div>
-            </div>
-          )}
 
-
-
-          {/* Approve & Dispatch Modal Dialog */}
-          {isDispatchModalOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-              <div className="w-full max-w-2xl rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 font-sans">
-                    Send to Dispatch
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsDispatchModalOpen(false);
-                      setDispatchRemarks("");
-                      setDispatchAssignee("");
-                      setDispatchUploadFile(null);
-                    }}
-                    className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1"
-                  >
-                    <span className="sr-only">Close</span>
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-
-                <form onSubmit={(e) => void handleApproveAndDispatch(e)} className="mt-4 space-y-5">
-                  <div className="bg-slate-50 dark:bg-slate-950/40 border border-slate-200/50 dark:border-white/5 rounded-xl p-4 space-y-3 font-sans">
-                    <div className="grid grid-cols-2 gap-4 text-xs">
-                      <div>
-                        <span className="block text-slate-500 font-semibold uppercase tracking-wider">Party</span>
-                        <span className="block mt-1 font-semibold text-slate-900 dark:text-slate-100">{custLabel}</span>
-                      </div>
-                      <div>
-                        <span className="block text-slate-500 font-semibold uppercase tracking-wider">Order Reference</span>
-                        <span className="block mt-1 font-semibold text-slate-900 dark:text-slate-100">#{detail?.order_no ? String(detail.order_no) : "—"}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Assign Dispatch Operator */}
-                  <div className="space-y-1.5">
-                    <label htmlFor="dispatch-assignee" className={labelClass}>Assign Dispatch Operator *</label>
-                    <select
-                      id="dispatch-assignee"
-                      value={dispatchAssignee}
-                      onChange={(e) => setDispatchAssignee(e.target.value)}
-                      className={inputClass}
-                      required
-                    >
-                      <option value="">— Select Dispatch Operator —</option>
-                      {dispatchUsers.map((u) => {
-                        const uid = String(u._id ?? u.id ?? "");
-                        return (
-                          <option key={uid} value={uid}>
-                            {String(u.username || u.name || uid)}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-
-                  {/* Remarks */}
-                  <div className="space-y-1.5">
-                    <label htmlFor="dispatch-remarks" className={labelClass}>Remarks (Optional)</label>
-                    <textarea
-                      id="dispatch-remarks"
-                      rows={3}
-                      value={dispatchRemarks}
-                      onChange={(e) => setDispatchRemarks(e.target.value)}
-                      className={inputClass}
-                      placeholder="Add remarks or notes for this dispatch..."
-                    />
-                  </div>
-
-                  {/* Upload Bill Attachment (Optional) */}
-                  <div className="space-y-1.5">
-                    <label className={labelClass}>Upload Bill Document (Optional)</label>
-                    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-5 text-center hover:border-blue-500 transition cursor-pointer relative bg-slate-50/20 dark:bg-slate-950/10">
-                      <input
-                        type="file"
-                        onChange={(e) => {
-                          if (e.target.files && e.target.files[0]) {
-                            setDispatchUploadFile(e.target.files[0]);
-                          }
-                        }}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      />
-                      <svg className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                      <p className="mt-2 text-xs font-semibold text-blue-600">Select bill file</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">PDF, Image, or DOC up to 50MB</p>
-                    </div>
-
-                    {dispatchUploadFile && (
-                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950/40 border border-slate-200/50 dark:border-white/5 font-sans text-xs">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <svg className="h-4 w-4 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          <span className="text-slate-700 dark:text-slate-300 truncate max-w-[280px]" title={dispatchUploadFile.name}>
-                            {dispatchUploadFile.name}
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-mono">({(dispatchUploadFile.size / 1024 / 1024).toFixed(2)} MB)</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setDispatchUploadFile(null)}
-                          className="text-xs font-semibold text-rose-600 hover:underline"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Submit Actions */}
-                  <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-white/5 font-sans font-medium">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsDispatchModalOpen(false);
-                        setDispatchRemarks("");
-                        setDispatchAssignee("");
-                        setDispatchUploadFile(null);
-                      }}
-                      className={btnSecondaryClass}
-                      disabled={isApprovingAndDispatching}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isApprovingAndDispatching || !dispatchAssignee}
-                      className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isApprovingAndDispatching ? (
-                        <>
-                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                          Processing...
-                        </>
-                      ) : (
-                        "Confirm & Send to Dispatch"
-                      )}
-                    </button>
-                  </div>
-                </form>
+              {/* Mobile popup scrollable content */}
+              <div className="flex-1 overflow-y-auto p-4 pb-24">
+                {activeTab === "flags" && (
+                  <FlagsTab
+                    orderId={orderId}
+                    flagsQ={flagsQ}
+                    rawFlags={rawFlags}
+                    formatDate={formatDate}
+                    userNameById={userNameById}
+                    setShowRaiseFlagModal={setShowRaiseFlagModal}
+                    currentDepartment="finance"
+                    refetchOrder={handleRefetch}
+                  />
+                )}
+                {activeTab === "attachments" && (
+                  <AttachmentsTab
+                    orderId={orderId}
+                    attachments={attachments}
+                    isLoading={attachmentsQ.isFetching}
+                    onUploadSuccess={handleRefetch}
+                  />
+                )}
+                {activeTab === "approval_allocations" && (
+                  <ApprovalAllocationsTab
+                    orderId={orderId}
+                    detail={detail}
+                    refetchOrder={handleRefetch}
+                  />
+                )}
+                {activeTab === "dispatches" && (
+                  <DispatchesTab
+                    orderId={orderId}
+                    detail={detail}
+                    refetchOrder={handleRefetch}
+                  />
+                )}
+                {activeTab === "transports" && (
+                  <TransportsTab
+                    orderId={orderId}
+                    detail={detail}
+                    refetchOrder={handleRefetch}
+                  />
+                )}
               </div>
             </div>
           )}
         </>
+      )}
+
+      {/* ── MOBILE: Bottom-fixed Tab Navigation Bar ── */}
+      {!isFetching && !isError && detail && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 dark:border-white/10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2 pb-safe">
+          <nav className="flex items-stretch justify-around">
+            {([
+              {
+                id: "flags" as const,
+                name: "Flags",
+                count: rawFlags.filter((f) => f.status === "open").length,
+                dangerBadge: true,
+                icon: (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                  </svg>
+                ),
+              },
+              {
+                id: "attachments" as const,
+                name: "Files",
+                count: attachments.length,
+                dangerBadge: false,
+                icon: (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                ),
+              },
+              {
+                id: "approval_allocations" as const,
+                name: "Approvals",
+                count: undefined,
+                dangerBadge: false,
+                icon: (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ),
+              },
+              {
+                id: "dispatches" as const,
+                name: "Dispatch",
+                count: undefined,
+                dangerBadge: false,
+                icon: (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                  </svg>
+                ),
+              },
+              {
+                id: "transports" as const,
+                name: "Transport",
+                count: undefined,
+                dangerBadge: false,
+                icon: (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2.556-2.556M13 16H9m4 0h2m2 0h.01M13 16V6m0 0h3l3 4v6h-1M6 16H5m8-10H5" />
+                  </svg>
+                ),
+              },
+            ]).map((tab) => {
+              const isActive = activeTab === tab.id && mobileTabOpen;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    if (activeTab === tab.id && mobileTabOpen) {
+                      setMobileTabOpen(false);
+                    } else {
+                      setActiveTab(tab.id);
+                      setMobileTabOpen(true);
+                    }
+                  }}
+                  className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 px-2 flex-1 min-w-0 transition-colors ${
+                    isActive
+                      ? "text-blue-600 dark:text-blue-400"
+                      : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  }`}
+                >
+                  <span className={`relative transition-transform ${isActive ? "scale-110" : ""}`}>
+                    {tab.icon}
+                    {tab.count !== undefined && tab.count > 0 && (
+                      <span
+                        className={`absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 flex items-center justify-center rounded-full px-1 text-[9px] font-bold ${
+                          tab.dangerBadge
+                            ? "bg-rose-500 text-white"
+                            : "bg-slate-600 text-white dark:bg-slate-300 dark:text-slate-900"
+                        }`}
+                      >
+                        {tab.count}
+                      </span>
+                    )}
+                  </span>
+                  <span className={`text-[10px] font-semibold leading-none truncate max-w-full ${
+                    isActive ? "text-blue-600 dark:text-blue-400" : ""
+                  }`}>
+                    {tab.name}
+                  </span>
+                  {isActive && (
+                    <span className="absolute top-0 left-2 right-2 h-0.5 rounded-full bg-blue-600 dark:bg-blue-400" />
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
       )}
     </div>
   );

@@ -132,10 +132,61 @@ function sanitizePatch(patch) {
   return out;
 }
 
-async function list() {
-  const rows = await getModels().Product.find()
-    .sort({ createdAt: -1 })
-    .lean();
+async function list(query = {}) {
+  const { Product } = getModels();
+
+  const paginate = query.paginate === 'true';
+  const page = Math.max(Number(query.page) || 1, 1);
+  const limit = Math.max(Number(query.limit) || 10, 1);
+  const skip = (page - 1) * limit;
+
+  const mongoFilter = { deletedAt: null };
+
+  if (query.search && String(query.search).trim()) {
+    const s = String(query.search).trim();
+    mongoFilter.$or = [
+      { product_name: { $regex: s, $options: 'i' } },
+      { generic_name: { $regex: s, $options: 'i' } },
+      { sku: { $regex: s, $options: 'i' } },
+      { brand: { $regex: s, $options: 'i' } },
+      { manufacturer: { $regex: s, $options: 'i' } }
+    ];
+  }
+
+  if (query.group && query.group !== 'all') {
+    mongoFilter.product_group = query.group;
+  }
+
+  if (query.status && query.status !== 'all') {
+    if (query.status === 'active') {
+      mongoFilter.is_active = { $ne: false };
+    } else if (query.status === 'inactive') {
+      mongoFilter.is_active = false;
+    }
+  }
+
+  if (paginate) {
+    const [total, rows, groups] = await Promise.all([
+      Product.countDocuments(mongoFilter),
+      Product.find(mongoFilter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Product.distinct('product_group', { deletedAt: null }),
+    ]);
+
+    return {
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
+      groups: groups.filter(Boolean).sort(),
+      data: rows.map(toPlain),
+    };
+  }
+
+  const rows = await Product.find(mongoFilter).sort({ createdAt: -1 }).lean();
   return rows.map(toPlain);
 }
 

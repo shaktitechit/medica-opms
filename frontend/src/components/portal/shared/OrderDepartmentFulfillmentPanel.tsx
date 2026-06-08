@@ -19,6 +19,7 @@ type Props = {
   className?: string;
   /** Hide per-line table when space is tight */
   showItemsTable?: boolean;
+  showDepartmentBoxes?: boolean;
 };
 
 function SummaryPill({
@@ -167,6 +168,7 @@ export function OrderDepartmentFulfillmentPanel({
   dimensions: dimensionsProp,
   className = "",
   showItemsTable = true,
+  showDepartmentBoxes = true,
 }: Props) {
   const dimensions =
     dimensionsProp ?? computeOrderStatusDimensions(order, fulfillmentSnapshot);
@@ -183,11 +185,13 @@ export function OrderDepartmentFulfillmentPanel({
         <SummaryPill title="Action" dimension={dimensions.action} />
       </div> */}
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        {departmentBoxes.map((box) => (
-          <DepartmentBox key={box.id} box={box} />
-        ))}
-      </div>
+      {showDepartmentBoxes ? (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {departmentBoxes.map((box) => (
+            <DepartmentBox key={box.id} box={box} />
+          ))}
+        </div>
+      ) : null}
 
       {showItemsTable ? (
         <div>

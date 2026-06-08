@@ -30,6 +30,7 @@ const driverRoutes = require('./modules/fleet/driver.routes');
 const transportAgentRoutes = require('./modules/fleet/transportAgent.routes');
 const filesRoutes = require('./modules/files/files.routes');
 const partyOrderProductsRateRoutes = require('./modules/partyOrderProductsRate/partyOrderProductsRate.routes');
+const messageRoutes = require('./modules/messages/message.routes');
 
 const app = express();
 app.use(cors(corsOptions));
@@ -72,6 +73,7 @@ app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/drivers', driverRoutes);
 app.use('/api/transport-agents', transportAgentRoutes);
 app.use('/api/party-order-products-rate', partyOrderProductsRateRoutes);
+app.use('/api/messages', messageRoutes);
 app.use('/api', filesRoutes);
 
 app.use(notFound);

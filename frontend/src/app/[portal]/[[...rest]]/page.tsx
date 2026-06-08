@@ -26,6 +26,7 @@ import {
   ListSuperAdminOrdersPage,
   SuperAdminUsersPage,
   SuperAdminOrderDetail,
+  ProfilePage,
 } from "@/components/portal";
 import CreateOrderPage from "@/components/portal/sales/CreateOrderPage";
 import {
@@ -155,6 +156,10 @@ export default function PortalCatchAllPage() {
     restArr.length === 2 && restArr[0] === "products"
   ) {
     return <ProductDetailPage id={restArr[1]} portalHome={`/${portal}`} />;
+  }
+
+  if (restArr.length === 1 && restArr[0] === "profile") {
+    return <ProfilePage />;
   }
 
   return <PortalSectionPlaceholder portal={portal} title={title} />;

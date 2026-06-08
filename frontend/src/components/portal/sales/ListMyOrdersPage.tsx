@@ -17,6 +17,8 @@ import {
   dimensionToneClass,
   type OrderStatusDimension,
 } from "@/components/portal/shared/orderStatusDimensions";
+import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
+import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import {
   mutationRejectedMessage,
   mutationSuccessCopy,
@@ -44,6 +46,10 @@ import {
   Eye,
   Plus,
   Trash2,
+  UserCheck,
+  DollarSign,
+  Package,
+  Truck,
 } from "lucide-react";
 
 type OrderRow = {
@@ -66,6 +72,7 @@ type OrderRow = {
   expected_delivery_date?: string;
   created_at?: string;
   createdAt?: string;
+  order_items?: unknown[];
 };
 
 function orderKey(row: unknown): string {
@@ -86,6 +93,33 @@ function formatDateShort(v: unknown): string {
     month: "short",
     year: "numeric",
   });
+}
+
+function getOrderTabCategory(order: unknown): "draft" | "open" | "closed" | "on_hold" | "cancelled" | "rejected" {
+  if (!order || typeof order !== "object") return "open";
+  const row = order as Record<string, unknown>;
+  const status = deriveOrderWorkflowStatus(row);
+
+  if (status === "draft") return "draft";
+  if (status === "on_hold") return "on_hold";
+  if (status === "cancelled") return "cancelled";
+  if (status === "finance_rejected") return "rejected";
+
+  // Calculate quantities from items
+  const items = Array.isArray(row.order_items) ? row.order_items : [];
+  let ordered = 0;
+  let delivered = 0;
+  items.forEach((line: any) => {
+    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
+    delivered += Number(line.delivered_quantity ?? 0);
+  });
+
+  // An order which is delivered less than what have been ordered will be in open order list
+  if (ordered > 0 && delivered >= ordered) {
+    return "closed";
+  }
+
+  return "open";
 }
 
 function renderStatusDimensionBadge(dimension: OrderStatusDimension | null | undefined) {
@@ -112,6 +146,22 @@ function renderStatusDimensionBadge(dimension: OrderStatusDimension | null | und
     </div>
   );
 }
+
+function getToneColorClasses(tone: "neutral" | "info" | "success" | "warning" | "danger") {
+  switch (tone) {
+    case "success":
+      return "bg-emerald-500/10 text-emerald-600 ring-emerald-500/30 dark:bg-emerald-500/20 dark:text-emerald-400 dark:ring-emerald-500/30";
+    case "warning":
+      return "bg-amber-500/10 text-amber-600 ring-amber-500/30 dark:bg-amber-500/20 dark:text-amber-400 dark:ring-amber-500/30";
+    case "danger":
+      return "bg-rose-500/10 text-rose-600 ring-rose-500/30 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/30";
+    case "info":
+      return "bg-blue-500/10 text-blue-600 ring-blue-500/30 dark:bg-blue-500/20 dark:text-blue-400 dark:ring-blue-500/30";
+    default:
+      return "bg-slate-100 text-slate-400 ring-slate-500/10 dark:bg-white/5 dark:text-slate-500 dark:ring-white/10";
+  }
+}
+
 
 function renderPriorityBadge(priority: string) {
   const p = String(priority).toLowerCase();
@@ -143,16 +193,73 @@ function renderPriorityBadge(priority: string) {
   );
 }
 
+function renderWorkflowStatusBadge(status: string) {
+  let label = "";
+  let bgClass = "";
+  switch (status) {
+    case "draft":
+      label = "Draft";
+      bgClass = "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
+      break;
+    case "open":
+      label = "Open";
+      bgClass = "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
+      break;
+    case "closed":
+      label = "Closed";
+      bgClass = "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+      break;
+    case "on_hold":
+      label = "On Hold";
+      bgClass = "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "rejected":
+      label = "Rejected";
+      bgClass = "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-955/30 dark:text-red-400 dark:ring-red-500/25";
+      break;
+    case "cancelled":
+      label = "Cancelled";
+      bgClass = "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25";
+      break;
+    default:
+      label = status;
+      bgClass = "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+  }
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}>
+      {label}
+    </span>
+  );
+}
+
 export default function ListMyOrdersPage() {
   const router = useRouter();
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [activeTab, setActiveTab] = useState<"open" | "draft" | "closed" | "on_hold" | "cancelled" | "rejected">("open");
   const [priorityFilter, setPriorityFilter] = useState("all");
 
-  const { data, isFetching, isError, refetch } = useListOrdersQuery({
-    status: statusFilter !== "all" ? statusFilter : undefined,
-  });
+  const queryParams = useMemo(() => {
+    const base: Record<string, string | undefined> = {};
+    
+    // Only apply activeTab status filter if search query is empty (universal search)
+    if (!searchQuery.trim()) {
+      if (activeTab === "draft") base.status = "draft";
+      else if (activeTab === "on_hold") base.status = "on_hold";
+      else if (activeTab === "cancelled") base.status = "cancelled";
+      else if (activeTab === "closed") base.status = "delivered";
+      else if (activeTab === "rejected") base.status = "finance_rejected";
+      else base.exclude_status = "draft,on_hold,cancelled,delivered,finance_rejected";
+    }
+
+    if (searchQuery.trim()) {
+      base.search = searchQuery.trim();
+    }
+    return base;
+  }, [activeTab, searchQuery]);
+
+  const { data, isFetching, isError, refetch } = useListOrdersQuery(queryParams);
   const partiesQ = useListPartiesQuery({});
   const usersQ = useListUsersQuery({});
 
@@ -175,7 +282,6 @@ export default function ListMyOrdersPage() {
   // Dynamic filter reset
   const handleResetFilters = useCallback(() => {
     setSearchQuery("");
-    setStatusFilter("all");
     setPriorityFilter("all");
     setCurrentPage(1);
   }, []);
@@ -186,42 +292,23 @@ export default function ListMyOrdersPage() {
     setCurrentPage(1);
   }, []);
 
-  const handleStatusFilterChange = useCallback((val: string) => {
-    setStatusFilter(val);
-    setCurrentPage(1);
-  }, []);
-
   const handlePriorityFilterChange = useCallback((val: string) => {
     setPriorityFilter(val);
     setCurrentPage(1);
   }, []);
 
+
   // Filtered Orders memo
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
-      // 1. Search filter
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const id = orderKey(o);
-        const ref = (
-          typeof o.order_no === "string"
-            ? o.order_no
-            : typeof o.order_number === "string"
-              ? o.order_number
-              : id || ""
-        ).toLowerCase();
-
-        const cust = resolveOrderCounterparty(
-          o as Record<string, unknown>,
-          partyNameById,
-        ).toLowerCase();
-
-        if (!ref.includes(query) && !cust.includes(query)) {
+      // Filter by active tab only if search is not active (universal search)
+      if (!searchQuery.trim()) {
+        if (getOrderTabCategory(o) !== activeTab) {
           return false;
         }
       }
 
-      // 2. Priority filter
+      // 1. Priority filter
       if (priorityFilter !== "all") {
         if ((o.priority || "").toLowerCase() !== priorityFilter.toLowerCase()) {
           return false;
@@ -230,7 +317,7 @@ export default function ListMyOrdersPage() {
 
       return true;
     });
-  }, [orders, searchQuery, priorityFilter, partyNameById]);
+  }, [orders, activeTab, priorityFilter, searchQuery]);
 
   // Paginated Orders slice
   const paginatedOrders = useMemo(() => {
@@ -320,66 +407,102 @@ export default function ListMyOrdersPage() {
         </div>
       </div>
 
+      {/* Universal Search Bar */}
+      <div className="relative rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm p-4">
+        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">
+          Universal Search
+        </label>
+        <div className="relative">
+          <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
+            <Search className="h-4 w-4" />
+          </span>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="Search universally by order # or party name across all tabs..."
+            className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 dark:focus:border-blue-500"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => handleSearchChange("")}
+              className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-655 cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
       {partiesQ.isError && (
         <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-955/20 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/30">
           ⚠️ Party directory failed to load — names may show as shortened IDs.
         </div>
       )}
 
-      {/* Search & Filter Controls */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4 rounded-xl border border-slate-200/80 bg-white p-4 dark:border-white/10 dark:bg-slate-900 shadow-sm">
-        <div className="md:col-span-2">
-          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-            Search Orders
-          </label>
-          <div className="relative">
-            <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-450 pointer-events-none">
-              <Search className="h-4 w-4 text-slate-400" />
+      {/* Horizontal Nav Tabs & Priority Filter */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/10 mt-2 pb-2 md:pb-0">
+        {searchQuery.trim() ? (
+          <div className="flex items-center gap-2.5 py-3">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Showing <span className="font-bold text-blue-600 dark:text-blue-400">{filteredOrders.length}</span> search results for <span className="italic font-bold text-slate-900 dark:text-slate-100">"{searchQuery}"</span>
             </span>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Search by order # or party..."
-              className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-955 dark:text-slate-550 dark:bg-slate-950 dark:text-slate-50"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => handleSearchChange("")}
-                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-655"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => handleSearchChange("")}
+              className="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer"
+            >
+              <X className="h-3 w-3" />
+              Clear
+            </button>
           </div>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-            Order Status
+        ) : (
+          <nav className="-mb-px flex space-x-6 overflow-x-auto pb-px scrollbar-none" aria-label="Order stages">
+            {[
+              { id: "open", label: "Open Orders" },
+              { id: "draft", label: "Draft Orders" },
+              { id: "closed", label: "Closed Orders" },
+              { id: "on_hold", label: "On Hold" },
+              { id: "rejected", label: "Rejected" },
+              { id: "cancelled", label: "Cancelled" },
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(tab.id as any);
+                    setCurrentPage(1);
+                  }}
+                  className={`group border-b-2 py-4 px-1 text-sm font-semibold transition whitespace-nowrap inline-flex items-center gap-2 cursor-pointer ${
+                    isActive
+                      ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
+                      : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  {isActive && !isFetching && (
+                    <span className="rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 text-[10px] font-bold">
+                      {filteredOrders.length}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
+        <div className="flex items-center gap-2 self-start md:self-center pb-2 md:pb-0">
+          <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
+            Priority:
           </label>
-          <select
-            value={statusFilter}
-            onChange={(e) => handleStatusFilterChange(e.target.value)}
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-955 dark:text-slate-50 dark:bg-slate-950"
-          >
-            <option value="all">All Statuses</option>
-            {SALES_ORDER_STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-            Priority
-          </label>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <select
               value={priorityFilter}
               onChange={(e) => handlePriorityFilterChange(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-955 dark:text-slate-50 dark:bg-slate-950"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 cursor-pointer"
             >
               <option value="all">All Priorities</option>
               {PRIORITY_OPTIONS.map((p) => (
@@ -388,11 +511,11 @@ export default function ListMyOrdersPage() {
                 </option>
               ))}
             </select>
-            {(searchQuery || statusFilter !== "all" || priorityFilter !== "all") && (
+            {priorityFilter !== "all" && (
               <button
                 type="button"
-                onClick={handleResetFilters}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 self-center whitespace-nowrap pl-1 cursor-pointer"
+                onClick={() => setPriorityFilter("all")}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-305 pl-1 cursor-pointer"
               >
                 Reset
               </button>
@@ -460,15 +583,31 @@ export default function ListMyOrdersPage() {
                       : id || "—";
                 
                 const pri = typeof o.priority === "string" ? o.priority : "normal";
-                const statusRaw = deriveOrderWorkflowStatus(o) || "draft";
-                const isDraftRow = statusRaw === "draft";
-                const statusDims = computeOrderStatusDimensions(
-                  o as Record<string, unknown>,
-                );
-                const partyLabel = resolveOrderCounterparty(
-                  o as Record<string, unknown>,
-                  partyNameById,
-                );
+                 const statusRaw = deriveOrderWorkflowStatus(o) || "draft";
+                 const isDraftRow = statusRaw === "draft";
+                 const deptBoxes = computeDepartmentStageBoxes(
+                   o as Record<string, unknown>,
+                   null,
+                 );
+                 const adminBox = deptBoxes.find((b) => b.id === "admin");
+                 const financeBox = deptBoxes.find((b) => b.id === "finance");
+                 const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
+                 const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
+
+                 const adminStatusDim = adminBox?.status;
+                 const financeStatusDim = financeBox?.status;
+                 const dispatchStatusDim = dispatchBox?.status;
+                 const deliveryStatusDim = deliveryBox?.status;
+                 
+                 const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
+                 const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {
+                   return acc + (Number(item.ordered_quantity ?? item.quantity) || 0);
+                 }, 0));
+
+                 const partyLabel = resolveOrderCounterparty(
+                   o as Record<string, unknown>,
+                   partyNameById,
+                 );
 
                 const orderDateStr = formatDateShort((o as any).order_date ?? (o as any).created_at ?? (o as any).createdAt);
                 const expectedDeliveryStr = formatDateShort((o as any).expected_delivery_date);
@@ -486,23 +625,73 @@ export default function ListMyOrdersPage() {
                         router.push(`/sales/order/${id}`);
                       }
                     }}
-                    className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 transition-all duration-300 hover:shadow-md hover:border-blue-500/20 dark:border-white/10 dark:bg-slate-900 flex flex-col lg:flex-row lg:items-center justify-between gap-4 pl-5 animate-fadeIn cursor-pointer"
+                    className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 transition-all duration-300 hover:shadow-md hover:border-blue-500/20 dark:border-white/10 dark:bg-slate-900 flex flex-col gap-4 pl-5 animate-fadeIn cursor-pointer"
                   >
                     {/* Priority Accent Stripe */}
                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${stripeColor}`} />
 
-                    {/* Top Row: Order Info & Mobile Actions */}
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 dark:border-white/5 lg:border-none lg:pb-0 lg:flex-row lg:items-center lg:justify-start lg:gap-2 lg:w-[120px] lg:shrink-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-550 dark:text-slate-50">
-                          {ref}
-                        </span>
-                        {renderPriorityBadge(pri)}
+                    {/* Top Row: Ref, Badges, Party, Dates, Actions */}
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
+                      {/* Ref & Badges */}
+                      <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[130px] lg:shrink-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-550 dark:text-slate-50">
+                            {ref}
+                          </span>
+                          {renderPriorityBadge(pri)}
+                          {renderWorkflowStatusBadge(getOrderTabCategory(o))}
+                        </div>
+
+                        {/* Mobile Actions (hidden on lg and up) */}
+                        {isDraftRow && id ? (
+                          <div className="flex items-center gap-2 lg:hidden">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteTarget({ id, label: ref });
+                              }}
+                              disabled={isDeletingOrder}
+                              className="inline-flex items-center justify-center rounded border border-slate-200 hover:border-rose-350 p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                              title="Delete Draft Order"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
 
-                      {/* Mobile Actions (hidden on lg and up) */}
-                      {isDraftRow && id ? (
-                        <div className="flex items-center gap-2 lg:hidden">
+                      {/* Party Title */}
+                      <span
+                        className="text-xs font-semibold text-slate-800 dark:text-slate-200 lg:flex-1 break-words whitespace-normal"
+                        title={partyLabel}
+                      >
+                        {partyLabel}
+                      </span>
+
+                      {/* Financials & Dates */}
+                      <div className="grid grid-cols-2 sm:flex sm:items-center sm:gap-8 lg:w-[200px] lg:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                            Order Date
+                          </span>
+                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
+                            {orderDateStr}
+                          </span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                            Expected Delivery
+                          </span>
+                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
+                            {expectedDeliveryStr}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Desktop Actions (hidden on lg and below) */}
+                      <div className="hidden lg:flex lg:items-center lg:gap-2 lg:w-[40px] lg:shrink-0 lg:justify-end">
+                        {isDraftRow && id ? (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -510,99 +699,26 @@ export default function ListMyOrdersPage() {
                               setDeleteTarget({ id, label: ref });
                             }}
                             disabled={isDeletingOrder}
-                            className="inline-flex items-center justify-center rounded border border-slate-200 hover:border-rose-350 p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                            className="inline-flex items-center justify-center rounded-lg border border-slate-200 hover:border-rose-350 p-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
                             title="Delete Draft Order"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {/* Party Title */}
-                    <span
-                      className="text-xs font-semibold text-slate-800 dark:text-slate-200 lg:w-[220px] lg:shrink-0 break-words whitespace-normal"
-                      title={partyLabel}
-                    >
-                      {partyLabel}
-                    </span>
-
-                    {/* Financials & Dates */}
-                    <div className="grid grid-cols-2 sm:flex sm:items-center sm:gap-8 lg:w-[200px] lg:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
-                      
-                      <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                          Created
-                        </span>
-                        <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
-                          {orderDateStr}
-                        </span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                          Expected Delivery
-                        </span>
-                        <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
-                          {expectedDeliveryStr}
-                        </span>
+                        ) : null}
                       </div>
                     </div>
 
-                    {/* Status Dimension - Mobile Box vs Desktop Flex Row */}
-                    {/* Mobile View (< sm) */}
-                    <div className="flex flex-col gap-2.5 bg-slate-50/50 p-3 rounded-lg dark:bg-slate-955/5 sm:hidden border border-slate-100 dark:border-white/5">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400 font-semibold text-[9px] uppercase tracking-wider">Department</span>
-                        {renderStatusDimensionBadge(statusDims?.departmental)}
+                    {/* Bottom Row: Pipeline */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5">
+                      <span className="text-slate-400 dark:text-slate-500 font-bold text-[9px] uppercase tracking-wider">
+                        Fulfillment Pipeline
+                      </span>
+                      <div className="flex items-center gap-4 sm:gap-6">
+                        <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderedQty} icon={UserCheck} />
+                        <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderedQty} icon={DollarSign} />
+                        <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderedQty} icon={Package} />
+                        <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderedQty} icon={Truck} />
                       </div>
-                      <div className="flex items-center justify-between text-xs border-t border-slate-200/40 pt-2 dark:border-white/5">
-                        <span className="text-slate-400 font-semibold text-[9px] uppercase tracking-wider">Fulfillment</span>
-                        {renderStatusDimensionBadge(statusDims?.fulfillment)}
-                      </div>
-                      <div className="flex items-center justify-between text-xs border-t border-slate-200/40 pt-2 dark:border-white/5">
-                        <span className="text-slate-400 font-semibold text-[9px] uppercase tracking-wider">Last Action</span>
-                        {renderStatusDimensionBadge(statusDims?.action)}
-                      </div>
-                    </div>
-
-                    {/* Tablet/Desktop View (>= sm) */}
-                    <div className="hidden sm:flex sm:items-center sm:gap-6 lg:w-[300px] lg:shrink-0">
-                      <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">
-                          Department
-                        </span>
-                        {renderStatusDimensionBadge(statusDims?.departmental)}
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">
-                          Fulfillment
-                        </span>
-                        {renderStatusDimensionBadge(statusDims?.fulfillment)}
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">
-                          Last Action
-                        </span>
-                        {renderStatusDimensionBadge(statusDims?.action)}
-                      </div>
-                    </div>
-
-                    {/* Desktop Actions (hidden on lg and below) */}
-                    <div className="hidden lg:flex lg:items-center lg:gap-2 lg:w-[40px] lg:shrink-0 lg:justify-end">
-                      {isDraftRow && id ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteTarget({ id, label: ref });
-                          }}
-                          disabled={isDeletingOrder}
-                          className="inline-flex items-center justify-center rounded-lg border border-slate-200 hover:border-rose-350 p-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                          title="Delete Draft Order"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
                     </div>
                   </div>
                 );

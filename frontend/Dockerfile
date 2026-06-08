@@ -2,7 +2,7 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-ARG NEXT_PUBLIC_API_ORIGIN=http://localhost:5000
+ARG NEXT_PUBLIC_API_ORIGIN=http://localhost:5001
 ENV NEXT_PUBLIC_API_ORIGIN=$NEXT_PUBLIC_API_ORIGIN
 
 COPY package.json package-lock.json ./
@@ -19,7 +19,7 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-ARG NEXT_PUBLIC_API_ORIGIN=http://localhost:5000
+ARG NEXT_PUBLIC_API_ORIGIN=http://localhost:5001
 ENV NEXT_PUBLIC_API_ORIGIN=$NEXT_PUBLIC_API_ORIGIN
 
 COPY package.json package-lock.json ./

@@ -10,7 +10,6 @@ import {
   useGetOrderHistoryQuery,
   useTransitionOrderMutation,
   useListAttachmentsQuery,
-  useCreateAttachmentMutation,
   useListUsersQuery,
   usePatchOrderMutation,
   useListPartiesQuery,
@@ -25,9 +24,14 @@ import {
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
-import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
+import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
+import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
+import { type OrderStatusDimension } from "@/components/portal/shared/orderStatusDimensions";
+import { UserCheck, DollarSign, Package, Truck } from "lucide-react";
 import OrderTab from "./components/OrderTab";
+import EditOrderModal from "./components/EditOrderModal";
 import FlagsTab from "./components/FlagsTab";
 import AttachmentsTab from "./components/AttachmentsTab";
 import FinanceApprovalsTab from "./components/FinanceApprovalsTab";
@@ -117,9 +121,26 @@ function detailRefId(value: unknown): string {
   return "";
 }
 
+
 function displayText(value: unknown): string {
   if (value == null || value === "") return "—";
   return String(value);
+}
+
+function renderPriorityBadge(priority: string) {
+  const p = String(priority || "normal").toLowerCase();
+  if (p === "urgent") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 ring-1 ring-inset ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/20">
+        Urgent
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-slate-800/30 dark:text-slate-400 dark:ring-slate-700/10">
+      Normal
+    </span>
+  );
 }
 
 export default function SalesOrderDetail({ orderId }: { orderId: string }) {
@@ -130,8 +151,14 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
   const [activeTab, setActiveTab] = useState<
     "flags" | "attachments" | "finance_approvals" | "dispatches" | "transports"
   >("finance_approvals");
+  const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
+  const [isFulfillmentModalOpen, setIsFulfillmentModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isOrderItemsModalOpen, setIsOrderItemsModalOpen] = useState(false);
+  const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
+  const [isPartyDetailsModalOpen, setIsPartyDetailsModalOpen] = useState(false);
   const [submitRemarks, setSubmitRemarks] = useState("");
   const [submitAssignee, setSubmitAssignee] = useState("");
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
@@ -174,10 +201,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
 
   const [patchOrder] = usePatchOrderMutation();
 
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadRemarks, setUploadRemarks] = useState("");
-  const [createAttachment, { isLoading: isUploading }] = useCreateAttachmentMutation();
+
 
   const attachmentsQ = useListAttachmentsQuery({
     entity_type: "order",
@@ -220,6 +244,21 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
         : null,
     [fulfillmentQ.data],
   );
+
+  const deptBoxes = useMemo(() => {
+    if (!detail) return [];
+    return computeDepartmentStageBoxes(detail, fulfillmentSnapshot);
+  }, [detail, fulfillmentSnapshot]);
+
+  const adminBox = useMemo(() => deptBoxes.find((b) => b.id === "admin"), [deptBoxes]);
+  const financeBox = useMemo(() => deptBoxes.find((b) => b.id === "finance"), [deptBoxes]);
+  const dispatchBox = useMemo(() => deptBoxes.find((b) => b.id === "dispatch"), [deptBoxes]);
+  const deliveryBox = useMemo(() => deptBoxes.find((b) => b.id === "delivery"), [deptBoxes]);
+
+  const adminStatusDim = adminBox?.status;
+  const financeStatusDim = financeBox?.status;
+  const dispatchStatusDim = dispatchBox?.status;
+  const deliveryStatusDim = deliveryBox?.status;
   const currentPartyId = detail ? detailRefId(detail.party) : "";
   const partyDetailQ = useGetPartyQuery(currentPartyId, {
     skip: !currentPartyId,
@@ -311,28 +350,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
     if (!fulfillmentQ.isUninitialized) fulfillmentQ.refetch();
   }, [attachmentsQ, fulfillmentQ, flagsQ, historyQ, refetch]);
 
-  const handleUploadSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!uploadFile) {
-      toast.error("Please select a file first");
-      return;
-    }
-    try {
-      const formData = new FormData();
-      formData.append("file", uploadFile);
-      formData.append("entity_type", "order");
-      formData.append("entity_id", orderId);
-      formData.append("remarks", uploadRemarks.trim());
 
-      await createAttachment(formData).unwrap();
-      toast.success("Attachment uploaded successfully");
-      setUploadFile(null);
-      setUploadRemarks("");
-      setIsUploadModalOpen(false);
-    } catch (rejected) {
-      toast.error(mutationRejectedMessage(rejected));
-    }
-  };
 
   const handleSubmitOrder = useCallback(
     async (e: React.FormEvent) => {
@@ -374,7 +392,16 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden space-y-4 pb-20 md:pb-0">
+      <EditOrderModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        orderId={orderId}
+        detail={detail}
+        user={user}
+        refetchOrder={handleRefetch}
+      />
+
       {isSubmitModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <form
@@ -460,21 +487,17 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {isUploadModalOpen && (
+      {isFulfillmentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all">
+          <div className="w-full max-w-4xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
               <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-                Upload Attachment
+                Item Fulfillment Details
               </h3>
               <button
                 type="button"
-                onClick={() => {
-                  setIsUploadModalOpen(false);
-                  setUploadFile(null);
-                  setUploadRemarks("");
-                }}
-                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1"
+                onClick={() => setIsFulfillmentModalOpen(false)}
+                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
               >
                 <span className="sr-only">Close</span>
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -482,271 +505,91 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                 </svg>
               </button>
             </div>
-
-            <form onSubmit={handleUploadSubmit} className="mt-4 space-y-4">
-              <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-700 p-6 text-center hover:border-blue-500 transition cursor-pointer relative">
-                <input
-                  type="file"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      setUploadFile(e.target.files[0]);
-                    }
-                  }}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
-                
-                <svg className="mx-auto h-12 w-12 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-
-                <div className="mt-4 flex text-sm text-slate-600 dark:text-slate-400">
-                  <span className="relative rounded-md font-semibold text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                    Upload a file
-                  </span>
-                  <p className="pl-1">or drag and drop</p>
-                </div>
-                <p className="text-xs text-slate-500">Any file up to 50MB</p>
-              </div>
-
-              {uploadFile && (
-                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-950 border border-slate-100 dark:border-white/5 flex items-center justify-between">
-                  <div className="flex items-center space-x-2 min-w-0">
-                    <svg className="h-5 w-5 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[200px]">
-                        {uploadFile.name}
-                      </p>
-                      <p className="text-[10px] text-slate-500">
-                        {(uploadFile.size / 1024 / 1024).toFixed(2)} MB
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setUploadFile(null)}
-                    className="text-xs text-rose-500 hover:underline font-medium"
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
-
-              <div>
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                  Remarks (Optional)
-                </label>
-                <textarea
-                  value={uploadRemarks}
-                  onChange={(e) => setUploadRemarks(e.target.value)}
-                  rows={2}
-                  className="w-full mt-1.5 rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
-                  placeholder="Add remarks or notes for this attachment..."
-                />
-              </div>
-
-              <div className="mt-6 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsUploadModalOpen(false);
-                    setUploadFile(null);
-                    setUploadRemarks("");
-                  }}
-                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/5"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUploading || !uploadFile}
-                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isUploading ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Uploading...
-                    </>
-                  ) : (
-                    "Upload"
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {(isFetching || isError || !detail) && (
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={() => router.back()} className={btnSecondaryClass}>
-            Back
-          </button>
-        </div>
-      )}
-
-      {isFetching && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Loading order...
-        </p>
-      )}
-      {isError && (
-        <p className="text-sm text-rose-600 dark:text-rose-400">
-          Could not load order details.
-        </p>
-      )}
-
-      {!isFetching && !isError && detail && (
-        <>
-          <div className="space-y-3">
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                    <button
-                      type="button"
-                      onClick={() => router.back()}
-                      className="font-medium text-blue-600 hover:underline dark:text-blue-400"
-                    >
-                      Orders
-                    </button>
-                    <span>/</span>
-                    <span className="font-semibold text-slate-700 dark:text-slate-200">
-                      Order Details
-                    </span>
-                  </div>
-                  <h1 className="truncate text-xl font-bold tracking-tight text-slate-950 dark:text-slate-50">
-                    {detail.order_no ? String(detail.order_no) : "Order"}
-                  </h1>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-                    <span>
-                      Party:{" "}
-                      <b className="font-semibold text-slate-700 dark:text-slate-200">
-                        {custLabel}
-                      </b>
-                    </span>
-                    <span>Order Date: {formatDateShort(detail.order_date)}</span>
-                    <span>
-                      Expected: {formatDateShort(detail.expected_delivery_date)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-right text-[10px] text-slate-500 dark:text-slate-400 sm:grid-cols-4">
-                  <div>
-                    <span className="block uppercase tracking-wide">Created By</span>
-                    <b className="text-[11px] text-slate-800 dark:text-slate-100">
-                      Sales
-                    </b>
-                  </div>
-                  <div>
-                    <span className="block uppercase tracking-wide">Created On</span>
-                    <b className="text-[11px] text-slate-800 dark:text-slate-100">
-                      {formatDateShort(detail.createdAt)}
-                    </b>
-                  </div>
-                  <div>
-                    <span className="block uppercase tracking-wide">Last Modified</span>
-                    <b className="text-[11px] text-slate-800 dark:text-slate-100">
-                      {formatDateShort(detail.updatedAt)}
-                    </b>
-                  </div>
-                  <div>
-                    <span className="block uppercase tracking-wide">Priority</span>
-                    <b className="capitalize text-[11px] text-slate-800 dark:text-slate-100">
-                      {String(detail.priority || "normal")}
-                    </b>
-                  </div>
-                </div>
-              </div>
-
+            
+            <div className="mt-4 overflow-y-auto flex-1 pr-1">
               <OrderDepartmentFulfillmentPanel
-                className="mt-3"
                 order={detail}
                 fulfillmentSnapshot={fulfillmentSnapshot}
+                showDepartmentBoxes={false}
+                showItemsTable={true}
               />
-
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3 dark:border-white/10">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsUploadModalOpen(true)}
-                    className={btnSecondaryClass}
-                  >
-                    Upload Attachment
-                  </button>
-                  <button
-                    type="button"
-                    disabled={status !== "draft"}
-                    onClick={() => {
-                      setSubmitAssignee(resolveUserId(detail?.assigned_admin_user) || "");
-                      setSubmitRemarks("");
-                      setIsSubmitModalOpen(true);
-                    }}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400"
-                  >
-                    Submit Order
-                  </button>
-                </div>
-                <button type="button" onClick={handleRefetch} className={btnSecondaryClass}>
-                  Refresh
-                </button>
-              </div>
             </div>
 
-            {/* <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-              {[
-                ["Total Items", String(orderKpis.totalLines), "Catalog lines"],
-                ["Total Qty", String(orderKpis.totalQty), "Ordered quantity"],
-                ["Pending Qty", String(orderKpis.pendingQty), "Pending dispatch"],
-                ["Dispatched", String(orderKpis.dispatchedQty), "Completed qty"],
-                ["Finance Approved", String(orderKpis.financeApprovedQty), "Approved quantity"],
-                [
-                  "Risk / Flags",
-                  String(orderKpis.openFlags),
-                  orderKpis.openFlags > 0 ? "Needs attention" : "No open flags",
-                ],
-              ].map(([label, value, help]) => (
-                <div
-                  key={label}
-                  className="rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-slate-900"
-                >
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    {label}
-                  </div>
-                  <div className="mt-1 text-base font-bold tabular-nums text-slate-950 dark:text-slate-50">
-                    {value}
-                  </div>
-                  <div className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                    {help}
-                  </div>
-                </div>
-              ))}
-            </div> */}
+            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3 dark:border-white/5">
+              <button
+                type="button"
+                onClick={() => setIsFulfillmentModalOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
+        </div>
+      )}
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
-              <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-3 dark:border-white/10">
-                <div>
-                  <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">
-                    Order Details
-                  </h2>
-                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                    Status, routing, and delivery information.
-                  </p>
-                </div>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(status)}`}
-                >
-                  {formatStatusLabel(status)}
-                </span>
-              </div>
+      {isOrderItemsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-4xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-550 dark:text-slate-50">
+                Order Items
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsOrderItemsModalOpen(false)}
+                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
+              >
+                <span className="sr-only">Close</span>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="mt-4 overflow-y-auto flex-1 pr-1">
+              <OrderTab
+                orderId={orderId}
+                detail={detail}
+                isDraft={isDraft}
+                user={user}
+                refetchOrder={handleRefetch}
+              />
+            </div>
 
+            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3 dark:border-white/5">
+              <button
+                type="button"
+                onClick={() => setIsOrderItemsModalOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isOrderDetailsModalOpen && detail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-2xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
+                Order Details
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsOrderDetailsModalOpen(false)}
+                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
+              >
+                <span className="sr-only">Close</span>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="mt-4 overflow-y-auto flex-1 pr-1">
               <dl className="grid gap-3 text-xs sm:grid-cols-2">
                 <div>
                   <dt className="text-xs font-medium text-slate-500">Order No</dt>
@@ -825,27 +668,41 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                   </dd>
                 </div>
               </dl>
-            </section>
+            </div>
 
-            <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
-              <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-3 dark:border-white/10">
-                <div>
-                  <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">
-                    Party Details
-                  </h2>
-                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                    Counterparty profile and delivery addresses.
-                  </p>
-                </div>
-                {partyDetailQ.data &&
-                typeof partyDetailQ.data === "object" &&
-                "party_type" in partyDetailQ.data ? (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold capitalize text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-950 dark:text-slate-300 dark:ring-white/10">
-                    {String((partyDetailQ.data as Record<string, unknown>).party_type ?? "party")}
-                  </span>
-                ) : null}
-              </div>
+            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3 dark:border-white/5">
+              <button
+                type="button"
+                onClick={() => setIsOrderDetailsModalOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {isPartyDetailsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-2xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-550 dark:text-slate-50">
+                Party Details
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsPartyDetailsModalOpen(false)}
+                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
+              >
+                <span className="sr-only">Close</span>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="mt-4 overflow-y-auto flex-1 pr-1">
               {partyDetailQ.isFetching ? (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   Loading party details...
@@ -919,67 +776,196 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                   No party linked on this order.
                 </p>
               )}
-            </section>
+            </div>
+
+            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3 dark:border-white/5">
+              <button
+                type="button"
+                onClick={() => setIsPartyDetailsModalOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(isFetching || isError || !detail) && (
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={() => router.back()} className={btnSecondaryClass}>
+            Back
+          </button>
+        </div>
+      )}
+
+      {isFetching && (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Loading order...
+        </p>
+      )}
+      {isError && (
+        <p className="text-sm text-rose-600 dark:text-rose-400">
+          Could not load order details.
+        </p>
+      )}
+
+      {!isFetching && !isError && detail && (
+        <>
+          <div className="flex-shrink-0 space-y-3">
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
+
+              {/* ── Top row: breadcrumb + title + meta ── */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    <button type="button" onClick={() => router.back()} className="font-medium text-blue-600 hover:underline dark:text-blue-400">Orders</button>
+                    <span>/</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">Order Details</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="truncate text-lg sm:text-xl font-bold tracking-tight text-slate-950 dark:text-slate-50">
+                      {detail.order_no ? String(detail.order_no) : "Order"}
+                    </h1>
+                    <span className="shrink-0">{renderPriorityBadge(typeof detail.priority === "string" ? detail.priority : "normal")}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    <span>Party: <b className="font-semibold text-slate-700 dark:text-slate-200">{custLabel}</b></span>
+                    <span>Date: {formatDateShort(detail.order_date)}</span>
+                    <span>EDD: {formatDateShort(detail.expected_delivery_date)}</span>
+                  </div>
+                </div>
+                <button type="button" onClick={handleRefetch} className="shrink-0 rounded-lg border border-slate-200/95 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5" title="Refresh">
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                </button>
+              </div>
+
+              {/* ── Info buttons: 3-col on mobile, inline on sm+ ── */}
+              <div className="mt-3 grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 font-sans font-medium">
+                <button type="button" onClick={() => setIsOrderDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  <span>Order Info</span>
+                </button>
+                <button type="button" onClick={() => setIsPartyDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                  <span>Party Info</span>
+                </button>
+                <button type="button" onClick={() => setIsOrderItemsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                  <span>Items List</span>
+                </button>
+                {isDraft && (
+                  <button type="button" onClick={() => setIsEditModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-white shadow-sm transition active:scale-[0.97] cursor-pointer dark:bg-blue-500 dark:hover:bg-blue-400">
+                    <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    <span>Edit Draft</span>
+                  </button>
+                )}
+              </div>
+
+              {/* ── Fulfillment pipeline ── */}
+              <div className="mt-4 border-t border-slate-100 pt-4 dark:border-white/10 flex flex-col w-full bg-slate-50/50 p-3 sm:p-4 rounded-2xl dark:bg-slate-950/20">
+                <div className="flex items-center justify-between mb-3 w-full gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-tight">Fulfillment Pipeline<span className="hidden sm:inline"> (vs {orderKpis.totalQty} ordered)</span></span>
+                  <button type="button" onClick={() => setIsFulfillmentModalOpen(true)} className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-blue-200/80 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[10px] sm:text-xs font-bold text-blue-600 shadow-sm transition dark:border-white/10 dark:bg-slate-950 dark:text-blue-400 dark:hover:bg-white/5 cursor-pointer active:scale-[0.98]">Details</button>
+                </div>
+                <div className="overflow-x-auto -mx-1 px-1 pb-1">
+                  <div className="grid grid-cols-7 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
+                    <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderKpis.totalQty} icon={UserCheck} />
+                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
+                    <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderKpis.totalQty} icon={DollarSign} />
+                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
+                    <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderKpis.totalQty} icon={Package} />
+                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
+                    <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderKpis.totalQty} icon={Truck} />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Action buttons ── */}
+              <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/10">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 font-sans font-medium">
+                  <button type="button" disabled={status !== "draft"} onClick={() => { setSubmitAssignee(resolveUserId(detail?.assigned_admin_user) || ""); setSubmitRemarks(""); setIsSubmitModalOpen(true); }} className="rounded-lg bg-emerald-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400">Submit Order</button>
+                </div>
+              </div>
+
+            </div>
           </div>
 
-          <OrderTab
-            orderId={orderId}
-            detail={detail}
-            isDraft={isDraft}
-            user={user}
-            refetchOrder={handleRefetch}
-          />
+          {/* ── DESKTOP: Tab Content ── */}
+          <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
+            {activeTab === "flags" && (<FlagsTab orderId={orderId} refetchOrder={handleRefetch} />)}
+            {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isLoading} onUploadSuccess={handleRefetch} />)}
+            {activeTab === "finance_approvals" && (<FinanceApprovalsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+            {activeTab === "dispatches" && (<DispatchesTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+            {activeTab === "transports" && (<TransportsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+          </div>
 
-          <OrderDetailTabsNav
-            tabs={[
-              { id: "flags", name: "Flags", count: openFlagsCount, dangerBadge: true },
-              { id: "attachments", name: "Attachments", count: attachmentsCount },
-              { id: "finance_approvals", name: "Finance Approvals & Allocations" },
-              { id: "dispatches", name: "Dispatches" },
-              { id: "transports", name: "Transports" },
-            ]}
-            activeId={activeTab}
-            onChange={(id) => setActiveTab(id as typeof activeTab)}
-          />
-
-          {/* TABS CONTENT */}
-          {activeTab === "flags" && (
-            <FlagsTab orderId={orderId} refetchOrder={handleRefetch} />
-          )}
-
-          {activeTab === "attachments" && (
-            <AttachmentsTab
-              orderId={orderId}
-              attachments={attachmentsList}
-              isLoading={attachmentsQ.isLoading}
+          {/* ── DESKTOP: Footer Tab Nav ── */}
+          <div className="hidden md:block flex-shrink-0 pt-2 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 p-2 rounded-xl">
+            <OrderDetailTabsNav
+              tabs={[
+                { id: "flags", name: "Flags", count: openFlagsCount, dangerBadge: true },
+                { id: "attachments", name: "Attachments", count: attachmentsCount },
+                { id: "finance_approvals", name: "Finance Approvals & Allocations" },
+                { id: "dispatches", name: "Dispatches" },
+                { id: "transports", name: "Transports" },
+              ]}
+              activeId={activeTab}
+              onChange={(id) => setActiveTab(id as typeof activeTab)}
             />
-          )}
+          </div>
 
-          {activeTab === "finance_approvals" && (
-            <FinanceApprovalsTab
-              orderId={orderId}
-              detail={detail}
-              refetchOrder={handleRefetch}
-            />
-          )}
-
-          {activeTab === "dispatches" && (
-            <DispatchesTab
-              orderId={orderId}
-              detail={detail}
-              refetchOrder={handleRefetch}
-            />
-          )}
-
-          {activeTab === "transports" && (
-            <TransportsTab
-              orderId={orderId}
-              detail={detail}
-              refetchOrder={handleRefetch}
-            />
+          {/* ── MOBILE: Full-screen popup ── */}
+          {mobileTabOpen && (
+            <div className="md:hidden fixed inset-0 z-[60] flex flex-col bg-white dark:bg-slate-900">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-0 z-10">
+                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-50">
+                  {activeTab === "flags" && "Flags"}{activeTab === "attachments" && "Attachments"}{activeTab === "finance_approvals" && "Finance Approvals"}{activeTab === "dispatches" && "Dispatches"}{activeTab === "transports" && "Transports"}
+                </h2>
+                <button type="button" onClick={() => setMobileTabOpen(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10 transition" aria-label="Close panel">
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 pb-24">
+                {activeTab === "flags" && (<FlagsTab orderId={orderId} refetchOrder={handleRefetch} />)}
+                {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isLoading} onUploadSuccess={handleRefetch} />)}
+                {activeTab === "finance_approvals" && (<FinanceApprovalsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+                {activeTab === "dispatches" && (<DispatchesTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+                {activeTab === "transports" && (<TransportsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+              </div>
+            </div>
           )}
         </>
+      )}
+
+      {/* ── MOBILE: Bottom Tab Nav ── */}
+      {!isFetching && !isError && detail && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 dark:border-white/10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2">
+          <nav className="flex items-stretch justify-around">
+            {([
+              { id: "flags" as const, name: "Flags", count: openFlagsCount, dangerBadge: true, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg> },
+              { id: "attachments" as const, name: "Files", count: attachmentsCount, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg> },
+              { id: "finance_approvals" as const, name: "Approvals", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
+              { id: "dispatches" as const, name: "Dispatch", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg> },
+              { id: "transports" as const, name: "Transport", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2.556-2.556M13 16H9m4 0h2m2 0h.01M13 16V6m0 0h3l3 4v6h-1M6 16H5m8-10H5" /></svg> },
+            ]).map((tab) => {
+              const isActive = activeTab === tab.id && mobileTabOpen;
+              return (
+                <button key={tab.id} type="button" onClick={() => { if (activeTab === tab.id && mobileTabOpen) { setMobileTabOpen(false); } else { setActiveTab(tab.id); setMobileTabOpen(true); } }} className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 px-2 flex-1 min-w-0 transition-colors ${isActive ? "text-blue-600 dark:text-blue-400" : "text-slate-500 dark:text-slate-400"}`}>
+                  <span className={`relative transition-transform ${isActive ? "scale-110" : ""}`}>
+                    {tab.icon}
+                    {tab.count !== undefined && tab.count > 0 && (<span className={`absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 flex items-center justify-center rounded-full px-1 text-[9px] font-bold ${tab.dangerBadge ? "bg-rose-500 text-white" : "bg-slate-600 text-white dark:bg-slate-300 dark:text-slate-900"}`}>{tab.count}</span>)}
+                  </span>
+                  <span className={`text-[10px] font-semibold leading-none truncate max-w-full ${isActive ? "text-blue-600 dark:text-blue-400" : ""}`}>{tab.name}</span>
+                  {isActive && <span className="absolute top-0 left-2 right-2 h-0.5 rounded-full bg-blue-600 dark:bg-blue-400" />}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
       )}
     </div>
   );
 }
+
+
