@@ -182,8 +182,6 @@ function registerModels() {
       ],
       sku: {
         type: String,
-        unique: true,
-        sparse: true,
         uppercase: true,
         trim: true,
         index: true,
