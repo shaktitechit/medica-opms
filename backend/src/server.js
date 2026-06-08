@@ -13,8 +13,6 @@ const workers = require('./workers');
 
 db.connect()
   .then(async () => {
-    const { bootstrap } = require('./data/seedMongo');
-    await bootstrap();
     queues.registerQueues(logger);
     workers.startAll(logger);
     const app = require('./app');
