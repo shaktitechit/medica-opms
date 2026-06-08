@@ -6,8 +6,8 @@ const asyncHandler = require('../../utils/asyncHandler');
 const service = require('./product.service');
 const validation = require('./product.validation');
 
-exports.list = asyncHandler(async (_req, res) => {
-  res.json({ success: true, data: await service.list() });
+exports.list = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await service.list(req.query) });
 });
 
 exports.get = asyncHandler(async (req, res) => {

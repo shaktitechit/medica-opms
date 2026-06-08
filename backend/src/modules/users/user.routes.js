@@ -13,6 +13,6 @@ router.get('/permissions', requirePermissions('users:manage', '*'), controller.p
 router.get('/', controller.list);
 router.post('/', requirePermissions('users:manage', '*'), controller.create);
 router.get('/:id', requirePermissions('users:manage', '*'), controller.get);
-router.patch('/:id', requirePermissions('users:manage', '*'), controller.patch);
+router.patch('/:id', controller.patch);
 
 module.exports = router;

@@ -45,6 +45,11 @@ module.exports = {
   SMTP_USER: process.env.SMTP_USER || '',
   SMTP_PASS: process.env.SMTP_PASS || '',
 
+  /** WhatsApp Cloud API Configuration */
+  WHATSAPP_ACCESS_TOKEN: process.env.WHATSAPP_ACCESS_TOKEN || '',
+  WHATSAPP_PHONE_NUMBER_ID: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
+  WHATSAPP_API_VERSION: process.env.WHATSAPP_API_VERSION || 'v19.0',
+
   /** Bull / ioredis / future queue driver */
   REDIS_URL: process.env.REDIS_URL || '',
 

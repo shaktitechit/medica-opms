@@ -205,11 +205,10 @@ function PartyAutocomplete({
                     onChange(id);
                     setIsOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-white/5 ${
-                    isSelected
+                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-white/5 ${isSelected
                       ? "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 font-medium"
                       : "text-slate-800 dark:text-slate-200"
-                  }`}
+                    }`}
                 >
                   <span>
                     {name}
@@ -330,11 +329,10 @@ function ProductAutocomplete({
                     onChange(id);
                     setIsOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition hover:bg-slate-50 dark:hover:bg-white/5 ${
-                    isSelected
+                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition hover:bg-slate-50 dark:hover:bg-white/5 ${isSelected
                       ? "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 font-medium"
                       : "text-slate-800 dark:text-slate-200"
-                  }`}
+                    }`}
                 >
                   <span className="truncate">
                     {name}
@@ -551,7 +549,7 @@ export default function CreateOrderPage() {
             ? `Draft order ${data.order_no} created successfully`
             : "Draft order created successfully"
         );
-        router.push("/sales/my-orders");
+        router.push("/sales/orders");
       } catch (rejected) {
         toast.error(mutationRejectedMessage(rejected));
       }
@@ -707,9 +705,9 @@ export default function CreateOrderPage() {
                             prev.map((l) =>
                               l.key === row.key
                                 ? {
-                                    ...l,
-                                    quantity: Number(e.target.value) || 0,
-                                  }
+                                  ...l,
+                                  quantity: Number(e.target.value) || 0,
+                                }
                                 : l,
                             ),
                           )
@@ -733,9 +731,9 @@ export default function CreateOrderPage() {
                             prev.map((l) =>
                               l.key === row.key
                                 ? {
-                                    ...l,
-                                    free_qty: Number(e.target.value) || 0,
-                                  }
+                                  ...l,
+                                  free_qty: Number(e.target.value) || 0,
+                                }
                                 : l,
                             ),
                           )
@@ -778,9 +776,9 @@ export default function CreateOrderPage() {
                             prev.map((l) =>
                               l.key === row.key
                                 ? {
-                                    ...l,
-                                    remarks: e.target.value,
-                                  }
+                                  ...l,
+                                  remarks: e.target.value,
+                                }
                                 : l,
                             ),
                           )

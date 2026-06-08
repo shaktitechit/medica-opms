@@ -320,7 +320,7 @@ async function bootstrap() {
   const plain = process.env.SEED_PASSWORD || 'ChangeMe123!';
   await syncExampleUsersToMongo(plain);
 
-  const { User, Party, Product, Vehicle, Driver } = getModels();
+  const { User, Party, Product, Vehicle, Driver, TransportAgent } = getModels();
   const admin = await User.findOne({ email: 'admin@medica.example' }).lean();
 
   const catalog = { seeded: false, parties: 0, products: 0 };
@@ -375,6 +375,18 @@ async function bootstrap() {
     catalog.products = products.length;
   }
 
+  let defaultAgent = await TransportAgent.findOne();
+  if (!defaultAgent) {
+    defaultAgent = await TransportAgent.create({
+      agent_code: 'TA0001',
+      agent_name: 'Internal Fleet Agent',
+      agent_type: 'internal_fleet',
+      status: 'active',
+      is_active: true,
+      created_by: admin._id,
+    });
+  }
+
   if (!(await Vehicle.estimatedDocumentCount())) {
     await Vehicle.create({
       vehicle_no: 'MH12AB1234',
@@ -383,6 +395,7 @@ async function bootstrap() {
       ownership_type: 'owned',
       status: 'available',
       is_active: true,
+      transport_agent: defaultAgent._id,
     });
   }
 
@@ -393,6 +406,7 @@ async function bootstrap() {
       license_no: 'MH04201100001234',
       status: 'available',
       is_active: true,
+      transport_agent: defaultAgent._id,
     });
   }
 

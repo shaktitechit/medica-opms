@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import OrderVolumeChart from "./OrderVolumeChart";
+import SalesOverviewWidgets from "./SalesOverviewWidgets";
+import RecentOrdersWidget from "./RecentOrdersWidget";
 import {
   useGetDashboardSalesQuery,
   useListOrdersQuery,
@@ -10,52 +13,20 @@ import {
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
+import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
   buildPartyNameById,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import {
-  FileText,
-  Clock,
-  TrendingUp,
   FilePlus,
-  ClipboardList,
-  Users,
-  Package,
   RefreshCw,
   ArrowRight,
-  ChevronRight,
   AlertTriangle,
   Info,
-  Calendar,
   Flag,
   ExternalLink,
 } from "lucide-react";
-
-// Helper for status badge styling
-function getStatusBadgeClass(status?: string): string {
-  const s = (status || "").toLowerCase();
-  if (s === "draft") {
-    return "bg-slate-100 text-slate-800 ring-1 ring-slate-600/10 dark:bg-slate-900/40 dark:text-slate-400 dark:ring-white/10";
-  }
-  if (s === "submitted" || s === "sales_approved" || s === "on_hold") {
-    return "bg-amber-50 text-amber-800 ring-1 ring-amber-600/10 dark:bg-amber-950/20 dark:text-amber-400 dark:ring-amber-500/20";
-  }
-  if (s === "finance_review" || s === "finance_rejected") {
-    return "bg-rose-50 text-rose-800 ring-1 ring-rose-600/10 dark:bg-rose-950/20 dark:text-rose-400 dark:ring-rose-500/20";
-  }
-  if (
-    s.includes("dispatch") ||
-    s.includes("transport") ||
-    s.includes("transit")
-  ) {
-    return "bg-blue-50 text-blue-800 ring-1 ring-blue-600/10 dark:bg-blue-950/20 dark:text-blue-400 dark:ring-blue-500/20";
-  }
-  if (s === "delivered" || s.includes("paid") || s === "closed") {
-    return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-600/10 dark:bg-emerald-950/20 dark:text-emerald-400 dark:ring-emerald-500/20";
-  }
-  return "bg-slate-50 text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-900/20 dark:text-slate-400 dark:ring-white/5";
-}
 
 // Helper for flag severity styling
 function getSeverityBadgeClass(severity?: string): string {
@@ -93,6 +64,33 @@ function extractFlags(raw: unknown): unknown[] {
   return [];
 }
 
+function getOrderTabCategory(order: unknown): "draft" | "open" | "closed" | "on_hold" | "cancelled" | "rejected" {
+  if (!order || typeof order !== "object") return "open";
+  const row = order as Record<string, unknown>;
+  const status = deriveOrderWorkflowStatus(row);
+
+  if (status === "draft") return "draft";
+  if (status === "on_hold") return "on_hold";
+  if (status === "cancelled") return "cancelled";
+  if (status === "finance_rejected") return "rejected";
+
+  // Calculate quantities from items
+  const items = Array.isArray(row.order_items) ? row.order_items : [];
+  let ordered = 0;
+  let delivered = 0;
+  items.forEach((line: any) => {
+    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
+    delivered += Number(line.delivered_quantity ?? 0);
+  });
+
+  // An order which is delivered less than what have been ordered will be in open order list
+  if (ordered > 0 && delivered >= ordered) {
+    return "closed";
+  }
+
+  return "open";
+}
+
 export default function SalesOverview() {
   // 1. Redux State & Hooks
   const user = useAppSelector((state) => state.auth.user);
@@ -123,16 +121,36 @@ export default function SalesOverview() {
   } = useListFlagsQuery({});
 
   // 2. Data processing
-  const salesKpi = kpiData as
-    | { my_orders?: number; draft?: number; pending_submit?: number }
-    | undefined;
+  const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
-  const draftCount = salesKpi?.draft ?? 0;
-  const submittedCount = Math.max(
-    0,
-    (salesKpi?.pending_submit ?? 0) - draftCount
-  );
-  const totalCount = salesKpi?.my_orders ?? 0;
+  const orderStats = useMemo(() => {
+    const stats = {
+      draft: { count: 0, quantity: 0 },
+      open: { count: 0, quantity: 0 },
+      closed: { count: 0, quantity: 0 },
+      on_hold: { count: 0, quantity: 0 },
+      rejected: { count: 0, quantity: 0 },
+      cancelled: { count: 0, quantity: 0 },
+    };
+
+    for (const o of orders) {
+      const cat = getOrderTabCategory(o);
+      const items = Array.isArray(o.order_items) ? o.order_items : [];
+      let orderQty = 0;
+      items.forEach((item: any) => {
+        orderQty += Number(item.ordered_quantity ?? item.quantity ?? 0);
+      });
+
+      if (cat in stats) {
+        stats[cat].count++;
+        stats[cat].quantity += orderQty;
+      }
+    }
+
+    return stats;
+  }, [orders]);
+
+  const totalOrdersCount = orders.length;
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
@@ -140,26 +158,24 @@ export default function SalesOverview() {
   );
 
   const orderNoById = useMemo(() => {
-    const list = pickOrders(ordersData) as any[];
     const map = new Map<string, string>();
-    for (const o of list) {
+    for (const o of orders) {
       const id = o._id != null ? String(o._id) : o.id != null ? String(o.id) : "";
       const ref = o.order_no || o.order_number || "";
       if (id && ref) map.set(id, ref);
     }
     return map;
-  }, [ordersData]);
+  }, [orders]);
 
   const recentOrders = useMemo(() => {
-    const list = pickOrders(ordersData) as any[];
-    return [...list]
+    return [...orders]
       .sort((a, b) => {
         const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bTime - aTime; // descending (newest first)
       })
-      .slice(0, 5);
-  }, [ordersData]);
+      .slice(0, 3);
+  }, [orders]);
 
   // Extract and filter flags
   const relevantFlags = useMemo(() => {
@@ -195,14 +211,14 @@ export default function SalesOverview() {
   const isAnyLoading =
     isKpiFetching || isOrdersFetching || isFlagsFetching || isRefreshing;
 
+
   // Compute stats for visualization (e.g. order mix)
-  const draftPercent = totalCount > 0 ? (draftCount / totalCount) * 100 : 0;
-  const submittedPercent =
-    totalCount > 0 ? (submittedCount / totalCount) * 100 : 0;
-  const otherPercent =
-    totalCount > 0
-      ? ((totalCount - draftCount - submittedCount) / totalCount) * 100
-      : 0;
+  const draftPercent = totalOrdersCount > 0 ? (orderStats.draft.count / totalOrdersCount) * 100 : 0;
+  const openPercent = totalOrdersCount > 0 ? (orderStats.open.count / totalOrdersCount) * 100 : 0;
+  const closedPercent = totalOrdersCount > 0 ? (orderStats.closed.count / totalOrdersCount) * 100 : 0;
+  const onHoldPercent = totalOrdersCount > 0 ? (orderStats.on_hold.count / totalOrdersCount) * 100 : 0;
+  const rejectedPercent = totalOrdersCount > 0 ? (orderStats.rejected.count / totalOrdersCount) * 100 : 0;
+  const cancelledPercent = totalOrdersCount > 0 ? (orderStats.cancelled.count / totalOrdersCount) * 100 : 0;
 
   return (
     <div className="space-y-8 pb-10">
@@ -225,9 +241,8 @@ export default function SalesOverview() {
             className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             <RefreshCw
-              className={`h-4 w-4 text-slate-500 dark:text-slate-400 ${
-                isAnyLoading ? "animate-spin" : ""
-              }`}
+              className={`h-4 w-4 text-slate-500 dark:text-slate-400 ${isAnyLoading ? "animate-spin" : ""
+                }`}
             />
             Refresh Hub
           </button>
@@ -243,336 +258,20 @@ export default function SalesOverview() {
       </div>
 
       {/* KPI METRICS CARDS */}
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-        {/* CARD 1: DRAFT ORDERS */}
-        <div className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md dark:border-white/10 dark:bg-slate-900">
-          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-slate-400 to-slate-500" />
-          <div className="flex items-center justify-between">
-            <div className="rounded-lg bg-slate-100 p-2.5 dark:bg-slate-800">
-              <FileText className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-            </div>
-            <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">
-              DRAFTS
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-              {isKpiFetching ? (
-                <span className="inline-block h-8 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
-              ) : (
-                draftCount
-              )}
-            </h3>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Orders currently in preparation
-            </p>
-          </div>
-          <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 dark:border-white/5">
-            <Link
-              href="/sales/draft-order"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 transition group-hover:text-blue-700 dark:text-blue-400 dark:group-hover:text-blue-300"
-            >
-              Resume Drafts
-              <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-            </Link>
-          </div>
-        </div>
+      <SalesOverviewWidgets orders={orders} isOrdersFetching={isOrdersFetching} />
 
-        {/* CARD 2: PENDING SUBMISSION */}
-        <div className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md dark:border-white/10 dark:bg-slate-900">
-          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-amber-400 to-amber-500" />
-          <div className="flex items-center justify-between">
-            <div className="rounded-lg bg-amber-50 p-2.5 dark:bg-amber-950/20">
-              <Clock className="h-5 w-5 text-amber-600 dark:text-amber-450" />
-            </div>
-            <span className="text-[10px] font-semibold text-amber-500 dark:text-amber-600">
-              AWAITING APPROVAL
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-              {isKpiFetching ? (
-                <span className="inline-block h-8 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
-              ) : (
-                submittedCount
-              )}
-            </h3>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Awaiting verification and sign-off
-            </p>
-          </div>
-          <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 dark:border-white/5">
-            <Link
-              href="/sales/submitted-orders"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 transition group-hover:text-amber-700 dark:text-amber-400 dark:group-hover:text-amber-300"
-            >
-              Track Submissions
-              <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-            </Link>
-          </div>
-        </div>
-
-        {/* CARD 3: TOTAL PORTFOLIO */}
-        <div className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md dark:border-white/10 dark:bg-slate-900">
-          <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-emerald-450 to-teal-500" />
-          <div className="flex items-center justify-between">
-            <div className="rounded-lg bg-emerald-50 p-2.5 dark:bg-emerald-950/20">
-              <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <span className="text-[10px] font-semibold text-emerald-500 dark:text-emerald-400">
-              MY PORTFOLIO
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-              {isKpiFetching ? (
-                <span className="inline-block h-8 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
-              ) : (
-                totalCount
-              )}
-            </h3>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Total orders assigned to your portal
-            </p>
-          </div>
-          <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 dark:border-white/5">
-            <Link
-              href="/sales/my-orders"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 transition group-hover:text-emerald-700 dark:text-emerald-450 dark:group-hover:text-emerald-350"
-            >
-              View Order Pipeline
-              <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      {/* QUICK ACTIONS GRID */}
-      <div className="space-y-3">
-        <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-          Quick Actions
-        </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Link
-            href="/sales/create-order"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-blue-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-blue-50 p-2 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400">
-                <FilePlus className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-150">
-                Create Order Draft
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Add medical products, party context, and delivery requirements.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-medium text-blue-600 dark:text-blue-400">
-              Start draft
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          <Link
-            href="/sales/my-orders"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-violet-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-violet-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-violet-50 p-2 text-violet-600 dark:bg-violet-950/30 dark:text-violet-400">
-                <ClipboardList className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-150">
-                Order Pipeline
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                View status distribution, approvals, dispatch status, and collections.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-medium text-violet-600 dark:text-violet-400">
-              View pipeline
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          <Link
-            href="/sales/parties"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-teal-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-teal-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-teal-50 p-2 text-teal-600 dark:bg-teal-950/30 dark:text-teal-400">
-                <Users className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-150">
-                Parties
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Browse counterparty listings, contacts, billing, and account notes.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-medium text-teal-600 dark:text-teal-400">
-              Manage accounts
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          <Link
-            href="/sales/products"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-amber-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-amber-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
-                <Package className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-150">
-                Product Catalog
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                View medical stock availability, unit packaging formats, and list rates.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-medium text-amber-600 dark:text-amber-400">
-              Browse inventory
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-        </div>
-      </div>
+      {/* ANALYTICS CHART SECTION */}
+      <OrderVolumeChart orders={orders} isOrdersFetching={isOrdersFetching} />
 
       {/* TWO COLUMN GRID: RECENT ORDERS & STATS / FLAGS */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* RECENT ORDERS TABLE */}
-        <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-white/5">
-            <div>
-              <h3 className="font-bold text-slate-900 dark:text-slate-100">
-                Recent Orders
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Overview of your 5 latest order entries
-              </p>
-            </div>
-            <Link
-              href="/sales/my-orders"
-              className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-            >
-              See all
-            </Link>
-          </div>
-
-          <div className="mt-4 overflow-x-auto">
-            {isOrdersFetching && (
-              <div className="space-y-3 py-6">
-                {[...Array(3)].map((_, idx) => (
-                  <div
-                    key={idx}
-                    className="h-10 w-full animate-pulse rounded bg-slate-100 dark:bg-slate-800"
-                  />
-                ))}
-              </div>
-            )}
-
-            {isOrdersError && (
-              <div className="flex items-center gap-2 rounded-lg bg-rose-50 p-4 text-xs text-rose-800 dark:bg-rose-950/20 dark:text-rose-450 my-4">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                Could not fetch recent orders. Please check your credentials or network.
-              </div>
-            )}
-
-            {!isOrdersFetching && !isOrdersError && recentOrders.length === 0 && (
-              <div className="py-12 text-center">
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  No orders created yet in your portfolio.
-                </p>
-                <Link
-                  href="/sales/create-order"
-                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:bg-blue-900/30"
-                >
-                  Create your first order draft
-                  <ArrowRight className="h-3 w-3" />
-                </Link>
-              </div>
-            )}
-
-            {!isOrdersFetching && !isOrdersError && recentOrders.length > 0 && (
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 text-slate-500 dark:border-white/5 dark:text-slate-450">
-                    <th className="pb-2 font-semibold">Ref</th>
-                    <th className="pb-2 font-semibold">Party</th>
-                    <th className="pb-2 font-semibold text-right">Amount</th>
-                    <th className="pb-2 font-semibold text-center">Priority</th>
-                    <th className="pb-2 font-semibold">Status</th>
-                    <th className="pb-2 text-right"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-150/40 dark:divide-white/5">
-                  {recentOrders.map((o) => {
-                    const id =
-                      o._id != null
-                        ? String(o._id)
-                        : o.id != null
-                          ? String(o.id)
-                          : "";
-                    const ref = o.order_no || o.order_number || id || "—";
-                    const total = Number(o.grand_total ?? o.total ?? 0);
-                    const pri = o.priority || "normal";
-                    const status = o.status || "draft";
-                    const cust = resolveOrderCounterparty(
-                      o as Record<string, unknown>,
-                      partyNameById
-                    );
-
-                    return (
-                      <tr key={id} className="hover:bg-slate-50/20">
-                        <td className="py-2.5 font-mono text-[11px] text-slate-900 dark:text-slate-100">
-                          {ref.slice(0, 12)}
-                        </td>
-                        <td
-                          className="max-w-[140px] truncate py-2.5 pr-2 text-slate-800 dark:text-slate-200"
-                          title={cust}
-                        >
-                          {cust}
-                        </td>
-                        <td className="py-2.5 text-right font-medium tabular-nums text-slate-900 dark:text-slate-100">
-                          {Number.isFinite(total) ? total.toFixed(2) : "0.00"}
-                        </td>
-                        <td className="py-2.5 text-center capitalize">
-                          <span
-                            className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                              pri === "high" || pri === "urgent"
-                                ? "bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-450"
-                                : "text-slate-500 dark:text-slate-400"
-                            }`}
-                          >
-                            {pri}
-                          </span>
-                        </td>
-                        <td className="py-2.5">
-                          <span
-                            className={`inline-block rounded px-2 py-0.5 text-[10px] font-medium tracking-wide ${getStatusBadgeClass(
-                              status
-                            )}`}
-                          >
-                            {formatStatusLabel(status)}
-                          </span>
-                        </td>
-                        <td className="py-2.5 text-right">
-                          <Link
-                            href={`/sales/order/${id}`}
-                            className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                          >
-                            View
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
+        <RecentOrdersWidget
+          recentOrders={recentOrders}
+          isOrdersFetching={isOrdersFetching}
+          isOrdersError={isOrdersError}
+          partyNameById={partyNameById}
+        />
 
         {/* SIDE COLUMN: STATS & REPRESENTATIVE FLAGS */}
         <div className="space-y-6">
@@ -586,61 +285,96 @@ export default function SalesOverview() {
             </p>
 
             <div className="mt-4">
-              {isKpiFetching ? (
+              {isOrdersFetching ? (
                 <div className="h-6 w-full animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
-              ) : totalCount > 0 ? (
+              ) : totalOrdersCount > 0 ? (
                 <div className="space-y-4">
                   {/* Stacked Segmented Progress Bar */}
                   <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                     <div
-                      className="bg-slate-400 transition-all duration-500"
                       style={{ width: `${draftPercent}%` }}
-                      title={`Drafts: ${draftCount}`}
-                    />
-                    <div
-                      className="bg-amber-400 transition-all duration-500"
-                      style={{ width: `${submittedPercent}%` }}
-                      title={`Awaiting Approval: ${submittedCount}`}
+                      title={`Drafts: ${orderStats.draft.count}`}
                     />
                     <div
                       className="bg-blue-500 transition-all duration-500"
-                      style={{ width: `${otherPercent}%` }}
-                      title={`Processed: ${
-                        totalCount - draftCount - submittedCount
-                      }`}
+                      style={{ width: `${openPercent}%` }}
+                      title={`Open: ${orderStats.open.count}`}
+                    />
+                    <div
+                      className="bg-emerald-500 transition-all duration-500"
+                      style={{ width: `${closedPercent}%` }}
+                      title={`Closed: ${orderStats.closed.count}`}
+                    />
+                    <div
+                      className="bg-amber-450 transition-all duration-500"
+                      style={{ width: `${onHoldPercent}%` }}
+                      title={`On Hold: ${orderStats.on_hold.count}`}
+                    />
+                    <div
+                      className="bg-red-500 transition-all duration-500"
+                      style={{ width: `${rejectedPercent}%` }}
+                      title={`Rejected: ${orderStats.rejected.count}`}
+                    />
+                    <div
+                      className="bg-rose-500 transition-all duration-500"
+                      style={{ width: `${cancelledPercent}%` }}
+                      title={`Cancelled: ${orderStats.cancelled.count}`}
                     />
                   </div>
 
                   {/* Legend Grid */}
                   <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] font-medium pt-1">
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
+                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
                       <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
                       <span>Drafts:</span>
                       <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {draftCount} ({draftPercent.toFixed(0)}%)
+                        {orderStats.draft.count} ({draftPercent.toFixed(0)}%)
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
-                      <span className="h-2 w-2 rounded-full bg-amber-450 shrink-0" />
-                      <span>Awaiting:</span>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {submittedCount} ({submittedPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455 col-span-2">
+                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
                       <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" />
-                      <span>Processed:</span>
+                      <span>Open:</span>
                       <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {totalCount - draftCount - submittedCount} (
-                        {otherPercent.toFixed(0)}%)
+                        {orderStats.open.count} ({openPercent.toFixed(0)}%)
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                      <span>Closed:</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
+                        {orderStats.closed.count} ({closedPercent.toFixed(0)}%)
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                      <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                      <span>On Hold:</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
+                        {orderStats.on_hold.count} ({onHoldPercent.toFixed(0)}%)
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                      <span className="h-2 w-2 rounded-full bg-red-500 shrink-0" />
+                      <span>Rejected:</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
+                        {orderStats.rejected.count} ({rejectedPercent.toFixed(0)}%)
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                      <span className="h-2 w-2 rounded-full bg-rose-500 shrink-0" />
+                      <span>Cancelled:</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
+                        {orderStats.cancelled.count} ({cancelledPercent.toFixed(0)}%)
                       </span>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 rounded-lg bg-slate-50 p-4 text-xs text-slate-500 dark:bg-slate-950/20 dark:text-slate-400">
+                <div className="flex items-center gap-2 rounded-lg bg-slate-50 p-4 text-xs text-slate-500 dark:bg-slate-955/20 dark:text-slate-400">
                   <Info className="h-4 w-4 text-slate-400 shrink-0" />
                   No order data to visualize distribution. Start by drafting a new order.
                 </div>

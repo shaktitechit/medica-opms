@@ -4,6 +4,7 @@
  */
 const notificationWorker = require('./notification.worker');
 const reportWorker = require('./report.worker');
+const messageWorker = require('./message.worker');
 
 let activeWorkers = {};
 
@@ -15,6 +16,7 @@ function startAll(logger = console) {
 
   // Start real BullMQ workers
   activeWorkers.notification = notificationWorker.start();
+  activeWorkers.message = messageWorker.start();
 
   logger.info('[workers] Background workers started.');
 }
@@ -27,6 +29,12 @@ function stopAll(logger = console) {
   if (activeWorkers.notification) {
     activeWorkers.notification.close().catch((err) => {
       logger.error(`[workers] Error closing notification worker: ${err.message}`);
+    });
+  }
+
+  if (activeWorkers.message) {
+    activeWorkers.message.close().catch((err) => {
+      logger.error(`[workers] Error closing message worker: ${err.message}`);
     });
   }
 

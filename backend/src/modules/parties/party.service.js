@@ -46,8 +46,58 @@ function sanitizePatch(patch) {
   return out;
 }
 
-async function list() {
-  const rows = await getModels().Party.find().sort({ createdAt: -1 }).lean();
+async function list(query = {}) {
+  const { Party } = getModels();
+
+  const paginate = query.paginate === 'true';
+  const page = Math.max(Number(query.page) || 1, 1);
+  const limit = Math.max(Number(query.limit) || 10, 1);
+  const skip = (page - 1) * limit;
+
+  const mongoFilter = { deletedAt: null };
+
+  if (query.search && String(query.search).trim()) {
+    const s = String(query.search).trim();
+    mongoFilter.$or = [
+      { party_name: { $regex: s, $options: 'i' } },
+      { contact_person: { $regex: s, $options: 'i' } },
+      { mobile: { $regex: s, $options: 'i' } },
+      { gst_no: { $regex: s, $options: 'i' } }
+    ];
+  }
+
+  if (query.type && query.type !== 'all') {
+    mongoFilter.party_type = query.type;
+  }
+
+  if (query.status && query.status !== 'all') {
+    if (query.status === 'active') {
+      mongoFilter.is_active = { $ne: false };
+    } else if (query.status === 'inactive') {
+      mongoFilter.is_active = false;
+    }
+  }
+
+  if (paginate) {
+    const [total, rows] = await Promise.all([
+      Party.countDocuments(mongoFilter),
+      Party.find(mongoFilter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
+
+    return {
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
+      data: rows.map(toPlain),
+    };
+  }
+
+  const rows = await Party.find(mongoFilter).sort({ createdAt: -1 }).lean();
   return rows.map(toPlain);
 }
 

@@ -208,10 +208,28 @@ function applyVisibilityFilter(q, user) {
 /** Active orders only (no trash filter here). Optional filters: status, exclude_status ($nin), customer, or party ObjectId. */
 async function list(query = {}, user) {
   const q = {};
-  const { status, customer, party, exclude_status } = query;
+  const { status, customer, party, exclude_status, search, priority } = query;
+
   if (status) {
     const s = String(status).toLowerCase();
-    if (s === 'draft' || s === 'submitted' || s === 'sales_approved' || s === 'finance_review' || s === 'cancelled' || s === 'on_hold') {
+    if (s === 'pending_review') {
+      q.$or = [{ workflow_stage: 'admin_review' }, { status: 'submitted' }];
+    } else if (s === 'rejected') {
+      q.$or = [{ finance_approval_status: 'rejected' }, { status: 'finance_rejected' }];
+    } else if (s === 'closed') {
+      q.$or = [
+        { delivery_status: 'completed' },
+        { lifecycle_status: 'fulfilled' },
+        { status: 'delivered' },
+        { workflow_stage: 'completed' }
+      ];
+    } else if (s === 'open') {
+      q.status = { $nin: ['draft', 'cancelled', 'finance_rejected', 'submitted', 'on_hold', 'delivered'] };
+      q.workflow_stage = { $nin: ['admin_review', 'completed'] };
+      q.delivery_status = { $ne: 'completed' };
+      q.lifecycle_status = { $ne: 'fulfilled' };
+      q.finance_approval_status = { $ne: 'rejected' };
+    } else if (s === 'draft' || s === 'submitted' || s === 'sales_approved' || s === 'finance_review' || s === 'cancelled' || s === 'on_hold') {
       q.status = status;
     } else if (s === 'dispatch_review') {
       q.workflow_stage = 'dispatch_review';
@@ -240,7 +258,72 @@ async function list(query = {}, user) {
   }
   if (customer) q.customer = customer;
   if (party) q.party = party;
-  applyVisibilityFilter(q, user);
+
+  if (priority && priority !== 'all') {
+    q.priority = String(priority).toLowerCase();
+  }
+
+  const visibilityOr = [];
+  if (user && user.department !== 'super_admin') {
+    visibilityOr.push(
+      { created_by: user._id },
+      { assigned_sales_user: user._id },
+      { assigned_finance_user: user._id },
+      { assigned_dispatch_user: user._id },
+      { assigned_admin_user: user._id }
+    );
+  }
+
+  const andConditions = [];
+  if (visibilityOr.length > 0) {
+    andConditions.push({ $or: visibilityOr });
+  }
+
+  if (search && String(search).trim()) {
+    const searchRegex = new RegExp(String(search).trim(), 'i');
+    const PartyModel = getModels().Party;
+    const matchingParties = await PartyModel.find({
+      party_name: searchRegex
+    }).select('_id').lean();
+    const partyIds = matchingParties.map(p => p._id);
+
+    andConditions.push({
+      $or: [
+        { order_no: searchRegex },
+        { order_number: searchRegex },
+        { party: { $in: partyIds } }
+      ]
+    });
+  }
+
+  if (andConditions.length > 0) {
+    q.$and = andConditions;
+  }
+
+  const paginate = query.paginate === 'true';
+  const page = Math.max(Number(query.page) || 1, 1);
+  const limit = Math.max(Number(query.limit) || 10, 1);
+  const skip = (page - 1) * limit;
+
+  if (paginate) {
+    const [total, rows] = await Promise.all([
+      getModels().Order.countDocuments(q),
+      getModels().Order.find(q)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
+
+    return {
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
+      data: rows.map((r) => toPlain(r)),
+    };
+  }
+
   const rows = await getModels().Order.find(q).sort({ createdAt: -1 }).lean();
   return rows.map((r) => toPlain(r));
 }

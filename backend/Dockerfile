@@ -10,6 +10,6 @@ RUN npm ci --omit=dev
 COPY src ./src
 COPY scripts ./scripts
 
-EXPOSE 5000
+EXPOSE 5001
 
 CMD ["node", "src/server.js"]
