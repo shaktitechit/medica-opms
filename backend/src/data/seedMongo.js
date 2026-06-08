@@ -333,7 +333,6 @@ async function bootstrap() {
   const existingParties = await Party.find({
     party_name: { $in: samplePartyNames },
   })
-    .withDeleted()
     .select('party_name')
     .lean();
   const existingPartyNames = new Set(
@@ -357,7 +356,6 @@ async function bootstrap() {
 
   const sampleSkus = SAMPLE_PRODUCTS.map((product) => product.sku);
   const existingProducts = await Product.find({ sku: { $in: sampleSkus } })
-    .withDeleted()
     .select('sku')
     .lean();
   const existingSkus = new Set(existingProducts.map((product) => product.sku));
@@ -377,7 +375,7 @@ async function bootstrap() {
     catalog.products = products.length;
   }
 
-  let defaultAgent = await TransportAgent.findOne().withDeleted();
+  let defaultAgent = await TransportAgent.findOne();
   if (!defaultAgent) {
     defaultAgent = await TransportAgent.create({
       agent_code: 'TA0001',

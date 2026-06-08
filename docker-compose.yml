@@ -56,8 +56,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 5001
-      MONGO_URI: mongodb+srv://devpajitkumar_db_user:Ajit%402025@cluster0.retpy7y.mongodb.net/medica
-      MONGODB_URI: mongodb+srv://devpajitkumar_db_user:Ajit%402025@cluster0.retpy7y.mongodb.net/medica
+      MONGO_URI: mongodb+srv://dbUser:q5IilZowPB1OjLMf@spspl-power-app.soetdti.mongodb.net/medica-opms
+      MONGODB_URI: mongodb+srv://dbUser:q5IilZowPB1OjLMf@spspl-power-app.soetdti.mongodb.net/medica-opms
       REDIS_URL: redis://redis:6379
       MONGODB_LOOKUP_FAMILY: "4"
       API_PUBLIC_BASE_URL: http://localhost:5001
