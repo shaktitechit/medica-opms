@@ -8,6 +8,7 @@
     "dev": "node --watch src/server.js",
     "build": "node scripts/build.js",
     "seed:users": "node scripts/seed-users.js",
+    "seed:super-admin": "node scripts/seed-super-admin.js",
     "seed": "node scripts/seed-db.js",
     "migrate:attachments-deleted-at": "node scripts/migrate-attachments-deleted-at.js",
     "migrate:transport-users": "node scripts/migrate-transport-users-to-dispatch.js"

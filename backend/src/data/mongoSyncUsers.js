@@ -157,4 +157,68 @@ async function syncExampleUsersToMongo(plainPassword, opts = {}) {
   return { synced: true, database: dbName, usersCreated: created, usersUpdated: updated };
 }
 
-module.exports = { syncExampleUsersToMongo };
+const DEFAULT_SUPER_ADMIN = {
+  name: 'Super Admin',
+  email: 'superadmin@medica.example',
+  phone: '+91000000000',
+  department: 'super_admin',
+  roleCode: 'super_admin',
+};
+
+/**
+ * Upsert permissions, roles, and a single super_admin user into MongoDB.
+ *
+ * @param {string} plainPassword bcrypt source for the super admin account
+ * @param {{ name?: string, email?: string, phone?: string }} overrides optional user fields
+ */
+async function syncSuperAdminUserToMongo(plainPassword, overrides = {}) {
+  if (!MONGODB_URI || String(MONGODB_URI).trim() === '') {
+    return {
+      synced: false,
+      reason:
+        'Set MONGO_URI or MONGODB_URI in .env to write to MongoDB. In-memory seed does not touch Atlas.',
+    };
+  }
+
+  if (mongoose.connection.readyState !== 1) await db.connect();
+
+  const { Permission, Role, User } = getMongoModels();
+  const permMap = await upsertPermissions(Permission);
+  await upsertRoles(Role, permMap);
+  const rolesByCode = await roleIdsByCodeMap(Role);
+
+  const row = { ...DEFAULT_SUPER_ADMIN, ...overrides };
+  const email = String(row.email).toLowerCase().trim();
+  const roleId = rolesByCode.get(row.roleCode);
+  if (!roleId) throw new Error(`Mongo seed: unknown role "${row.roleCode}" for ${email}`);
+
+  const hash = bcrypt.hashSync(String(plainPassword || 'ChangeMe123!'), 10);
+  const base = {
+    name: row.name,
+    phone: row.phone || '',
+    department: row.department,
+    roles: [roleId],
+    is_active: true,
+  };
+
+  const existing = await User.findOne({ email });
+  if (!existing) {
+    await User.create({ email, password: hash, ...base });
+    return {
+      synced: true,
+      database: mongoose.connection.db?.databaseName,
+      email,
+      action: 'created',
+    };
+  }
+
+  await User.updateOne({ _id: existing._id }, { $set: { ...base, email, password: hash } });
+  return {
+    synced: true,
+    database: mongoose.connection.db?.databaseName,
+    email,
+    action: 'updated',
+  };
+}
+
+module.exports = { syncExampleUsersToMongo, syncSuperAdminUserToMongo };
