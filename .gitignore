@@ -67,6 +67,7 @@ tmp/
 temp/
 *.local
 
+docker-compose.yml
 docker-compose.*.yml
 Dockerfile
 nginx/nginx.conf
