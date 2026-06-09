@@ -317,6 +317,11 @@ const SAMPLE_PRODUCTS = Object.freeze([
 ]);
 
 async function bootstrap() {
+  if (process.env.SEED_DATABASE === 'false') {
+    logger.info('[seedMongo] Seeding skipped (SEED_DATABASE=false)');
+    return { ran: false, catalog: { skipped: 'env-disabled' } };
+  }
+
   const plain = process.env.SEED_PASSWORD || 'ChangeMe123!';
   await syncExampleUsersToMongo(plain);
 

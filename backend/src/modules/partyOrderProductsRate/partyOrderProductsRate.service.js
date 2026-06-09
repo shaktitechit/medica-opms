@@ -230,6 +230,7 @@ async function createMappingAndRate(body, user) {
       is_active: true,
       is_orderable: true,
       priority: 100,
+      expected_order_quantity: 0,
       remarks: 'Auto-mapped from order review detail screen'
     };
     if (user) {
@@ -246,7 +247,7 @@ async function createMappingAndRate(body, user) {
     await mappingDoc.save();
   }
   
-  // Find or create rate (note applied_rate_type enum filter for SSR, SR, CR)
+  // Find or create rate (note applied_rate_type enum filter for SRA, SR, CR)
   const lookupRateType = applied_rate_type === 'MANUAL' ? 'SR' : applied_rate_type;
   
   const existingRates = await PartyProductRate.find({

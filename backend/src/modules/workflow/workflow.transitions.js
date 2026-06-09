@@ -5,13 +5,13 @@ module.exports = {
 
   sales_approved: ['finance_review', 'on_hold', 'cancelled'],
 
-  finance_review: ['partially_finance_approved', 'fully_finance_approved', 'finance_rejected', 'on_hold', 'dispatch_pending'],
+  finance_review: ['partially_finance_approved', 'fully_finance_approved', 'finance_rejected', 'on_hold', 'dispatch_pending', 'cancelled'],
 
   finance_rejected: ['submitted', 'cancelled'],
 
   finance_approved: ['dispatch_pending', 'on_hold', 'finance_rejected'],
 
-  partially_finance_approved: ['dispatch_pending', 'on_hold', 'finance_rejected', 'finance_review', 'partially_finance_approved', 'fully_finance_approved'],
+  partially_finance_approved: ['dispatch_pending', 'on_hold', 'finance_rejected', 'finance_review', 'partially_finance_approved', 'fully_finance_approved', 'cancelled'],
 
   fully_finance_approved: ['dispatch_pending', 'on_hold', 'finance_rejected', 'finance_review'],
 

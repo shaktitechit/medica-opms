@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { DashboardCard } from "@/components/widgets";
-import { useListTransportsQuery } from "@/store/api";
+import { useListTransportsQuery, useListTransportAgentsQuery } from "@/store/api";
 
 type TransportsTabProps = {
   orderId: string;
@@ -27,9 +27,19 @@ function formatDate(v: unknown): string {
   return d.toLocaleString();
 }
 
+function formatAgentType(t: unknown): string {
+  const s = String(t || "").toLowerCase();
+  if (s === "internal_fleet") return "Internal Fleet";
+  if (s === "third_party") return "Third Party";
+  return s.replace(/_/g, " ");
+}
+
 export function TransportsTab({ orderId }: TransportsTabProps) {
   const transportsQ = useListTransportsQuery({ order: orderId });
+  const transportAgentsQ = useListTransportAgentsQuery({});
+
   const transports = useMemo(() => pickList(transportsQ.data), [transportsQ.data]);
+  const transportAgents = useMemo(() => pickList(transportAgentsQ.data), [transportAgentsQ.data]);
 
   return (
     <div className="space-y-6">
@@ -37,7 +47,7 @@ export function TransportsTab({ orderId }: TransportsTabProps) {
         title="Recorded Transport Logistics"
         description="View details of transporters, vehicles, drivers, route assignments, and current shipment status."
       >
-        {transportsQ.isLoading ? (
+        {transportsQ.isLoading || transportAgentsQ.isLoading ? (
           <p className="text-sm text-slate-500 font-sans">Loading transports...</p>
         ) : transports.length === 0 ? (
           <p className="text-sm text-slate-500 font-sans">No transport arrangements recorded yet.</p>
@@ -109,6 +119,43 @@ export function TransportsTab({ orderId }: TransportsTabProps) {
                       ) : (
                         <div className="text-xs italic text-slate-400">Internal fleet delivery</div>
                       )}
+
+                      {(() => {
+                        const agentId =
+                          tr.transport_agent && typeof tr.transport_agent === "object"
+                            ? String(tr.transport_agent._id ?? tr.transport_agent.id ?? "")
+                            : typeof tr.transport_agent === "string"
+                              ? tr.transport_agent
+                              : "";
+
+                        const agentObj: Record<string, any> | null =
+                          transportAgents.find(
+                            (a) => String(a._id ?? a.id ?? "") === agentId
+                          ) ||
+                          (tr.transport_agent && typeof tr.transport_agent === "object"
+                            ? (tr.transport_agent as Record<string, any>)
+                            : null);
+
+                        if (agentObj) {
+                          return (
+                            <div className="mt-2 pt-2 border-t border-slate-100 dark:border-white/5 space-y-1">
+                              <span className="block text-[10px] text-slate-400">Linked Agent</span>
+                              <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 block">
+                                {String(agentObj.agent_name || "—")}
+                              </span>
+                              <span className="text-xs font-mono text-slate-500 dark:text-slate-400 block">
+                                Code: {String(agentObj.agent_code || "—")}
+                              </span>
+                              {agentObj.agent_type && (
+                                <span className="text-[10px] text-slate-500 capitalize block">
+                                  Type: {formatAgentType(agentObj.agent_type)}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
 
                     <div className="space-y-4">
@@ -133,6 +180,14 @@ export function TransportsTab({ orderId }: TransportsTabProps) {
                           {driverMobile || "—"}
                         </span>
                       </div>
+                      {tr.weight !== undefined && tr.weight !== null && (
+                        <div>
+                          <span className="block text-[10px] text-slate-400">Shipment Weight</span>
+                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                            {tr.weight} {tr.weight_unit || "Kg"}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-4">
@@ -162,17 +217,47 @@ export function TransportsTab({ orderId }: TransportsTabProps) {
                           {formatDate(tr.expected_delivery_date)}
                         </span>
                       </div>
+                      {tr.actual_delivery_date && (
+                        <div>
+                          <span className="block text-[10px] text-slate-400">Delivered At</span>
+                          <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                            {formatDate(tr.actual_delivery_date)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   {tr.remarks && (
-                    <div className="mt-4 pt-3 border-t border-slate-100 dark:border-white/5">
+                    <div className="mt-4 pt-3 border-t border-slate-100 dark:border-white/5 space-y-2">
                       <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                        Remarks
+                        Remarks History
                       </span>
-                      <p className="text-xs text-slate-700 dark:text-slate-300 italic">
-                        {tr.remarks}
-                      </p>
+                      <div className="space-y-2">
+                        {String(tr.remarks)
+                          .split("\n")
+                          .filter((line) => line.trim().length > 0)
+                          .map((line, idx) => {
+                            const match = line.match(/^\[(.*?)\]\s*\[(.*?)\]:\s*(.*)$/);
+                            if (match) {
+                              const [, timeStr, statusLabel, text] = match;
+                              return (
+                                <div key={idx} className="text-xs font-sans flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2">
+                                  <span className="text-[10px] text-slate-400 font-mono shrink-0 mt-0.5">{timeStr}</span>
+                                  <span className="inline-flex items-center rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[9px] font-medium text-slate-700 dark:text-slate-300 uppercase tracking-wide shrink-0">
+                                    {statusLabel}
+                                  </span>
+                                  <span className="text-slate-700 dark:text-slate-300 italic">{text}</span>
+                                </div>
+                              );
+                            }
+                            return (
+                              <p key={idx} className="text-xs text-slate-700 dark:text-slate-300 italic">
+                                {line}
+                              </p>
+                            );
+                          })}
+                      </div>
                     </div>
                   )}
                 </div>

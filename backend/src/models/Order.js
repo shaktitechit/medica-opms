@@ -108,7 +108,7 @@ const orderItemSchema = new mongoose.Schema(
 
     applied_rate_type: {
       type: String,
-      enum: ["SR", "SSR", "CR", "MANUAL"],
+      enum: ["SR", "SRA", "CR", "MANUAL"],
       default: "MANUAL",
     },
 

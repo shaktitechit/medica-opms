@@ -15,7 +15,7 @@ export function catalogPriceForRateType(
   if (!product) return 0;
   const base = Number(product.base_price ?? product.default_price ?? 0);
   if (rateType === "SR") return base;
-  if (rateType === "SSR") return Number(product.minimum_sale_rate ?? base);
+  if (rateType === "SRA") return Number(product.minimum_sale_rate ?? base);
   if (rateType === "CR") return Number(product.mrp ?? base);
   return base;
 }
@@ -44,7 +44,7 @@ export function normalizeRateTypeForLookup(
     .trim()
     .toUpperCase();
   if (t === "MANUAL") return "SR";
-  if (t === "SR" || t === "SSR" || t === "CR") return t;
+  if (t === "SR" || t === "SRA" || t === "CR") return t;
   return "SR";
 }
 

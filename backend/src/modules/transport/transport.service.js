@@ -206,7 +206,13 @@ async function create(body, user) {
     expected_delivery_date: body.expected_delivery_date ? new Date(body.expected_delivery_date) : undefined,
     actual_delivery_date: body.actual_delivery_date ? new Date(body.actual_delivery_date) : undefined,
     delivery_proof_url: body.delivery_proof_url || body.proof_of_delivery || '',
-    remarks: body.remarks || '',
+    remarks: (() => {
+      const formattedTimestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const text = body.remarks ? body.remarks.trim() : 'Shipment initialized';
+      return `[${formattedTimestamp}] [CREATED]: ${text}`;
+    })(),
+    weight: body.weight !== undefined ? Number(body.weight) : undefined,
+    weight_unit: body.weight_unit || 'Kg',
     created_by: user._id,
   });
 
@@ -239,6 +245,7 @@ async function patch(id, patchBody, user) {
   if (!doc) throw new ApiError(404, TR_NF);
 
   const patch = patchBody || {};
+  const prevStatus = doc.shipment_status;
   if (patch.shipment_status || patch.status) {
     doc.shipment_status = normalizeShipmentStatus(patch.shipment_status || patch.status, doc.shipment_status);
   }
@@ -258,9 +265,23 @@ async function patch(id, patchBody, user) {
     'tracking_number',
     'eway_bill_no',
     'delivery_proof_url',
-    'remarks',
+    'weight',
+    'weight_unit',
   ]) {
     if (patch[field] !== undefined) doc[field] = patch[field] || undefined;
+  }
+
+  // Update remarks history on status change, or update/set remarks field normally
+  const isStatusChanged = (patch.shipment_status || patch.status) && doc.shipment_status !== prevStatus;
+  if (isStatusChanged) {
+    const statusLabel = doc.shipment_status.replace(/_/g, ' ').toUpperCase();
+    const formattedTimestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const remarkText = (patch.remarks && patch.remarks.trim()) || `Status updated to ${statusLabel.toLowerCase()}`;
+    const newRemarkLine = `[${formattedTimestamp}] [${statusLabel}]: ${remarkText}`;
+    doc.remarks = doc.remarks ? `${doc.remarks}\n${newRemarkLine}` : newRemarkLine;
+  } else if (patch.remarks !== undefined) {
+    // Regular update of remarks (or initial overwrite/edit)
+    doc.remarks = patch.remarks || undefined;
   }
   if (patch.vehicle_no !== undefined) doc.vehicle_number = patch.vehicle_no || '';
   if (patch.driver_phone !== undefined) doc.driver_mobile = patch.driver_phone || '';

@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { DashboardCard } from "@/components/widgets";
-import { useListDispatchesQuery, useListTransportsQuery, useListUsersQuery } from "@/store/api";
+import { useListDispatchesQuery, useListTransportsQuery, useListUsersQuery, useListTransportAgentsQuery } from "@/store/api";
 
 type DispatchesTabProps = {
   orderId: string;
@@ -27,14 +27,23 @@ function formatDate(v: unknown): string {
   return d.toLocaleString();
 }
 
+function formatAgentType(t: unknown): string {
+  const s = String(t || "").toLowerCase();
+  if (s === "internal_fleet") return "Internal Fleet";
+  if (s === "third_party") return "Third Party";
+  return s.replace(/_/g, " ");
+}
+
 export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
   const dispatchesQ = useListDispatchesQuery({ order: orderId });
   const transportsQ = useListTransportsQuery({ order: orderId });
   const usersQ = useListUsersQuery({});
+  const transportAgentsQ = useListTransportAgentsQuery({});
 
   const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
   const transports = useMemo(() => pickList(transportsQ.data), [transportsQ.data]);
   const users = useMemo(() => pickList(usersQ.data), [usersQ.data]);
+  const transportAgents = useMemo(() => pickList(transportAgentsQ.data), [transportAgentsQ.data]);
 
   const userNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -83,13 +92,22 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
                   ? (userNameById[dispatchedByVal] || dispatchedByVal)
                   : "";
 
-              // Check if a transport record matches this dispatch
-              const transport = transports.find((tr) => {
+              // Check if transport records match this dispatch
+              const dispatchTransports = transports.filter((tr) => {
                 const trDispatchId = typeof tr.dispatch === "object" && tr.dispatch !== null
                   ? String(tr.dispatch._id ?? tr.dispatch.id ?? "")
                   : String(tr.dispatch ?? "");
                 return trDispatchId === dispId;
               });
+
+              // Find active transport (non-returned)
+              const activeTransport = dispatchTransports.find((tr) => {
+                const status = String(tr.shipment_status ?? tr.status ?? "");
+                return status !== "returned";
+              });
+
+              // Display active transport if it exists, otherwise display the latest returned transport
+              const transport = activeTransport || dispatchTransports[dispatchTransports.length - 1];
 
               return (
                 <div
@@ -220,6 +238,48 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
                       <div className="grid gap-4 rounded-lg bg-slate-50/50 p-4 border border-slate-100 dark:bg-slate-950/20 dark:border-white/5 sm:grid-cols-3 text-xs font-sans">
                         <div className="space-y-2">
                           <div>
+                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Transport Agent</span>
+                            {(() => {
+                              const agentId =
+                                transport.transport_agent && typeof transport.transport_agent === "object"
+                                  ? String(transport.transport_agent._id ?? transport.transport_agent.id ?? "")
+                                  : typeof transport.transport_agent === "string"
+                                    ? transport.transport_agent
+                                    : "";
+
+                              const agentObj: Record<string, any> | null =
+                                transportAgents.find(
+                                  (a) => String(a._id ?? a.id ?? "") === agentId
+                                ) ||
+                                (transport.transport_agent && typeof transport.transport_agent === "object"
+                                  ? (transport.transport_agent as Record<string, any>)
+                                  : null);
+
+                              if (agentObj) {
+                                return (
+                                  <>
+                                    <span className="font-mono font-semibold text-slate-900 dark:text-slate-100 block">
+                                      {String(agentObj.agent_code || "—")}
+                                    </span>
+                                    {agentObj.agent_name && (
+                                      <span className="text-xs text-slate-600 dark:text-slate-300 block mt-0.5">
+                                        {String(agentObj.agent_name)}
+                                      </span>
+                                    )}
+                                    {agentObj.agent_type && (
+                                      <span className="text-[10px] text-slate-500 capitalize block mt-0.5">
+                                        {formatAgentType(agentObj.agent_type)}
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              }
+                              return (
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 block">—</span>
+                              );
+                            })()}
+                          </div>
+                          <div>
                             <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Shipment No</span>
                             <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">{transport.shipment_no}</span>
                           </div>
@@ -249,6 +309,12 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
                             <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Vehicle Number</span>
                             <span className="font-semibold text-slate-900 dark:text-slate-100 uppercase">{transport.vehicle_number || transport.vehicle_no || "—"}</span>
                           </div>
+                          {(transport.weight !== undefined && transport.weight !== null) && (
+                            <div>
+                              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Shipment Weight</span>
+                              <span className="font-semibold text-slate-900 dark:text-slate-100">{transport.weight} {transport.weight_unit || "Kg"}</span>
+                            </div>
+                          )}
                         </div>
 
                         <div className="space-y-2">

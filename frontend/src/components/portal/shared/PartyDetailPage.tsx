@@ -775,6 +775,9 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                             <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-350">
                               Priority: {m.priority ?? 100}
                             </span>
+                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-350">
+                              EOQ: {m.expected_order_quantity ?? 0}
+                            </span>
                             {m.is_orderable ? (
                               <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400">
                                 Orderable
@@ -888,7 +891,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                                     // Rate type label
                                     let typeLabel = r.rate_type;
                                     if (r.rate_type === "SR") typeLabel = "SR (Standard)";
-                                    else if (r.rate_type === "SSR") typeLabel = "SSR (Special)";
+                                    else if (r.rate_type === "SRA") typeLabel = "SRA (Special Admin)";
                                     else if (r.rate_type === "CR") typeLabel = "CR (Contract)";
 
                                     // Check if validity_end has passed
@@ -1542,6 +1545,7 @@ function MapNewProductModal({
 
   const [selectedProductId, setSelectedProductId] = useState("");
   const [priority, setPriority] = useState("100");
+  const [expectedOrderQuantity, setExpectedOrderQuantity] = useState("0");
   const [isOrderable, setIsOrderable] = useState(true);
   const [remarks, setRemarks] = useState("");
 
@@ -1569,6 +1573,7 @@ function MapNewProductModal({
       party: partyId,
       product: selectedProductId,
       priority: Number(priority) || 100,
+      expected_order_quantity: Number(expectedOrderQuantity) || 0,
       is_orderable: isOrderable,
       remarks: remarks.trim(),
     };
@@ -1652,7 +1657,21 @@ function MapNewProductModal({
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-905 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 outline-none transition focus:border-blue-600"
               />
             </div>
-            <div className="flex items-center h-full pt-6">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Expected Order Qty (EOQ)</label>
+              <input
+                type="number"
+                value={expectedOrderQuantity}
+                onChange={(e) => setExpectedOrderQuantity(e.target.value)}
+                required
+                min="0"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-905 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 outline-none transition focus:border-blue-600"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex items-center h-full pt-2">
               <label className="flex items-center gap-2 text-sm text-slate-850 dark:text-slate-300 font-medium cursor-pointer">
                 <input
                   type="checkbox"
@@ -1699,7 +1718,7 @@ function MapNewProductModal({
                       className="w-full rounded-lg border border-slate-250 bg-white px-3 py-2 text-sm text-slate-905 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 focus:outline-none"
                     >
                       <option value="SR">Standard Rate (SR)</option>
-                      <option value="SSR">Special Standard Rate (SSR)</option>
+                      <option value="SRA">Special Rate Admin (SRA)</option>
                       <option value="CR">Contract Rate (CR)</option>
                     </select>
                   </div>
@@ -1815,6 +1834,7 @@ function EditMappingModal({
   isPatching,
 }: EditMappingModalProps) {
   const [priority, setPriority] = useState(String(mapping.priority ?? 100));
+  const [expectedOrderQuantity, setExpectedOrderQuantity] = useState(String(mapping.expected_order_quantity ?? 0));
   const [isActive, setIsActive] = useState(mapping.is_active !== false);
   const [isOrderable, setIsOrderable] = useState(mapping.is_orderable !== false);
   const [remarks, setRemarks] = useState(mapping.remarks || "");
@@ -1826,6 +1846,7 @@ function EditMappingModal({
         id: mapping._id,
         patch: {
           priority: Number(priority) || 0,
+          expected_order_quantity: Number(expectedOrderQuantity) || 0,
           is_active: isActive,
           is_orderable: isOrderable,
           remarks: remarks.trim(),
@@ -1857,16 +1878,29 @@ function EditMappingModal({
             <div className="text-xs font-mono text-slate-500 dark:text-slate-400 mt-0.5">SKU: {mapping.product?.sku || "—"}</div>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Mapping Priority</label>
-            <input
-              type="number"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              required
-              min="0"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-905 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 focus:outline-none"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Mapping Priority</label>
+              <input
+                type="number"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                required
+                min="0"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-905 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 focus:outline-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Expected Order Qty (EOQ)</label>
+              <input
+                type="number"
+                value={expectedOrderQuantity}
+                onChange={(e) => setExpectedOrderQuantity(e.target.value)}
+                required
+                min="0"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-905 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 focus:outline-none"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4 pt-2">
@@ -2011,7 +2045,7 @@ function AddRateModal({
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-905 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 focus:outline-none"
               >
                 <option value="SR">Standard Rate (SR)</option>
-                <option value="SSR">Special Standard Rate (SSR)</option>
+                <option value="SRA">Special Rate Admin (SRA)</option>
                 <option value="CR">Contract Rate (CR)</option>
               </select>
             </div>

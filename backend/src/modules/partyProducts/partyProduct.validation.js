@@ -5,7 +5,7 @@
 const { ApiError } = require('../../utils/ApiError');
 const mongoose = require('mongoose');
 
-const RATE_TYPES = new Set(['SR', 'SSR', 'CR']);
+const RATE_TYPES = new Set(['SR', 'SRA', 'CR']);
 const RATE_STATUSES = new Set(['draft', 'active', 'expired', 'cancelled']);
 
 function assertCreate(body) {
@@ -25,6 +25,13 @@ function assertCreate(body) {
   if (body.priority !== undefined && body.priority !== null && body.priority !== '') {
     const p = Number(body.priority);
     if (!Number.isFinite(p)) throw new ApiError(400, 'mapping priority must be a number');
+  }
+
+  if (body.expected_order_quantity !== undefined && body.expected_order_quantity !== null && body.expected_order_quantity !== '') {
+    const eoq = Number(body.expected_order_quantity);
+    if (!Number.isFinite(eoq) || eoq < 0) {
+      throw new ApiError(400, 'mapping expected_order_quantity must be a non-negative number');
+    }
   }
 
   // Validate Rates Array if provided
@@ -69,7 +76,7 @@ function assertRateFields(rateObj, prefix = 'Rate') {
   // rate_type
   if (!rateObj.rate_type) throw new ApiError(400, `${prefix} rate_type is required`);
   if (!RATE_TYPES.has(rateObj.rate_type)) {
-    throw new ApiError(400, `Invalid ${prefix} rate_type. Must be SR, SSR, or CR`);
+    throw new ApiError(400, `Invalid ${prefix} rate_type. Must be SR, SRA, or CR`);
   }
 
   // rate

@@ -8,14 +8,14 @@ const { requireAuth, requireSoftDeletePermission } = require('../../middlewares/
 const { requireDepartment } = require('../../middlewares/dept.middleware');
 const controller = require('./transportAgent.controller');
 
-router.use(requireAuth, requireDepartment('dispatch', 'admin'));
+router.use(requireAuth);
 
-router.get('/deleted', requireSoftDeletePermission, controller.listDeleted);
-router.get('/', controller.list);
-router.delete('/:id', requireSoftDeletePermission, controller.softDelete);
-router.post('/:id/restore', requireSoftDeletePermission, controller.restore);
-router.get('/:id', controller.get);
-router.post('/', controller.create);
-router.patch('/:id', controller.patch);
+router.get('/deleted', requireDepartment('dispatch', 'admin'), requireSoftDeletePermission, controller.listDeleted);
+router.get('/', requireDepartment('dispatch', 'admin', 'sales', 'finance'), controller.list);
+router.delete('/:id', requireDepartment('dispatch', 'admin'), requireSoftDeletePermission, controller.softDelete);
+router.post('/:id/restore', requireDepartment('dispatch', 'admin'), requireSoftDeletePermission, controller.restore);
+router.get('/:id', requireDepartment('dispatch', 'admin', 'sales', 'finance'), controller.get);
+router.post('/', requireDepartment('dispatch', 'admin'), controller.create);
+router.patch('/:id', requireDepartment('dispatch', 'admin'), controller.patch);
 
 module.exports = router;

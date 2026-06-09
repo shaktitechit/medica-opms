@@ -25,6 +25,7 @@ import {
 export type VehicleDetailModalProps = {
   vehicleId: string | null;
   create?: boolean;
+  defaultTransportAgentId?: string;
   onClose: () => void;
 };
 
@@ -69,6 +70,7 @@ function pickList(raw: unknown): unknown[] {
 export function VehicleDetailModal({
   vehicleId,
   create = false,
+  defaultTransportAgentId,
   onClose,
 }: VehicleDetailModalProps) {
   const isCreate = create === true;
@@ -186,7 +188,7 @@ export function VehicleDetailModal({
 
   const resetCreateForm = useCallback(() => {
     setVehicleNo("");
-    setTransportAgent("");
+    setTransportAgent(defaultTransportAgentId ?? "");
     setVehicleType("pickup");
     setMake("");
     setModel("");

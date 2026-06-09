@@ -11,7 +11,7 @@ import {
   useListVehiclesQuery,
   useTransitionOrderMutation,
 } from "@/store/api";
-import { formatAgentType, transportAgentLabel } from "../../fleetDisplay";
+import { formatAgentType } from "../../fleetDisplay";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
@@ -80,6 +80,8 @@ export function DispatchesTab({
   const [lrNumber, setLrNumber] = useState("");
   const [ewayBillNo, setEwayBillNo] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
+  const [weight, setWeight] = useState("");
+  const [weightUnit, setWeightUnit] = useState("Kg");
 
   const [createTransport, { isLoading: isCreatingTransport }] = useCreateTransportMutation();
   const [transitionOrder, { isLoading: isTransitioning }] = useTransitionOrderMutation();
@@ -152,6 +154,8 @@ export function DispatchesTab({
     setLrNumber("");
     setEwayBillNo("");
     setTrackingNumber("");
+    setWeight("");
+    setWeightUnit("Kg");
   }, []);
 
   const handleOpenCreateTransportForDispatch = useCallback((dispId: string) => {
@@ -162,7 +166,7 @@ export function DispatchesTab({
   // Pre-populate destination location and expected delivery date
   useEffect(() => {
     if (!isCreateTransportModalOpen) return;
-    
+
     if (!destinationLocation && shippingAddress) {
       const a = shippingAddress as Record<string, any>;
       const parts: string[] = [];
@@ -173,7 +177,7 @@ export function DispatchesTab({
       if (a.pincode) parts.push(String(a.pincode).trim());
       setDestinationLocation(parts.filter(Boolean).join(", "));
     }
-    
+
     if (!expectedDelivDate && expectedDeliveryDate) {
       setExpectedDelivDate(new Date(String(expectedDeliveryDate)).toISOString().split("T")[0]);
     }
@@ -182,7 +186,7 @@ export function DispatchesTab({
   // Pre-populate source location and dispatch date when a dispatch is selected
   useEffect(() => {
     if (!isCreateTransportModalOpen || !transportDispatchId) return;
-    
+
     const disp = dispatches.find((d: any) => String(d._id ?? d.id) === transportDispatchId);
     if (disp) {
       if (!sourceLocation) {
@@ -199,13 +203,16 @@ export function DispatchesTab({
     }
   }, [isCreateTransportModalOpen, transportDispatchId, dispatches, sourceLocation, transportDispatchDate]);
 
+
+
   const hasSelectedDispatchTransport = useMemo(() => {
     if (!transportDispatchId) return false;
     return transports.some((tr: any) => {
       const trDispatchId = typeof tr.dispatch === "object" && tr.dispatch !== null
         ? String(tr.dispatch._id ?? tr.dispatch.id ?? "")
         : String(tr.dispatch ?? "");
-      return trDispatchId === transportDispatchId;
+      const isReturned = String(tr.shipment_status ?? tr.status ?? "") === "returned";
+      return trDispatchId === transportDispatchId && !isReturned;
     });
   }, [transportDispatchId, transports]);
 
@@ -243,6 +250,8 @@ export function DispatchesTab({
         lr_number: lrNumber.trim() || undefined,
         eway_bill_no: ewayBillNo.trim() || undefined,
         tracking_number: trackingNumber.trim() || undefined,
+        weight: weight ? Number(weight) : undefined,
+        weight_unit: weightUnit || undefined,
       };
 
       if (isInternalFleet) {
@@ -298,7 +307,7 @@ export function DispatchesTab({
           const activeDispatches = dispatches.filter((d: any) => d.dispatch_status !== "cancelled");
           const transportedDispatchIds = new Set((transports || []).map((t: any) => String(t.dispatch)));
           transportedDispatchIds.add(String(transportDispatchId));
-          const allTransported = activeDispatches.length > 0 && 
+          const allTransported = activeDispatches.length > 0 &&
             activeDispatches.every((d: any) => transportedDispatchIds.has(String(d._id ?? d.id)));
 
           const nextStatus = (orderStatus === "full_dispatch_created" && allTransported)
@@ -338,6 +347,8 @@ export function DispatchesTab({
     lrNumber,
     ewayBillNo,
     trackingNumber,
+    weight,
+    weightUnit,
     vehicleId,
     driverId,
     transporterName,
@@ -370,31 +381,40 @@ export function DispatchesTab({
               const dispId = String(disp._id ?? disp.id ?? "");
               const dispatchStatus = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
               const dispatchItems = Array.isArray(disp.dispatch_items) ? disp.dispatch_items : disp.items || [];
-              
+
               // Resolve packing and dispatch staff names
               const packedByVal = disp.packed_by;
               const dispatchedByVal = disp.dispatched_by;
-              
+
               const packedByName = typeof packedByVal === "object" && packedByVal !== null
                 ? (packedByVal.name || packedByVal.username || "")
                 : userNameById && typeof packedByVal === "string"
                   ? (userNameById[packedByVal] || packedByVal)
                   : "";
-                  
+
               const dispatchedByName = typeof dispatchedByVal === "object" && dispatchedByVal !== null
                 ? (dispatchedByVal.name || dispatchedByVal.username || "")
                 : userNameById && typeof dispatchedByVal === "string"
                   ? (userNameById[dispatchedByVal] || dispatchedByVal)
                   : "";
 
-              // Check if a transport record matches this dispatch
-              const transport = transports.find((tr) => {
+              // Check if transport records match this dispatch
+              const dispatchTransports = transports.filter((tr) => {
                 const trDispatchId = typeof tr.dispatch === "object" && tr.dispatch !== null
                   ? String(tr.dispatch._id ?? tr.dispatch.id ?? "")
                   : String(tr.dispatch ?? "");
                 return trDispatchId === dispId;
               });
-              const hasTransport = !!transport;
+
+              // Find active transport (non-returned)
+              const activeTransport = dispatchTransports.find((tr) => {
+                const status = String(tr.shipment_status ?? tr.status ?? "");
+                return status !== "returned";
+              });
+
+              // Display active transport if it exists, otherwise display the latest returned transport
+              const transport = activeTransport || dispatchTransports[dispatchTransports.length - 1];
+              const hasTransport = !!activeTransport;
 
               return (
                 <div
@@ -412,17 +432,7 @@ export function DispatchesTab({
                             Release: {typeof disp.finance_approval === "object" ? disp.finance_approval.approval_no : disp.finance_approval}
                           </span>
                         )}
-                        <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            dispatchStatus === "cancelled"
-                              ? "bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-400"
-                              : dispatchStatus === "fully_dispatched"
-                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
-                              : "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
-                          }`}
-                        >
-                          {dispatchStatus.replace(/_/g, " ")}
-                        </span>
+
                       </div>
                       <p className="mt-1 text-xs text-slate-500">
                         Dispatch Date: {formatDate(disp.dispatched_at ?? disp.dispatch_date)}
@@ -443,11 +453,10 @@ export function DispatchesTab({
                             type="button"
                             onClick={() => handleOpenCreateTransportForDispatch(dispId)}
                             disabled={hasTransport || isPatchingDispatch}
-                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
-                              hasTransport
+                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${hasTransport
                                 ? "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed"
                                 : "bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
-                            }`}
+                              }`}
                           >
                             {hasTransport ? (
                               <>
@@ -466,16 +475,15 @@ export function DispatchesTab({
                               </>
                             )}
                           </button>
-                          
+
                           <button
                             type="button"
                             onClick={() => onUpdateStatus(dispId, "cancelled")}
                             disabled={hasTransport || isPatchingDispatch}
-                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
-                              hasTransport
+                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${hasTransport
                                 ? "bg-slate-100 text-slate-300 dark:bg-slate-800 dark:text-slate-600 cursor-not-allowed"
                                 : "bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-900/30"
-                            }`}
+                              }`}
                             title={hasTransport ? "Cannot cancel once a transport assignment exists" : "Cancel this dispatch batch"}
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -508,8 +516,8 @@ export function DispatchesTab({
                                 (oi: any) => String(oi._id ?? oi.id ?? "") === String(item.order_item_id)
                               );
                               const productName = matchItem?.product_name || item.product_name || item.product?.product_name || "—";
-                              const orderedQty = matchItem 
-                                ? (matchItem.ordered_quantity ?? matchItem.quantity ?? 0) 
+                              const orderedQty = matchItem
+                                ? (matchItem.ordered_quantity ?? matchItem.quantity ?? 0)
                                 : (item.ordered_quantity ?? "—");
 
                               return (
@@ -584,16 +592,45 @@ export function DispatchesTab({
                         <div className="space-y-2">
                           <div>
                             <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Transport Agent</span>
-                            <span className="font-semibold text-slate-800 dark:text-slate-200 block">
-                              {transportAgentLabel(transport.transport_agent)}
-                            </span>
-                            {transport.transport_agent && typeof transport.transport_agent === "object" ? (
-                              <span className="text-[10px] text-slate-500 capitalize block mt-0.5">
-                                {formatAgentType(
-                                  (transport.transport_agent as Record<string, unknown>).agent_type,
-                                )}
-                              </span>
-                            ) : null}
+                            {(() => {
+                              const agentId =
+                                transport.transport_agent && typeof transport.transport_agent === "object"
+                                  ? String(transport.transport_agent._id ?? transport.transport_agent.id ?? "")
+                                  : typeof transport.transport_agent === "string"
+                                    ? transport.transport_agent
+                                    : "";
+
+                              const agentObj: Record<string, unknown> | null =
+                                transportAgents.find(
+                                  (a) => String(a._id ?? a.id ?? "") === agentId
+                                ) ||
+                                (transport.transport_agent && typeof transport.transport_agent === "object"
+                                  ? (transport.transport_agent as Record<string, unknown>)
+                                  : null);
+
+                              if (agentObj) {
+                                return (
+                                  <>
+                                    <span className="font-mono font-semibold text-slate-900 dark:text-slate-100 block">
+                                      {String(agentObj.agent_code || "—")}
+                                    </span>
+                                    {agentObj.agent_name && (
+                                      <span className="text-xs text-slate-600 dark:text-slate-300 block mt-0.5">
+                                        {String(agentObj.agent_name)}
+                                      </span>
+                                    )}
+                                    {agentObj.agent_type && (
+                                      <span className="text-[10px] text-slate-500 capitalize block mt-0.5">
+                                        {formatAgentType(agentObj.agent_type)}
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              }
+                              return (
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 block">—</span>
+                              );
+                            })()}
                           </div>
                           <div>
                             <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Shipment No</span>
@@ -625,6 +662,12 @@ export function DispatchesTab({
                             <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Vehicle Number</span>
                             <span className="font-semibold text-slate-900 dark:text-slate-100 uppercase">{transport.vehicle_number || transport.vehicle_no || "—"}</span>
                           </div>
+                          {(transport.weight !== undefined && transport.weight !== null) && (
+                            <div>
+                              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Shipment Weight</span>
+                              <span className="font-semibold text-slate-900 dark:text-slate-100">{transport.weight} {transport.weight_unit || "Kg"}</span>
+                            </div>
+                          )}
                         </div>
 
                         <div className="space-y-2">
@@ -983,6 +1026,36 @@ export function DispatchesTab({
                       onChange={(e) => setExpectedDelivDate(e.target.value)}
                       className={inputClass}
                     />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 font-sans">
+                  <div className="space-y-1.5">
+                    <label htmlFor="weight-input" className={labelClass}>Total Weight</label>
+                    <input
+                      id="weight-input"
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={weight}
+                      onChange={(e) => setWeight(e.target.value)}
+                      className={inputClass}
+                      placeholder="E.g., 25.5"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="weight-unit-input" className={labelClass}>Weight Unit</label>
+                    <select
+                      id="weight-unit-input"
+                      value={weightUnit}
+                      onChange={(e) => setWeightUnit(e.target.value)}
+                      className={inputClass}
+                    >
+                      <option value="Kg">Kg</option>
+                      <option value="Lbs">Lbs</option>
+                      <option value="Ton">Ton</option>
+                      <option value="Gm">Gm</option>
+                    </select>
                   </div>
                 </div>
 
