@@ -16,6 +16,9 @@ module.exports = {
   JWT_SECRET: process.env.JWT_SECRET || 'medica-dev-secret-change-me',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
 
+  /** Max JSON request body size (bulk CSV/JSON imports). Default 10mb. */
+  JSON_BODY_LIMIT: process.env.JSON_BODY_LIMIT || '10mb',
+
   /** Atlas / local — any of these names */
   MONGODB_URI:
     process.env.MONGODB_URI || process.env.MONGO_URI || process.env.DATABASE_URL || '',

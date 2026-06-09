@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { useBulkCreatePartyMutation } from "@/store/api";
+import {
+  batchCount,
+  BULK_PARTY_UPLOAD_BATCH_SIZE,
+  uploadInBatches,
+} from "@/lib/bulkUploadBatches";
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import {
@@ -103,12 +108,16 @@ export function BulkUploadPartiesModal({
   const [file, setFile] = useState<File | null>(null);
   const [parsedParties, setParsedParties] = useState<ParsedParty[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  const [uploadBatch, setUploadBatch] = useState<{ current: number; total: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!open) {
       setFile(null);
       setParsedParties([]);
       setDragActive(false);
+      setUploadBatch(null);
     }
   }, [open]);
 
@@ -247,7 +256,11 @@ export function BulkUploadPartiesModal({
     const total = parsedParties.length;
     const ready = parsedParties.filter((p) => p.status === "ready").length;
     const invalid = total - ready;
-    return { total, ready, invalid };
+    const uploadBatches = batchCount(
+      parsedParties.filter((p) => p.status === "ready"),
+      BULK_PARTY_UPLOAD_BATCH_SIZE,
+    );
+    return { total, ready, invalid, uploadBatches };
   }, [parsedParties]);
 
   const handleUpload = useCallback(async () => {
@@ -276,11 +289,21 @@ export function BulkUploadPartiesModal({
     }
 
     try {
-      await bulkCreateParty(validPayload).unwrap();
-      toast.success(`Successfully imported ${validPayload.length} parties!`);
+      const imported = await uploadInBatches(
+        validPayload,
+        (batch) => bulkCreateParty(batch).unwrap(),
+        {
+          batchSize: BULK_PARTY_UPLOAD_BATCH_SIZE,
+          onProgress: (current, total) => setUploadBatch({ current, total }),
+        },
+      );
+
+      setUploadBatch(null);
+      toast.success(`Successfully imported ${imported} parties!`);
       onSuccess();
       onClose();
     } catch (err) {
+      setUploadBatch(null);
       toast.error(mutationRejectedMessage(err));
     }
   }, [parsedParties, bulkCreateParty, onSuccess, onClose]);
@@ -339,6 +362,9 @@ export function BulkUploadPartiesModal({
                 <code className="font-mono bg-blue-100/80 px-1 py-0.5 rounded dark:bg-blue-950">contact_alternate_phone</code>.
                 Add more with <code className="font-mono bg-blue-100/80 px-1 py-0.5 rounded dark:bg-blue-950">contact_2_*</code> columns or a JSON{" "}
                 <code className="font-mono bg-blue-100/80 px-1 py-0.5 rounded dark:bg-blue-950">contacts</code> array.
+              </p>
+              <p>
+                Large files are uploaded in batches of {BULK_PARTY_UPLOAD_BATCH_SIZE} parties per request to avoid payload size limits.
               </p>
             </div>
             <button
@@ -420,6 +446,11 @@ export function BulkUploadPartiesModal({
                 {stats.invalid > 0 && (
                   <span className="text-rose-600 dark:text-rose-400">
                     ● Invalid (skipped): <span className="font-bold">{stats.invalid}</span>
+                  </span>
+                )}
+                {stats.ready > 0 && stats.uploadBatches > 1 && (
+                  <span className="text-blue-600 dark:text-blue-400">
+                    ● Upload batches: <span className="font-bold">{stats.uploadBatches}</span>
                   </span>
                 )}
               </div>
@@ -519,10 +550,14 @@ export function BulkUploadPartiesModal({
             <button
               type="button"
               onClick={() => void handleUpload()}
-              disabled={isLoading}
+              disabled={isLoading || parsedParties.length === 0 || stats.ready === 0}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
             >
-              {isLoading ? "Uploading..." : `Import ${stats.ready} Parties`}
+              {isLoading
+                ? uploadBatch
+                  ? `Uploading batch ${uploadBatch.current}/${uploadBatch.total}…`
+                  : "Uploading..."
+                : `Import ${stats.ready} Parties`}
             </button>
           )}
         </div>

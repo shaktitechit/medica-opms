@@ -5,6 +5,7 @@
 const express = require('express');
 const cors = require('cors');
 const corsOptions = require('./config/cors');
+const { JSON_BODY_LIMIT } = require('./config/env');
 const { authMiddleware } = require('./middlewares/auth.middleware');
 const { errorMiddleware } = require('./middlewares/error.middleware');
 const { notFound } = require('./middlewares/notFound.middleware');
@@ -34,7 +35,7 @@ const messageRoutes = require('./modules/messages/message.routes');
 
 const app = express();
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.use(authMiddleware);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));

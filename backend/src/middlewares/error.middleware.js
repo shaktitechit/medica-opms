@@ -6,6 +6,16 @@ const { ApiError } = require('../utils/ApiError');
 const { logger } = require('../config/logger');
 
 function errorMiddleware(err, req, res, _next) {
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json({
+      success: false,
+      error: {
+        message:
+          'Request payload too large. Upload fewer rows per batch or ask your admin to raise JSON_BODY_LIMIT.',
+      },
+    });
+  }
+
   const status = err instanceof ApiError ? err.statusCode : err.statusCode || 500;
   const message =
     err instanceof ApiError ? err.message : err.message || 'Internal Server Error';

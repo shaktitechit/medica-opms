@@ -35,9 +35,14 @@ export function mutationRejectedMessage(payload: unknown): string {
 
   if ("data" in p && p.data !== undefined && p.data !== null) {
     const raw = /** @type {unknown} */ (p.data);
-    if (raw !== null && typeof raw === "object" && "message" in raw) {
-      const m = /** @type {{ message?: unknown }} */ (raw).message;
-      if (typeof m === "string" && m.trim()) return m;
+    if (raw !== null && typeof raw === "object") {
+      const body = raw as { message?: unknown; error?: { message?: unknown } };
+      if (typeof body.error?.message === "string" && body.error.message.trim()) {
+        return body.error.message;
+      }
+      if (typeof body.message === "string" && body.message.trim()) {
+        return body.message;
+      }
     }
   }
 
@@ -45,6 +50,12 @@ export function mutationRejectedMessage(payload: unknown): string {
   if (status !== null) {
     const code =
       typeof p.originalStatus === "number" ? p.originalStatus : status;
+    if (code === 413) {
+      return "Upload too large — the file has too many rows for one request. Try a smaller file or split into batches.";
+    }
+    if (code === 403) {
+      return "You do not have permission to perform this action.";
+    }
     return `Request failed (${String(code)})`;
   }
 

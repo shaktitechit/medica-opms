@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { useBulkCreateProductMutation } from "@/store/api";
+import {
+  batchCount,
+  BULK_UPLOAD_BATCH_SIZE,
+  uploadInBatches,
+} from "@/lib/bulkUploadBatches";
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 
@@ -46,12 +51,16 @@ export function BulkUploadProductsModal({
   const [file, setFile] = useState<File | null>(null);
   const [parsedProducts, setParsedProducts] = useState<ParsedProduct[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  const [uploadBatch, setUploadBatch] = useState<{ current: number; total: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!open) {
       setFile(null);
       setParsedProducts([]);
       setDragActive(false);
+      setUploadBatch(null);
     }
   }, [open]);
 
@@ -330,7 +339,11 @@ export function BulkUploadProductsModal({
     const total = parsedProducts.length;
     const ready = parsedProducts.filter((p) => p.status === "ready").length;
     const invalid = total - ready;
-    return { total, ready, invalid };
+    const uploadBatches = batchCount(
+      parsedProducts.filter((p) => p.status === "ready"),
+      BULK_UPLOAD_BATCH_SIZE,
+    );
+    return { total, ready, invalid, uploadBatches };
   }, [parsedProducts]);
 
   const handleUpload = useCallback(async () => {
@@ -361,11 +374,21 @@ export function BulkUploadProductsModal({
     }
 
     try {
-      await bulkCreateProduct(validPayload).unwrap();
-      toast.success(`Successfully imported ${validPayload.length} products!`);
+      const imported = await uploadInBatches(
+        validPayload,
+        (batch) => bulkCreateProduct(batch).unwrap(),
+        {
+          batchSize: BULK_UPLOAD_BATCH_SIZE,
+          onProgress: (current, total) => setUploadBatch({ current, total }),
+        },
+      );
+
+      setUploadBatch(null);
+      toast.success(`Successfully imported ${imported} products!`);
       onSuccess();
       onClose();
     } catch (err) {
+      setUploadBatch(null);
       toast.error(mutationRejectedMessage(err));
     }
   }, [parsedProducts, bulkCreateProduct, onSuccess, onClose]);
@@ -415,6 +438,9 @@ export function BulkUploadProductsModal({
               <span className="font-semibold block">How it works:</span>
               <p>
                 First row must contain header columns: <code className="font-mono bg-blue-100/80 px-1 py-0.5 rounded dark:bg-blue-950">product_name</code> (required), <code className="font-mono bg-blue-100/80 px-1 py-0.5 rounded dark:bg-blue-950">base_price</code> (required), <code className="font-mono bg-blue-100/80 px-1 py-0.5 rounded dark:bg-blue-950">minimum_sale_rate</code> (required), unit, SKU, brand, manufacturer, and other optional product attributes.
+              </p>
+              <p>
+                Large files are uploaded in batches of {BULK_UPLOAD_BATCH_SIZE} products per request to avoid payload size limits.
               </p>
             </div>
             <button
@@ -499,6 +525,11 @@ export function BulkUploadProductsModal({
                 {stats.invalid > 0 && (
                   <span className="text-rose-600 dark:text-rose-400">
                     ● Invalid (skipped): <span className="font-bold">{stats.invalid}</span>
+                  </span>
+                )}
+                {stats.ready > 0 && stats.uploadBatches > 1 && (
+                  <span className="text-blue-600 dark:text-blue-400">
+                    ● Upload batches: <span className="font-bold">{stats.uploadBatches}</span>
                   </span>
                 )}
               </div>
@@ -608,7 +639,11 @@ export function BulkUploadProductsModal({
             disabled={isLoading || parsedProducts.length === 0 || stats.ready === 0}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
           >
-            {isLoading ? "Uploading…" : `Upload Products (${stats.ready})`}
+            {isLoading
+              ? uploadBatch
+                ? `Uploading batch ${uploadBatch.current}/${uploadBatch.total}…`
+                : "Uploading…"
+              : `Upload Products (${stats.ready})`}
           </button>
         </div>
       </div>
