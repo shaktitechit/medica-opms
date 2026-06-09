@@ -7,6 +7,14 @@ import {
   mutationSuccessCopy,
 } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
+import { PartyContactsEditor } from "@/components/portal/shared/PartyContactsEditor";
+import {
+  contactsEqual,
+  contactsFromParty,
+  emptyPartyContact,
+  sanitizePartyContacts,
+  type PartyContact,
+} from "@/lib/partyContacts";
 import {
   useCreatePartyMutation,
   useGetPartyQuery,
@@ -16,6 +24,7 @@ import {
 export type PartyDetailModalProps = {
   partyId: string | null;
   create?: boolean;
+  initialTab?: "details" | "contacts" | "address";
   onClose: () => void;
 };
 
@@ -44,9 +53,7 @@ function valsEqual(a: unknown, b: unknown): boolean {
 type PartyState = {
   party_name: string;
   party_type: "customer" | "supplier" | "both";
-  contact_person: string;
-  mobile: string;
-  email: string;
+  contacts: PartyContact[];
   gst_no: string;
   drug_license_no: string;
   district: string;
@@ -74,9 +81,7 @@ type PartyState = {
 const defaultPartyState = (): PartyState => ({
   party_name: "",
   party_type: "customer",
-  contact_person: "",
-  mobile: "",
-  email: "",
+  contacts: [emptyPartyContact()],
   gst_no: "",
   drug_license_no: "",
   district: "",
@@ -104,6 +109,7 @@ const defaultPartyState = (): PartyState => ({
 export function PartyDetailModal({
   partyId,
   create = false,
+  initialTab = "details",
   onClose,
 }: PartyDetailModalProps) {
   const show = create || (partyId != null && partyId !== "");
@@ -120,7 +126,8 @@ export function PartyDetailModal({
 
   // Local Form state
   const [form, setForm] = useState<PartyState>(defaultPartyState());
-  const [activeTab, setActiveTab] = useState<"details" | "address">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "contacts" | "address">(initialTab);
+  const filledContactCount = sanitizePartyContacts(form.contacts).length;
 
   // Sync loaded party into form
   useEffect(() => {
@@ -129,14 +136,13 @@ export function PartyDetailModal({
       const bAddr = p.billing_address || {};
       const sAddr = p.shipping_address || {};
 
+      const loadedContacts = contactsFromParty(p);
       setForm({
         party_name: stringField(p.party_name),
         party_type: PARTY_TYPE_OPTIONS.includes(p.party_type)
           ? p.party_type
           : "customer",
-        contact_person: stringField(p.contact_person),
-        mobile: stringField(p.mobile),
-        email: stringField(p.email),
+        contacts: loadedContacts.length > 0 ? loadedContacts : [emptyPartyContact()],
         gst_no: stringField(p.gst_no),
         drug_license_no: stringField(p.drug_license_no),
         district: stringField(p.district),
@@ -170,8 +176,10 @@ export function PartyDetailModal({
     if (!show) {
       setForm(defaultPartyState());
       setActiveTab("details");
+    } else {
+      setActiveTab(initialTab);
     }
-  }, [show]);
+  }, [show, initialTab]);
 
   // Keyboard shortcut (Escape to close)
   useEffect(() => {
@@ -195,9 +203,23 @@ export function PartyDetailModal({
       return;
     }
 
+    const contacts = sanitizePartyContacts(form.contacts);
+    if (!contacts.some((c) => c.phone)) {
+      toast.error("At least one contact must have a phone number");
+      return;
+    }
+
+    const payload = {
+      ...form,
+      contacts,
+      contact_person: contacts[0]?.name ?? "",
+      mobile: contacts[0]?.phone ?? "",
+      email: contacts[0]?.email ?? "",
+    };
+
     try {
       if (create) {
-        await createParty(form as any).unwrap();
+        await createParty(payload as any).unwrap();
         toast.success(mutationSuccessCopy("createParty"));
         onClose();
       } else if (partyId) {
@@ -209,9 +231,12 @@ export function PartyDetailModal({
 
         if (!valsEqual(form.party_name, pObj.party_name)) patch.party_name = form.party_name;
         if (!valsEqual(form.party_type, pObj.party_type)) patch.party_type = form.party_type;
-        if (!valsEqual(form.contact_person, pObj.contact_person)) patch.contact_person = form.contact_person;
-        if (!valsEqual(form.mobile, pObj.mobile)) patch.mobile = form.mobile;
-        if (!valsEqual(form.email, pObj.email)) patch.email = form.email;
+        if (!contactsEqual(contacts, contactsFromParty(pObj))) {
+          patch.contacts = contacts;
+          patch.contact_person = contacts[0]?.name ?? "";
+          patch.mobile = contacts[0]?.phone ?? "";
+          patch.email = contacts[0]?.email ?? "";
+        }
         if (!valsEqual(form.gst_no, pObj.gst_no)) patch.gst_no = form.gst_no;
         if (!valsEqual(form.drug_license_no, pObj.drug_license_no)) patch.drug_license_no = form.drug_license_no;
         if (!valsEqual(form.district, pObj.district)) patch.district = form.district;
@@ -309,6 +334,22 @@ export function PartyDetailModal({
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab("contacts")}
+            className={`border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+              activeTab === "contacts"
+                ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-500"
+                : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+          >
+            Contacts
+            {filledContactCount > 0 ? (
+              <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                {filledContactCount}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab("address")}
             className={`border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
               activeTab === "address"
@@ -324,6 +365,17 @@ export function PartyDetailModal({
         <div className="flex-1 overflow-y-auto p-5 space-y-6 min-h-0">
           {isFetching && !create ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">Loading profile data...</p>
+          ) : activeTab === "contacts" ? (
+            <div className="space-y-4">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Add department contacts with phone, email, and alternate numbers. The first contact is used as the primary contact across the directory.
+              </p>
+              <PartyContactsEditor
+                contacts={form.contacts}
+                onChange={(contacts) => setForm((f) => ({ ...f, contacts }))}
+                disabled={isSaving}
+              />
+            </div>
           ) : activeTab === "details" ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1 md:col-span-2">
@@ -350,42 +402,6 @@ export function PartyDetailModal({
                   <option value="supplier">Supplier (Distributor / Manufacturer)</option>
                   <option value="both">Both</option>
                 </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className={labelClass}>Contact Person</label>
-                <input
-                  type="text"
-                  className={inputClass}
-                  placeholder="e.g. Dr. Rajesh Kumar"
-                  value={form.contact_person}
-                  onChange={(e) => setForm((f) => ({ ...f, contact_person: e.target.value }))}
-                  disabled={isSaving}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className={labelClass}>Mobile Number</label>
-                <input
-                  type="text"
-                  className={inputClass}
-                  placeholder="e.g. +91 9999988888"
-                  value={form.mobile}
-                  onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value }))}
-                  disabled={isSaving}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className={labelClass}>Email Address</label>
-                <input
-                  type="email"
-                  className={inputClass}
-                  placeholder="e.g. billing@apollomed.com"
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  disabled={isSaving}
-                />
               </div>
 
               <div className="space-y-1">

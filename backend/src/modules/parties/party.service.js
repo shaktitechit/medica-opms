@@ -17,6 +17,7 @@ const PATCHABLE_KEYS = Object.freeze([
   'contact_person',
   'mobile',
   'email',
+  'contacts',
   'gst_no',
   'drug_license_no',
   'billing_address',
@@ -27,6 +28,34 @@ const PATCHABLE_KEYS = Object.freeze([
   'legacy_customer',
   'is_active',
 ]);
+
+function sanitizeContacts(contacts) {
+  if (!Array.isArray(contacts)) return [];
+  return contacts
+    .filter((c) => c && typeof c === 'object')
+    .map((c) => ({
+      name: c.name != null ? String(c.name).trim() : '',
+      department: c.department != null ? String(c.department).trim() : '',
+      phone: c.phone != null ? String(c.phone).trim() : '',
+      email: c.email != null ? String(c.email).trim().toLowerCase() : '',
+      alternate_phone: c.alternate_phone != null ? String(c.alternate_phone).trim() : '',
+    }))
+    .filter(
+      (c) => c.name || c.department || c.phone || c.email || c.alternate_phone
+    );
+}
+
+function primaryContactFields(contacts) {
+  const primary = contacts[0];
+  if (!primary) {
+    return { contact_person: '', mobile: '', email: '' };
+  }
+  return {
+    contact_person: primary.name || '',
+    mobile: primary.phone || '',
+    email: primary.email || '',
+  };
+}
 
 function sanitizePatch(patch) {
   if (!patch || typeof patch !== 'object') return {};
@@ -39,6 +68,12 @@ function sanitizePatch(patch) {
       if (k === 'party_name' && typeof v === 'string') v = v.trim();
       if (k === 'party_type') {
         if (!PARTY_TYPES.has(v)) throw new ApiError(400, 'Invalid party_type');
+      }
+      if (k === 'contacts') {
+        v = sanitizeContacts(v);
+        Object.assign(out, primaryContactFields(v));
+        out.contacts = v;
+        continue;
       }
       out[k] = v;
     }
@@ -62,7 +97,13 @@ async function list(query = {}) {
       { party_name: { $regex: s, $options: 'i' } },
       { contact_person: { $regex: s, $options: 'i' } },
       { mobile: { $regex: s, $options: 'i' } },
-      { gst_no: { $regex: s, $options: 'i' } }
+      { email: { $regex: s, $options: 'i' } },
+      { gst_no: { $regex: s, $options: 'i' } },
+      { 'contacts.name': { $regex: s, $options: 'i' } },
+      { 'contacts.department': { $regex: s, $options: 'i' } },
+      { 'contacts.phone': { $regex: s, $options: 'i' } },
+      { 'contacts.email': { $regex: s, $options: 'i' } },
+      { 'contacts.alternate_phone': { $regex: s, $options: 'i' } },
     ];
   }
 
@@ -109,12 +150,30 @@ async function get(id) {
 
 async function create(body, user) {
   const gst = body.gst_no != null ? String(body.gst_no).trim().toUpperCase() : '';
+  const contacts = sanitizeContacts(body.contacts);
+  const primary = primaryContactFields(contacts);
   const payload = {
     party_type: body.party_type && PARTY_TYPES.has(body.party_type) ? body.party_type : 'customer',
     party_name: String(body.party_name).trim(),
-    contact_person: body.contact_person != null ? String(body.contact_person).trim() : '',
-    mobile: String(body.mobile).trim(),
-    email: body.email != null ? String(body.email).trim().toLowerCase() : '',
+    contact_person:
+      contacts.length > 0
+        ? primary.contact_person
+        : body.contact_person != null
+          ? String(body.contact_person).trim()
+          : '',
+    mobile:
+      contacts.length > 0
+        ? primary.mobile
+        : body.mobile != null
+          ? String(body.mobile).trim()
+          : '',
+    email:
+      contacts.length > 0
+        ? primary.email
+        : body.email != null
+          ? String(body.email).trim().toLowerCase()
+          : '',
+    contacts,
     gst_no: gst,
     drug_license_no: body.drug_license_no != null ? String(body.drug_license_no).trim() : '',
     billing_address: body.billing_address && typeof body.billing_address === 'object' ? body.billing_address : {},
@@ -206,12 +265,30 @@ async function bulkCreate(items, user) {
     const gst = item.gst_no != null ? String(item.gst_no).trim().toUpperCase() : '';
     const type = item.party_type && PARTY_TYPES.has(item.party_type) ? item.party_type : 'customer';
 
+    const contacts = sanitizeContacts(item.contacts);
+    const primary = primaryContactFields(contacts);
     const payload = {
       party_type: type,
       party_name: name,
-      contact_person: item.contact_person != null ? String(item.contact_person).trim() : '',
-      mobile: item.mobile != null ? String(item.mobile).trim() : '',
-      email: item.email != null ? String(item.email).trim().toLowerCase() : '',
+      contact_person:
+        contacts.length > 0
+          ? primary.contact_person
+          : item.contact_person != null
+            ? String(item.contact_person).trim()
+            : '',
+      mobile:
+        contacts.length > 0
+          ? primary.mobile
+          : item.mobile != null
+            ? String(item.mobile).trim()
+            : '',
+      email:
+        contacts.length > 0
+          ? primary.email
+          : item.email != null
+            ? String(item.email).trim().toLowerCase()
+            : '',
+      contacts,
       gst_no: gst,
       drug_license_no: item.drug_license_no != null ? String(item.drug_license_no).trim() : '',
       billing_address: item.billing_address && typeof item.billing_address === 'object' ? item.billing_address : {},

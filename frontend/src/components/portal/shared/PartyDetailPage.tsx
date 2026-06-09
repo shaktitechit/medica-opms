@@ -7,8 +7,6 @@ import {
   ArrowLeft,
   Building,
   MapPin,
-  Phone,
-  Mail,
   User,
   CreditCard,
   FileText,
@@ -32,6 +30,7 @@ import {
   RefreshCw,
   UserCheck,
   Truck,
+  Users,
 } from "lucide-react";
 
 import { ConfirmDeleteDraftModal } from "@/components/portal/sales/components/modals/ConfirmDeleteDraftModal";
@@ -55,7 +54,9 @@ import {
   useListOrdersQuery,
   useDeleteOrderMutation,
 } from "@/store/api";
+import { PartyContactsDisplay } from "./PartyContactsDisplay";
 import { PartyDetailModal } from "./PartyDetailModal";
+import { contactsFromParty } from "@/lib/partyContacts";
 import { toast } from "@/lib/toast";
 import { mutationSuccessCopy, mutationRejectedMessage } from "@/lib/mutationMessages";
 
@@ -154,7 +155,8 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
 
   // Modal & Tab states
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "addresses" | "products" | "orders">("profile");
+  const [editModalTab, setEditModalTab] = useState<"details" | "contacts" | "address">("details");
+  const [activeTab, setActiveTab] = useState<"profile" | "contacts" | "addresses" | "products" | "orders">("profile");
 
   // Orders related state
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
@@ -401,6 +403,12 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
   const p = rawParty as any;
   const bAddr = p.billing_address || {};
   const sAddr = p.shipping_address || {};
+  const partyContacts = contactsFromParty(p);
+
+  const openEditModal = (tab: "details" | "contacts" | "address" = "details") => {
+    setEditModalTab(tab);
+    setIsEditModalOpen(true);
+  };
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -408,8 +416,10 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
       {isEditModalOpen && (
         <PartyDetailModal
           partyId={id}
+          initialTab={editModalTab}
           onClose={() => {
             setIsEditModalOpen(false);
+            setEditModalTab("details");
             refetch();
           }}
         />
@@ -454,7 +464,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
             </button>
             <button
               type="button"
-              onClick={() => setIsEditModalOpen(true)}
+              onClick={() => openEditModal("details")}
               className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition dark:bg-blue-500 dark:hover:bg-blue-400"
             >
               <Edit className="h-4 w-4" /> Edit Profile
@@ -475,6 +485,17 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
           }`}
         >
           <Building className="h-4 w-4" /> Profile & Licenses
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("contacts")}
+          className={`border-b-2 px-6 py-3.5 text-sm font-semibold transition -mb-px flex items-center gap-2 ${
+            activeTab === "contacts"
+              ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-500"
+              : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+          }`}
+        >
+          <Users className="h-4 w-4" /> Contacts ({partyContacts.length})
         </button>
         <button
           type="button"
@@ -532,41 +553,6 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                 <div className={`${valueClass} capitalize`}>{p.party_type || "—"}</div>
               </div>
 
-              {/* Contact Person */}
-              <div className="space-y-1">
-                <label className={labelClass}>Contact Person</label>
-                <div className={valueClass}>{p.contact_person || "—"}</div>
-              </div>
-
-              {/* Mobile */}
-              <div className="space-y-1">
-                <label className={labelClass}>Mobile Number</label>
-                <div className={`${valueClass} flex items-center gap-1.5`}>
-                  {p.mobile ? (
-                    <>
-                      <Phone className="h-3.5 w-3.5 text-slate-400" />
-                      {p.mobile}
-                    </>
-                  ) : (
-                    "—"
-                  )}
-                </div>
-              </div>
-
-              {/* Email */}
-              <div className="space-y-1">
-                <label className={labelClass}>Email Address</label>
-                <div className={`${valueClass} flex items-center gap-1.5`}>
-                  {p.email ? (
-                    <>
-                      <Mail className="h-3.5 w-3.5 text-slate-400" />
-                      {p.email}
-                    </>
-                  ) : (
-                    "—"
-                  )}
-                </div>
-              </div>
             </div>
 
             <h3 className="text-md font-bold text-slate-900 dark:text-slate-50 flex items-center gap-2 border-b border-slate-100 dark:border-white/5 pt-4 pb-3">
@@ -609,6 +595,29 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === "contacts" && (
+          <div className="rounded-xl border border-slate-200/90 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-900 space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-white/5 pb-3">
+              <h3 className="text-md font-bold text-slate-900 dark:text-slate-50 flex items-center gap-2">
+                <Users className="h-5 w-5 text-blue-500" />
+                Party Contacts
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-white/5 dark:text-slate-400">
+                  {partyContacts.length}
+                </span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => openEditModal("contacts")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-50 dark:border-blue-500/30 dark:bg-slate-900 dark:text-blue-400 dark:hover:bg-blue-500/10"
+              >
+                <Edit className="h-3.5 w-3.5" />
+                Edit Contacts
+              </button>
+            </div>
+            <PartyContactsDisplay party={p} />
           </div>
         )}
 

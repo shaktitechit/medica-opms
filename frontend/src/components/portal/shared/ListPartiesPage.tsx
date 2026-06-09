@@ -17,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { primaryContactDisplay } from "@/lib/partyContacts";
 import { ConfirmDeletePartyModal } from "@/components/portal/shared/ConfirmDeletePartyModal";
 import { PartyDetailModal } from "@/components/portal/shared/PartyDetailModal";
 import { BulkUploadPartiesModal } from "@/components/portal/shared/BulkUploadPartiesModal";
@@ -51,6 +52,13 @@ type PartyRow = {
   contact_person?: string;
   mobile?: string;
   email?: string;
+  contacts?: Array<{
+    name?: string;
+    department?: string;
+    phone?: string;
+    email?: string;
+    alternate_phone?: string;
+  }>;
   gst_no?: string;
   drug_license_no?: string;
   district?: string;
@@ -257,7 +265,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
             </span>
             <input
               type="text"
-              placeholder="Search by name, contact, mobile, GSTIN..."
+              placeholder="Search by name, contact, department, phone, email, GSTIN..."
               className="w-full rounded-lg border border-slate-200/90 bg-white pl-9 pr-3 py-2 text-sm text-slate-950 outline-none transition focus:border-blue-600 focus:ring-1 focus:ring-blue-600/50 dark:border-white/10 dark:bg-slate-950 dark:text-slate-50"
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
@@ -349,9 +357,13 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
               const label = rowLabel(p, id);
               const name = p.party_name || "—";
               const type = p.party_type || "customer";
-              const contact = p.contact_person?.trim() || "—";
-              const mob = p.mobile?.trim() || "—";
-              const email = p.email?.trim() || "—";
+              const primaryContact = primaryContactDisplay(p);
+              const contact = primaryContact.name;
+              const department = primaryContact.department;
+              const mob = primaryContact.phone;
+              const email = primaryContact.email;
+              const extraContacts =
+                primaryContact.total > 1 ? ` (+${primaryContact.total - 1} more)` : "";
               const gst = p.gst_no?.trim() || "—";
 
               const distPart = p.district?.trim() || "";
@@ -416,13 +428,21 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
 
                   {/* Middle Column: Grid of Metadata details */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-xs lg:flex-[2] max-w-2xl w-full">
-                    <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 sm:col-span-2">
                       <User className="h-4 w-4 shrink-0 text-slate-400" />
-                      <span className="truncate" title="Contact Person">
-                        <span className="text-slate-400 mr-1">Contact:</span>
+                      <span className="truncate" title={contact}>
+                        <span className="text-slate-400 mr-1">Primary contact:</span>
                         <strong className="font-semibold text-slate-800 dark:text-slate-200">
                           {contact}
+                          {extraContacts ? (
+                            <span className="font-normal text-slate-500">{extraContacts}</span>
+                          ) : null}
                         </strong>
+                        {department ? (
+                          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-white/5 dark:text-slate-400">
+                            {department}
+                          </span>
+                        ) : null}
                       </span>
                     </div>
 

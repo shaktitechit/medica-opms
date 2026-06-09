@@ -16,6 +16,17 @@ const partyAddressSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const partyContactSchema = new mongoose.Schema(
+  {
+    name: { type: String, trim: true },
+    department: { type: String, trim: true },
+    phone: { type: String, trim: true },
+    email: { type: String, lowercase: true, trim: true },
+    alternate_phone: { type: String, trim: true },
+  },
+  { _id: false }
+);
+
 const partySchema = new mongoose.Schema(
   {
     party_type: {
@@ -28,6 +39,7 @@ const partySchema = new mongoose.Schema(
     contact_person: { type: String, trim: true },
     mobile: { type: String, trim: true },
     email: { type: String, lowercase: true, trim: true },
+    contacts: { type: [partyContactSchema], default: [] },
     gst_no: { type: String, uppercase: true, trim: true },
     drug_license_no: { type: String, trim: true },
     billing_address: partyAddressSchema,
