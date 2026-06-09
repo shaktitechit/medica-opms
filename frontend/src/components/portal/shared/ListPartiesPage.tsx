@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { primaryContactDisplay } from "@/lib/partyContacts";
+import { canBulkUploadParties } from "@/lib/permissions";
 import { ConfirmDeletePartyModal } from "@/components/portal/shared/ConfirmDeletePartyModal";
 import { PartyDetailModal } from "@/components/portal/shared/PartyDetailModal";
 import { BulkUploadPartiesModal } from "@/components/portal/shared/BulkUploadPartiesModal";
@@ -30,6 +31,7 @@ import {
   useDeletePartyMutation,
   useListPartiesQuery,
 } from "@/store/api";
+import { useAppSelector } from "@/store/hooks";
 
 const btnSecondaryClass =
   "inline-flex items-center gap-1.5 rounded-lg border border-slate-200/90 bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 active:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-white/5 dark:active:bg-white/10";
@@ -88,6 +90,8 @@ export type ListPartiesPageProps = {
 };
 
 export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
+  const user = useAppSelector((s) => s.auth.user);
+  const mayBulkUpload = canBulkUploadParties(user);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -235,13 +239,15 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
             <Link href={portalHome} className={btnSecondaryClass}>
               ← Dashboard
             </Link>
-            <button
-              type="button"
-              onClick={() => setBulkUploadOpen(true)}
-              className={btnSecondaryClass}
-            >
-              📥 Bulk Upload
-            </button>
+            {mayBulkUpload && (
+              <button
+                type="button"
+                onClick={() => setBulkUploadOpen(true)}
+                className={btnSecondaryClass}
+              >
+                📥 Bulk Upload
+              </button>
+            )}
             <button
               type="button"
               onClick={openCreate}

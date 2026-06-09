@@ -7,6 +7,7 @@ import {
   BULK_PARTY_UPLOAD_BATCH_SIZE,
   uploadInBatches,
 } from "@/lib/bulkUploadBatches";
+import { canBulkUploadParties } from "@/lib/permissions";
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import {
@@ -15,6 +16,7 @@ import {
   hasContactPhone,
   type PartyContact,
 } from "@/lib/partyContacts";
+import { useAppSelector } from "@/store/hooks";
 
 export type BulkUploadPartiesModalProps = {
   open: boolean;
@@ -104,6 +106,8 @@ export function BulkUploadPartiesModal({
   onClose,
   onSuccess,
 }: BulkUploadPartiesModalProps) {
+  const user = useAppSelector((s) => s.auth.user);
+  const mayBulkUpload = canBulkUploadParties(user);
   const [bulkCreateParty, { isLoading }] = useBulkCreatePartyMutation();
   const [file, setFile] = useState<File | null>(null);
   const [parsedParties, setParsedParties] = useState<ParsedParty[]>([]);
@@ -288,6 +292,11 @@ export function BulkUploadPartiesModal({
       return;
     }
 
+    if (!mayBulkUpload) {
+      toast.error("Bulk party upload is allowed for Admin and Finance users only.");
+      return;
+    }
+
     try {
       const imported = await uploadInBatches(
         validPayload,
@@ -306,7 +315,7 @@ export function BulkUploadPartiesModal({
       setUploadBatch(null);
       toast.error(mutationRejectedMessage(err));
     }
-  }, [parsedParties, bulkCreateParty, onSuccess, onClose]);
+  }, [parsedParties, bulkCreateParty, onSuccess, onClose, mayBulkUpload]);
 
   if (!open) return null;
 
@@ -365,6 +374,9 @@ export function BulkUploadPartiesModal({
               </p>
               <p>
                 Large files are uploaded in batches of {BULK_PARTY_UPLOAD_BATCH_SIZE} parties per request to avoid payload size limits.
+              </p>
+              <p>
+                Bulk import is available to <strong>Admin</strong> and <strong>Finance</strong> users.
               </p>
             </div>
             <button
@@ -546,7 +558,7 @@ export function BulkUploadPartiesModal({
           >
             Cancel
           </button>
-          {file && stats.ready > 0 && (
+          {file && stats.ready > 0 && mayBulkUpload && (
             <button
               type="button"
               onClick={() => void handleUpload()}
