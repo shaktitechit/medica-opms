@@ -422,19 +422,6 @@ async function create(body, user) {
   const doc = await getModels().Order.create(payload);
   const plain = toPlain(doc.toObject());
 
-  if (['admin', 'super_admin', 'finance'].includes(user.department)) {
-    for (const item of plain.order_items || []) {
-      if (item.unit_price > 0) {
-        await partyOrderProductsRateService.createMappingAndRate({
-          orderId: plain._id,
-          productId: item.product,
-          applied_rate_type: item.applied_rate_type,
-          rate: item.unit_price
-        }, user);
-      }
-    }
-  }
-
   await syncPartyProductLastRatesFromOrder(getModels, plain);
   await activityService.create({
     actor: user._id,
@@ -535,19 +522,6 @@ async function update(id, patch, user) {
   doc.set('updated_by', user._id);
   await doc.save();
   const out = toPlain(doc.toObject());
-
-  if (p.order_items && ['admin', 'super_admin', 'finance'].includes(user.department)) {
-    for (const item of out.order_items || []) {
-      if (item.unit_price > 0) {
-        await partyOrderProductsRateService.createMappingAndRate({
-          orderId: out._id,
-          productId: item.product,
-          applied_rate_type: item.applied_rate_type,
-          rate: item.unit_price
-        }, user);
-      }
-    }
-  }
 
   await syncPartyProductLastRatesFromOrder(getModels, out);
   return out;

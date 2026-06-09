@@ -574,6 +574,17 @@ export default function AdminCreateOrderPage() {
     return map;
   }, [rateCheckQ.data]);
 
+  const allItemsNegotiated = useMemo(() => {
+    const activeLines = lines.filter((l) => l.productId);
+    if (activeLines.length === 0) return false;
+    return activeLines.every((line) => {
+      const rateItem = rateItemByLine.get(
+        rateLookupKey(line.productId, line.applied_rate_type),
+      );
+      return resolveRateDisplayStatus(rateItem) === "negotiated";
+    });
+  }, [lines, rateItemByLine]);
+
   const resolvePriceForLine = useCallback(
     (
       productId: string,
@@ -813,6 +824,10 @@ export default function AdminCreateOrderPage() {
         toast.error("Select a party.");
         return;
       }
+      if (!allItemsNegotiated) {
+        toast.error("Please negotiate all items before submitting the order.");
+        return;
+      }
       const prepared = lines
         .filter((l) => l.productId)
         .map((l) => ({
@@ -918,6 +933,7 @@ export default function AdminCreateOrderPage() {
       router,
       assignedSales,
       user,
+      allItemsNegotiated,
     ],
   );
 
@@ -1093,8 +1109,8 @@ export default function AdminCreateOrderPage() {
                   {/* Tier 1 Grid */}
                   <div className="grid gap-3 grid-cols-1 lg:grid-cols-12">
                     {/* Product */}
-                    <div className="space-y-1 lg:col-span-4">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    <div className="space-y-1 lg:col-span-3">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-550">
                         Product
                       </span>
                       <ProductAutocomplete
@@ -1106,7 +1122,7 @@ export default function AdminCreateOrderPage() {
                     </div>
 
                     {/* Qty */}
-                    <div className="space-y-1 lg:col-span-2">
+                    <div className="space-y-1 lg:col-span-1">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         Qty
                       </span>
@@ -1158,8 +1174,8 @@ export default function AdminCreateOrderPage() {
                     </div>
 
                     {/* Rate Type */}
-                    <div className="space-y-1 lg:col-span-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    <div className="space-y-1 lg:col-span-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-550">
                         Rate Type
                       </span>
                       <select
@@ -1170,7 +1186,7 @@ export default function AdminCreateOrderPage() {
                         className={inputClass}
                       >
                         <option value="SR">SR</option>
-                        <option value="SSR">SSR</option>
+                        <option value="SRA">SRA</option>
                         <option value="CR">CR</option>
                       </select>
                     </div>
@@ -1202,7 +1218,7 @@ export default function AdminCreateOrderPage() {
                     </div>
 
                     {/* Disc % */}
-                    <div className="space-y-1 lg:col-span-1">
+                    <div className="space-y-1 lg:col-span-2">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         Disc %
                       </span>
@@ -1229,7 +1245,7 @@ export default function AdminCreateOrderPage() {
                     </div>
 
                     {/* GST % */}
-                    <div className="space-y-1 lg:col-span-1">
+                    <div className="space-y-1 lg:col-span-2">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         GST %
                       </span>
@@ -1322,7 +1338,7 @@ export default function AdminCreateOrderPage() {
                         Line Total
                       </span>
                       <div className="rounded-lg border border-slate-200/80 bg-slate-50 px-3 py-2 text-sm font-semibold tabular-nums text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-50 h-[38px] flex items-center">
-                        ${formatMoney(lineTotal(row))}
+                        ₹{formatMoney(lineTotal(row))}
                       </div>
                     </div>
 
@@ -1403,33 +1419,39 @@ export default function AdminCreateOrderPage() {
               <div className="space-y-2.5 text-sm">
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Gross Subtotal</span>
-                  <span className="font-medium tabular-nums">${formatMoney(liveSummary.subtotal)}</span>
+                  <span className="font-medium tabular-nums">₹{formatMoney(liveSummary.subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-rose-600 dark:text-rose-400">
                   <span>Total Discount</span>
-                  <span className="font-medium tabular-nums">-${formatMoney(liveSummary.discount)}</span>
+                  <span className="font-medium tabular-nums">-₹{formatMoney(liveSummary.discount)}</span>
                 </div>
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Taxable Amount</span>
-                  <span className="font-medium tabular-nums">${formatMoney(liveSummary.taxable)}</span>
+                  <span className="font-medium tabular-nums">₹{formatMoney(liveSummary.taxable)}</span>
                 </div>
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Estimated GST</span>
-                  <span className="font-medium tabular-nums">${formatMoney(liveSummary.gst)}</span>
+                  <span className="font-medium tabular-nums">₹{formatMoney(liveSummary.gst)}</span>
                 </div>
                 <div className="border-t border-blue-100 pt-3 dark:border-blue-900/20">
                   <div className="flex justify-between text-base font-bold text-blue-600 dark:text-blue-400">
                     <span>Grand Total</span>
-                    <span className="text-lg tabular-nums">${formatMoney(liveSummary.total)}</span>
+                    <span className="text-lg tabular-nums">₹{formatMoney(liveSummary.total)}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="mt-5 pt-3 border-t border-blue-100/50 dark:border-blue-900/20">
+              <div className="mt-5 pt-3 border-t border-blue-100/50 dark:border-blue-900/20 space-y-2">
+                {!allItemsNegotiated && lines.some((l) => l.productId) && (
+                  <p className="text-xs text-rose-600 dark:text-rose-455 font-medium text-center font-sans">
+                    All items must be negotiated to submit order
+                  </p>
+                )}
                 <button
                   type="submit"
-                  disabled={isLoading}
+                  disabled={isLoading || !allItemsNegotiated}
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/25 transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:shadow-none dark:hover:bg-blue-400"
+                  title={!allItemsNegotiated ? "All items must be negotiated before submitting" : undefined}
                 >
                   {isLoading ? (
                     <>

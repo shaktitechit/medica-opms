@@ -57,6 +57,10 @@ export function OrderTab({
     null,
   );
   const [mapModalOpen, setMapModalOpen] = useState(false);
+  const [inlineCancelItem, setInlineCancelItem] = useState<{
+    order_item_id: string;
+    product_name: string;
+  } | null>(null);
 
   const canMapPrice = status === "submitted" && Boolean(partyId);
   const canApprove = status === "submitted";
@@ -68,6 +72,17 @@ export function OrderTab({
     }
     return map;
   }, [rateCheckQ.data]);
+
+  const allItemsNegotiated = useMemo(() => {
+    if (readOnlyItems.length === 0) return true;
+    return readOnlyItems.every((lineRaw) => {
+      const line = lineRaw as Record<string, unknown>;
+      const productId = idFromRef(line.product);
+      const rateType = String(line.applied_rate_type ?? "MANUAL");
+      const rateItem = rateItemByLine.get(rateLookupKey(productId, rateType));
+      return resolveRateDisplayStatus(rateItem) === "negotiated";
+    });
+  }, [readOnlyItems, rateItemByLine]);
 
   const openMapModal = useCallback(
     (line: Record<string, unknown>) => {
@@ -134,8 +149,32 @@ export function OrderTab({
     [detail, orderId, patchOrder, rateCheckQ, refetchOrder],
   );
 
+  const handleInlineCancelSubmit = useCallback(async () => {
+    if (!inlineCancelItem || !detail || !Array.isArray(detail.order_items)) return;
+    try {
+      const updatedItems = detail.order_items.filter(
+        (item: any) => String(item._id ?? item.id) !== inlineCancelItem.order_item_id
+      );
+
+      await patchOrder({
+        id: orderId,
+        patch: { order_items: updatedItems },
+      }).unwrap();
+
+      toast.success(`${inlineCancelItem.product_name} removed from order.`);
+      setInlineCancelItem(null);
+      refetchOrder?.();
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }, [detail, inlineCancelItem, orderId, patchOrder, refetchOrder]);
+
   const handleApprove = useCallback(async () => {
     if (!orderId) return;
+    if (!allItemsNegotiated) {
+      toast.error("Please negotiate all items before approving.");
+      return;
+    }
     try {
       await transitionOrder({
         id: orderId,
@@ -149,7 +188,7 @@ export function OrderTab({
     } catch (rejected) {
       toast.error(mutationRejectedMessage(rejected));
     }
-  }, [orderId, transitionOrder, refetchOrder]);
+  }, [orderId, transitionOrder, refetchOrder, allItemsNegotiated]);
 
   const financialBreakdown = useMemo(
     () => ({
@@ -179,14 +218,22 @@ export function OrderTab({
                 Line items
               </h3>
               {canApprove ? (
-                <button
-                  type="button"
-                  onClick={() => void handleApprove()}
-                  disabled={busy}
-                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-400"
-                >
-                  {isTransitioning ? "Approving…" : "Approve"}
-                </button>
+                <div className="flex items-center gap-2">
+                  {!allItemsNegotiated && (
+                    <span className="text-[11px] text-rose-600 dark:text-rose-455 font-medium">
+                      All items must be negotiated to approve
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void handleApprove()}
+                    disabled={busy || !allItemsNegotiated}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-emerald-500 dark:hover:bg-emerald-400"
+                    title={!allItemsNegotiated ? "All items must be negotiated before approving" : undefined}
+                  >
+                    {isTransitioning ? "Approving…" : "Approve"}
+                  </button>
+                </div>
               ) : null}
             </div>
 
@@ -214,8 +261,8 @@ export function OrderTab({
                       <th className="px-3 py-2 font-medium text-right">
                         Line total
                       </th>
-                      <th className="px-3 py-2 font-medium text-right">
-                        Pricing
+                      <th className="px-3 py-2 font-medium text-center w-36">
+                        Actions
                       </th>
                     </tr>
                   </thead>
@@ -309,28 +356,48 @@ export function OrderTab({
                           <td className="px-3 py-2 text-right tabular-nums font-mono">
                             {formatMoney(lt)}
                           </td>
-                          <td className="px-3 py-2 text-right">
-                             {canMapPrice && productId ? (
-                               <button
-                                 type="button"
-                                 onClick={() => openMapModal(line)}
-                                 disabled={busy}
-                                 className="inline-flex items-center justify-center rounded bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm hover:bg-blue-700 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer transition-colors"
-                               >
-                                 Map
-                               </button>
-                            ) : (
-                              <span
-                                className="text-[10px] text-slate-400 dark:text-slate-500"
-                                title={
-                                  status !== "submitted"
-                                    ? "Mapping is locked after admin approval"
-                                    : "Link a party to map prices"
-                                }
-                              >
-                                —
-                              </span>
-                            )}
+                          <td className="px-3 py-2 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              {canMapPrice && productId && (
+                                <button
+                                  type="button"
+                                  onClick={() => openMapModal(line)}
+                                  disabled={busy}
+                                  className="inline-flex items-center justify-center rounded bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm hover:bg-blue-700 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer transition-colors"
+                                >
+                                  Map
+                                </button>
+                              )}
+                              {status === "submitted" && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setInlineCancelItem({
+                                      order_item_id: String(
+                                        line._id ?? line.id ?? key
+                                      ),
+                                      product_name: name,
+                                    })
+                                  }
+                                  disabled={busy}
+                                  className="inline-flex items-center justify-center rounded bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600 shadow-sm hover:bg-rose-100 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed dark:bg-rose-950/30 dark:text-rose-455 dark:hover:bg-rose-900/50 cursor-pointer transition-colors font-sans"
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                              {!canMapPrice && status !== "submitted" && (
+                                <span
+                                  className="text-[10px] text-slate-400 dark:text-slate-500"
+                                  title={
+                                    status !== "submitted"
+                                      ? "Mapping is locked after admin approval"
+                                      : "Link a party to map prices"
+                                  }
+                                >
+                                  —
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -402,6 +469,37 @@ export function OrderTab({
         target={mapTarget}
         onSuccess={(result) => void handleMapPriceSuccess(result)}
       />
+
+      {/* Inline Cancel Confirmation Modal */}
+      {inlineCancelItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 font-sans">
+              Confirm Remove Item from Order
+            </h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 font-sans">
+              Are you sure you want to remove <strong>{inlineCancelItem.product_name}</strong> from this order? This will permanently delete this item from the order.
+            </p>
+            <div className="mt-6 flex justify-end gap-3 font-medium font-sans">
+              <button
+                type="button"
+                onClick={() => setInlineCancelItem(null)}
+                className="rounded-lg border border-slate-200/95 px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer font-sans"
+              >
+                Go Back
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleInlineCancelSubmit()}
+                disabled={isPatching}
+                className="rounded-lg bg-rose-600 px-3 py-2 text-sm text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50 cursor-pointer font-sans"
+              >
+                {isPatching ? "Removing..." : "Yes, Remove Item"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

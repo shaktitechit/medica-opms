@@ -7,6 +7,7 @@ import { FlagsTab } from "./components/FlagsTab";
 import AttachmentsTab from "./components/AttachmentsTab";
 import { DispatchesTab } from "./components/DispatchesTab";
 import { TransportsTab } from "./components/TransportsTab";
+import { FinanceReleasesTab } from "./components/FinanceReleasesTab";
 import { DashboardCard } from "@/components/widgets";
 import {
   buildPartyNameById,
@@ -201,7 +202,7 @@ function renderPriorityBadge(priority: string) {
 export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { data, isFetching, isError, refetch } = useGetOrderQuery(orderId);
-  
+
   const salesUsersQ = useListUsersQuery({ department: "sales" });
   const financeUsersQ = useListUsersQuery({ department: "finance" });
   const dispatchUsersQ = useListUsersQuery({ department: "dispatch" });
@@ -349,15 +350,15 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
   const dispatchedQtyByItemForActiveApproval = useMemo(() => {
     if (!activeApproval || !dispatches) return {};
     const map: Record<string, number> = {};
-    
+
     const filteredDispatches = dispatches.filter((disp: any) => {
       const statusValue = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
       if (statusValue === "cancelled") return false;
-      
+
       const dispApprovalId = typeof disp.finance_approval === "object" && disp.finance_approval !== null
         ? String(disp.finance_approval._id ?? disp.finance_approval.id ?? "")
         : String(disp.finance_approval ?? "");
-        
+
       return dispApprovalId === String(activeApproval._id);
     });
 
@@ -385,10 +386,10 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
         const dispApprovalId =
           typeof dispApproval === "object" && dispApproval !== null
             ? String(
-                (dispApproval as Record<string, unknown>)._id ??
-                  (dispApproval as Record<string, unknown>).id ??
-                  "",
-              )
+              (dispApproval as Record<string, unknown>)._id ??
+              (dispApproval as Record<string, unknown>).id ??
+              "",
+            )
             : String(dispApproval ?? "");
 
         return dispApprovalId === appId;
@@ -464,18 +465,20 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
     }
   }, [patchDispatch, handleRefetch]);
 
-  const handleUpdateTransportStatus = useCallback(async (transportId: string, nextStatus: string) => {
+  const handleUpdateTransportStatus = useCallback(async (transportId: string, nextStatus: string, remarks?: string) => {
     try {
       await patchTransport({
         id: transportId,
-        patch: { status: nextStatus },
+        patch: { status: nextStatus, ...(remarks ? { remarks } : {}) },
       }).unwrap();
-      toast.success(`Transport status updated to ${nextStatus.replace('_', ' ')}`);
+      toast.success(`Transport status updated to ${nextStatus.replace(/_/g, ' ')}`);
       handleRefetch();
     } catch (err) {
       toast.error(mutationRejectedMessage(err));
     }
   }, [patchTransport, handleRefetch]);
+
+
 
 
 
@@ -623,8 +626,8 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
         const lineId = String(line._id ?? line.id ?? "");
         const appItem = app?.approval_items
           ? (app.approval_items as Record<string, unknown>[]).find(
-              (ai) => normalizeOrderItemId(ai.order_item_id) === lineId,
-            )
+            (ai) => normalizeOrderItemId(ai.order_item_id) === lineId,
+          )
           : undefined;
 
         const approved = appItem
@@ -675,7 +678,7 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
   const dispatchFulfillment = useMemo(() => {
     const totals =
       fulfillmentSnapshot?.totals &&
-      typeof fulfillmentSnapshot.totals === "object"
+        typeof fulfillmentSnapshot.totals === "object"
         ? (fulfillmentSnapshot.totals as Record<string, unknown>)
         : null;
 
@@ -747,10 +750,6 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
   }, [status, detail, isOrderFullyDispatched, approvals]);
 
   const hasPartialDispatch = dispatchFulfillment.dispatched > 0 && !isOrderFullyDispatched;
-  const dispatchHeaderLabel = hasPartialDispatch ? "Continue Dispatch" : "Create Dispatch";
-
-  const canOpenDispatchModal =
-    canCreateDispatch && !isOrderFullyDispatched && dispatchableApprovals.length > 0;
 
   const openDispatchModal = useCallback(
     (app?: Record<string, unknown> | null) => {
@@ -933,7 +932,7 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
               </button>
             </div>
           </div>
-          </div>
+        </div>
       )}
 
       {/* Create Dispatch Modal */}
@@ -1136,7 +1135,7 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
                 </svg>
               </button>
             </div>
-            
+
             <div className="mt-4 overflow-y-auto flex-1 pr-1">
               <OrderDepartmentFulfillmentPanel
                 order={detail}
@@ -1233,8 +1232,8 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
                 </button>
               </div>
 
-              {/* ── Info buttons: 3-col on mobile, inline on sm+ ── */}
-              <div className="mt-3 grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 font-sans font-medium">
+              {/* ── Info buttons: 2-col on mobile, inline on sm+ ── */}
+              <div className="mt-3 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 font-sans font-medium">
                 <button type="button" onClick={() => setIsOrderDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
                   <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                   <span>Order Info</span>
@@ -1242,10 +1241,6 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
                 <button type="button" onClick={() => setIsPartyDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
                   <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                   <span>Party Info</span>
-                </button>
-                <button type="button" onClick={() => setIsOrderItemsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
-                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
-                  <span>Items List</span>
                 </button>
               </div>
 
@@ -1271,9 +1266,14 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
               {/* ── Action buttons bar ── */}
               <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/10">
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 font-sans font-medium">
-                  {canCreateDispatch && (
-                    <button type="button" disabled={!canOpenDispatchModal || busy} onClick={() => openDispatchModal()} className="rounded-lg bg-emerald-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400 active:scale-[0.98]">{dispatchHeaderLabel}</button>
-                  )}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setIsOrderItemsModalOpen(true)}
+                    className="rounded-lg bg-emerald-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400 active:scale-[0.98] cursor-pointer"
+                  >
+                    Approved Items
+                  </button>
                   {isOrderFullyDispatched && canCreateDispatch && (<span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 font-sans">Fully dispatched</span>)}
                   <button type="button" disabled={!canHold || busy} onClick={() => setTransitioningTo("on_hold")} className="rounded-lg bg-amber-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Hold</button>
                   <button type="button" disabled={status !== "on_hold" || busy} onClick={() => setTransitioningTo("dispatch_pending")} className="rounded-lg bg-blue-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Resume</button>
@@ -1288,11 +1288,11 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
           <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
             {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} setShowRaiseFlagModal={setShowRaiseFlagModal} currentDepartment="dispatch" refetchOrder={handleRefetch} />)}
             {activeTab === "attachments" && (<AttachmentsTab
-                orderId={orderId}
-                attachments={attachments}
-                isLoading={attachmentsQ.isFetching}
-                onUploadSuccess={handleRefetch}
-              />
+              orderId={orderId}
+              attachments={attachments}
+              isLoading={attachmentsQ.isFetching}
+              onUploadSuccess={handleRefetch}
+            />
             )}
 
             {activeTab === "dispatches" && (
@@ -1320,138 +1320,22 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
                 isPatchingTransport={isPatchingTransport}
                 onUpdateStatus={handleUpdateTransportStatus}
                 formatDate={formatDate}
+                orderId={orderId}
+                onRefetch={handleRefetch}
               />
             )}
 
             {activeTab === "finance_releases" && (
-              <DashboardCard
-                title="Finance Release History"
-                description="Audit records and approved item allocations from the finance department."
-              >
-                {financeApprovalsQ.isLoading ? (
-                  <p className="text-xs text-slate-500 font-sans">Loading release history...</p>
-                ) : approvals.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-6 text-center">
-                    <svg className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                    </svg>
-                    <h3 className="mt-2 text-xs font-semibold text-slate-900 dark:text-slate-200 font-sans">No finance releases</h3>
-                    <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400 font-sans">No releases have been recorded for this order yet.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {approvals.map((app: any) => (
-                      <div
-                        key={app._id}
-                        className="rounded-xl border border-slate-200/90 bg-slate-50/20 p-4 shadow-sm transition dark:border-white/10 dark:bg-slate-950/20 hover:border-slate-300 dark:hover:border-white/20"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-2.5 dark:border-white/5 font-sans">
-                          <div>
-                            <span className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-100">
-                              {app.approval_no}
-                            </span>
-                            <span className="mx-2 text-slate-300">|</span>
-                            <span className="text-[10px] text-slate-500">
-                              Rev #{app.revision_number}
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(String(app.approval_status || ""))} `}
-                            >
-                              {formatFinanceReleaseStatus(app.approval_status)}
-                            </span>
-                            {isApprovedFinanceRelease(app as Record<string, unknown>) &&
-                            canCreateDispatch ? (
-                              isReleaseFullyDispatched(app as Record<string, unknown>) ? (
-                                <span className="rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300 ring-1 ring-emerald-600/15 px-2 py-0.5 text-[10px] font-semibold">
-                                  Dispatch completed
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() =>
-                                    openDispatchModal(app as Record<string, unknown>)
-                                  }
-                                  className="rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1 text-xs font-semibold text-white transition cursor-pointer"
-                                >
-                                  {releaseHasDispatches(app as Record<string, unknown>)
-                                    ? "Continue Dispatch"
-                                    : "Create Dispatch"}
-                                </button>
-                              )
-                            ) : null}
-                          </div>
-                        </div>
-
-                        <div className="mt-3 grid gap-3 text-[11px] sm:grid-cols-3 font-sans">
-                          <div className="rounded-lg bg-white p-2 border border-slate-100 dark:bg-slate-900 dark:border-white/5">
-                            <span className="block text-slate-400 text-[9px] uppercase font-semibold">Credit Limit Checked</span>
-                            <span className="font-medium text-slate-800 dark:text-slate-200">
-                              {app.credit_limit_checked ? "✅ Yes" : "❌ No"}
-                            </span>
-                          </div>
-                          <div className="rounded-lg bg-white p-2 border border-slate-100 dark:bg-slate-900 dark:border-white/5">
-                            <span className="block text-slate-400 text-[9px] uppercase font-semibold">Outstanding Checked</span>
-                            <span className="font-medium text-slate-800 dark:text-slate-200">
-                              {app.outstanding_checked ? "✅ Yes" : "❌ No"}
-                            </span>
-                          </div>
-                          <div className="rounded-lg bg-white p-2 border border-slate-100 dark:bg-slate-900 dark:border-white/5">
-                            <span className="block text-slate-400 text-[9px] uppercase font-semibold">Approved Total</span>
-                            <span className="font-mono font-semibold text-emerald-650 dark:text-emerald-400">
-                              {app.approved_total_amount ? Number(app.approved_total_amount).toFixed(2) : "0.00"}
-                            </span>
-                          </div>
-                        </div>
-
-                        {app.approval_items && app.approval_items.length > 0 && (
-                          <div className="mt-3 overflow-x-auto rounded border border-slate-100 dark:border-white/5 text-[10px] font-sans">
-                            <table className="w-full text-left bg-white/40 dark:bg-slate-900/30">
-                              <thead>
-                                <tr className="bg-slate-100/50 dark:bg-slate-950/40 text-slate-500 font-semibold border-b border-slate-100 dark:border-white/5">
-                                  <th className="px-2 py-1">Item</th>
-                                  <th className="px-2 py-1 text-right">Ordered</th>
-                                  <th className="px-2 py-1 text-right">Approved</th>
-                                  <th className="px-2 py-1">Remarks</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                                {app.approval_items.map((it: any) => (
-                                  <tr key={it._id || it.order_item_id}>
-                                    <td className="px-2 py-1.5 font-medium">{it.product?.product_name || "—"}</td>
-                                    <td className="px-2 py-1.5 text-right font-medium">{it.ordered_quantity}</td>
-                                    <td className="px-2 py-1.5 text-right font-medium text-slate-700 dark:text-slate-300">
-                                      {it.approved_quantity}
-                                    </td>
-                                    <td className="px-2 py-1.5 text-slate-500 italic truncate max-w-[150px]" title={it.remarks || it.rejection_reason || it.hold_reason}>
-                                      {it.remarks || it.rejection_reason || it.hold_reason || "—"}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-
-                        <div className="mt-3 text-xs font-sans text-slate-600 dark:text-slate-300">
-                          {app.approval_notes && (
-                            <p className="bg-white p-2 rounded-lg border border-slate-100 dark:bg-slate-900 dark:border-white/5">
-                              <span className="font-semibold text-slate-500 mr-1">Audit Notes:</span>
-                              {app.approval_notes}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="mt-2 text-[10px] text-slate-500 text-right">
-                          Reviewed on {formatDate(app.reviewed_at)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </DashboardCard>
+              <FinanceReleasesTab
+                approvals={approvals}
+                isLoading={financeApprovalsQ.isLoading}
+                canCreateDispatch={canCreateDispatch}
+                busy={busy}
+                openDispatchModal={openDispatchModal}
+                formatDate={formatDate}
+                isReleaseFullyDispatched={isReleaseFullyDispatched}
+                releaseHasDispatches={releaseHasDispatches}
+              />
             )}
           </div>
 
@@ -1490,7 +1374,7 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
                 {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} setShowRaiseFlagModal={setShowRaiseFlagModal} currentDepartment="dispatch" refetchOrder={handleRefetch} />)}
                 {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachments} isLoading={attachmentsQ.isFetching} onUploadSuccess={handleRefetch} />)}
                 {activeTab === "dispatches" && (<DispatchesTab dispatches={dispatches} transports={transports} isFetching={dispatchesQ.isFetching} isPatchingDispatch={isPatchingDispatch} onUpdateStatus={handleUpdateDispatchStatus} formatDate={formatDate} userNameById={userNameById} orderItems={readOnlyItems} orderId={orderId} orderStatus={status} expectedDeliveryDate={detail?.expected_delivery_date ? String(detail.expected_delivery_date) : undefined} shippingAddress={(partyDetailQ.data as any)?.shipping_address} onRefetch={handleRefetch} />)}
-                {activeTab === "transports" && (<TransportsTab transports={transports} isFetching={transportsQ.isFetching} isPatchingTransport={isPatchingTransport} onUpdateStatus={handleUpdateTransportStatus} formatDate={formatDate} />)}
+                {activeTab === "transports" && (<TransportsTab transports={transports} isFetching={transportsQ.isFetching} isPatchingTransport={isPatchingTransport} onUpdateStatus={handleUpdateTransportStatus} formatDate={formatDate} orderId={orderId} onRefetch={handleRefetch} />)}
                 {activeTab === "finance_releases" && (
                   <DashboardCard title="Finance Release History" description="Audit records and approved item allocations from the finance department.">
                     {financeApprovalsQ.isLoading ? (<p className="text-xs text-slate-500 font-sans">Loading release history...</p>) : approvals.length === 0 ? (<div className="flex flex-col items-center justify-center py-6 text-center"><h3 className="mt-2 text-xs font-semibold text-slate-900 dark:text-slate-200 font-sans">No finance releases</h3></div>) : (<div className="space-y-3 text-xs font-sans">{approvals.map((app: any) => (<div key={app._id} className="rounded-xl border border-slate-200/90 p-3">{app.approval_no}</div>))}</div>)}

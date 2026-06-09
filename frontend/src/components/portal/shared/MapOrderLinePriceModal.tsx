@@ -8,6 +8,8 @@ import { toast } from "@/lib/toast";
 import {
   useAddPartyProductRateMutation,
   useCreatePartyProductMutation,
+  usePatchPartyProductMutation,
+  useGetPartyProductQuery,
 } from "@/store/api";
 
 const inputClass =
@@ -22,7 +24,7 @@ function defaultValidityEnd(): string {
 function normalizeRateType(appliedRateType: string): string {
   const t = String(appliedRateType || "SR").toUpperCase();
   if (t === "MANUAL") return "SR";
-  if (["SR", "SSR", "CR"].includes(t)) return t;
+  if (["SR", "SRA", "CR"].includes(t)) return t;
   return "SR";
 }
 
@@ -60,10 +62,17 @@ export function MapOrderLinePriceModal({
 }: Props) {
   const [createMapping, { isLoading: isCreating }] = useCreatePartyProductMutation();
   const [addRate, { isLoading: isAddingRate }] = useAddPartyProductRateMutation();
+  const [patchMapping, { isLoading: isPatchingMapping }] = usePatchPartyProductMutation();
 
   const isExistingMapping = Boolean(target?.mappingId);
 
+  const { data: mappingDetail } = useGetPartyProductQuery(
+    target?.mappingId ?? "",
+    { skip: !target?.mappingId || !open },
+  );
+
   const [priority, setPriority] = useState("100");
+  const [expectedOrderQuantity, setExpectedOrderQuantity] = useState("0");
   const [isOrderable, setIsOrderable] = useState(true);
   const [mappingRemarks, setMappingRemarks] = useState(
     "Mapped from admin order review",
@@ -82,7 +91,7 @@ export function MapOrderLinePriceModal({
   const [validityEnd, setValidityEnd] = useState(defaultValidityEnd);
   const [rateRemarks, setRateRemarks] = useState("");
 
-  const busy = isCreating || isAddingRate;
+  const busy = isCreating || isAddingRate || isPatchingMapping;
 
   useEffect(() => {
     if (!open || !target) return;
@@ -94,12 +103,23 @@ export function MapOrderLinePriceModal({
     setValidityStart(new Date().toISOString().split("T")[0]);
     setValidityEnd(defaultValidityEnd());
     setRateRemarks("");
-    setMappingRemarks("Mapped from admin order review");
-    setPriority("100");
-    setIsOrderable(true);
+    
+    if (isExistingMapping && mappingDetail) {
+      const md = mappingDetail as any;
+      setMappingRemarks(md.remarks || "");
+      setPriority(String(md.priority ?? "100"));
+      setIsOrderable(md.is_orderable !== false);
+      setExpectedOrderQuantity(String(md.expected_order_quantity ?? "0"));
+    } else {
+      setMappingRemarks("Mapped from admin order review");
+      setPriority("100");
+      setIsOrderable(true);
+      setExpectedOrderQuantity("0");
+    }
+    
     setMinQty("1");
     setMaxQty("999999");
-  }, [open, target]);
+  }, [open, target, isExistingMapping, mappingDetail]);
 
   if (!open || !target) return null;
 
@@ -136,16 +156,27 @@ export function MapOrderLinePriceModal({
 
     try {
       if (isExistingMapping && target.mappingId) {
+        await patchMapping({
+          id: target.mappingId,
+          patch: {
+            priority: Number(priority) || 100,
+            expected_order_quantity: Number(expectedOrderQuantity) || 0,
+            is_orderable: isOrderable,
+            remarks: mappingRemarks.trim(),
+          },
+        }).unwrap();
+
         await addRate({
           id: target.mappingId,
           body: ratePayload,
         }).unwrap();
-        toast.success("Negotiated rate saved for this product.");
+        toast.success("Negotiated rate and mapping updated successfully.");
       } else {
         await createMapping({
           party: partyId,
           product: target.productId,
           priority: Number(priority) || 100,
+          expected_order_quantity: Number(expectedOrderQuantity) || 0,
           is_orderable: isOrderable,
           remarks: mappingRemarks.trim(),
           rates: [ratePayload],
@@ -202,54 +233,67 @@ export function MapOrderLinePriceModal({
               ) : null}
             </div>
           </div>
+          <div className="space-y-4 rounded-xl border border-slate-205 bg-slate-50/50 p-4 dark:border-white/5 dark:bg-white/[0.03]">
+            <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              Mapping configuration
+            </div>
 
-          {!isExistingMapping ? (
-            <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                    Mapping priority
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value)}
-                    className={inputClass}
-                    required
-                  />
-                </div>
-                <div className="flex h-full items-end pb-2">
-                  <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={isOrderable}
-                      onChange={(e) => setIsOrderable(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    Is orderable
-                  </label>
-                </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                  Mapping priority
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                  className={inputClass}
+                  required
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Mapping remarks
+                  Expected Order Qty (EOQ)
                 </label>
-                <textarea
-                  rows={2}
-                  value={mappingRemarks}
-                  onChange={(e) => setMappingRemarks(e.target.value)}
+                <input
+                  type="number"
+                  min={0}
+                  value={expectedOrderQuantity}
+                  onChange={(e) => setExpectedOrderQuantity(e.target.value)}
                   className={inputClass}
-                  placeholder="e.g. Approved under party contract"
+                  required
                 />
               </div>
-            </>
-          ) : (
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              This product is already linked to the party. Add a negotiated rate tier for{" "}
-              <b>{rateType}</b> below.
-            </p>
-          )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex h-full items-end pb-2">
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={isOrderable}
+                    onChange={(e) => setIsOrderable(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Is orderable
+                </label>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                Mapping remarks
+              </label>
+              <textarea
+                rows={2}
+                value={mappingRemarks}
+                onChange={(e) => setMappingRemarks(e.target.value)}
+                className={inputClass}
+                placeholder="e.g. Approved under party contract"
+              />
+            </div>
+          </div>
 
           <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-white/5 dark:bg-white/[0.03]">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">

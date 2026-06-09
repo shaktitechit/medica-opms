@@ -1001,8 +1001,8 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 </button>
               </div>
 
-              {/* ── Info buttons: 3-col grid on mobile, inline on sm+ ── */}
-              <div className="mt-3 grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 font-sans font-medium">
+              {/* ── Info buttons: 2-col grid on mobile, inline on sm+ ── */}
+              <div className="mt-3 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 font-sans font-medium">
                 <button
                   type="button"
                   onClick={() => setIsOrderDetailsModalOpen(true)}
@@ -1022,16 +1022,6 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
                   <span>Party Info</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsOrderItemsModalOpen(true)}
-                  className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]"
-                >
-                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                  </svg>
-                  <span>Items List</span>
                 </button>
               </div>
 
@@ -1067,6 +1057,14 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
               {/* ── Action buttons bar ── */}
               <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/10">
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 font-sans font-medium">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setIsOrderItemsModalOpen(true)}
+                    className="rounded-lg bg-emerald-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400 active:scale-[0.98]"
+                  >
+                    Approved Items
+                  </button>
                   {detail ? (
                     <button
                       type="button"

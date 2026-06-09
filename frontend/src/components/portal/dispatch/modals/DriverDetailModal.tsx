@@ -22,6 +22,7 @@ import { idFromRef, transportAgentLabel } from "../fleetDisplay";
 export type DriverDetailModalProps = {
   driverId: string | null;
   create?: boolean;
+  defaultTransportAgentId?: string;
   onClose: () => void;
 };
 
@@ -72,6 +73,7 @@ type VehicleRow = {
 export function DriverDetailModal({
   driverId,
   create = false,
+  defaultTransportAgentId,
   onClose,
 }: DriverDetailModalProps) {
   const isCreate = create === true;
@@ -185,7 +187,7 @@ export function DriverDetailModal({
     setName("");
     setPhone("");
     setAlternatePhone("");
-    setTransportAgent("");
+    setTransportAgent(defaultTransportAgentId ?? "");
     setLicenseNo("");
     setLicenseType("");
     setLicenseExpiry("");

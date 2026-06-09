@@ -100,6 +100,13 @@ const transportShipmentSchema = new mongoose.Schema(
 
     remarks: String,
 
+    weight: Number,
+
+    weight_unit: {
+      type: String,
+      default: "Kg",
+    },
+
     created_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

@@ -446,6 +446,11 @@ function registerModels() {
         type: Number,
         default: 100,
       },
+      expected_order_quantity: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
       remarks: {
         type: String,
         trim: true,
@@ -503,7 +508,7 @@ function registerModels() {
       },
       rate_type: {
         type: String,
-        enum: ["SR", "SSR", "CR"],
+        enum: ["SR", "SRA", "CR"],
         required: true,
         index: true,
       },
@@ -791,7 +796,7 @@ function registerModels() {
       },
       applied_rate_type: {
         type: String,
-        enum: ["SR", "SSR", "CR", "MANUAL"],
+        enum: ["SR", "SRA", "CR", "MANUAL"],
         default: "MANUAL",
       },
       pricing_reference: {
@@ -1451,6 +1456,8 @@ function registerModels() {
       actual_delivery_date: Date,
       delivery_proof_url: String,
       remarks: String,
+      weight: Number,
+      weight_unit: { type: String, default: "Kg" },
       created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     },
     { timestamps: true }

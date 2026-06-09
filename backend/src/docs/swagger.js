@@ -2008,7 +2008,7 @@ const spec = {
           dispatched_quantity: { type: 'number' },
           pending_dispatch_quantity: { type: 'number' },
           unit_price: { type: 'number' },
-          applied_rate_type: { type: 'string', enum: ['SR', 'SSR', 'CR', 'MANUAL'] },
+          applied_rate_type: { type: 'string', enum: ['SR', 'SRA', 'CR', 'MANUAL'] },
           pricing_reference: { type: 'string', description: 'PartyProductRate ObjectId' },
           pricing_validity_start: { type: 'string', format: 'date-time', nullable: true },
           pricing_validity_end: { type: 'string', format: 'date-time', nullable: true },

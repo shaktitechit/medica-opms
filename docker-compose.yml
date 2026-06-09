@@ -60,6 +60,7 @@ services:
       MONGODB_URI: mongodb+srv://dbUser:q5IilZowPB1OjLMf@spspl-power-app.soetdti.mongodb.net/medica-opms
       REDIS_URL: redis://redis:6379
       MONGODB_LOOKUP_FAMILY: "4"
+      SEED_DATABASE: "false"
       API_PUBLIC_BASE_URL: http://localhost:5001
       JWT_SECRET: JWT_SECRET=38aa2ca2a7faa94fafdf6cb96154fe8c3e0653171302668957e6e85e5fd9440b3ae56e9848e4e48372f89a5f3bc8416dd362fc9316a9fcdc48a2fe28a52bb4bc
 

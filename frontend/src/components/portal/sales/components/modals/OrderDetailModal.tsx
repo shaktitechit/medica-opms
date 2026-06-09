@@ -79,7 +79,7 @@ function newLine(): LineRow {
 function getPriceForRateType(p: Record<string, any> | undefined, rateType: string): number {
   if (!p) return 0;
   if (rateType === "SR") return Number(p.base_price ?? 0);
-  if (rateType === "SSR") return Number(p.minimum_sale_rate ?? p.base_price ?? 0);
+  if (rateType === "SRA") return Number(p.minimum_sale_rate ?? p.base_price ?? 0);
   if (rateType === "CR") return Number(p.mrp ?? p.base_price ?? 0);
   return Number(p.base_price ?? 0); // MANUAL
 }
@@ -813,7 +813,7 @@ export function OrderDetailModal({
                           className={inputClass}
                         >
                           <option value="SR">SR</option>
-                          <option value="SSR">SSR</option>
+                          <option value="SRA">SRA</option>
                           <option value="CR">CR</option>
                           <option value="MANUAL">MANUAL</option>
                         </select>

@@ -1,21 +1,45 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { DashboardCard } from "@/components/widgets";
 import {
   useListOrderFinanceApprovalsQuery,
   useCreateOrderFinanceApprovalMutation,
   useApproveOrderFinanceApprovalMutation,
   useRejectOrderFinanceApprovalMutation,
+  useTransitionOrderMutation,
+  usePatchOrderMutation,
+  useCheckOrderRatesQuery,
 } from "@/store/api";
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
+import {
+  MapOrderLinePriceModal,
+  type MapOrderLinePriceSuccess,
+  type MapOrderLinePriceTarget,
+} from "@/components/portal/shared/MapOrderLinePriceModal";
+import {
+  LineRateStatusBadge,
+  resolveRateDisplayStatus,
+  rateLookupKey,
+} from "@/components/portal/shared/orderLineRateDisplay";
 
 type ApprovalAllocationsTabProps = {
   orderId: string;
   detail: Record<string, any> | null;
   refetchOrder?: () => void;
 };
+
+function idFromRef(ref: unknown): string {
+  if (typeof ref === "string") return ref.trim();
+  if (ref && typeof ref === "object" && "_id" in ref) {
+    return String((ref as { _id: unknown })._id ?? "").trim();
+  }
+  if (ref && typeof ref === "object" && "id" in ref) {
+    return String((ref as { id: unknown }).id ?? "").trim();
+  }
+  return "";
+}
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 font-sans";
@@ -81,6 +105,86 @@ export function ApprovalAllocationsTab({ orderId, detail, refetchOrder }: Approv
   const [createApproval, { isLoading: isCreating }] = useCreateOrderFinanceApprovalMutation();
   const [approveApproval, { isLoading: isApproving }] = useApproveOrderFinanceApprovalMutation();
   const [rejectApproval, { isLoading: isRejecting }] = useRejectOrderFinanceApprovalMutation();
+  const [transitionOrder, { isLoading: isTransitioning }] = useTransitionOrderMutation();
+  const [patchOrder, { isLoading: isPatching }] = usePatchOrderMutation();
+
+  const rateCheckQ = useCheckOrderRatesQuery(orderId, { skip: !orderId });
+  const [mapTarget, setMapTarget] = useState<MapOrderLinePriceTarget | null>(null);
+  const [mapModalOpen, setMapModalOpen] = useState(false);
+
+  const rateItemByLine = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const item of rateCheckQ.data?.items ?? []) {
+      map.set(rateLookupKey(item.product, item.applied_rate_type), item);
+    }
+    return map;
+  }, [rateCheckQ.data]);
+
+  const openMapModal = useCallback(
+    (line: Record<string, unknown>) => {
+      const partyId = idFromRef(detail?.party);
+      if (!partyId) {
+        toast.error("No party linked to this order.");
+        return;
+      }
+      const productId = idFromRef(line.product);
+      if (!productId) {
+        toast.error("This line has no product reference.");
+        return;
+      }
+      const appliedRateType = String(line.applied_rate_type ?? "SR");
+      const rateItem = rateItemByLine.get(
+        rateLookupKey(productId, appliedRateType),
+      );
+      setMapTarget({
+        productId,
+        productName: String(line.product_name ?? "Product"),
+        sku: typeof line.sku === "string" ? line.sku : undefined,
+        appliedRateType,
+        unitPrice: Number(line.unit_price ?? 0),
+        mappingId: rateItem?.mappingId ?? null,
+        isMapped: Boolean(rateItem?.isMapped),
+        hasRate: Boolean(rateItem?.hasRate),
+      });
+      setMapModalOpen(true);
+    },
+    [detail, rateItemByLine],
+  );
+
+  const closeMapModal = useCallback(() => {
+    setMapModalOpen(false);
+    setMapTarget(null);
+  }, []);
+
+  const handleMapPriceSuccess = useCallback(
+    async (result: MapOrderLinePriceSuccess) => {
+      if (!orderId || !detail || !Array.isArray(detail.order_items)) return;
+
+      const orderItems = (detail.order_items as Record<string, unknown>[]).map(
+        (item) => {
+          const pid = idFromRef(item.product);
+          const rt = String(item.applied_rate_type ?? "MANUAL");
+          if (pid === result.productId && rt === result.appliedRateType) {
+            return { ...item, unit_price: result.negotiatedRate };
+          }
+          return item;
+        },
+      );
+
+      try {
+        await patchOrder({
+          id: orderId,
+          patch: { order_items: orderItems },
+        }).unwrap();
+        toast.success("Line price updated to negotiated rate.");
+        void rateCheckQ.refetch();
+        refetchOrder?.();
+      } catch (rejected) {
+        toast.error(mutationRejectedMessage(rejected));
+      }
+    },
+    [detail, orderId, patchOrder, rateCheckQ, refetchOrder],
+  );
 
   const approvals = useMemo(() => {
     return pickList(approvalsQ.data);
@@ -88,21 +192,56 @@ export function ApprovalAllocationsTab({ orderId, detail, refetchOrder }: Approv
 
   // Form State
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  const [confirmResolveOpen, setConfirmResolveOpen] = useState(false);
+  const [inlineCancelItem, setInlineCancelItem] = useState<EditableItem | null>(null);
+  const [inlineResolveItem, setInlineResolveItem] = useState<EditableItem | null>(null);
   const [creditLimitChecked, setCreditLimitChecked] = useState(false);
   const [outstandingChecked, setOutstandingChecked] = useState(false);
   const [riskLevel, setRiskLevel] = useState("low");
   const [notes, setNotes] = useState("");
   const [formItems, setFormItems] = useState<EditableItem[]>([]);
 
-  // Initialize form items from order details
+  // Initialize form items from order details with intelligent merging
   useEffect(() => {
     if (detail && Array.isArray(detail.order_items)) {
-      setFormItems(
-        detail.order_items.map((item: any) => {
+      setFormItems((prev) => {
+        if (prev.length === 0) {
+          return detail.order_items.map((item: any) => {
+            const approvedSoFar = Number(item.approved_quantity ?? 0);
+            const remainingQty = Math.max(0, Number(item.ordered_quantity ?? item.quantity ?? 1) - approvedSoFar);
+            return {
+              order_item_id: String(item._id ?? item.id ?? ""),
+              product_name: String(item.product_name ?? ""),
+              sku: String(item.sku ?? ""),
+              ordered_quantity: Number(item.ordered_quantity ?? item.quantity ?? 1),
+              ordered_unit_price: Number(item.unit_price ?? 0),
+              approved_quantity: remainingQty,
+              approved_unit_price: Number(item.unit_price ?? 0),
+              approval_status: "fully_approved",
+              remarks: "",
+            };
+          });
+        }
+        
+        return detail.order_items.map((item: any) => {
+          const itemId = String(item._id ?? item.id ?? "");
+          const existing = prev.find((x) => x.order_item_id === itemId);
           const approvedSoFar = Number(item.approved_quantity ?? 0);
           const remainingQty = Math.max(0, Number(item.ordered_quantity ?? item.quantity ?? 1) - approvedSoFar);
+          
+          if (existing) {
+            return {
+              ...existing,
+              ordered_quantity: Number(item.ordered_quantity ?? item.quantity ?? 1),
+              ordered_unit_price: Number(item.unit_price ?? 0),
+              approved_quantity: Math.min(existing.approved_quantity, remainingQty),
+              approved_unit_price: existing.approved_unit_price === existing.ordered_unit_price ? Number(item.unit_price ?? 0) : existing.approved_unit_price,
+            };
+          }
+          
           return {
-            order_item_id: String(item._id ?? item.id ?? ""),
+            order_item_id: itemId,
             product_name: String(item.product_name ?? ""),
             sku: String(item.sku ?? ""),
             ordered_quantity: Number(item.ordered_quantity ?? item.quantity ?? 1),
@@ -112,15 +251,139 @@ export function ApprovalAllocationsTab({ orderId, detail, refetchOrder }: Approv
             approval_status: "fully_approved",
             remarks: "",
           };
-        })
-      );
+        });
+      });
     }
   }, [detail]);
 
-  // Action State (for pending approval decision)
+  // Initialize form items from order details
   const [decisionNotes, setDecisionNotes] = useState("");
   const [activeDecisionId, setActiveDecisionId] = useState<string | null>(null);
   const [decisionType, setDecisionType] = useState<"approve" | "reject" | null>(null);
+
+  const totalApproved = useMemo(() => {
+    if (!detail || !Array.isArray(detail.order_items)) return 0;
+    return detail.order_items.reduce((sum, item) => sum + Number(item.approved_quantity ?? 0), 0);
+  }, [detail]);
+
+  const handleCancelItems = async () => {
+    try {
+      await transitionOrder({
+        id: orderId,
+        body: {
+          next_status: "cancelled",
+          remarks: "Cancelled from Finance Release Panel",
+        },
+      }).unwrap();
+      toast.success("Order items cancelled successfully.");
+      setConfirmCancelOpen(false);
+      refetchOrder?.();
+    } catch (err) {
+      toast.error(mutationRejectedMessage(err));
+    }
+  };
+
+  const handleResolveOrder = async () => {
+    if (!detail || !Array.isArray(detail.order_items)) return;
+    try {
+      const updatedItems = detail.order_items.map((item: any) => ({
+        ...item,
+        ordered_quantity: Number(item.approved_quantity ?? 0),
+        quantity: Number(item.approved_quantity ?? 0),
+      }));
+
+      await patchOrder({
+        id: orderId,
+        patch: {
+          order_items: updatedItems,
+        },
+      }).unwrap();
+
+      await transitionOrder({
+        id: orderId,
+        body: {
+          next_status: "fully_finance_approved",
+          remarks: "Resolved partial release to match approved quantities",
+        },
+      }).unwrap();
+
+      toast.success("Order resolved to approved quantities.");
+      setConfirmResolveOpen(false);
+      refetchOrder?.();
+    } catch (err) {
+      toast.error(mutationRejectedMessage(err));
+    }
+  };
+
+  const handleInlineCancelSubmit = async () => {
+    if (!inlineCancelItem || !detail || !Array.isArray(detail.order_items)) return;
+    try {
+      const updatedItems = detail.order_items.filter(
+        (item: any) => String(item._id ?? item.id) !== inlineCancelItem.order_item_id
+      );
+
+      await patchOrder({
+        id: orderId,
+        patch: {
+          order_items: updatedItems,
+        },
+      }).unwrap();
+
+      toast.success(`${inlineCancelItem.product_name} removed from order.`);
+      setInlineCancelItem(null);
+      refetchOrder?.();
+    } catch (err) {
+      toast.error(mutationRejectedMessage(err));
+    }
+  };
+
+  const handleInlineResolveSubmit = async () => {
+    if (!inlineResolveItem || !detail || !Array.isArray(detail.order_items)) return;
+    try {
+      const baseItem = detail.order_items.find((x: any) => String(x._id ?? x.id) === inlineResolveItem.order_item_id);
+      const approvedSoFar = Number(baseItem?.approved_quantity ?? 0);
+
+      const updatedItems = detail.order_items.map((item: any) => {
+        if (String(item._id ?? item.id) === inlineResolveItem.order_item_id) {
+          return {
+            ...item,
+            ordered_quantity: approvedSoFar,
+            quantity: approvedSoFar,
+          };
+        }
+        return item;
+      });
+
+      await patchOrder({
+        id: orderId,
+        patch: {
+          order_items: updatedItems,
+        },
+      }).unwrap();
+
+      const otherUnresolved = detail.order_items.some((item: any) => {
+        if (String(item._id ?? item.id) === inlineResolveItem.order_item_id) return false;
+        const remaining = Math.max(0, Number(item.ordered_quantity ?? item.quantity ?? 1) - Number(item.approved_quantity ?? 0));
+        return remaining > 0;
+      });
+
+      if (!otherUnresolved) {
+        await transitionOrder({
+          id: orderId,
+          body: {
+            next_status: "fully_finance_approved",
+            remarks: `Resolved item ${inlineResolveItem.product_name} to approved quantity`,
+          },
+        }).unwrap();
+      }
+
+      toast.success(`${inlineResolveItem.product_name} resolved to approved quantity.`);
+      setInlineResolveItem(null);
+      refetchOrder?.();
+    } catch (err) {
+      toast.error(mutationRejectedMessage(err));
+    }
+  };
 
   const handleItemPropertyChange = (itemId: string, property: keyof EditableItem, value: any) => {
     setFormItems((prev) =>
@@ -308,17 +571,37 @@ export function ApprovalAllocationsTab({ orderId, detail, refetchOrder }: Approv
           <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200 font-sans">Finance Release Panel</h2>
           <p className="text-xs text-slate-500 font-sans">Assess line item parameters, modify approved quantities/rates, and authorize releases.</p>
         </div>
-        <div>
+        <div className="flex items-center gap-3">
+          {totalApproved === 0 && detail?.status !== "cancelled" && (
+            <button
+              type="button"
+              onClick={() => setConfirmCancelOpen(true)}
+              className="rounded-lg border border-rose-200 bg-white hover:bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 shadow-sm transition dark:border-white/10 dark:bg-slate-950 dark:text-rose-455 dark:hover:bg-white/5 cursor-pointer font-sans"
+            >
+              Cancel Items
+            </button>
+          )}
+
+          {totalApproved > 0 && hasRemainingQty && (
+            <button
+              type="button"
+              onClick={() => setConfirmResolveOpen(true)}
+              className="rounded-lg border border-blue-200 bg-white hover:bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-600 shadow-sm transition dark:border-white/10 dark:bg-slate-950 dark:text-blue-400 dark:hover:bg-white/5 cursor-pointer font-sans"
+            >
+              Resolve Order
+            </button>
+          )}
+
           {hasRemainingQty ? (
             <button
               type="button"
               onClick={openFormModal}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 font-sans"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 font-sans cursor-pointer"
             >
               Create Finance Approval
             </button>
           ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300 font-sans">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -412,8 +695,9 @@ export function ApprovalAllocationsTab({ orderId, detail, refetchOrder }: Approv
                         <th className="px-3 py-2 text-right">Remaining Qty</th>
                         <th className="px-3 py-2 text-right">Price</th>
                         <th className="px-3 py-2 w-28 text-right">Approved Qty</th>
-                        <th className="px-3 py-2 w-32 text-right">Approved Price</th>
+                        <th className="px-3 py-2 w-32 text-right">Negotiated Price</th>
                         <th className="px-3 py-2">Line Remarks</th>
+                        <th className="px-3 py-2 text-center w-36">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200/80 bg-white dark:divide-white/10 dark:bg-slate-900 font-sans">
@@ -421,12 +705,24 @@ export function ApprovalAllocationsTab({ orderId, detail, refetchOrder }: Approv
                         const baseItem = detail?.order_items?.find((x: any) => String(x._id ?? x.id) === item.order_item_id) || {};
                         const approvedSoFar = Number(baseItem.approved_quantity ?? 0);
                         const remainingQty = Math.max(0, item.ordered_quantity - approvedSoFar);
+                        const productId = idFromRef(baseItem.product);
+                        const rateType = String(baseItem.applied_rate_type ?? "MANUAL");
+                        const rateItem = rateItemByLine.get(rateLookupKey(productId, rateType));
+                        const displayStatus = resolveRateDisplayStatus(rateItem);
                         
                         return (
                           <tr key={item.order_item_id} className="hover:bg-slate-50/50 dark:hover:bg-white/5">
                             <td className="px-3 py-3">
                               <span className="font-semibold block text-slate-900 dark:text-slate-100">{item.product_name}</span>
-                              {item.sku && <span className="text-[10px] text-slate-400">SKU: {item.sku}</span>}
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px]">
+                                {item.sku && <span className="text-slate-400">SKU: {item.sku}</span>}
+                                {item.sku && <span className="text-slate-300">|</span>}
+                                <LineRateStatusBadge
+                                  status={displayStatus}
+                                  rateItem={rateItem}
+                                  formatMoney={(v) => `₹${Number(v || 0).toFixed(2)}`}
+                                />
+                              </div>
                             </td>
                             <td className="px-3 py-3 text-right font-medium">{item.ordered_quantity}</td>
                             <td className="px-3 py-3 text-right font-medium text-slate-500">{approvedSoFar}</td>
@@ -445,16 +741,8 @@ export function ApprovalAllocationsTab({ orderId, detail, refetchOrder }: Approv
                                 className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs dark:border-white/10 dark:bg-slate-950"
                               />
                             </td>
-                            <td className="px-3 py-3 text-right">
-                              <input
-                                type="number"
-                                min={0}
-                                step="any"
-                                value={item.approved_unit_price}
-                                disabled={remainingQty === 0}
-                                onChange={(e) => handleItemPropertyChange(item.order_item_id, "approved_unit_price", Number(e.target.value) || 0)}
-                                className="w-24 rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs dark:border-white/10 dark:bg-slate-950 font-mono"
-                              />
+                            <td className="px-3 py-3 text-right font-mono font-medium text-slate-800 dark:text-slate-200">
+                              ₹{item.ordered_unit_price.toFixed(2)}
                             </td>
                             <td className="px-3 py-3">
                               <input
@@ -465,6 +753,44 @@ export function ApprovalAllocationsTab({ orderId, detail, refetchOrder }: Approv
                                 placeholder="Optional line notes..."
                                 className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-slate-950"
                               />
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                {remainingQty === 0 ? (
+                                  <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/20">
+                                    Fully Released
+                                  </span>
+                                ) : (
+                                  <>
+                                    {productId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => openMapModal(baseItem)}
+                                        className="rounded bg-slate-50 border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 dark:bg-slate-800 dark:border-white/5 dark:text-slate-300 dark:hover:bg-slate-700/80 cursor-pointer font-sans"
+                                      >
+                                        Map
+                                      </button>
+                                    )}
+                                    {approvedSoFar === 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setInlineCancelItem(item)}
+                                        className="rounded bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600 shadow-sm transition hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-455 dark:hover:bg-rose-900/50 cursor-pointer font-sans"
+                                      >
+                                        Cancel
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => setInlineResolveItem(item)}
+                                        className="rounded bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600 shadow-sm transition hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:bg-blue-900/50 cursor-pointer font-sans"
+                                      >
+                                        Resolve
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );
@@ -679,6 +1005,137 @@ export function ApprovalAllocationsTab({ orderId, detail, refetchOrder }: Approv
           </div>
         )}
       </DashboardCard>
+      {/* Cancel Confirmation Modal */}
+      {confirmCancelOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
+              Confirm Cancel Order Items
+            </h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              Are you sure you want to cancel the items for this order? This will transition the order to the cancelled status.
+            </p>
+            <div className="mt-6 flex justify-end gap-3 font-medium">
+              <button
+                type="button"
+                onClick={() => setConfirmCancelOpen(false)}
+                className="rounded-lg border border-slate-200/95 px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
+              >
+                Go Back
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelItems}
+                disabled={isTransitioning}
+                className="rounded-lg bg-rose-600 px-3 py-2 text-sm text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50 cursor-pointer"
+              >
+                {isTransitioning ? "Cancelling..." : "Yes, Cancel Items"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resolve Confirmation Modal */}
+      {confirmResolveOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 font-sans">
+              Confirm Resolve Partial Release
+            </h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              Are you sure you want to resolve this order? This will adjust the ordered quantity of all items to match their currently approved quantities, completing the order releases.
+            </p>
+            <div className="mt-6 flex justify-end gap-3 font-medium">
+              <button
+                type="button"
+                onClick={() => setConfirmResolveOpen(false)}
+                className="rounded-lg border border-slate-200/95 px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResolveOrder}
+                disabled={isPatching || isTransitioning}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                {isPatching || isTransitioning ? "Resolving..." : "Yes, Resolve Order"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline Cancel Confirmation Modal */}
+      {inlineCancelItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
+              Confirm Remove Item from Order
+            </h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              Are you sure you want to remove <strong>{inlineCancelItem.product_name}</strong> from this order? This will permanently delete this item from the order.
+            </p>
+            <div className="mt-6 flex justify-end gap-3 font-medium">
+              <button
+                type="button"
+                onClick={() => setInlineCancelItem(null)}
+                className="rounded-lg border border-slate-200/95 px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
+              >
+                Go Back
+              </button>
+              <button
+                type="button"
+                onClick={handleInlineCancelSubmit}
+                disabled={isPatching}
+                className="rounded-lg bg-rose-600 px-3 py-2 text-sm text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50 cursor-pointer"
+              >
+                {isPatching ? "Removing..." : "Yes, Remove Item"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline Resolve Confirmation Modal */}
+      {inlineResolveItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 font-sans">
+              Confirm Resolve Item Release
+            </h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              Are you sure you want to resolve <strong>{inlineResolveItem.product_name}</strong>? This will adjust its ordered quantity to match its currently approved quantity of <strong>{detail?.order_items?.find((x: any) => String(x._id ?? x.id) === inlineResolveItem.order_item_id)?.approved_quantity ?? 0}</strong>.
+            </p>
+            <div className="mt-6 flex justify-end gap-3 font-medium">
+              <button
+                type="button"
+                onClick={() => setInlineResolveItem(null)}
+                className="rounded-lg border border-slate-200/95 px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleInlineResolveSubmit}
+                disabled={isPatching || isTransitioning}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                {isPatching || isTransitioning ? "Resolving..." : "Yes, Resolve Item"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <MapOrderLinePriceModal
+        open={mapModalOpen}
+        onClose={closeMapModal}
+        partyId={idFromRef(detail?.party)}
+        target={mapTarget}
+        onSuccess={(result) => void handleMapPriceSuccess(result)}
+      />
     </div>
   );
 }

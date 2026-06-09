@@ -7,7 +7,7 @@ import mongoose from "mongoose";
 
 const RATE_TYPE_ENUM = [
   "SR", // Standard Rate
-  "SSR", // Special Standard Rate
+  "SRA", // Special Rate Admin
   "CR", // Corporate Rate
 ];
 

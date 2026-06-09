@@ -37,6 +37,12 @@ const partyProductMappingSchema = new mongoose.Schema(
       default: 100,
     },
 
+    expected_order_quantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
     remarks: {
       type: String,
       trim: true,

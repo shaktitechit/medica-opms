@@ -16,6 +16,7 @@ const MAPPING_PATCHABLE_KEYS = Object.freeze([
   'is_active',
   'is_orderable',
   'priority',
+  'expected_order_quantity',
   'remarks',
 ]);
 
@@ -51,6 +52,10 @@ function sanitizeMappingPatch(patch) {
         const p = Number(v);
         if (!Number.isFinite(p)) throw new ApiError(400, 'priority must be a number');
         out[k] = p;
+      } else if (k === 'expected_order_quantity') {
+        const eoq = Number(v);
+        if (!Number.isFinite(eoq) || eoq < 0) throw new ApiError(400, 'expected_order_quantity must be a non-negative number');
+        out[k] = eoq;
       } else if (k === 'remarks') {
         out[k] = v != null ? String(v).trim() : '';
       } else if (k === 'is_active' || k === 'is_orderable') {
@@ -170,6 +175,7 @@ async function create(body, user) {
     is_active: body.is_active !== false,
     is_orderable: body.is_orderable !== false,
     priority: body.priority !== undefined ? Number(body.priority) : 100,
+    expected_order_quantity: body.expected_order_quantity !== undefined ? Number(body.expected_order_quantity) : 0,
     remarks: body.remarks != null ? String(body.remarks).trim() : '',
   };
 
