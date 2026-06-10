@@ -79,11 +79,35 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
     }
   }, [form.department, form.roles.length, roleList]);
 
+  const resolveRoleIdsForSubmit = () => {
+    const picked = form.roles.map((id) => String(id).trim()).filter(Boolean);
+    if (picked.length > 0) return picked;
+    const fallback = defaultRoleIdForDept(form.department);
+    return fallback ? [fallback] : [];
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    const roles = resolveRoleIdsForSubmit();
+    if (!roles.length) {
+      setError(
+        "No role found for this department. Run backend seed:roles first, then try again.",
+      );
+      return;
+    }
+
     try {
-      await createUser({ ...form, roles: form.roles }).unwrap();
+      await createUser({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        password: form.password,
+        department: form.department,
+        roles,
+        roleCode: form.department,
+      }).unwrap();
       setSuccess(true);
       setTimeout(onClose, 1200);
     } catch (err: any) {
@@ -164,7 +188,10 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
             {availableRoles.length > 0 && (
               <div>
                 <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Role {form.roles.length === 0 ? "(defaults from department)" : ""}
+                  Role
+                  {form.roles.length === 0 ? (
+                    <span className="font-normal text-slate-500"> — defaults to department role on save</span>
+                  ) : null}
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {availableRoles.map((r: any) => {

@@ -53,6 +53,12 @@ async function create(body, actor) {
   const hash = await bcrypt.hash(body.password || 'ChangeMe123!', 10);
 
   const roleIds = await resolveRoleIdsForUser(body);
+  if (!roleIds.length) {
+    throw new ApiError(
+      400,
+      'At least one role is required. Run `npm run seed:roles` to sync roles, then assign a role or department.'
+    );
+  }
   await assertRolesExist(roleIds);
 
   const doc = await User.create({

@@ -36,7 +36,13 @@ function coerceRoleIds(raw) {
   const seen = new Set();
   const out = [];
   for (const item of list) {
-    const s = String(item).trim();
+    let s;
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const o = item;
+      s = String(o._id ?? o.id ?? '').trim();
+    } else {
+      s = String(item).trim();
+    }
     if (!s || seen.has(s)) continue;
     seen.add(s);
     if (!mongoose.Types.ObjectId.isValid(s)) {
@@ -81,6 +87,12 @@ async function resolveDefaultRoleIdsForDepartment(department) {
  */
 async function resolveRoleIdsForUser(body) {
   let roleIds = coerceRoleIds(body?.roles);
+
+  // Department doubles as default role code in seed data (sales → sales role, etc.)
+  if (!roleIds.length && body?.department) {
+    const id = await findActiveRoleIdByCode(body.department);
+    if (id) roleIds = [id];
+  }
 
   if (!roleIds.length && body?.roleCode) {
     const id = await findActiveRoleIdByCode(body.roleCode);
