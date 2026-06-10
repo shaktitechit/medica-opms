@@ -8,7 +8,11 @@ const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
 const { sanitizeUser } = require('../../utils/sanitize');
 const activityService = require('../activity/activity.service');
-const { coerceRoleIds, assertRolesExist } = require('./userRoles.util');
+const {
+  resolveRoleIdsForUser,
+  resolveDefaultRoleIdsForDepartment,
+  assertRolesExist,
+} = require('./userRoles.util');
 
 async function list(query = {}) {
   const filter = { is_active: { $ne: false } };
@@ -48,7 +52,7 @@ async function create(body, actor) {
 
   const hash = await bcrypt.hash(body.password || 'ChangeMe123!', 10);
 
-  const roleIds = coerceRoleIds(body.roles);
+  const roleIds = await resolveRoleIdsForUser(body);
   await assertRolesExist(roleIds);
 
   const doc = await User.create({
@@ -90,8 +94,17 @@ async function update(id, body, actor) {
   if (body.phone !== undefined) user.phone = body.phone;
   if (body.department !== undefined) user.department = body.department;
   if (body.is_active !== undefined) user.is_active = body.is_active;
-  if (body.roles !== undefined) {
-    const roleIds = coerceRoleIds(body.roles);
+  const rolePayloadTouched =
+    body.roles !== undefined || body.roleCode !== undefined || body.role !== undefined;
+  const departmentChanged =
+    body.department !== undefined && String(body.department) !== String(user.department);
+
+  if (rolePayloadTouched) {
+    const roleIds = await resolveRoleIdsForUser(body);
+    await assertRolesExist(roleIds);
+    user.roles = roleIds;
+  } else if (departmentChanged) {
+    const roleIds = await resolveDefaultRoleIdsForDepartment(body.department);
     await assertRolesExist(roleIds);
     user.roles = roleIds;
   }

@@ -12,6 +12,12 @@ function assertCreate(body) {
   if (!body.name || !body.email || !body.password || !body.department) {
     throw new ApiError(400, 'name, email, password, and department are required');
   }
+  if (!USER_DEPARTMENTS.includes(body.department)) {
+    throw new ApiError(400, `department must be one of: ${USER_DEPARTMENTS.join(', ')}`);
+  }
+  if (body.roles !== undefined && !Array.isArray(body.roles)) {
+    throw new ApiError(400, 'roles must be an array');
+  }
 }
 
 function assertPatch(body) {

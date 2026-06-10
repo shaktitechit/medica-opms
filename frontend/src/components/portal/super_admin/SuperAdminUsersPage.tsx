@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useListUsersQuery,
   useListRolesQuery,
@@ -57,9 +57,27 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
   const [createUser, { isLoading }] = useCreateUserMutation();
   const { data: rolesRaw } = useListRolesQuery();
   const roleList = useMemo(() => extractList(rolesRaw), [rolesRaw]);
-  const availableRoles = useMemo(() => roleList.filter((r: any) => r.department === form.department), [roleList, form.department]);
+  const availableRoles = useMemo(
+    () => roleList.filter((r: any) => r.department === form.department),
+    [roleList, form.department],
+  );
+
+  const defaultRoleIdForDept = (dept: Dept) => {
+    const match = roleList.find(
+      (r: any) => r.code === dept || r.department === dept,
+    );
+    return match ? String(match._id || match.id || "") : "";
+  };
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    if (form.roles.length > 0 || !roleList.length) return;
+    const defaultRole = defaultRoleIdForDept(form.department);
+    if (defaultRole) {
+      setForm((f) => ({ ...f, roles: [defaultRole] }));
+    }
+  }, [form.department, form.roles.length, roleList]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,7 +142,15 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
               <div className="relative">
                 <select
                   value={form.department}
-                  onChange={(e) => setForm((f) => ({ ...f, department: e.target.value as Dept, roles: [] }))}
+                  onChange={(e) => {
+                    const department = e.target.value as Dept;
+                    const defaultRole = defaultRoleIdForDept(department);
+                    setForm((f) => ({
+                      ...f,
+                      department,
+                      roles: defaultRole ? [defaultRole] : [],
+                    }));
+                  }}
                   className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-400/20 dark:border-white/10 dark:bg-slate-800 dark:text-slate-100"
                 >
                   {DEPARTMENTS.map((d) => (
@@ -137,7 +163,9 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
 
             {availableRoles.length > 0 && (
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-300">Role (optional)</label>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Role {form.roles.length === 0 ? "(defaults from department)" : ""}
+                </label>
                 <div className="flex flex-wrap gap-2">
                   {availableRoles.map((r: any) => {
                     const rid = String(r._id || r.id || "");
