@@ -91,6 +91,80 @@ async function roleIdsByCodeMap(Role) {
   return map;
 }
 
+function summarizeRolesAndPermissions(permissionRows, roleRows) {
+  const codeByPermId = new Map(
+    permissionRows.map((p) => [String(p._id), p.code])
+  );
+
+  return {
+    permissions: permissionRows.map((p) => ({
+      id: String(p._id),
+      code: p.code,
+      module: p.module,
+      name: p.name,
+    })),
+    roles: roleRows.map((r) => ({
+      id: String(r._id),
+      code: r.code,
+      name: r.name,
+      department: r.department,
+      is_system_role: !!r.is_system_role,
+      permissionCodes: (r.permissions || [])
+        .map((pid) => codeByPermId.get(String(pid)) || String(pid))
+        .filter(Boolean),
+    })),
+  };
+}
+
+/**
+ * Upsert permission catalog and system roles into MongoDB (no user changes).
+ *
+ * @param {{ fixEmptyUserRoles?: boolean }} opts
+ */
+async function syncRolesAndPermissionsToMongo(opts = {}) {
+  if (!MONGODB_URI || String(MONGODB_URI).trim() === '') {
+    return {
+      synced: false,
+      reason:
+        'Set MONGO_URI or MONGODB_URI in .env to write to MongoDB. In-memory seed does not touch Atlas.',
+    };
+  }
+
+  if (mongoose.connection.readyState !== 1) await db.connect();
+
+  const { Permission, Role, User } = getMongoModels();
+  const permMap = await upsertPermissions(Permission);
+  await upsertRoles(Role, permMap);
+
+  const permissionRows = await Permission.find().sort({ code: 1 }).lean();
+  const roleRows = await Role.find().sort({ code: 1 }).lean();
+  const summary = summarizeRolesAndPermissions(permissionRows, roleRows);
+
+  let usersRolesFixed = [];
+  if (opts.fixEmptyUserRoles) {
+    const rolesByCode = await roleIdsByCodeMap(Role);
+    const users = await User.find({
+      $or: [{ roles: { $exists: false } }, { roles: { $size: 0 } }],
+    }).lean();
+
+    for (const u of users) {
+      const roleId = rolesByCode.get(u.department);
+      if (!roleId) continue;
+      await User.updateOne({ _id: u._id }, { $set: { roles: [roleId] } });
+      usersRolesFixed.push(u.email);
+    }
+  }
+
+  return {
+    synced: true,
+    database: mongoose.connection.db?.databaseName,
+    permissionsUpserted: PERMISSION_DEFS.length,
+    rolesUpserted: ROLE_SEED_DEFS.length,
+    usersRolesFixed,
+    ...summary,
+  };
+}
+
 function buildUserList(opts = {}) {
   const includeExtras = opts.includeExtras !== false;
   const onlyExtras = !!opts.onlyExtras;
@@ -117,9 +191,9 @@ async function syncExampleUsersToMongo(plainPassword, opts = {}) {
 
   if (mongoose.connection.readyState !== 1) await db.connect();
 
-  const { Permission, Role, User } = getMongoModels();
-  const permMap = await upsertPermissions(Permission);
-  await upsertRoles(Role, permMap);
+  await syncRolesAndPermissionsToMongo();
+
+  const { User, Role } = getMongoModels();
   const rolesByCode = await roleIdsByCodeMap(Role);
 
   const list = buildUserList(opts);
@@ -182,9 +256,9 @@ async function syncSuperAdminUserToMongo(plainPassword, overrides = {}) {
 
   if (mongoose.connection.readyState !== 1) await db.connect();
 
-  const { Permission, Role, User } = getMongoModels();
-  const permMap = await upsertPermissions(Permission);
-  await upsertRoles(Role, permMap);
+  await syncRolesAndPermissionsToMongo();
+
+  const { User, Role } = getMongoModels();
   const rolesByCode = await roleIdsByCodeMap(Role);
 
   const row = { ...DEFAULT_SUPER_ADMIN, ...overrides };
@@ -221,4 +295,10 @@ async function syncSuperAdminUserToMongo(plainPassword, overrides = {}) {
   };
 }
 
-module.exports = { syncExampleUsersToMongo, syncSuperAdminUserToMongo };
+module.exports = {
+  ROLE_SEED_DEFS,
+  PERMISSION_DEFS,
+  syncRolesAndPermissionsToMongo,
+  syncExampleUsersToMongo,
+  syncSuperAdminUserToMongo,
+};
