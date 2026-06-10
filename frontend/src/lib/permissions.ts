@@ -25,3 +25,12 @@ export function canBulkUploadParties(user: unknown): boolean {
   if (PARTIES_BULK_UPLOAD_DEPARTMENTS.has(dept)) return true;
   return userHasAnyPermission(user, ["parties:manage", "*"]);
 }
+
+const ORDERS_CREATE_DEPARTMENTS = new Set(["sales", "admin", "super_admin"]);
+
+/** Sales portal create-order page — sales, admin, or orders:write permission. */
+export function canCreateOrder(user: unknown): boolean {
+  const dept = userDashboardDepartment(user);
+  if (ORDERS_CREATE_DEPARTMENTS.has(dept)) return true;
+  return userHasAnyPermission(user, ["orders:write", "*"]);
+}

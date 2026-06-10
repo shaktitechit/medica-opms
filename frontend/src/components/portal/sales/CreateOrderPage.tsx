@@ -18,6 +18,7 @@ import {
 import {
   mutationRejectedMessage,
 } from "@/lib/mutationMessages";
+import { canCreateOrder } from "@/lib/permissions";
 import { toast } from "@/lib/toast";
 import {
   useCreateOrderMutation,
@@ -353,6 +354,7 @@ function ProductAutocomplete({
 export default function CreateOrderPage() {
   const router = useRouter();
   const user = useAppSelector((s) => s.auth.user);
+  const mayCreateOrder = canCreateOrder(user);
   const partiesQ = useListPartiesQuery({});
   const productsQ = useListProductsQuery({});
 
@@ -524,6 +526,11 @@ export default function CreateOrderPage() {
         toast.error("Add at least one line with a product.");
         return;
       }
+
+      if (!mayCreateOrder) {
+        toast.error("You do not have permission to create orders. Contact an administrator.");
+        return;
+      }
       const badQty = prepared.some(
         (l) => !Number.isFinite(l.ordered_quantity) || l.ordered_quantity < 1,
       );
@@ -563,6 +570,7 @@ export default function CreateOrderPage() {
       remarks,
       router,
       user,
+      mayCreateOrder,
     ],
   );
 
@@ -879,7 +887,12 @@ export default function CreateOrderPage() {
               <div className="pt-3 border-t border-slate-100 dark:border-white/5">
                 <button
                   type="submit"
-                  disabled={isLoading}
+                  disabled={isLoading || !mayCreateOrder}
+                  title={
+                    mayCreateOrder
+                      ? undefined
+                      : "Order creation requires a Sales or Admin account"
+                  }
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/25 transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:shadow-none dark:hover:bg-blue-400"
                 >
                   {isLoading ? (

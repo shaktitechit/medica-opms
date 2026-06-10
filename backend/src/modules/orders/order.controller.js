@@ -5,7 +5,7 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const service = require('./order.service');
 const approvalService = require('../approvals/approval.service');
-const { ApiError } = require('../../utils/ApiError');
+const { assertMayCreateOrder } = require('./order.policy');
 const validation = require('./order.validation');
 
 exports.list = asyncHandler(async (req, res) => {
@@ -17,9 +17,7 @@ exports.get = asyncHandler(async (req, res) => {
 });
 
 exports.create = asyncHandler(async (req, res) => {
-  if (!['sales', 'admin'].includes(req.user.department)) {
-    throw new ApiError(403, 'Only sales (or admin) can create orders');
-  }
+  assertMayCreateOrder(req.user);
   res.status(201).json({ success: true, data: await service.create(req.body, req.user) });
 });
 

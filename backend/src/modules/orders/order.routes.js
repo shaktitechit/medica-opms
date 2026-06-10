@@ -5,12 +5,13 @@
 const { Router } = require('express');
 const router = Router();
 const { requireAuth, requirePermissions, requireSoftDeletePermission } = require('../../middlewares/auth.middleware');
+const { requireOrdersWrite } = require('./order.policy');
 const controller = require('./order.controller');
 
 router.use(requireAuth);
 router.get('/', requirePermissions('orders:read', '*'), controller.list);
 
-router.post('/', requirePermissions('orders:write', '*'), controller.create);
+router.post('/', requireOrdersWrite, controller.create);
 
 router.get('/deleted', requireSoftDeletePermission, controller.listDeleted);
 
@@ -23,7 +24,7 @@ router.post('/:id/restore', requireSoftDeletePermission, controller.restore);
 
 router.get('/:id', requirePermissions('orders:read', '*'), controller.get);
 
-router.patch('/:id', controller.update);
+router.patch('/:id', requireOrdersWrite, controller.update);
 
 router.post('/:id/transition', controller.transition);
 
