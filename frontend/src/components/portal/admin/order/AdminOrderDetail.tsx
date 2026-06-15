@@ -5,15 +5,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { OrderTab } from "./components/OrderTab";
 import { FlagsTab } from "./components/FlagsTab";
 import AttachmentsTab from "./components/AttachmentsTab";
-import FinanceApprovalsTab from "./components/FinanceApprovalsTab";
+import OrderItemsTab from "./components/OrderItemsTab";
+import { ApprovalTab } from "@/components/portal/admin/order/components/orderApproval/ApprovalTab";
 import DispatchesTab from "./components/DispatchesTab";
 import TransportsTab from "./components/TransportsTab";
 import OrderDetailsModal from "./components/OrderDetailsModal";
 import PartyDetailsModal from "./components/PartyDetailsModal";
-import OrderItemsModal from "./components/OrderItemsModal";
 import {
   buildPartyNameById,
   resolveOrderCounterparty,
@@ -33,17 +32,19 @@ import {
   useGetPartyQuery,
   useGetOrderHistoryQuery,
   useListAttachmentsQuery,
-  useListOrderFinanceApprovalsQuery,
+  useListOrderApprovalsQuery,
   useGetOrderFulfillmentQuery,
 } from "@/store/api";
 
 import { ALL_FLAG_TYPES, FLAGS_FOR_TARGET_DEPARTMENT } from "@/components/portal/shared/flagTypes";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { withAdminApprovalQuantities } from "@/components/portal/shared/orderAdminApprovalDisplay";
 import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
-import { UserCheck, DollarSign, Package, Truck } from "lucide-react";
+import { UserCheck, DollarSign, Package, Truck, Wallet } from "lucide-react";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
@@ -94,9 +95,9 @@ function formatDateShort(v: unknown): string {
 function formatStatusLabel(v: string): string {
   return v
     ? v
-        .split("_")
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ")
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ")
     : "—";
 }
 
@@ -180,13 +181,16 @@ function displayText(value: unknown): string {
 
 export default function AdminOrderDetail({ orderId }: { orderId: string }) {
   const router = useRouter();
-  const { data, isFetching, isError, refetch } = useGetOrderQuery(orderId);
+  const { data, isLoading, isFetching, isError, refetch } = useGetOrderQuery(orderId);
   const salesUsersQ = useListUsersQuery({ department: "sales" });
   const financeUsersQ = useListUsersQuery({ department: "finance" });
   const dispatchUsersQ = useListUsersQuery({ department: "dispatch" });
   const adminUsersQ = useListUsersQuery({ department: "admin" });
   const partiesQ = useListPartiesQuery({});
-  const financeApprovalsQ = useListOrderFinanceApprovalsQuery({ order: orderId });
+  const adminApprovalsQ = useListOrderApprovalsQuery(
+    { order: orderId },
+    { skip: !orderId },
+  );
   const fulfillmentQ = useGetOrderFulfillmentQuery(orderId);
 
   const detail =
@@ -200,6 +204,10 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
         ? (fulfillmentQ.data as Record<string, unknown>)
         : null,
     [fulfillmentQ.data],
+  );
+  const adminApprovalsCount = useMemo(
+    () => pickList(adminApprovalsQ.data).length,
+    [adminApprovalsQ.data],
   );
   const currentPartyId = detail ? detailRefId(detail.party) : "";
   const partyDetailQ = useGetPartyQuery(currentPartyId, {
@@ -235,15 +243,8 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
   const [transitioningTo, setTransitioningTo] = useState<string | null>(null);
   const [transitionRemarks, setTransitionRemarks] = useState("");
 
-  // Approve & Assign Finance modal state
-  const [isApproveFinanceModalOpen, setIsApproveFinanceModalOpen] = useState(false);
-  const [approveFinanceRemarks, setApproveFinanceRemarks] = useState("");
-  const [approveFinanceAssignee, setApproveFinanceAssignee] = useState("");
-  const [isApprovingFinance, setIsApprovingFinance] = useState(false);
-
   // Modular Modals Overlay states
   const [isFulfillmentModalOpen, setIsFulfillmentModalOpen] = useState(false);
-  const [isOrderItemsModalOpen, setIsOrderItemsModalOpen] = useState(false);
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
   const [isPartyDetailsModalOpen, setIsPartyDetailsModalOpen] = useState(false);
 
@@ -291,7 +292,14 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     }
   }, [detail, resolveUserId]);
 
-  const [activeTab, setActiveTab] = useState<"flags" | "attachments" | "finance_approvals" | "dispatches" | "transports">("finance_approvals");
+  const [activeTab, setActiveTab] = useState<
+    | "flags"
+    | "attachments"
+    | "approval_items"
+    | "admin_approvals"
+    | "dispatches"
+    | "transports"
+  >("approval_items");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
   const [showRaiseFlagModal, setShowRaiseFlagModal] = useState(false);
   const [newFlagDept, setNewFlagDept] = useState("sales");
@@ -309,7 +317,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
   }, [newFlagDept]);
 
   const attachmentsQ = useListAttachmentsQuery({ entity_type: "order", entity_id: orderId });
-  
+
   const attachmentsList = useMemo(() => {
     const arr = pickList(attachmentsQ.data);
     return arr;
@@ -333,13 +341,14 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
   }, [historyQ.data]);
 
   const handleRefetch = useCallback(() => {
-    refetch();
-    if (!flagsQ.isUninitialized) flagsQ.refetch();
-    if (!historyQ.isUninitialized) historyQ.refetch();
-    if (!attachmentsQ.isUninitialized) attachmentsQ.refetch();
-    if (!financeApprovalsQ.isUninitialized) financeApprovalsQ.refetch();
-    if (!fulfillmentQ.isUninitialized) fulfillmentQ.refetch();
-  }, [refetch, flagsQ, historyQ, attachmentsQ, financeApprovalsQ, fulfillmentQ]);
+    const tasks: Promise<unknown>[] = [refetch()];
+    if (!flagsQ.isUninitialized) tasks.push(flagsQ.refetch());
+    if (!historyQ.isUninitialized) tasks.push(historyQ.refetch());
+    if (!attachmentsQ.isUninitialized) tasks.push(attachmentsQ.refetch());
+    if (!adminApprovalsQ.isUninitialized) tasks.push(adminApprovalsQ.refetch());
+    if (!fulfillmentQ.isUninitialized) tasks.push(fulfillmentQ.refetch());
+    return Promise.all(tasks);
+  }, [refetch, flagsQ, historyQ, attachmentsQ, adminApprovalsQ, fulfillmentQ]);
 
 
 
@@ -417,53 +426,15 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     [orderId, transitionRemarks, transitionOrder, handleRefetch],
   );
 
-  const handleApproveFinanceSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!orderId) return;
-      if (!approveFinanceAssignee) {
-        toast.error("Please select a finance operator.");
-        return;
-      }
-      setIsApprovingFinance(true);
-      try {
-        await patchOrder({
-          id: orderId,
-          patch: {
-            assigned_finance_user: approveFinanceAssignee,
-          },
-        }).unwrap();
-
-        await transitionOrder({
-          id: orderId,
-          body: {
-            next_status: "finance_review",
-            remarks: approveFinanceRemarks.trim() || "Sent to finance from admin dashboard",
-          },
-        }).unwrap();
-
-        toast.success("Order sent to Finance successfully.");
-        setIsApproveFinanceModalOpen(false);
-        setApproveFinanceRemarks("");
-        setApproveFinanceAssignee("");
-        handleRefetch();
-      } catch (err) {
-        toast.error(mutationRejectedMessage(err));
-      } finally {
-        setIsApprovingFinance(false);
-      }
-    },
-    [orderId, approveFinanceAssignee, approveFinanceRemarks, patchOrder, transitionOrder, handleRefetch]
-  );
-
   const custLabel = detail
     ? resolveOrderCounterparty(detail, partyNameById)
     : "—";
 
   const readOnlyItems = useMemo(() => {
     if (!detail || !Array.isArray(detail.order_items)) return [];
-    return detail.order_items as Record<string, unknown>[];
-  }, [detail]);
+    const items = detail.order_items as Record<string, unknown>[];
+    return withAdminApprovalQuantities(items, pickList(adminApprovalsQ.data));
+  }, [detail, adminApprovalsQ.data]);
 
   const orderKpis = useMemo(() => {
     const fulfillment =
@@ -480,26 +451,38 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
       (sum, line) => sum + Number(line.ordered_quantity ?? line.quantity ?? 0),
       0,
     ));
-    const financeApprovedQty = Number(totals?.approved ?? readOnlyItems.reduce(
-      (sum, line) => sum + Number(line.approved_quantity || 0),
-      0,
-    ));
+    const adminApprovedQty = Number(
+      totals?.salesApproved ??
+      readOnlyItems.reduce((sum, line) => {
+        const sales = Number(line.sales_approved_quantity ?? 0);
+        if (sales > 0) return sum + sales;
+        return sum + Number(line.approved_quantity || 0);
+      }, 0),
+    );
+    const financeApprovedQty = Number(
+      totals?.approved ??
+      readOnlyItems.reduce(
+        (sum, line) => sum + Number(line.approved_quantity || 0),
+        0,
+      ),
+    );
     const dispatchedQty = Number(totals?.dispatched ?? readOnlyItems.reduce(
       (sum, line) => sum + Number(line.dispatched_quantity || 0),
       0,
     ));
     const pendingQty = Number(
       totals?.pendingDispatch ??
-        readOnlyItems.reduce((sum, line) => {
-          const approved = Number(line.approved_quantity || 0);
-          const cap = approved > 0 ? approved : Number(line.ordered_quantity ?? line.quantity ?? 0);
-          return sum + Math.max(0, cap - Number(line.dispatched_quantity || 0));
-        }, 0),
+      readOnlyItems.reduce((sum, line) => {
+        const approved = Number(line.approved_quantity || 0);
+        const cap = approved > 0 ? approved : Number(line.ordered_quantity ?? line.quantity ?? 0);
+        return sum + Math.max(0, cap - Number(line.dispatched_quantity || 0));
+      }, 0),
     );
 
     return {
       totalLines,
       totalQty,
+      adminApprovedQty,
       dispatchedQty,
       pendingQty,
       financeApprovedQty,
@@ -519,12 +502,14 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
 
   const adminBox = useMemo(() => deptBoxes.find((b) => b.id === "admin"), [deptBoxes]);
   const financeBox = useMemo(() => deptBoxes.find((b) => b.id === "finance"), [deptBoxes]);
+  const accountBox = useMemo(() => deptBoxes.find((b) => b.id === "account"), [deptBoxes]);
   const dispatchBox = useMemo(() => deptBoxes.find((b) => b.id === "dispatch"), [deptBoxes]);
   const deliveryBox = useMemo(() => deptBoxes.find((b) => b.id === "delivery"), [deptBoxes]);
 
   const adminStatusDim = adminBox?.status;
   const financeStatusDim = financeBox?.status;
   const dispatchStatusDim = dispatchBox?.status;
+  const accountStatusDim = accountBox?.status;
   const deliveryStatusDim = deliveryBox?.status;
 
   // Admin allowed status transitions
@@ -559,12 +544,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     return targetStatus.replace("_", " ");
   }, []);
 
-  const canSendToFinance = useMemo(
-    () =>
-      allowedTransitions.includes("finance_review") &&
-      status === "sales_approved",
-    [allowedTransitions, status],
-  );
   const canHold = useMemo(() => allowedTransitions.includes("on_hold"), [allowedTransitions]);
   const canResume = useMemo(() => allowedTransitions.includes("submitted"), [allowedTransitions]);
   const canCancel = useMemo(() => allowedTransitions.includes("cancelled"), [allowedTransitions]);
@@ -576,11 +555,28 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     return "Submit / Resume Order";
   }, [status]);
 
-  const busy = isPatching || isSubmitting || isApprovingFinance;
+  const busy = isPatching || isSubmitting;
+
+  if (isError || (!isLoading && !detail)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center px-4 font-sans">
+        <p className="text-sm text-rose-600 dark:text-rose-400 font-medium">
+          Could not load order details.
+        </p>
+        <button type="button" onClick={() => router.back()} className={`${btnSecondaryClass} mt-4`}>
+          Back
+        </button>
+      </div>
+    );
+  }
+
+  if (!detail) {
+    return <PortalBusyOverlay active message="Loading order details…" />;
+  }
 
   return (
     <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden space-y-4 pb-20 md:pb-0">
-      
+
       {/* Transitions Dialog */}
       {transitioningTo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
@@ -766,78 +762,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {/* Send to Finance Modal */}
-      {isApproveFinanceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-550 dark:text-slate-50">
-                Send to Finance
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsApproveFinanceModalOpen(false)}
-                className="text-slate-400 hover:text-slate-500 dark:hover:text-slate-350 dark:hover:text-slate-300"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <form onSubmit={(e) => void handleApproveFinanceSubmit(e)} className="mt-4 space-y-4">
-              <div className="space-y-1.5">
-                <label className={labelClass}>Finance Operator Assignment</label>
-                <select
-                  value={approveFinanceAssignee}
-                  onChange={(e) => setApproveFinanceAssignee(e.target.value)}
-                  className={inputClass}
-                  required
-                >
-                  <option value="">— Select Finance Operator —</option>
-                  {financeUsers.map((u) => {
-                    const id = String(u._id ?? u.id ?? "");
-                    return (
-                      <option key={id} value={id}>
-                        {String(u.name || u.username || id)}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className={labelClass}>Remarks (Optional)</label>
-                <textarea
-                  value={approveFinanceRemarks}
-                  onChange={(e) => setApproveFinanceRemarks(e.target.value)}
-                  rows={3}
-                  className={inputClass}
-                  placeholder="Type remarks or notes for the finance department..."
-                />
-              </div>
-
-              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-white/5 font-sans font-medium">
-                <button
-                  type="button"
-                  onClick={() => setIsApproveFinanceModalOpen(false)}
-                  className={btnSecondaryClass}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isApprovingFinance || !approveFinanceAssignee}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
-                >
-                  {isApprovingFinance ? "Processing..." : "Confirm & Send to Finance"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Item Fulfillment Details Modal */}
       {isFulfillmentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
@@ -857,7 +781,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
                 </svg>
               </button>
             </div>
-            
+
             <div className="mt-4 overflow-y-auto flex-1 pr-1">
               <OrderDepartmentFulfillmentPanel
                 order={detail}
@@ -880,15 +804,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      <OrderItemsModal
-        isOpen={isOrderItemsModalOpen}
-        onClose={() => setIsOrderItemsModalOpen(false)}
-        detail={detail}
-        status={status}
-        readOnlyItems={readOnlyItems}
-        refetchOrder={handleRefetch}
-      />
-
       <OrderDetailsModal
         isOpen={isOrderDetailsModalOpen}
         onClose={() => setIsOrderDetailsModalOpen(false)}
@@ -906,26 +821,8 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
         custLabel={custLabel}
       />
 
-      {/* Loading & Error Indicators */}
-      {(isFetching || isError || !detail) && (
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={() => router.back()} className={btnSecondaryClass}>
-            Back
-          </button>
-        </div>
-      )}
-
-      {isFetching && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">Loading order...</p>
-      )}
-      {isError && (
-        <p className="text-sm text-rose-600 dark:text-rose-400 font-medium">
-          Could not load order details.
-        </p>
-      )}
-
       {/* Order Main Content */}
-      {!isFetching && !isError && detail && (
+      {detail && (
         <>
           <div className="flex-shrink-0 space-y-3">
             <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
@@ -974,14 +871,17 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
                   <button type="button" onClick={() => setIsFulfillmentModalOpen(true)} className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-blue-200/80 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[10px] sm:text-xs font-bold text-blue-600 shadow-sm transition dark:border-white/10 dark:bg-slate-950 dark:text-blue-400 dark:hover:bg-white/5 cursor-pointer active:scale-[0.98]">Details</button>
                 </div>
                 <div className="overflow-x-auto -mx-1 px-1 pb-1">
-                  <div className="grid grid-cols-7 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
+                  <div className="grid grid-cols-9 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
                     <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderKpis.totalQty} icon={UserCheck} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderKpis.totalQty} icon={DollarSign} />
+                    <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={Math.max(orderKpis.adminApprovedQty, orderKpis.totalQty)} icon={DollarSign} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderKpis.totalQty} icon={Package} />
+                    
+                        <FulfillmentCircleStep label="Account" status={accountStatusDim} completed={accountBox?.completedQty} total={Math.max(orderKpis.adminApprovedQty, orderKpis.totalQty)} icon={Wallet} />
+                        <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
+                        <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={Math.max(orderKpis.financeApprovedQty, orderKpis.adminApprovedQty)} icon={Package} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderKpis.totalQty} icon={Truck} />
+                    <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={Math.max(orderKpis.dispatchedQty, orderKpis.financeApprovedQty)} icon={Truck} />
                   </div>
                 </div>
               </div>
@@ -989,8 +889,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
               {/* ── Action buttons bar ── */}
               <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/10">
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 font-sans font-medium">
-                  <button type="button" disabled={busy} onClick={() => setIsOrderItemsModalOpen(true)} className="rounded-lg bg-emerald-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400">Approve Items</button>
-                  <button type="button" disabled={!canSendToFinance || busy} onClick={() => { setApproveFinanceAssignee(assignedFinance); setApproveFinanceRemarks(""); setIsApproveFinanceModalOpen(true); }} className="rounded-lg bg-indigo-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-indigo-500 dark:hover:bg-indigo-400 font-sans">Send to Finance</button>
                   <button type="button" disabled={!canHold || busy} onClick={() => setTransitioningTo("on_hold")} className="rounded-lg bg-amber-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40">Hold</button>
                   <button type="button" disabled={!canResume || busy} onClick={() => setTransitioningTo("submitted")} className="rounded-lg bg-blue-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">{resumeLabel}</button>
                   <button type="button" disabled={!canCancel || busy} onClick={() => setTransitioningTo("cancelled")} className="rounded-lg bg-rose-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40">Cancel</button>
@@ -1004,7 +902,25 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
           <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
             {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} setShowRaiseFlagModal={setShowRaiseFlagModal} currentDepartment="admin" refetchOrder={handleRefetch} />)}
             {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isFetching} onUploadSuccess={handleRefetch} />)}
-            {activeTab === "finance_approvals" && (<FinanceApprovalsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+            {activeTab === "approval_items" && (
+              <OrderItemsTab
+                detail={detail}
+                status={status}
+                readOnlyItems={readOnlyItems}
+                refetchOrder={handleRefetch}
+                partyLabel={custLabel}
+              />
+            )}
+            {activeTab === "admin_approvals" && (
+              <ApprovalTab
+                orderId={orderId}
+                detail={detail}
+                status={status}
+                readOnlyItems={readOnlyItems}
+                refetchOrder={handleRefetch}
+                partyLabel={custLabel}
+              />
+            )}
             {activeTab === "dispatches" && (<DispatchesTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
             {activeTab === "transports" && (<TransportsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
           </div>
@@ -1013,11 +929,12 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
           <div className="hidden md:block flex-shrink-0 pt-2 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 p-2 rounded-xl">
             <OrderDetailTabsNav
               tabs={[
-                { id: "flags", name: "Flags", count: openFlagsCount, dangerBadge: true },
-                { id: "attachments", name: "Attachments", count: attachmentsList.length },
-                { id: "finance_approvals", name: "Finance Approvals & Allocations" },
+                { id: "approval_items", name: "Order Items", count: orderKpis.totalLines },
+                { id: "admin_approvals", name: "Order Approval", count: adminApprovalsCount },
                 { id: "dispatches", name: "Dispatches" },
                 { id: "transports", name: "Transports" },
+                { id: "flags", name: "Flags", count: openFlagsCount, dangerBadge: true },
+                { id: "attachments", name: "Attachments", count: attachmentsList.length },
               ]}
               activeId={activeTab}
               onChange={(id) => setActiveTab(id as typeof activeTab)}
@@ -1029,7 +946,12 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
             <div className="md:hidden fixed inset-0 z-[60] flex flex-col bg-white dark:bg-slate-900">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-0 z-10">
                 <h2 className="text-sm font-bold text-slate-900 dark:text-slate-50">
-                  {activeTab === "flags" && "Flags"}{activeTab === "attachments" && "Attachments"}{activeTab === "finance_approvals" && "Finance Approvals"}{activeTab === "dispatches" && "Dispatches"}{activeTab === "transports" && "Transports"}
+                  {activeTab === "flags" && "Flags"}
+                  {activeTab === "attachments" && "Attachments"}
+                  {activeTab === "approval_items" && "Order Items"}
+                  {activeTab === "admin_approvals" && "Order Approval"}
+                  {activeTab === "dispatches" && "Dispatches"}
+                  {activeTab === "transports" && "Transports"}
                 </h2>
                 <button type="button" onClick={() => setMobileTabOpen(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10 transition" aria-label="Close panel">
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -1038,7 +960,25 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
               <div className="flex-1 overflow-y-auto p-4 pb-24">
                 {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} setShowRaiseFlagModal={setShowRaiseFlagModal} currentDepartment="admin" refetchOrder={handleRefetch} />)}
                 {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isFetching} onUploadSuccess={handleRefetch} />)}
-                {activeTab === "finance_approvals" && (<FinanceApprovalsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+                {activeTab === "approval_items" && (
+                  <OrderItemsTab
+                    detail={detail}
+                    status={status}
+                    readOnlyItems={readOnlyItems}
+                    refetchOrder={handleRefetch}
+                    partyLabel={custLabel}
+                  />
+                )}
+                {activeTab === "admin_approvals" && (
+                  <ApprovalTab
+                    orderId={orderId}
+                    detail={detail}
+                    status={status}
+                    readOnlyItems={readOnlyItems}
+                    refetchOrder={handleRefetch}
+                    partyLabel={custLabel}
+                  />
+                )}
                 {activeTab === "dispatches" && (<DispatchesTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
                 {activeTab === "transports" && (<TransportsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
               </div>
@@ -1052,11 +992,12 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
         <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 dark:border-white/10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2">
           <nav className="flex items-stretch justify-around">
             {([
-              { id: "flags" as const, name: "Flags", count: openFlagsCount, dangerBadge: true, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg> },
-              { id: "attachments" as const, name: "Files", count: attachmentsList.length, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg> },
-              { id: "finance_approvals" as const, name: "Approvals", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
+              { id: "approval_items" as const, name: "Items", count: orderKpis.totalLines, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9h6m-6 4h6" /></svg> },
+              { id: "admin_approvals" as const, name: "Approval", count: adminApprovalsCount, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg> },
               { id: "dispatches" as const, name: "Dispatch", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg> },
               { id: "transports" as const, name: "Transport", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2.556-2.556M13 16H9m4 0h2m2 0h.01M13 16V6m0 0h3l3 4v6h-1M6 16H5m8-10H5" /></svg> },
+              { id: "flags" as const, name: "Flags", count: openFlagsCount, dangerBadge: true, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg> },
+              { id: "attachments" as const, name: "Files", count: attachmentsList.length, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg> },
             ]).map((tab) => {
               const isActive = activeTab === tab.id && mobileTabOpen;
               return (

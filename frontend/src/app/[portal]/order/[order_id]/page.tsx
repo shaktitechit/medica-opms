@@ -7,6 +7,7 @@ import { notFound } from "next/navigation";
 import SalesOrderDetail from "@/components/portal/sales/order/SalesOrderDetail";
 import AdminOrderDetail from "@/components/portal/admin/order/AdminOrderDetail";
 import FinanceOrderDetail from "@/components/portal/finance/order/FinanceOrderDetail";
+import AccountOrderDetail from "@/components/portal/account/order/AccountOrderDetail";
 import DispatchOrderDetail from "@/components/portal/dispatch/order/DispatchOrderDetail";
 import SuperAdminOrderDetail from "@/components/portal/super_admin/order/SuperAdminOrderDetail";
 
@@ -26,6 +27,8 @@ export default function OrderRoutingPage() {
       return <AdminOrderDetail orderId={orderId} />;
     case "finance":
       return <FinanceOrderDetail orderId={orderId} />;
+    case "account":
+      return <AccountOrderDetail orderId={orderId} />;
     case "dispatch":
       return <DispatchOrderDetail orderId={orderId} />;
     case "super_admin":

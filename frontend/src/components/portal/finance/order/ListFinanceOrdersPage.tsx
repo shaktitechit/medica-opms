@@ -1,24 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   buildPartyNameById,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
-import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
   useListPartiesQuery,
   useListOrdersQuery,
   useListUsersQuery,
 } from "@/store/api";
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
-import {
-  Search,
+import { Search,
   X,
   ChevronLeft,
   ChevronRight,
@@ -29,10 +28,15 @@ import {
   UserCheck,
   DollarSign,
   Package,
-  Truck,
-} from "lucide-react";
+  Truck, Wallet } from "lucide-react";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
+import {
+  FINANCE_ORDER_TABS,
+  getFinanceOrderTabCategory,
+  isFinanceOrderTabCategory,
+  type FinanceOrderTabCategory,
+} from "../financeOrderUtils";
 
 type OrderRow = {
   _id?: string;
@@ -71,21 +75,21 @@ function renderPriorityBadge(priority: string) {
   const p = String(priority).toLowerCase();
   if (p === "urgent") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-950/30 dark:text-rose-400/90 dark:ring-rose-500/25">
         Urgent
       </span>
     );
   }
   if (p === "high") {
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-455/90 dark:ring-amber-500/20">
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-950/30 dark:text-amber-400/90 dark:ring-amber-500/20">
         High
       </span>
     );
   }
   if (p === "normal") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-950/30 dark:text-blue-400/90 dark:ring-blue-500/20">
         Normal
       </span>
     );
@@ -108,46 +112,32 @@ function formatDateShort(v: unknown): string {
   });
 }
 
-function getFinanceOrderTabCategory(order: unknown): "pending_review" | "open" | "closed" | "on_hold" | "cancelled" | "rejected" {
-  if (!order || typeof order !== "object") return "open";
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-  if (status === "finance_rejected") return "rejected";
-  if (status === "finance_review" || status === "submitted" || status === "sales_approved") return "pending_review";
-
-  const items = Array.isArray(row.order_items) ? row.order_items : [];
-  let ordered = 0;
-  let delivered = 0;
-  items.forEach((line: any) => {
-    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-    delivered += Number(line.delivered_quantity ?? 0);
-  });
-
-  if (ordered > 0 && delivered >= ordered) {
-    return "closed";
-  }
-
-  return "open";
-}
-
 export default function ListFinanceOrdersPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"pending_review" | "open" | "closed" | "on_hold" | "cancelled" | "rejected">("pending_review");
+  const [activeTab, setActiveTab] = useState<FinanceOrderTabCategory>(
+    tabFromUrl && isFinanceOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_finance_review",
+  );
   const [priorityFilter, setPriorityFilter] = useState("all");
-
-  const { data, isFetching, isError, refetch } = useListOrdersQuery({});
-  const partiesQ = useListPartiesQuery({});
-  const usersQ = useListUsersQuery({});
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  useEffect(() => {
+    if (tabFromUrl && isFinanceOrderTabCategory(tabFromUrl)) {
+      setActiveTab(tabFromUrl);
+      setCurrentPage(1);
+    }
+  }, [tabFromUrl]);
+
+  const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery({});
+  const partiesQ = useListPartiesQuery({});
+  const usersQ = useListUsersQuery({});
 
   const orders = useMemo(
     () => pickOrders(data) as OrderRow[],
@@ -167,7 +157,7 @@ export default function ListFinanceOrdersPage() {
   // Dynamic filter reset
   const handleResetFilters = useCallback(() => {
     setSearchQuery("");
-    setActiveTab("pending_review");
+    setActiveTab("pending_finance_review");
     setPriorityFilter("all");
     setCurrentPage(1);
   }, []);
@@ -239,6 +229,7 @@ export default function ListFinanceOrdersPage() {
 
   return (
     <div className="space-y-6">
+      <PortalBusyOverlay active={isLoading} message="Loading orders…" />
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-2xl border border-emerald-500/10 bg-gradient-to-r from-emerald-600/5 to-teal-600/10 p-6 dark:from-emerald-500/5 dark:to-teal-500/5 shadow-sm">
         <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-emerald-500/10 blur-2xl pointer-events-none" />
@@ -246,7 +237,7 @@ export default function ListFinanceOrdersPage() {
 
         <div className="relative flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-555 dark:text-slate-50">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-400 dark:text-slate-50">
               Finance Orders Review
             </h1>
             <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400 max-w-xl font-medium">
@@ -327,21 +318,14 @@ export default function ListFinanceOrdersPage() {
           </div>
         ) : (
           <nav className="-mb-px flex space-x-6 overflow-x-auto pb-px scrollbar-none" aria-label="Order stages">
-            {[
-              { id: "pending_review", label: "Pending Review" },
-              { id: "open", label: "Open Orders" },
-              { id: "closed", label: "Closed Orders" },
-              { id: "on_hold", label: "On Hold" },
-              { id: "rejected", label: "Rejected" },
-              { id: "cancelled", label: "Cancelled" },
-            ].map((tab) => {
+            {FINANCE_ORDER_TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => {
-                    setActiveTab(tab.id as any);
+                    setActiveTab(tab.id);
                     setCurrentPage(1);
                   }}
                   className={`group border-b-2 py-4 px-1 text-sm font-semibold transition whitespace-nowrap inline-flex items-center gap-2 cursor-pointer ${
@@ -379,11 +363,11 @@ export default function ListFinanceOrdersPage() {
                 </option>
               ))}
             </select>
-            {(searchQuery || activeTab !== "pending_review" || priorityFilter !== "all") && (
+            {(searchQuery || activeTab !== "pending_finance_review" || priorityFilter !== "all") && (
               <button
                 type="button"
                 onClick={handleResetFilters}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-305 pl-1 cursor-pointer"
+                className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-400 pl-1 cursor-pointer"
               >
                 Reset
               </button>
@@ -394,13 +378,6 @@ export default function ListFinanceOrdersPage() {
 
       {/* Main Grid/Table Card */}
       <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
-        {isFetching && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Loading orders...</p>
-          </div>
-        )}
-
         {isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
@@ -413,9 +390,9 @@ export default function ListFinanceOrdersPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredOrders.length === 0 && (
+        {!isLoading && !isError && filteredOrders.length === 0 && (
           <div className="text-center py-16 px-4">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-955 text-slate-400 text-xl border border-slate-100 dark:border-white/5">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-950 text-slate-400 text-xl border border-slate-100 dark:border-white/5">
               📋
             </div>
             <h3 className="mt-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -429,7 +406,7 @@ export default function ListFinanceOrdersPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredOrders.length > 0 && (
+        {!isLoading && !isError && filteredOrders.length > 0 && (
           <>
             <div className="p-4 flex flex-col gap-3.5 bg-slate-50/10 dark:bg-slate-955/10">
               {paginatedOrders.map((o) => {
@@ -449,12 +426,14 @@ export default function ListFinanceOrdersPage() {
                 const adminBox = deptBoxes.find((b) => b.id === "admin");
                 const financeBox = deptBoxes.find((b) => b.id === "finance");
                 const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-                const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
+                const accountBox = deptBoxes.find((b) => b.id === "account");
+  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
 
                 const adminStatusDim = adminBox?.status;
                 const financeStatusDim = financeBox?.status;
                 const dispatchStatusDim = dispatchBox?.status;
-                const deliveryStatusDim = deliveryBox?.status;
+                const accountStatusDim = accountBox?.status;
+  const deliveryStatusDim = deliveryBox?.status;
 
                 const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
                 const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {
@@ -521,7 +500,7 @@ export default function ListFinanceOrdersPage() {
                           <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                             Created
                           </span>
-                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
+                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-300">
                             {orderDateStr}
                           </span>
                         </div>
@@ -529,7 +508,7 @@ export default function ListFinanceOrdersPage() {
                           <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                             Expected Delivery
                           </span>
-                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
+                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-300">
                             {expectedDeliveryStr}
                           </span>
                         </div>
@@ -537,7 +516,7 @@ export default function ListFinanceOrdersPage() {
                     </div>
 
                     {/* Bottom Row: Pipeline */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-950/5 border border-slate-100/50 dark:border-white/5">
                       <span className="text-slate-400 dark:text-slate-500 font-bold text-[9px] uppercase tracking-wider">
                         Fulfillment Pipeline
                       </span>
@@ -570,7 +549,7 @@ export default function ListFinanceOrdersPage() {
                       setItemsPerPage(Number(e.target.value));
                       setCurrentPage(1);
                     }}
-                    className="rounded bg-transparent border-none py-0.5 text-xs font-semibold text-slate-750 focus:ring-0 cursor-pointer dark:text-slate-200"
+                    className="rounded bg-transparent border-none py-0.5 text-xs font-semibold text-slate-700 focus:ring-0 cursor-pointer dark:text-slate-200"
                   >
                     <option value={10}>10</option>
                     <option value={25}>25</option>

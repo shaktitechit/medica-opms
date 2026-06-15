@@ -16,6 +16,7 @@ import {
 import { transportAgentLabel } from "./fleetDisplay";
 import { DriverDetailModal } from "./modals/DriverDetailModal";
 import { ConfirmDeleteDriverModal } from "./modals/ConfirmDeleteDriverModal";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import {
   Search,
   X,
@@ -77,7 +78,7 @@ function formatDateReadOnly(dateVal: unknown): string {
 }
 
 export default function ListDriversPage() {
-  const { data, isFetching, isError, refetch } = useListDriversQuery({});
+  const { data, isLoading, isFetching, isError, refetch } = useListDriversQuery({});
   const { data: vehiclesData } = useListVehiclesQuery({});
 
   const drivers = useMemo(() => pickList(data) as DriverRow[], [data]);
@@ -199,6 +200,7 @@ export default function ListDriversPage() {
 
   return (
     <div className="space-y-6">
+      <PortalBusyOverlay active={isLoading} message="Loading drivers…" />
       <ConfirmDeleteDriverModal
         driverId={deleteTarget?.id ?? null}
         driverLabel={deleteTarget?.label ?? ""}
@@ -315,13 +317,6 @@ export default function ListDriversPage() {
 
       {/* Main Grid/Table Card */}
       <div className="rounded-xl border border-slate-200/80 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
-        {isFetching && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500 dark:text-slate-400">Loading drivers...</p>
-          </div>
-        )}
-
         {isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
@@ -334,7 +329,7 @@ export default function ListDriversPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredDrivers.length === 0 && (
+        {!isLoading && !isError && filteredDrivers.length === 0 && (
           <div className="text-center py-16 px-4">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-950 text-xl text-slate-400 border border-slate-100 dark:border-white/5">
               🚚
@@ -359,7 +354,7 @@ export default function ListDriversPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredDrivers.length > 0 && (
+        {!isLoading && !isError && filteredDrivers.length > 0 && (
           <>
             <div className="divide-y divide-slate-100 dark:divide-white/5">
               {paginatedDrivers.map((d) => {

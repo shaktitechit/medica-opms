@@ -88,6 +88,19 @@ const DEPT_CAN_SET_STATUS = Object.freeze({
     ORDER_STATUS.PARTIALLY_FINANCE_APPROVED,
     ORDER_STATUS.FULLY_FINANCE_APPROVED,
     ORDER_STATUS.FINANCE_REJECTED,
+    ORDER_STATUS.ACCOUNT_REVIEW,
+    ORDER_STATUS.DISPATCH_PENDING,
+    ORDER_STATUS.ON_HOLD,
+    ORDER_STATUS.CANCELLED,
+  ]),
+
+  account: new Set([
+    ORDER_STATUS.ACCOUNT_REVIEW,
+    ORDER_STATUS.PARTIALLY_ACCOUNT_APPROVED,
+    ORDER_STATUS.FULLY_ACCOUNT_APPROVED,
+    ORDER_STATUS.ACCOUNT_REJECTED,
+    ORDER_STATUS.FULLY_FINANCE_APPROVED,
+    ORDER_STATUS.PARTIALLY_FINANCE_APPROVED,
     ORDER_STATUS.DISPATCH_PENDING,
     ORDER_STATUS.ON_HOLD,
     ORDER_STATUS.CANCELLED,
@@ -134,12 +147,16 @@ function departmentAllowsTransition(userDeptRaw, fromStatus, toStatus) {
       return ['finance', 'admin', 'super_admin'].includes(userDept);
     }
 
+    if (toStatus === ORDER_STATUS.ACCOUNT_REVIEW) {
+      return ['finance', 'account', 'admin', 'super_admin'].includes(userDept);
+    }
+
     if (toStatus === ORDER_STATUS.DISPATCH_PENDING) {
-      return ['dispatch', 'super_admin'].includes(userDept);
+      return ['dispatch', 'account', 'super_admin'].includes(userDept);
     }
 
     if (toStatus === ORDER_STATUS.CANCELLED) {
-      return ['sales', 'finance', 'admin', 'super_admin'].includes(userDept);
+      return ['sales', 'finance', 'account', 'admin', 'super_admin'].includes(userDept);
     }
 
     return false;
@@ -157,7 +174,7 @@ function departmentAllowsTransition(userDeptRaw, fromStatus, toStatus) {
     }
 
     if (toStatus === ORDER_STATUS.CANCELLED) {
-      return ['sales', 'finance', 'admin', 'super_admin'].includes(userDept);
+      return ['sales', 'finance', 'account', 'admin', 'super_admin'].includes(userDept);
     }
 
     return false;

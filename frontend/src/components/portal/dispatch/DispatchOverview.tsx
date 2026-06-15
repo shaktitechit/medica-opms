@@ -2,33 +2,48 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import DispatchOverviewWidgets from "./components/DispatchOverviewWidgets";
 import DispatchOrderVolumeChart from "./components/DispatchOrderVolumeChart";
+import DispatchOverviewWidgets from "./components/DispatchOverviewWidgets";
 import DispatchRecentOrdersWidget from "./components/DispatchRecentOrdersWidget";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
+  DISPATCH_ORDER_TABS,
+  DISPATCH_STATUS_COLORS,
+  buildPendingReturnOrderIds,
+  computeDispatchOrderStats,
+  type DispatchOrderTabCategory,
+} from "./dispatchOrderUtils";
+import {
   useGetDashboardDispatchQuery,
   useListOrdersQuery,
+  useListOrderReturnsQuery,
   useListPartiesQuery,
   useListFlagsQuery,
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { buildPartyNameById } from "@/components/portal/sales/partyDisplay";
+import { buildPartyNameById, pickList } from "@/components/portal/sales/partyDisplay";
 import {
   ClipboardCheck,
   Users,
   Package,
   RefreshCw,
   ArrowRight,
-  AlertTriangle,
   Info,
   Flag,
   ExternalLink,
   Truck,
 } from "lucide-react";
 
-// Helper for flag severity styling
+const PIPELINE_SEGMENT_COLORS: Record<DispatchOrderTabCategory, string> = {
+  pending_transport: "bg-amber-500",
+  pending_delivery: "bg-blue-500",
+  returns_pending: "bg-rose-500",
+  closed: "bg-emerald-500",
+  on_hold: "bg-orange-500",
+  cancelled: "bg-slate-500",
+};
+
 function getSeverityBadgeClass(severity?: string): string {
   const s = (severity || "").toLowerCase();
   if (s === "critical") {
@@ -43,7 +58,6 @@ function getSeverityBadgeClass(severity?: string): string {
   return "bg-blue-100 text-blue-855 ring-1 ring-blue-600/15 dark:bg-blue-955/30 dark:text-blue-455";
 }
 
-// Format status label to readable text
 function formatStatusLabel(status?: string): string {
   if (!status) return "—";
   return status
@@ -52,7 +66,6 @@ function formatStatusLabel(status?: string): string {
     .join(" ");
 }
 
-// Extract flags helper
 function extractFlags(raw: unknown): unknown[] {
   if (Array.isArray(raw)) return raw;
   if (raw && typeof raw === "object") {
@@ -64,60 +77,15 @@ function extractFlags(raw: unknown): unknown[] {
   return [];
 }
 
-function getDispatchOrderTabCategory(order: any): "pending_dispatch" | "pending_delivery" | "closed" | "on_hold" | "cancelled" {
-  if (!order || typeof order !== "object") return "pending_delivery";
-  const status = deriveOrderWorkflowStatus(order);
-
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-
-  if (status === "dispatch_pending" || status === "partially_finance_approved" || status === "fully_finance_approved" || order.workflow_stage === "dispatch_review") {
-    return "pending_dispatch";
-  }
-
-  if (status === "delivered") {
-    return "closed";
-  }
-
-  const items = Array.isArray(order.order_items) ? order.order_items : [];
-  let ordered = 0;
-  let delivered = 0;
-  items.forEach((line: any) => {
-    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-    delivered += Number(line.delivered_quantity ?? 0);
-  });
-
-  if (ordered > 0 && delivered >= ordered) {
-    return "closed";
-  }
-
-  // upstream / draft fallbacks
-  if (status === "draft" || status === "submitted" || status === "sales_approved" || status === "finance_review" || status === "finance_rejected") {
-    return "pending_dispatch";
-  }
-
-  return "pending_delivery";
-}
-
 export default function DispatchOverview() {
   const user = useAppSelector((state) => state.auth.user);
   const userName =
     typeof user?.name === "string" ? user.name : "Dispatch Specialist";
 
   const {
-    data: kpiData,
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardDispatchQuery();
-
-  const dispatchKpi = kpiData as {
-    dispatch_pending?: number;
-    partial?: number;
-    dispatched?: number;
-    transport_arranged?: number;
-    in_transit?: number;
-    awaiting_pod?: number;
-  } | undefined;
 
   const {
     data: ordersData,
@@ -125,6 +93,8 @@ export default function DispatchOverview() {
     isError: isOrdersError,
     refetch: refetchOrders,
   } = useListOrdersQuery({});
+
+  const { data: returnsData, refetch: refetchReturns } = useListOrderReturnsQuery({});
 
   const { data: partiesData } = useListPartiesQuery({});
 
@@ -135,7 +105,26 @@ export default function DispatchOverview() {
     refetch: refetchFlags,
   } = useListFlagsQuery({});
 
-  const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
+  const pendingReturnOrderIds = useMemo(
+    () => buildPendingReturnOrderIds(pickList(returnsData)),
+    [returnsData],
+  );
+
+  const categoryOptions = useMemo(
+    () => ({ pendingReturnOrderIds }),
+    [pendingReturnOrderIds],
+  );
+
+  const orders = useMemo(() => pickOrders(ordersData) as Record<string, unknown>[], [ordersData]);
+
+  const orderStats = useMemo(
+    () => computeDispatchOrderStats(orders, categoryOptions),
+    [orders, categoryOptions],
+  );
+
+  const totalOrdersCount = useMemo(() => {
+    return orders.filter((o) => deriveOrderWorkflowStatus(o) !== "draft").length;
+  }, [orders]);
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
@@ -147,41 +136,19 @@ export default function DispatchOverview() {
     for (const o of orders) {
       const id =
         o._id != null ? String(o._id) : o.id != null ? String(o.id) : "";
-      const ref = o.order_no || o.order_number || "";
+      const ref = String(o.order_no ?? o.order_number ?? "");
       if (id && ref) map.set(id, ref);
     }
     return map;
   }, [orders]);
 
-  const orderStats = useMemo(() => {
-    const stats = {
-      pending_dispatch: { count: 0 },
-      pending_delivery: { count: 0 },
-      closed: { count: 0 },
-      on_hold: { count: 0 },
-      cancelled: { count: 0 },
-    };
-
-    for (const o of orders) {
-      const cat = getDispatchOrderTabCategory(o);
-      stats[cat].count++;
-    }
-
-    return stats;
-  }, [orders]);
-
-  const totalDispatchOrdersCount = useMemo(() => {
-    return Object.values(orderStats).reduce((acc, current) => acc + current.count, 0);
-  }, [orderStats]);
-
   const relevantFlags = useMemo(() => {
     const allFlags = extractFlags(flagsData);
-    return allFlags.filter((f: any) => {
+    return allFlags.filter((f) => {
       if (!f || typeof f !== "object") return false;
-      if (f.status !== "open" && f.status !== "in_progress") return false;
-
-      // Filter flags where department is dispatch or references active dispatch orders
-      return f.department === "dispatch" || orderNoById.has(String(f.order || ""));
+      const flag = f as Record<string, unknown>;
+      if (flag.status !== "open" && flag.status !== "in_progress") return false;
+      return flag.department === "dispatch" || orderNoById.has(String(flag.order || ""));
     });
   }, [flagsData, orderNoById]);
 
@@ -192,9 +159,10 @@ export default function DispatchOverview() {
       await Promise.all([
         refetchKpi().unwrap(),
         refetchOrders().unwrap(),
+        refetchReturns().unwrap(),
         refetchFlags().unwrap(),
       ]);
-    } catch (e) {
+    } catch {
       // Ignore errors
     } finally {
       setIsRefreshing(false);
@@ -204,15 +172,22 @@ export default function DispatchOverview() {
   const isAnyLoading =
     isKpiFetching || isOrdersFetching || isFlagsFetching || isRefreshing;
 
-  const dispatchPendingPercent = totalDispatchOrdersCount > 0 ? (orderStats.pending_dispatch.count / totalDispatchOrdersCount) * 100 : 0;
-  const pendingDeliveryPercent = totalDispatchOrdersCount > 0 ? (orderStats.pending_delivery.count / totalDispatchOrdersCount) * 100 : 0;
-  const closedPercent = totalDispatchOrdersCount > 0 ? (orderStats.closed.count / totalDispatchOrdersCount) * 100 : 0;
-  const onHoldPercent = totalDispatchOrdersCount > 0 ? (orderStats.on_hold.count / totalDispatchOrdersCount) * 100 : 0;
-  const cancelledPercent = totalDispatchOrdersCount > 0 ? (orderStats.cancelled.count / totalDispatchOrdersCount) * 100 : 0;
+  const pipelinePercents = useMemo(() => {
+    if (totalOrdersCount === 0) {
+      return Object.fromEntries(
+        DISPATCH_ORDER_TABS.map(({ id }) => [id, 0]),
+      ) as Record<(typeof DISPATCH_ORDER_TABS)[number]["id"], number>;
+    }
+    return Object.fromEntries(
+      DISPATCH_ORDER_TABS.map(({ id }) => [
+        id,
+        (orderStats[id].count / totalOrdersCount) * 100,
+      ]),
+    ) as Record<(typeof DISPATCH_ORDER_TABS)[number]["id"], number>;
+  }, [orderStats, totalOrdersCount]);
 
   return (
     <div className="space-y-8 pb-10 font-sans">
-      {/* HEADER SECTION */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50 font-sans">
@@ -223,7 +198,7 @@ export default function DispatchOverview() {
             <span className="font-semibold text-amber-600 dark:text-amber-400">
               {userName}
             </span>{" "}
-            (Dispatch). Supervise outbound warehouse dispatches, drivers assignments, and vehicle routes.
+            (Dispatch). Supervise outbound warehouse dispatches, driver assignments, and vehicle routes.
           </p>
         </div>
 
@@ -242,18 +217,18 @@ export default function DispatchOverview() {
         </div>
       </div>
 
-      {/* KPI METRICS WIDGETS */}
       <DispatchOverviewWidgets
         orders={orders}
         isOrdersFetching={isOrdersFetching}
-        kpiData={kpiData}
-        isKpiFetching={isKpiFetching}
+        categoryOptions={categoryOptions}
       />
 
-      {/* ANALYTICS CHART SECTION */}
-      <DispatchOrderVolumeChart orders={orders} isOrdersFetching={isOrdersFetching} />
+      <DispatchOrderVolumeChart
+        orders={orders}
+        isOrdersFetching={isOrdersFetching}
+        categoryOptions={categoryOptions}
+      />
 
-      {/* QUICK ACTIONS GRID */}
       <div className="space-y-3">
         <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 font-sans">
           Logistics Management Controls
@@ -345,19 +320,16 @@ export default function DispatchOverview() {
         </div>
       </div>
 
-      {/* TWO COLUMN GRID: RECENT ORDERS & STATS / FLAGS */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* RECENT ORDERS FEED */}
         <DispatchRecentOrdersWidget
           orders={orders}
           isOrdersFetching={isOrdersFetching}
           isOrdersError={isOrdersError}
           partyNameById={partyNameById}
+          categoryOptions={categoryOptions}
         />
 
-        {/* SIDE COLUMN: STATS & SYSTEM FLAGS */}
         <div className="space-y-6">
-          {/* STATS VISUALIZATION PANEL */}
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900">
             <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
               Fleet Cargo Pipeline
@@ -369,78 +341,32 @@ export default function DispatchOverview() {
             <div className="mt-4 font-sans">
               {isOrdersFetching ? (
                 <div className="h-6 w-full animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
-              ) : totalDispatchOrdersCount > 0 ? (
+              ) : totalOrdersCount > 0 ? (
                 <div className="space-y-4">
-                  {/* Stacked Segmented Progress Bar */}
                   <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                    <div
-                      className="bg-amber-500 transition-all duration-500"
-                      style={{ width: `${dispatchPendingPercent}%` }}
-                      title={`Pending Dispatch: ${orderStats.pending_dispatch.count}`}
-                    />
-                    <div
-                      className="bg-blue-500 transition-all duration-500"
-                      style={{ width: `${pendingDeliveryPercent}%` }}
-                      title={`Pending Delivery: ${orderStats.pending_delivery.count}`}
-                    />
-                    <div
-                      className="bg-emerald-500 transition-all duration-500"
-                      style={{ width: `${closedPercent}%` }}
-                      title={`Closed Orders: ${orderStats.closed.count}`}
-                    />
-                    <div
-                      className="bg-amber-500/50 transition-all duration-500"
-                      style={{ width: `${onHoldPercent}%` }}
-                      title={`On Hold: ${orderStats.on_hold.count}`}
-                    />
-                    <div
-                      className="bg-rose-500 transition-all duration-500"
-                      style={{ width: `${cancelledPercent}%` }}
-                      title={`Cancelled: ${orderStats.cancelled.count}`}
-                    />
+                    {DISPATCH_ORDER_TABS.map(({ id }) => (
+                      <div
+                        key={id}
+                        className={`${PIPELINE_SEGMENT_COLORS[id]} transition-all duration-500`}
+                        style={{ width: `${pipelinePercents[id]}%` }}
+                        title={`${DISPATCH_STATUS_COLORS[id].label}: ${orderStats[id].count}`}
+                      />
+                    ))}
                   </div>
 
-                  {/* Legend Grid */}
-                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] font-medium pt-1 font-sans">
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
-                      <span>Pending:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.pending_dispatch.count} ({dispatchPendingPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" />
-                      <span>Pending Delivery:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.pending_delivery.count} ({pendingDeliveryPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                      <span>Closed:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.closed.count} ({closedPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
-                      <span>On Hold:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.on_hold.count} ({onHoldPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-rose-500 shrink-0" />
-                      <span>Cancelled:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.cancelled.count} ({cancelledPercent.toFixed(0)}%)
-                      </span>
-                    </div>
+                  <div className="grid grid-cols-1 gap-y-2 text-[11px] font-medium pt-1 font-sans">
+                    {DISPATCH_ORDER_TABS.map(({ id }) => (
+                      <div
+                        key={id}
+                        className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400"
+                      >
+                        <span className={`h-2 w-2 rounded-full shrink-0 ${DISPATCH_STATUS_COLORS[id].dot}`} />
+                        <span>{DISPATCH_STATUS_COLORS[id].label}:</span>
+                        <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
+                          {orderStats[id].count} ({pipelinePercents[id].toFixed(0)}%)
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ) : (
@@ -452,7 +378,6 @@ export default function DispatchOverview() {
             </div>
           </div>
 
-          {/* ACTIVE SYSTEM FLAGS CARD */}
           <section className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900 font-sans">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
               <div className="flex items-center gap-2">
@@ -491,38 +416,39 @@ export default function DispatchOverview() {
 
               {!isFlagsFetching && !isFlagsError && relevantFlags.length > 0 ? (
                 <ul className="space-y-3.5">
-                  {relevantFlags.map((flag: any, index: number) => {
-                    const flagId = flag._id || flag.id || String(index);
-                    const orderId = String(flag.order || "");
+                  {relevantFlags.map((flag, index) => {
+                    const row = flag as Record<string, unknown>;
+                    const flagId = row._id ?? row.id ?? String(index);
+                    const orderId = String(row.order || "");
                     const orderNo =
                       orderNoById.get(orderId) || `ID: ${orderId.slice(0, 8)}`;
                     const urlPath = `/dispatch/order/${orderId}`;
 
                     return (
                       <li
-                        key={flagId}
+                        key={String(flagId)}
                         className="rounded-lg border border-slate-150 bg-slate-50/50 p-3 transition hover:bg-slate-50 dark:border-white/5 dark:bg-slate-950/50 dark:hover:bg-slate-950"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <span
                             className={`rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wider capitalize ${getSeverityBadgeClass(
-                              flag.severity,
+                              String(row.severity ?? ""),
                             )}`}
                           >
-                            {flag.severity || "medium"}
+                            {String(row.severity || "medium")}
                           </span>
                           <span className="font-mono text-[9px] text-slate-400 dark:text-slate-505">
-                            {formatStatusLabel(flag.flag_type)}
+                            {formatStatusLabel(String(row.flag_type ?? ""))}
                           </span>
                         </div>
 
                         <h4 className="mt-2 text-xs font-bold text-slate-900 dark:text-slate-100 font-sans">
-                          {flag.title}
+                          {String(row.title ?? "")}
                         </h4>
 
-                        {flag.description ? (
+                        {row.description ? (
                           <p className="mt-1 text-[11px] text-slate-555 dark:text-slate-400 leading-relaxed font-sans">
-                            {flag.description}
+                            {String(row.description)}
                           </p>
                         ) : null}
 
@@ -540,9 +466,7 @@ export default function DispatchOverview() {
                               href={urlPath}
                               className="group inline-flex items-center gap-1 font-medium text-amber-600 hover:underline dark:text-amber-400"
                             >
-                              <span className="font-mono text-[9px]">
-                                {urlPath}
-                              </span>
+                              <span className="font-mono text-[9px]">{urlPath}</span>
                               <ExternalLink className="h-2.5 w-2.5 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                             </Link>
                           </div>

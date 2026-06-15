@@ -5,10 +5,11 @@ import { AlertTriangle, UserCheck, DollarSign, Package, Truck, ArrowRight } from
 import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
-import { getOrderTabCategory } from "../sales/orderUtils";
+import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { getAdminOrderTabCategory } from "./adminOrderUtils";
 
 interface AdminRecentOrdersWidgetProps {
-  recentOrders: any[];
+  recentOrders: unknown[];
   isOrdersFetching: boolean;
   isOrdersError: boolean;
   partyNameById: Map<string, string>;
@@ -29,21 +30,21 @@ function renderPriorityBadge(priority: string) {
   const p = String(priority).toLowerCase();
   if (p === "urgent") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-950/30 dark:text-rose-455/90 dark:ring-rose-500/25">
         Urgent
       </span>
     );
   }
   if (p === "high") {
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-455/90 dark:ring-amber-500/20">
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-950/30 dark:text-amber-455/90 dark:ring-amber-500/20">
         High
       </span>
     );
   }
   if (p === "normal") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-950/30 dark:text-blue-455/90 dark:ring-blue-500/20">
         Normal
       </span>
     );
@@ -59,40 +60,61 @@ function renderWorkflowStatusBadge(status: string) {
   let label = "";
   let bgClass = "";
   switch (status) {
-    case "draft":
-      label = "Draft";
-      bgClass = "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
+    case "pending_review":
+      label = "Pending Review";
+      bgClass =
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
       break;
     case "open":
       label = "Open";
-      bgClass = "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
+      bgClass =
+        "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
       break;
     case "closed":
       label = "Closed";
-      bgClass = "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
       break;
     case "on_hold":
       label = "On Hold";
-      bgClass = "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
       break;
     case "rejected":
       label = "Rejected";
-      bgClass = "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-955/30 dark:text-red-400 dark:ring-red-500/25";
+      bgClass =
+        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-950/30 dark:text-red-400 dark:ring-red-500/25";
       break;
     case "cancelled":
       label = "Cancelled";
-      bgClass = "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25";
+      bgClass =
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
+      break;
+    case "draft":
+      label = "Draft";
+      bgClass =
+        "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
       break;
     default:
       label = status;
-      bgClass = "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+      bgClass =
+        "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
   }
 
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
+    >
       {label}
     </span>
   );
+}
+
+function adminStatusLabel(order: unknown): string {
+  const cat = getAdminOrderTabCategory(order);
+  if (cat) return cat;
+  if (deriveOrderWorkflowStatus(order) === "draft") return "draft";
+  return "open";
 }
 
 export default function AdminRecentOrdersWidget({
@@ -133,7 +155,7 @@ export default function AdminRecentOrdersWidget({
         )}
 
         {isOrdersError && (
-          <div className="flex items-center gap-2 rounded-lg bg-rose-50 p-4 text-xs text-rose-800 dark:bg-rose-955/20 dark:text-rose-450 my-4">
+          <div className="flex items-center gap-2 rounded-lg bg-rose-50 p-4 text-xs text-rose-800 dark:bg-rose-950/20 dark:text-rose-450 my-4">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             Could not fetch recent orders. Please check your credentials or network.
           </div>
@@ -146,7 +168,7 @@ export default function AdminRecentOrdersWidget({
             </p>
             <Link
               href="/admin/create-order"
-              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-100 dark:bg-blue-955/30 dark:text-blue-400 dark:hover:bg-blue-900/30"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:bg-blue-900/30"
             >
               Create first system order
               <ArrowRight className="h-3 w-3" />
@@ -157,39 +179,36 @@ export default function AdminRecentOrdersWidget({
         {!isOrdersFetching && !isOrdersError && recentOrders.length > 0 && (
           <div className="flex flex-col gap-3.5">
             {recentOrders.map((o) => {
-              const id = o._id != null ? String(o._id) : o.id != null ? String(o.id) : "";
-              const ref = o.order_no || o.order_number || id || "—";
-              const pri = typeof o.priority === "string" ? o.priority : "normal";
+              const row = o as Record<string, unknown>;
+              const id =
+                row._id != null ? String(row._id) : row.id != null ? String(row.id) : "";
+              const ref =
+                (typeof row.order_no === "string" && row.order_no) ||
+                (typeof row.order_number === "string" && row.order_number) ||
+                id ||
+                "—";
+              const pri = typeof row.priority === "string" ? row.priority : "normal";
 
-              const deptBoxes = computeDepartmentStageBoxes(
-                o as Record<string, unknown>,
-                null
-              );
+              const deptBoxes = computeDepartmentStageBoxes(row, null);
               const adminBox = deptBoxes.find((b) => b.id === "admin");
               const financeBox = deptBoxes.find((b) => b.id === "finance");
               const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
               const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
 
-              const adminStatusDim = adminBox?.status;
-              const financeStatusDim = financeBox?.status;
-              const dispatchStatusDim = dispatchBox?.status;
-              const deliveryStatusDim = deliveryBox?.status;
-
-              const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
+              const orderItems = Array.isArray(row.order_items) ? row.order_items : [];
               const orderedQty = Math.max(
                 1,
-                orderItems.reduce((acc: number, item: any) => {
-                  return acc + (Number(item.ordered_quantity ?? item.quantity) || 0);
-                }, 0)
+                orderItems.reduce((acc: number, item: unknown) => {
+                  const line = item as { ordered_quantity?: unknown; quantity?: unknown };
+                  return acc + (Number(line.ordered_quantity ?? line.quantity) || 0);
+                }, 0),
               );
 
-              const partyLabel = resolveOrderCounterparty(
-                o as Record<string, unknown>,
-                partyNameById
+              const partyLabel = resolveOrderCounterparty(row, partyNameById);
+              const orderDateStr = formatDateShort(
+                row.order_date ?? row.created_at ?? row.createdAt,
               );
-
-              const orderDateStr = formatDateShort(o.order_date ?? o.created_at ?? o.createdAt);
-              const expectedDeliveryStr = formatDateShort(o.expected_delivery_date);
+              const expectedDeliveryStr = formatDateShort(row.expected_delivery_date);
 
               let stripeColor = "bg-slate-350 dark:bg-slate-700";
               if (pri === "urgent") stripeColor = "bg-rose-500";
@@ -202,21 +221,17 @@ export default function AdminRecentOrdersWidget({
                   href={`/admin/order/${id}`}
                   className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 transition-all duration-300 hover:shadow-md hover:border-blue-500/20 dark:border-white/10 dark:bg-slate-900 flex flex-col gap-4 pl-5 cursor-pointer"
                 >
-                  {/* Priority Accent Stripe */}
                   <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${stripeColor}`} />
 
-                  {/* Top Row: Ref, Badges, Party, Dates */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
-                    {/* Ref & Badges */}
                     <div className="flex items-center gap-2 flex-wrap sm:w-[130px] sm:shrink-0">
-                      <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-550 dark:text-slate-50">
+                      <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
                         {ref.slice(0, 12)}
                       </span>
                       {renderPriorityBadge(pri)}
-                      {renderWorkflowStatusBadge(getOrderTabCategory(o))}
+                      {renderWorkflowStatusBadge(adminStatusLabel(o))}
                     </div>
 
-                    {/* Party Title */}
                     <span
                       className="text-xs font-semibold text-slate-800 dark:text-slate-200 sm:flex-1 break-words whitespace-normal font-sans"
                       title={partyLabel}
@@ -224,7 +239,6 @@ export default function AdminRecentOrdersWidget({
                       {partyLabel}
                     </span>
 
-                    {/* Dates */}
                     <div className="grid grid-cols-2 sm:flex sm:items-center sm:gap-6 sm:w-[180px] sm:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
                       <div className="flex flex-col">
                         <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -245,36 +259,35 @@ export default function AdminRecentOrdersWidget({
                     </div>
                   </div>
 
-                  {/* Bottom Row: Pipeline */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-950/5 border border-slate-100/50 dark:border-white/5">
                     <span className="text-slate-400 dark:text-slate-500 font-bold text-[9px] uppercase tracking-wider">
                       Fulfillment Pipeline
                     </span>
                     <div className="flex items-center gap-4 sm:gap-6">
                       <FulfillmentCircleStep
                         label="Admin"
-                        status={adminStatusDim}
+                        status={adminBox?.status}
                         completed={adminBox?.completedQty}
                         total={orderedQty}
                         icon={UserCheck}
                       />
                       <FulfillmentCircleStep
                         label="Finance"
-                        status={financeStatusDim}
+                        status={financeBox?.status}
                         completed={financeBox?.completedQty}
                         total={orderedQty}
                         icon={DollarSign}
                       />
                       <FulfillmentCircleStep
                         label="Dispatch"
-                        status={dispatchStatusDim}
+                        status={dispatchBox?.status}
                         completed={dispatchBox?.completedQty}
                         total={orderedQty}
                         icon={Package}
                       />
                       <FulfillmentCircleStep
                         label="Delivery"
-                        status={deliveryStatusDim}
+                        status={deliveryBox?.status}
                         completed={deliveryBox?.completedQty}
                         total={orderedQty}
                         icon={Truck}

@@ -2,6 +2,7 @@
 
 import { DashboardShell } from "@/components/shell";
 import { PortalAuthGate } from "@/components/portal";
+import { PortalMutationOverlay } from "@/components/portal/shared/PortalMutationOverlay";
 import type { ReactNode } from "react";
 
 type PortalLayoutClientProps = {
@@ -16,6 +17,7 @@ export function PortalLayoutClient({
   return (
     <PortalAuthGate>
       <DashboardShell portal={portal}>{children}</DashboardShell>
+      <PortalMutationOverlay />
     </PortalAuthGate>
   );
 }

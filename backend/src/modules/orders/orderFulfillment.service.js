@@ -7,25 +7,37 @@ const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
 
+function salesApprovedOnLine(line) {
+  return Number(line.sales_approved_quantity ?? 0);
+}
+
 function lineQuantities(line) {
   const ordered = Number(line.ordered_quantity ?? line.quantity ?? 0);
-  const approved = Number(line.approved_quantity ?? 0);
+  const salesApproved = salesApprovedOnLine(line);
+  const financeApproved = Number(line.approved_quantity ?? 0);
   const allocated = Number(line.allocated_quantity ?? 0);
   const dispatched = Number(line.dispatched_quantity ?? 0);
   const delivered = Number(line.delivered_quantity ?? 0);
   const cancelled = Number(line.cancelled_quantity ?? 0);
-  const dispatchCap = approved > 0 ? approved : ordered;
+  const dispatchCap = financeApproved > 0
+    ? financeApproved
+    : salesApproved > 0
+      ? salesApproved
+      : ordered;
 
   return {
     ordered,
-    approved,
+    salesApproved,
+    approved: financeApproved,
+    financeApproved,
     allocated,
     dispatched,
     delivered,
     cancelled,
     dispatchCap,
-    pendingFinance: Math.max(0, ordered - approved),
-    pendingDispatch: Math.max(0, approved - dispatched),
+    pendingAdmin: Math.max(0, ordered - salesApproved),
+    pendingFinance: Math.max(0, salesApproved - financeApproved),
+    pendingDispatch: Math.max(0, financeApproved - dispatched),
     pendingDelivery: Math.max(0, dispatched - delivered),
   };
 }
@@ -34,15 +46,21 @@ function deriveFinanceApprovalStatus(items) {
   const lines = items || [];
   if (lines.length === 0) return 'pending';
 
-  const hasApproved = lines.some((line) => Number(line.approved_quantity || 0) > 0);
-  if (!hasApproved) return 'pending';
+  let hasSalesPool = false;
+  let hasFinanceApproved = false;
+  let allFinanceComplete = true;
 
-  const allFullyApproved = lines.every((line) => {
+  for (const line of lines) {
     const q = lineQuantities(line);
-    return q.approved >= q.ordered;
-  });
-  if (allFullyApproved) return 'full';
+    if (q.salesApproved > 0) {
+      hasSalesPool = true;
+      if (q.financeApproved > 0) hasFinanceApproved = true;
+      if (q.financeApproved < q.salesApproved) allFinanceComplete = false;
+    }
+  }
 
+  if (!hasSalesPool || !hasFinanceApproved) return 'pending';
+  if (allFinanceComplete) return 'full';
   return 'partial';
 }
 
@@ -304,9 +322,11 @@ function buildOrderSnapshot(orderPlain, dispatches, shipments) {
   const totals = lines.reduce(
     (acc, line) => {
       acc.ordered += line.ordered;
+      acc.salesApproved += line.salesApproved;
       acc.approved += line.approved;
       acc.dispatched += line.dispatched;
       acc.delivered += line.delivered;
+      acc.pendingAdmin += line.pendingAdmin;
       acc.pendingFinance += line.pendingFinance;
       acc.pendingDispatch += line.pendingDispatch;
       acc.pendingDelivery += line.pendingDelivery;
@@ -314,9 +334,11 @@ function buildOrderSnapshot(orderPlain, dispatches, shipments) {
     },
     {
       ordered: 0,
+      salesApproved: 0,
       approved: 0,
       dispatched: 0,
       delivered: 0,
+      pendingAdmin: 0,
       pendingFinance: 0,
       pendingDispatch: 0,
       pendingDelivery: 0,
@@ -366,6 +388,69 @@ function buildOrderSnapshot(orderPlain, dispatches, shipments) {
   };
 }
 
+async function syncDispatchDeliveredFromDeliveries(orderId) {
+  const { OrderDispatch, OrderDelivery } = getModels();
+  const deliveries = await OrderDelivery.find({
+    order: orderId,
+    deletedAt: null,
+    delivery_status: 'delivered',
+  }).lean();
+
+  if (deliveries.length === 0) return false;
+
+  const deliveredByDispatchProduct = {};
+  for (const delivery of deliveries) {
+    const dispatchKey = String(delivery.dispatch);
+    if (!deliveredByDispatchProduct[dispatchKey]) {
+      deliveredByDispatchProduct[dispatchKey] = {};
+    }
+    for (const item of delivery.delivery_items || []) {
+      const productKey = String(item.product?._id ?? item.product ?? '');
+      if (!productKey) continue;
+      deliveredByDispatchProduct[dispatchKey][productKey] =
+        (deliveredByDispatchProduct[dispatchKey][productKey] || 0) +
+        Number(item.delivered_quantity || 0);
+    }
+  }
+
+  const dispatches = await OrderDispatch.find({
+    order: orderId,
+    deletedAt: null,
+    dispatch_status: { $ne: 'cancelled' },
+  });
+
+  for (const dispatch of dispatches) {
+    const dispatchKey = String(dispatch._id);
+    const productMap = deliveredByDispatchProduct[dispatchKey];
+    if (!productMap) continue;
+
+    let changed = false;
+    for (const item of dispatch.dispatch_items || []) {
+      const productKey = String(item.product?._id ?? item.product ?? '');
+      const dispatched = Number(item.dispatched_quantity || 0);
+      const target = Math.min(dispatched, Number(productMap[productKey] || 0));
+      if (Number(item.delivered_quantity || 0) !== target) {
+        item.delivered_quantity = target;
+        changed = true;
+      }
+    }
+
+    // Lines with no delivery record for this dispatch → not delivered
+    for (const item of dispatch.dispatch_items || []) {
+      const productKey = String(item.product?._id ?? item.product ?? '');
+      if (productKey in productMap) continue;
+      if (Number(item.delivered_quantity || 0) !== 0) {
+        item.delivered_quantity = 0;
+        changed = true;
+      }
+    }
+
+    if (changed) await dispatch.save();
+  }
+
+  return true;
+}
+
 async function syncDispatchDeliveredFromShipments(orderId) {
   const { OrderDispatch, TransportShipment } = getModels();
   const deliveredShipments = await TransportShipment.find({
@@ -397,15 +482,23 @@ async function syncDispatchDeliveredFromShipments(orderId) {
   }
 }
 
+/** Prefer OrderDelivery records; fall back to transport shipment status for legacy flows. */
+async function syncDispatchDeliveredQuantities(orderId) {
+  const syncedFromDeliveries = await syncDispatchDeliveredFromDeliveries(orderId);
+  if (!syncedFromDeliveries) {
+    await syncDispatchDeliveredFromShipments(orderId);
+  }
+}
+
 async function recomputeApprovedQuantitiesFromFinance(orderId) {
-  const { Order, OrderFinanceApproval } = getModels();
+  const { Order, OrderApproval } = getModels();
   const orderDoc = await Order.findById(orderId);
   if (!orderDoc) throw new ApiError(404, 'Order not found');
 
-  const approvals = await OrderFinanceApproval.find({
+  const approvals = await OrderApproval.find({
     order: orderId,
     deletedAt: null,
-    approval_status: { $in: ['partially_approved', 'fully_approved'] },
+    is_finance_approved: true,
   })
     .sort({ revision_number: -1, createdAt: -1 })
     .lean();
@@ -414,7 +507,7 @@ async function recomputeApprovedQuantitiesFromFinance(orderId) {
   const priceByLine = {};
   for (const approval of approvals) {
     for (const item of approval.approval_items || []) {
-      if (!['partially_approved', 'fully_approved'].includes(item.approval_status)) continue;
+      if (Number(item.approved_quantity || 0) <= 0) continue;
       const key = String(item.order_item_id);
       approvedByLine[key] = (approvedByLine[key] || 0) + Number(item.approved_quantity || 0);
       if (item.approved_unit_price != null) {
@@ -426,7 +519,9 @@ async function recomputeApprovedQuantitiesFromFinance(orderId) {
   for (const line of orderDoc.order_items || []) {
     const key = String(line._id);
     const ordered = Number(line.ordered_quantity ?? line.quantity ?? 0);
-    line.approved_quantity = Math.min(ordered, approvedByLine[key] || 0);
+    const salesCap = salesApprovedOnLine(line);
+    const cap = salesCap > 0 ? salesCap : ordered;
+    line.approved_quantity = Math.min(cap, approvedByLine[key] || 0);
     if (priceByLine[key] != null && line.approved_quantity > 0) {
       line.unit_price = priceByLine[key];
     }
@@ -467,7 +562,7 @@ function assertDispatchItemQuantities(order, dispatchItems, alreadyDispatchedByL
 async function recalculateFromExecutions(orderId, user) {
   const { Order, OrderDispatch, TransportShipment } = getModels();
 
-  await syncDispatchDeliveredFromShipments(orderId);
+  await syncDispatchDeliveredQuantities(orderId);
 
   const [orderDoc, dispatches, shipments] = await Promise.all([
     Order.findById(orderId),
@@ -593,6 +688,7 @@ module.exports = {
   recomputeApprovedQuantitiesFromFinance,
   assertDispatchItemQuantities,
   recalculateFromExecutions,
+  syncDispatchDeliveredQuantities,
   syncDispatchDeliveredFromShipments,
   getSnapshot,
   getRemainingFinanceQuantities,

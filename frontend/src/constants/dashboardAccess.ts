@@ -42,6 +42,12 @@ export const PORTAL_ROUTES = [
     icon: "Boxes",
   },
   {
+    path: "/account",
+    label: "Account",
+    depts: ["account"],
+    icon: "Wallet",
+  },
+  {
     path: "/super_admin",
     label: "Super Admin",
     depts: ["super_admin"],
@@ -81,6 +87,7 @@ const HOME_LOOKUP: Record<string, string> = {
   finance: "/finance",
   dispatch: "/dispatch",
   super_admin: "/super_admin",
+  account: "/account",
   /** Legacy backend `collection` operators → finance portal */
   collection: "/finance",
 };

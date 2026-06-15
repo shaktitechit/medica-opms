@@ -42,6 +42,7 @@ import {
 import { TransportAgentDetailModal } from "./modals/TransportAgentDetailModal";
 import { AddTransportAgentDocumentModal } from "./modals/AddTransportAgentDocumentModal";
 import { ConfirmDeleteTransportAgentModal } from "./modals/ConfirmDeleteTransportAgentModal";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 
 // Modals for Drivers & Vehicles
 import { DriverDetailModal } from "./modals/DriverDetailModal";
@@ -198,7 +199,7 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
   const [vehicleDeleteTarget, setVehicleDeleteTarget] = useState<{ id: string; label: string } | null>(null);
 
   // API Queries & Mutations
-  const { data, isFetching, isError, refetch } = useGetTransportAgentQuery(id, { skip: !id });
+  const { data, isLoading, isFetching, isError, refetch } = useGetTransportAgentQuery(id, { skip: !id });
   const detail = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
 
   const { data: attachmentsData, refetch: refetchAttachments } = useListAttachmentsQuery(
@@ -340,18 +341,7 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
     }
   };
 
-  if (isFetching) {
-    return (
-      <div className="flex flex-col items-center justify-center py-32 space-y-4">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-        <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-          Loading transport agent…
-        </p>
-      </div>
-    );
-  }
-
-  if (isError || !detail) {
+  if (isError || (!isLoading && !detail)) {
     return (
       <div className="mx-auto max-w-md py-20 text-center">
         <div className="text-4xl">⚠️</div>
@@ -362,6 +352,10 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
         </Link>
       </div>
     );
+  }
+
+  if (!detail) {
+    return <PortalBusyOverlay active message="Loading transport agent…" />;
   }
 
   const agentName = stringField(detail.agent_name) || "Transport Agent";
@@ -831,6 +825,12 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
 
                           {/* Actions */}
                           <div className="flex items-center gap-2 justify-end shrink-0">
+                            <Link
+                              href={`/dispatch/drivers/${driverId}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-250 bg-white text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 text-xs font-semibold shadow-sm transition"
+                            >
+                              View Profile
+                            </Link>
                             <button
                               type="button"
                               onClick={() => setDriverEditId(driverId)}
@@ -1039,6 +1039,12 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
 
                           {/* Actions */}
                           <div className="flex items-center gap-2 justify-end shrink-0">
+                            <Link
+                              href={`/dispatch/vehicles/${vehicleId}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-250 bg-white text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 text-xs font-semibold shadow-sm transition"
+                            >
+                              View Profile
+                            </Link>
                             <button
                               type="button"
                               onClick={() => setVehicleEditId(vehicleId)}

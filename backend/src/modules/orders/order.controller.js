@@ -27,6 +27,26 @@ exports.update = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.update(req.params.id, req.body, req.user) });
 });
 
+exports.closeWithReturns = asyncHandler(async (req, res) => {
+  if (!['account', 'admin', 'super_admin'].includes(req.user.department)) {
+    throw new ApiError(403, 'Only account can close orders after returns');
+  }
+  res.json({
+    success: true,
+    data: await service.closeWithReturns(req.params.id, req.body || {}, req.user),
+  });
+});
+
+exports.closeAfterFullDelivery = asyncHandler(async (req, res) => {
+  if (!['dispatch', 'account', 'admin', 'super_admin'].includes(req.user.department)) {
+    throw new ApiError(403, 'Not authorized to close order after delivery');
+  }
+  res.json({
+    success: true,
+    data: await service.closeAfterFullDelivery(req.params.id, req.body || {}, req.user),
+  });
+});
+
 exports.transition = asyncHandler(async (req, res) => {
   validation.assertTransition(req.body || {});
   const { remarks, rejection_reason } = req.body || {};
@@ -54,6 +74,10 @@ exports.fulfillment = asyncHandler(async (req, res) => {
 exports.approvals = asyncHandler(async (req, res) => {
   await service.getById(req.params.id, req.user);
   res.json({ success: true, data: await approvalService.listByOrder(req.params.id) });
+});
+
+exports.assignees = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await service.assignees(req.params.id, req.user) });
 });
 
 exports.listDeleted = asyncHandler(async (req, res) => {

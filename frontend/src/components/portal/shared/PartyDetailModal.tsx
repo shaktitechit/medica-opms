@@ -20,10 +20,12 @@ import {
   useGetPartyQuery,
   usePatchPartyMutation,
 } from "@/store/api";
+import { resolvePortalPresentation } from "@/components/portal/shared/portalPresentation";
 
 export type PartyDetailModalProps = {
   partyId: string | null;
   create?: boolean;
+  portalHome?: string;
   initialTab?: "details" | "contacts" | "address";
   onClose: () => void;
 };
@@ -109,11 +111,14 @@ const defaultPartyState = (): PartyState => ({
 export function PartyDetailModal({
   partyId,
   create = false,
+  portalHome,
   initialTab = "details",
   onClose,
 }: PartyDetailModalProps) {
   const show = create || (partyId != null && partyId !== "");
   const isEditing = partyId != null && partyId !== "";
+  const portal = portalHome?.replace("/", "") ?? "";
+  const { portalName } = resolvePortalPresentation(portal || "admin");
 
   // Queries
   const { data: rawParty, isFetching } = useGetPartyQuery(partyId ?? "", {
@@ -301,6 +306,11 @@ export function PartyDetailModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200/90 px-5 py-4 dark:border-white/10">
           <div>
+            {portalHome ? (
+              <span className="mb-1 inline-flex rounded bg-slate-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
+                {portalName}
+              </span>
+            ) : null}
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
               {create ? "Add Party" : isFetching ? "Loading Details..." : form.party_name || "Party Detail"}
             </h2>

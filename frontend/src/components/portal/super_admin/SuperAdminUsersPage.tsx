@@ -7,6 +7,7 @@ import {
   useCreateUserMutation,
   usePatchUserMutation,
 } from "@/store/api";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import {
   Users,
   Search,
@@ -21,7 +22,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-const DEPARTMENTS = ["super_admin", "admin", "sales", "finance", "dispatch"] as const;
+const DEPARTMENTS = ["super_admin", "admin", "sales", "finance", "account", "dispatch"] as const;
 type Dept = (typeof DEPARTMENTS)[number];
 
 function extractList(raw: unknown): any[] {
@@ -40,6 +41,7 @@ function DeptBadge({ dept }: { dept: string }) {
     admin: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300",
     sales: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
     finance: "bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300",
+    account: "bg-teal-100 text-teal-800 dark:bg-teal-950/40 dark:text-teal-300",
     dispatch: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
   };
   const fmt = (s: string) => s.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
@@ -350,7 +352,7 @@ function EditUserDrawer({ user, onClose }: { user: any; onClose: () => void }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function SuperAdminUsersPage() {
-  const { data: usersRaw, isFetching, isError, refetch } = useListUsersQuery({});
+  const { data: usersRaw, isLoading, isFetching, isError, refetch } = useListUsersQuery({});
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState<string>("all");
   const [showCreate, setShowCreate] = useState(false);
@@ -379,6 +381,7 @@ export default function SuperAdminUsersPage() {
 
   return (
     <div className="space-y-6 pb-10">
+      <PortalBusyOverlay active={isLoading} message="Loading users…" />
       {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} />}
       {editUser && <EditUserDrawer user={editUser} onClose={() => setEditUser(null)} />}
 
@@ -441,13 +444,7 @@ export default function SuperAdminUsersPage() {
             Could not load users. Please try refreshing.
           </div>
         )}
-        {isFetching && !userList.length ? (
-          <div className="space-y-3 p-5">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-12 w-full animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
-            ))}
-          </div>
-        ) : (
+        {!isLoading && !isError && (
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-xs text-slate-500 dark:border-white/5 dark:text-slate-400">

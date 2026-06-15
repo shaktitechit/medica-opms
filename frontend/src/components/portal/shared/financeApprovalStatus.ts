@@ -4,6 +4,7 @@
  */
 
 import { deriveOrderWorkflowStatus } from "./orderLifecycle";
+import { lineApprovalQuantities, resolveAccountApprovalStatus } from "./orderLineQuantities";
 
 export type FinanceApprovalDisplayStatus =
   | "finance_review"
@@ -125,20 +126,23 @@ export function deriveFinanceApprovalDisplayStatus(
   if (stage === "finance_review") return "finance_review";
 
   const items = Array.isArray(order.order_items) ? order.order_items : [];
-  const hasApproved = items.some((line) => {
-    if (!line || typeof line !== "object") return false;
-    return num((line as Record<string, unknown>).approved_quantity) > 0;
-  });
-  if (!hasApproved) return "finance_review";
+  let hasSalesPool = false;
+  let hasFinanceApproved = false;
+  let allFinanceComplete = true;
 
-  const allFull = items.every((line) => {
-    if (!line || typeof line !== "object") return true;
-    const row = line as Record<string, unknown>;
-    const ordered = num(row.ordered_quantity ?? row.quantity);
-    const approved = num(row.approved_quantity);
-    return approved >= ordered;
-  });
-  return allFull ? "fully_finance_approved" : "partially_finance_approved";
+  for (const line of items) {
+    if (!line || typeof line !== "object") continue;
+    const q = lineApprovalQuantities(line as Record<string, unknown>);
+    if (q.salesApproved > 0) {
+      hasSalesPool = true;
+      if (q.financeApproved > 0) hasFinanceApproved = true;
+      if (q.financeApproved < q.salesApproved) allFinanceComplete = false;
+    }
+  }
+
+  if (!hasSalesPool) return "finance_review";
+  if (!hasFinanceApproved) return "finance_review";
+  return allFinanceComplete ? "fully_finance_approved" : "partially_finance_approved";
 }
 
 export function computeFinanceApprovalCapabilities(
@@ -146,7 +150,7 @@ export function computeFinanceApprovalCapabilities(
   fulfillmentTotals?: Record<string, unknown> | null,
   options?: {
     financeApprovalCount?: number;
-    /** At least one OrderFinanceApproval in an approved (non-rejected) state */
+    /** At least one OrderApproval in an approved (non-rejected) state */
     hasApprovedFinanceApproval?: boolean;
   },
 ): FinanceApprovalCapabilities {
@@ -164,18 +168,18 @@ export function computeFinanceApprovalCapabilities(
 
   const items = Array.isArray(order?.order_items) ? order!.order_items! : [];
   let orderedQty = num(fulfillmentTotals?.ordered);
+  let salesApprovedQty = num(fulfillmentTotals?.salesApproved);
   let approvedQty = num(fulfillmentTotals?.approved);
   let pendingFinanceQty = num(fulfillmentTotals?.pendingFinance);
 
   if (!fulfillmentTotals) {
     for (const line of items) {
       if (!line || typeof line !== "object") continue;
-      const row = line as Record<string, unknown>;
-      const ordered = num(row.ordered_quantity ?? row.quantity);
-      const approved = num(row.approved_quantity);
-      orderedQty += ordered;
-      approvedQty += approved;
-      pendingFinanceQty += Math.max(0, ordered - approved);
+      const q = lineApprovalQuantities(line as Record<string, unknown>);
+      orderedQty += q.ordered;
+      salesApprovedQty += q.salesApproved;
+      approvedQty += q.financeApproved;
+      pendingFinanceQty += q.pendingFinance;
     }
   }
 
@@ -192,7 +196,10 @@ export function computeFinanceApprovalCapabilities(
     legacyStatus === "finance_review";
 
   const canReviewAndApprove =
-    inFinancePhase && financeApprovalStatus !== "rejected" && pendingFinanceQty > 0;
+    inFinancePhase &&
+    financeApprovalStatus !== "rejected" &&
+    pendingFinanceQty > 0 &&
+    salesApprovedQty > 0;
 
   const canApproveRemaining = isPartiallyApproved && pendingFinanceQty > 0;
 
@@ -200,10 +207,15 @@ export function computeFinanceApprovalCapabilities(
   const hasFinanceApprovalRecord = financeApprovalCount > 0;
   const hasApprovedFinanceApproval = Boolean(options?.hasApprovedFinanceApproval);
 
+  const accountApprovalStatus = resolveAccountApprovalStatus(order);
+  const accountClearedForDispatch =
+    accountApprovalStatus === "full" || accountApprovalStatus === "partial";
+
   const canSendToDispatch =
     hasFinanceApprovalRecord &&
     (approvedQty > 0 || hasApprovedFinanceApproval) &&
     financeApprovalStatus !== "rejected" &&
+    accountClearedForDispatch &&
     !isOrderSentToDispatch(order);
 
   return {

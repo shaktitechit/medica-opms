@@ -21,6 +21,7 @@ import { primaryContactDisplay } from "@/lib/partyContacts";
 import { canBulkUploadParties } from "@/lib/permissions";
 import { ConfirmDeletePartyModal } from "@/components/portal/shared/ConfirmDeletePartyModal";
 import { PartyDetailModal } from "@/components/portal/shared/PartyDetailModal";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { BulkUploadPartiesModal } from "@/components/portal/shared/BulkUploadPartiesModal";
 import {
   mutationRejectedMessage,
@@ -109,7 +110,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
     return () => clearTimeout(handler);
   }, [search]);
 
-  const { data, isFetching, isError, refetch } = useListPartiesQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useListPartiesQuery({
     paginate: "true",
     page: currentPage.toString(),
     limit: itemsPerPage.toString(),
@@ -198,6 +199,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
 
   return (
     <div className="space-y-6">
+      <PortalBusyOverlay active={isLoading} message="Loading parties…" />
       <ConfirmDeletePartyModal
         partyId={deleteTarget?.id ?? null}
         partyLabel={deleteTarget?.label ?? ""}
@@ -208,6 +210,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
       <PartyDetailModal
         partyId={createOpen ? null : detailId}
         create={createOpen}
+        portalHome={portalHome}
         onClose={closePartyModal}
       />
       <BulkUploadPartiesModal
@@ -311,13 +314,6 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
 
       {/* Main Grid/Table Card */}
       <div className="rounded-xl border border-slate-200/80 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
-        {isFetching && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500 dark:text-slate-400">Loading directory...</p>
-          </div>
-        )}
-
         {isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
@@ -330,7 +326,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
           </div>
         )}
 
-        {!isFetching && !isError && totalMatching === 0 && (
+        {!isLoading && !isError && totalMatching === 0 && (
           <div className="text-center py-16 px-4">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-950 text-xl text-slate-400">
               👥
@@ -355,7 +351,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
           </div>
         )}
 
-        {!isFetching && !isError && totalMatching > 0 && (
+        {!isLoading && !isError && totalMatching > 0 && (
           <>
           <div className="divide-y divide-slate-100 dark:divide-white/5">
             {parties.map((p) => {

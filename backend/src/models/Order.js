@@ -60,7 +60,15 @@ const orderItemSchema = new mongoose.Schema(
       min: 1,
     },
 
+    /** Finance-approved quantity (dispatch cap after finance review). */
     approved_quantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    /** Admin / sales-review approved quantity (finance approval pool). */
+    sales_approved_quantity: {
       type: Number,
       default: 0,
       min: 0,
@@ -91,6 +99,12 @@ const orderItemSchema = new mongoose.Schema(
     },
 
     cancelled_quantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    returned_quantity: {
       type: Number,
       default: 0,
       min: 0,
@@ -265,6 +279,10 @@ const orderSchema = new mongoose.Schema(
         "partially_finance_approved",
         "fully_finance_approved",
         "finance_rejected",
+        "account_review",
+        "partially_account_approved",
+        "fully_account_approved",
+        "account_rejected",
         "dispatch_pending",
         "partial_dispatch_created",
         "full_dispatch_created",
@@ -306,6 +324,7 @@ const orderSchema = new mongoose.Schema(
         "sales",
         "admin_review",
         "finance_review",
+        "account_review",
         "dispatch_review",
         "dispatch_execution",
         "completed",
@@ -334,6 +353,9 @@ const orderSchema = new mongoose.Schema(
 
     /* -----------------------------------------------------
      * OWNERSHIP
+     * Canonical per-department assignees live in OrderAssignee
+     * (unique order + department). Fields below are denormalized
+     * for list filters and legacy API compatibility.
      * --------------------------------------------------- */
 
     current_assignee: {
@@ -360,6 +382,12 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
+    assigned_account_user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+    },
+
     assigned_dispatch_user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -368,13 +396,13 @@ const orderSchema = new mongoose.Schema(
 
     current_department: {
       type: String,
-      enum: ["super_admin", "sales", "admin", "finance", "dispatch"],
+      enum: ["super_admin", "sales", "admin", "finance", "account", "dispatch"],
       index: true,
     },
 
     pending_with_role: {
       type: String,
-      enum: ["super_admin", "sales", "admin", "finance", "dispatch"],
+      enum: ["super_admin", "sales", "admin", "finance", "account", "dispatch"],
       index: true,
     },
 
@@ -407,6 +435,34 @@ const orderSchema = new mongoose.Schema(
       default: 0,
     },
 
+    extra_charges: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    penalty_amount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    damage_charge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    closed_at: Date,
+
+    closed_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+    },
+
+    closure_remarks: String,
+
     payment_status: {
       type: String,
       enum: ["unpaid", "partial", "paid"],
@@ -423,7 +479,33 @@ const orderSchema = new mongoose.Schema(
 
     last_finance_approval: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "OrderFinanceApproval",
+      ref: "OrderApproval",
+      index: true,
+    },
+
+    admin_approval_status: {
+      type: String,
+      enum: ["pending", "approved", "rejected", "sent_to_finance"],
+      default: "pending",
+      index: true,
+    },
+
+    last_admin_approval: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "OrderApproval",
+      index: true,
+    },
+
+    account_approval_status: {
+      type: String,
+      enum: ["pending", "partial", "full", "rejected"],
+      default: "pending",
+      index: true,
+    },
+
+    last_account_approval: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "OrderApproval",
       index: true,
     },
 

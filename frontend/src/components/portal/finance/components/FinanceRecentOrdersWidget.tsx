@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useState, useMemo } from "react";
-import {
-  AlertTriangle,
+import { AlertTriangle,
   UserCheck,
   DollarSign,
   Package,
@@ -11,12 +10,16 @@ import {
   ArrowRight,
   Search,
   X,
-  SlidersHorizontal,
-} from "lucide-react";
+  SlidersHorizontal, Wallet } from "lucide-react";
 import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import {
+  FINANCE_ORDER_TAB_LABELS,
+  getFinanceOrderTabCategory,
+  type FinanceOrderTabCategory,
+} from "../financeOrderUtils";
 
 interface FinanceRecentOrdersWidgetProps {
   orders: any[];
@@ -73,57 +76,43 @@ function renderPriorityBadge(priority: string) {
   );
 }
 
-function getFinanceOrderTabCategoryLabel(order: any): string {
-  if (!order || typeof order !== "object") return "Open";
-  const status = order.status || "";
-  switch (status) {
-    case "draft":
-      return "Draft";
-    case "on_hold":
-      return "On Hold";
-    case "cancelled":
-      return "Cancelled";
-    case "finance_rejected":
-    case "rejected":
-      return "Rejected";
-    case "finance_review":
-    case "submitted":
-    case "sales_approved":
-      return "Pending Review";
-    default:
-      return "Open";
-  }
-}
-
-function renderWorkflowStatusBadge(status: string) {
+function renderWorkflowStatusBadge(category: FinanceOrderTabCategory) {
   let bgClass = "";
-  switch (status.toLowerCase()) {
-    case "draft":
-      bgClass = "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
+  const label = FINANCE_ORDER_TAB_LABELS[category];
+
+  switch (category) {
+    case "pending_finance_review":
+      bgClass =
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
       break;
     case "open":
-      bgClass = "bg-blue-55 text-blue-700 ring-blue-600/10 dark:bg-blue-955/30 dark:text-blue-400 dark:ring-blue-500/25";
+      bgClass =
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
       break;
     case "closed":
-      bgClass = "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
       break;
-    case "on hold":
     case "on_hold":
-      bgClass = "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
       break;
     case "rejected":
-      bgClass = "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-955/30 dark:text-red-400 dark:ring-red-500/25";
+      bgClass =
+        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-950/30 dark:text-red-400 dark:ring-red-500/25";
       break;
     case "cancelled":
-      bgClass = "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25";
+      bgClass =
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
       break;
     default:
-      bgClass = "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+      bgClass =
+        "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
   }
 
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}>
-      {status}
+      {label}
     </span>
   );
 }
@@ -299,12 +288,14 @@ export default function FinanceRecentOrdersWidget({
               const adminBox = deptBoxes.find((b) => b.id === "admin");
               const financeBox = deptBoxes.find((b) => b.id === "finance");
               const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-              const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
+              const accountBox = deptBoxes.find((b) => b.id === "account");
+  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
 
               const adminStatusDim = adminBox?.status;
               const financeStatusDim = financeBox?.status;
               const dispatchStatusDim = dispatchBox?.status;
-              const deliveryStatusDim = deliveryBox?.status;
+              const accountStatusDim = accountBox?.status;
+  const deliveryStatusDim = deliveryBox?.status;
 
               const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
               const orderedQty = Math.max(
@@ -321,7 +312,7 @@ export default function FinanceRecentOrdersWidget({
 
               const orderDateStr = formatDateShort(o.order_date ?? o.created_at ?? o.createdAt);
               const expectedDeliveryStr = formatDateShort(o.expected_delivery_date);
-              const statusLabel = getFinanceOrderTabCategoryLabel(o);
+              const statusCategory = getFinanceOrderTabCategory(o);
 
               let stripeColor = "bg-slate-350 dark:bg-slate-700";
               if (pri === "urgent") stripeColor = "bg-rose-500";
@@ -345,7 +336,7 @@ export default function FinanceRecentOrdersWidget({
                         {ref.slice(0, 12)}
                       </span>
                       {renderPriorityBadge(pri)}
-                      {renderWorkflowStatusBadge(statusLabel)}
+                      {renderWorkflowStatusBadge(statusCategory)}
                     </div>
 
                     {/* Party Title */}

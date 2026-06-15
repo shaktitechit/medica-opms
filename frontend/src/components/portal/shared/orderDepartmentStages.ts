@@ -7,16 +7,27 @@ import {
   deriveAction,
   type OrderStatusDimension,
 } from "./orderStatusDimensions";
+import {
+  financeApprovedOnLine,
+  lineApprovalQuantities,
+  num,
+  resolveAccountApprovalStatus,
+  salesApprovedOnLine,
+} from "./orderLineQuantities";
 
 export type FulfillmentLine = {
   order_item_id: string;
   product_name: string;
   sku: string;
   ordered: number;
+  salesApproved: number;
   approved: number;
+  accountCleared: number;
   dispatched: number;
   delivered: number;
+  pendingAdmin: number;
   pendingFinance: number;
+  pendingAccount: number;
   pendingDispatch: number;
   pendingDelivery: number;
 };
@@ -32,18 +43,23 @@ export type DepartmentStageBox = {
   progressLabel: string;
 };
 
-function num(v: unknown): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
+/** Display name for the admin-review workflow stage (sales approval). */
+export const SALES_APPROVAL_DEPARTMENT_LABEL = "Sales Approval";
 
 const DEPT_ACTION_KEYS: Record<string, string[]> = {
   sales: ["drafted", "submitted"],
+  /** Admin review = sales approval sign-off before finance. */
   admin: ["approved"],
   finance: [
     "review_requested",
     "partially_finance_approved",
     "fully_finance_approved",
+    "rejected",
+  ],
+  account: [
+    "sent_to_account",
+    "partially_account_approved",
+    "fully_account_approved",
     "rejected",
   ],
   dispatch: [
@@ -69,20 +85,28 @@ const DEPT_ACTION_KEYS: Record<string, string[]> = {
 
 type FulfillmentTotals = {
   ordered: number;
+  salesApproved: number;
   approved: number;
+  accountCleared: number;
   dispatched: number;
   delivered: number;
+  pendingAdmin: number;
   pendingFinance: number;
+  pendingAccount: number;
   pendingDispatch: number;
   pendingDelivery: number;
 };
 
 const EMPTY_TOTALS: FulfillmentTotals = {
   ordered: 0,
+  salesApproved: 0,
   approved: 0,
+  accountCleared: 0,
   dispatched: 0,
   delivered: 0,
+  pendingAdmin: 0,
   pendingFinance: 0,
+  pendingAccount: 0,
   pendingDispatch: 0,
   pendingDelivery: 0,
 };
@@ -91,18 +115,28 @@ function totalsFromSources(
   order: Record<string, unknown>,
   fulfillmentSnapshot?: Record<string, unknown> | null,
 ): FulfillmentTotals {
+  const accountApprovalStatus = resolveAccountApprovalStatus(order, fulfillmentSnapshot);
   const snap =
     fulfillmentSnapshot?.totals && typeof fulfillmentSnapshot.totals === "object"
       ? (fulfillmentSnapshot.totals as Record<string, unknown>)
       : null;
 
   if (snap) {
+    const approved = num(snap.approved);
+    const accountCleared = num(snap.accountCleared ?? snap.account_cleared);
+    const pendingAccount = num(snap.pendingAccount ?? snap.pending_account);
     return {
       ordered: num(snap.ordered),
-      approved: num(snap.approved),
+      salesApproved: num(snap.salesApproved),
+      approved,
+      accountCleared: accountCleared || (accountApprovalStatus !== "pending" ? approved : 0),
       dispatched: num(snap.dispatched),
       delivered: num(snap.delivered),
+      pendingAdmin: num(snap.pendingAdmin),
       pendingFinance: num(snap.pendingFinance),
+      pendingAccount:
+        pendingAccount ||
+        Math.max(0, approved - (accountCleared || (accountApprovalStatus !== "pending" ? approved : 0))),
       pendingDispatch: num(snap.pendingDispatch),
       pendingDelivery: num(snap.pendingDelivery),
     };
@@ -112,17 +146,18 @@ function totalsFromSources(
     ? (order.order_items as Record<string, unknown>[])
     : [];
   return items.reduce<FulfillmentTotals>((acc, line) => {
-    const ordered = num(line.ordered_quantity ?? line.quantity);
-    const approved = num(line.approved_quantity);
-    const dispatched = num(line.dispatched_quantity);
-    const delivered = num(line.delivered_quantity);
-    acc.ordered += ordered;
-    acc.approved += approved;
-    acc.dispatched += dispatched;
-    acc.delivered += delivered;
-    acc.pendingFinance += Math.max(0, ordered - approved);
-    acc.pendingDispatch += Math.max(0, approved - dispatched);
-    acc.pendingDelivery += Math.max(0, dispatched - delivered);
+    const q = lineApprovalQuantities(line, { accountApprovalStatus });
+    acc.ordered += q.ordered;
+    acc.salesApproved += q.salesApproved;
+    acc.approved += q.financeApproved;
+    acc.accountCleared += q.accountCleared;
+    acc.dispatched += q.dispatched;
+    acc.delivered += q.delivered;
+    acc.pendingAdmin += q.pendingAdmin;
+    acc.pendingFinance += q.pendingFinance;
+    acc.pendingAccount += q.pendingAccount;
+    acc.pendingDispatch += q.pendingDispatch;
+    acc.pendingDelivery += q.pendingDelivery;
     return acc;
   }, { ...EMPTY_TOTALS });
 }
@@ -133,20 +168,42 @@ export function fulfillmentLinesFromSnapshot(
 ): FulfillmentLine[] {
   if (!order) return [];
 
+  const accountApprovalStatus = resolveAccountApprovalStatus(order, fulfillmentSnapshot);
   const snapLines = fulfillmentSnapshot?.lines;
   if (Array.isArray(snapLines) && snapLines.length > 0) {
     return snapLines.map((raw) => {
       const line = raw as Record<string, unknown>;
+      const ordered = num(line.ordered);
+      const salesApproved = num(line.salesApproved ?? line.sales_approved);
+      const financeApproved = num(line.approved ?? line.financeApproved);
+      const accountCleared = num(
+        line.accountCleared ??
+          line.account_cleared ??
+          (accountApprovalStatus !== "pending" ? financeApproved : 0),
+      );
+      const pendingAccount = num(
+        line.pendingAccount ??
+          line.pending_account ??
+          Math.max(0, financeApproved - accountCleared),
+      );
       return {
         order_item_id: String(line.order_item_id ?? ""),
         product_name: String(line.product_name || "—"),
         sku: String(line.sku || ""),
-        ordered: num(line.ordered),
-        approved: num(line.approved),
+        ordered,
+        salesApproved,
+        approved: financeApproved,
+        accountCleared,
         dispatched: num(line.dispatched),
         delivered: num(line.delivered),
-        pendingFinance: num(line.pendingFinance),
-        pendingDispatch: num(line.pendingDispatch),
+        pendingAdmin: num(line.pendingAdmin ?? Math.max(0, ordered - salesApproved)),
+        pendingFinance: num(
+          line.pendingFinance ?? Math.max(0, salesApproved - financeApproved),
+        ),
+        pendingAccount,
+        pendingDispatch: num(
+          line.pendingDispatch ?? Math.max(0, accountCleared - num(line.dispatched)),
+        ),
         pendingDelivery: num(line.pendingDelivery),
       };
     });
@@ -156,21 +213,22 @@ export function fulfillmentLinesFromSnapshot(
     ? (order.order_items as Record<string, unknown>[])
     : [];
   return items.map((line) => {
-    const ordered = num(line.ordered_quantity ?? line.quantity);
-    const approved = num(line.approved_quantity);
-    const dispatched = num(line.dispatched_quantity);
-    const delivered = num(line.delivered_quantity);
+    const q = lineApprovalQuantities(line, { accountApprovalStatus });
     return {
       order_item_id: String(line._id ?? line.id ?? ""),
       product_name: String(line.product_name || "—"),
       sku: String(line.sku || ""),
-      ordered,
-      approved,
-      dispatched,
-      delivered,
-      pendingFinance: Math.max(0, ordered - approved),
-      pendingDispatch: Math.max(0, approved - dispatched),
-      pendingDelivery: Math.max(0, dispatched - delivered),
+      ordered: q.ordered,
+      salesApproved: q.salesApproved,
+      approved: q.financeApproved,
+      accountCleared: q.accountCleared,
+      dispatched: q.dispatched,
+      delivered: q.delivered,
+      pendingAdmin: q.pendingAdmin,
+      pendingFinance: q.pendingFinance,
+      pendingAccount: q.pendingAccount,
+      pendingDispatch: q.pendingDispatch,
+      pendingDelivery: q.pendingDelivery,
     };
   });
 }
@@ -191,12 +249,45 @@ function stageIndex(stage: string): number {
     "sales",
     "admin_review",
     "finance_review",
+    "account_review",
     "dispatch_review",
     "dispatch_execution",
     "completed",
   ];
   const idx = order.indexOf(stage);
   return idx >= 0 ? idx : -1;
+}
+
+function deriveSalesApprovalStatus(
+  order: Record<string, unknown>,
+  totals: FulfillmentTotals,
+): OrderStatusDimension {
+  const salesApprovalStatus = String(order.admin_approval_status ?? "pending");
+  const stage = String(order.workflow_stage || "");
+
+  if (salesApprovalStatus === "rejected") {
+    return { key: "rejected", label: "Sales approval rejected", tone: "danger" };
+  }
+  if (totals.salesApproved <= 0) {
+    if (stage === "admin_review") {
+      return { key: "pending", label: "Pending sales approval", tone: "warning" };
+    }
+    return { key: "waiting", label: "Awaiting submission", tone: "neutral" };
+  }
+  if (totals.pendingAdmin <= 0) {
+    return {
+      key: "full",
+      label: "Fully sales approved",
+      detail: `${totals.salesApproved} / ${totals.ordered} qty`,
+      tone: "success",
+    };
+  }
+  return {
+    key: "partial",
+    label: "Partially sales approved",
+    detail: `${totals.pendingAdmin} qty pending sales approval`,
+    tone: "warning",
+  };
 }
 
 export function computeDepartmentStageBoxes(
@@ -211,6 +302,7 @@ export function computeDepartmentStageBoxes(
   const fas = String(
     fulfillmentSnapshot?.finance_approval_status ?? order.finance_approval_status ?? "pending",
   );
+  const aas = resolveAccountApprovalStatus(order, fulfillmentSnapshot);
   const dispatchStatus = String(
     fulfillmentSnapshot?.dispatch_status ?? order.dispatch_status ?? "pending",
   );
@@ -247,8 +339,9 @@ export function computeDepartmentStageBoxes(
     };
     return [
       mk("sales", "Sales", cancelledStatus, 0, 0, totals.ordered, "—"),
-      mk("admin", "Admin", cancelledStatus, 0, 0, totals.ordered, "—"),
-      mk("finance", "Finance", cancelledStatus, 0, 0, totals.ordered, "—"),
+      mk("admin", SALES_APPROVAL_DEPARTMENT_LABEL, cancelledStatus, 0, 0, totals.ordered, "—"),
+      mk("finance", "Finance", cancelledStatus, 0, 0, totals.salesApproved, "—"),
+      mk("account", "Account", cancelledStatus, 0, 0, totals.approved, "—"),
       mk("dispatch", "Dispatch", cancelledStatus, 0, 0, totals.approved, "—"),
       mk("delivery", "Delivery", cancelledStatus, 0, 0, totals.dispatched, "—"),
     ];
@@ -266,13 +359,7 @@ export function computeDepartmentStageBoxes(
         tone: "success",
       };
 
-  const adminDone = currentIdx > stageIndex("admin_review");
-  const adminStatus: OrderStatusDimension =
-    stage === "admin_review"
-      ? { key: "pending", label: "Pending admin review", tone: "warning" }
-      : adminDone
-        ? { key: "done", label: "Admin review complete", tone: "success" }
-        : { key: "waiting", label: "Awaiting submission", tone: "neutral" };
+  const salesApprovalStatus = deriveSalesApprovalStatus(order, totals);
 
   let financeStatus: OrderStatusDimension;
   if (fas === "rejected") {
@@ -280,31 +367,105 @@ export function computeDepartmentStageBoxes(
   } else if (fas === "full") {
     financeStatus = {
       key: "full",
-      label: "Fully approved",
-      detail: `${totals.approved} / ${totals.ordered} qty`,
+      label: "Fully finance approved",
+      detail: `${totals.approved} / ${totals.salesApproved} sales-approved qty`,
       tone: "success",
     };
   } else if (fas === "partial" || totals.approved > 0) {
     financeStatus = {
       key: "partial",
-      label: "Partially approved",
-      detail: `${totals.pendingFinance} qty pending`,
+      label: "Partially finance approved",
+      detail: `${totals.pendingFinance} qty pending finance`,
       tone: "warning",
     };
-  } else if (stage === "finance_review") {
+  } else if (totals.salesApproved > 0 && stage === "finance_review") {
     financeStatus = { key: "review", label: "Finance review", tone: "info" };
+  } else if (totals.salesApproved > 0) {
+    financeStatus = {
+      key: "waiting",
+      label: "Awaiting finance",
+      detail: `${totals.salesApproved} qty ready`,
+      tone: "neutral",
+    };
   } else if (currentIdx > stageIndex("finance_review")) {
     financeStatus = { key: "done", label: "Finance complete", tone: "success" };
   } else {
     financeStatus = { key: "waiting", label: "Awaiting finance", tone: "neutral" };
   }
 
+  let accountStatusDim: OrderStatusDimension;
+  const status = String(order.status || "");
+  const currentAction = String(order.current_action || "");
+  const accountDone =
+    aas === "full" ||
+    ["fully_account_approved", "partially_account_approved"].includes(status) ||
+    currentIdx > stageIndex("account_review") ||
+    ["dispatch_pending", "partial_dispatch_created", "full_dispatch_created", "delivered"].includes(
+      status,
+    ) ||
+    dispatchStatus === "completed" ||
+    dispatchStatus === "partial";
+
+  if (aas === "rejected") {
+    accountStatusDim = { key: "rejected", label: "Account rejected", tone: "danger" };
+  } else if (aas === "full") {
+    accountStatusDim = {
+      key: "full",
+      label: "Fully account approved",
+      detail: `${totals.accountCleared} / ${totals.approved} finance-approved qty`,
+      tone: "success",
+    };
+  } else if (aas === "partial") {
+    accountStatusDim = {
+      key: "partial",
+      label: "Partially account approved",
+      detail: `${totals.pendingAccount} qty pending account`,
+      tone: "warning",
+    };
+  } else if (
+    stage === "account_review" ||
+    status === "account_review" ||
+    currentAction === "sent_to_account"
+  ) {
+    accountStatusDim = {
+      key: "review",
+      label: "Account review",
+      detail: `${totals.approved} qty awaiting account clearance`,
+      tone: "info",
+    };
+  } else if (
+    ["fully_finance_approved", "partially_finance_approved"].includes(status) &&
+    totals.approved > 0
+  ) {
+    accountStatusDim = {
+      key: "waiting",
+      label: "Awaiting send to account",
+      detail: `${totals.approved} finance-approved qty`,
+      tone: "neutral",
+    };
+  } else if (accountDone && totals.accountCleared > 0) {
+    accountStatusDim = {
+      key: "done",
+      label: "Account cleared",
+      detail: `${totals.accountCleared} qty cleared`,
+      tone: "success",
+    };
+  } else {
+    accountStatusDim = {
+      key: "waiting",
+      label: "Awaiting finance clearance",
+      tone: "neutral",
+    };
+  }
+
+  const dispatchCap = totals.accountCleared > 0 ? totals.accountCleared : totals.approved;
+
   let dispatchStatusDim: OrderStatusDimension;
   if (dispatchStatus === "completed" || (totals.dispatched > 0 && totals.pendingDispatch === 0)) {
     dispatchStatusDim = {
       key: "full",
       label: "Fully dispatched",
-      detail: `${totals.dispatched} / ${totals.approved} approved qty`,
+      detail: `${totals.dispatched} / ${dispatchCap} account-cleared qty`,
       tone: "success",
     };
   } else if (dispatchStatus === "partial" || totals.dispatched > 0) {
@@ -313,6 +474,17 @@ export function computeDepartmentStageBoxes(
       label: "Partially dispatched",
       detail: `${totals.pendingDispatch} qty pending`,
       tone: "info",
+    };
+  } else if (
+    totals.pendingAccount > 0 &&
+    totals.approved > 0 &&
+    !["dispatch_review", "dispatch_execution"].includes(stage)
+  ) {
+    dispatchStatusDim = {
+      key: "waiting",
+      label: "Awaiting account clearance",
+      detail: `${totals.pendingAccount} qty pending account`,
+      tone: "neutral",
     };
   } else if (
     ["dispatch_review", "dispatch_execution"].includes(stage) ||
@@ -356,12 +528,12 @@ export function computeDepartmentStageBoxes(
     ),
     mk(
       "admin",
-      "Admin",
-      adminStatus,
-      adminDone ? totals.ordered : 0,
-      adminDone ? 0 : totals.ordered,
+      SALES_APPROVAL_DEPARTMENT_LABEL,
+      salesApprovalStatus,
+      totals.salesApproved,
+      totals.pendingAdmin,
       totals.ordered,
-      "Order lines",
+      "Sales approved qty",
     ),
     mk(
       "finance",
@@ -369,8 +541,17 @@ export function computeDepartmentStageBoxes(
       financeStatus,
       totals.approved,
       totals.pendingFinance,
-      totals.ordered,
-      "Approved qty",
+      totals.salesApproved || totals.ordered,
+      "Finance approved qty",
+    ),
+    mk(
+      "account",
+      "Account",
+      accountStatusDim,
+      totals.accountCleared,
+      totals.pendingAccount,
+      totals.approved,
+      "Account cleared qty",
     ),
     mk(
       "dispatch",
@@ -378,7 +559,7 @@ export function computeDepartmentStageBoxes(
       dispatchStatusDim,
       totals.dispatched,
       totals.pendingDispatch,
-      totals.approved || totals.ordered,
+      dispatchCap || totals.salesApproved || totals.ordered,
       "Dispatched qty",
     ),
     mk(
@@ -393,4 +574,4 @@ export function computeDepartmentStageBoxes(
   ];
 }
 
-export { computeOrderStatusDimensions };
+export { computeOrderStatusDimensions, salesApprovedOnLine, financeApprovedOnLine };

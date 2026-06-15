@@ -11,6 +11,7 @@ import {
 } from "@/store/api";
 import { TransportAgentDetailModal } from "./modals/TransportAgentDetailModal";
 import { ConfirmDeleteTransportAgentModal } from "./modals/ConfirmDeleteTransportAgentModal";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import {
   Search,
   X,
@@ -43,7 +44,7 @@ function rowKey(row: unknown): string {
 }
 
 export default function ListTransportAgentsPage() {
-  const { data = [], isFetching, isError, refetch } = useListTransportAgentsQuery({});
+  const { data = [], isLoading, isFetching, isError, refetch } = useListTransportAgentsQuery({});
   const rows = useMemo(() => (Array.isArray(data) ? (data as TransportAgentRecord[]) : []), [data]);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -123,6 +124,7 @@ export default function ListTransportAgentsPage() {
 
   return (
     <div className="space-y-6">
+      <PortalBusyOverlay active={isLoading} message="Loading transport agents…" />
       <ConfirmDeleteTransportAgentModal
         transportAgentId={deleteTarget?.id ?? null}
         transportAgentLabel={deleteTarget?.label ?? ""}
@@ -237,14 +239,7 @@ export default function ListTransportAgentsPage() {
 
       {/* Main Grid/Table Card */}
       <div className="rounded-xl border border-slate-200/80 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
-        {isFetching && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500 dark:text-slate-400">Loading transport agents...</p>
-          </div>
-        )}
-
-        {!isFetching && isError && (
+        {!isLoading && isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
             <h3 className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
@@ -256,7 +251,7 @@ export default function ListTransportAgentsPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filtered.length === 0 && (
+        {!isLoading && !isError && filtered.length === 0 && (
           <div className="text-center py-16 px-4">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-955 text-xl text-slate-400 border border-slate-100 dark:border-white/5">
               👥
@@ -281,7 +276,7 @@ export default function ListTransportAgentsPage() {
           </div>
         )}
 
-        {!isError && filtered.length > 0 && (
+        {!isLoading && !isError && filtered.length > 0 && (
           <>
             <div className="divide-y divide-slate-100 dark:divide-white/5">
               {paged.map((r) => {

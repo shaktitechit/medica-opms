@@ -1,0 +1,8 @@
+- [x] Define the central mongoose schemas in `backend/src/data/mongoRegistry.js`
+- [x] Create `backend/src/models/OrderAmmendmentUser.js`
+- [x] Overwrite `backend/src/models/OrderApproval.js` with the unified mirror schema
+- [x] Delete `backend/src/models/OrderAdminApproval.js` and `backend/src/models/OrderFinanceApproval.js`
+- [ ] Refactor `backend/src/modules/orderAdminApproval/orderAdminApproval.service.js` to read/write `OrderApproval`
+- [ ] Refactor `backend/src/modules/orderFinanceApproval/orderFinanceApproval.service.js` to read/write `OrderApproval`
+- [ ] Refactor `backend/src/modules/orders/orderFulfillment.service.js` to reference `OrderApproval`
+- [ ] Run typechecks and verify all tests pass

@@ -667,7 +667,9 @@ export default function AdminCreateOrderPage() {
         }),
       );
       toast.success("Line price updated to negotiated rate.");
-      void rateCheckQ.refetch();
+      if (!rateCheckQ.isUninitialized) {
+        void rateCheckQ.refetch();
+      }
     },
     [rateCheckQ],
   );

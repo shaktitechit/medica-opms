@@ -26,6 +26,7 @@ const orderWorkflowSchema = new mongoose.Schema(
         "sales",
         "admin",
         "finance",
+        "account",
         "dispatch",
       ],
       required: true,
@@ -43,12 +44,15 @@ const orderWorkflowSchema = new mongoose.Schema(
         "fully_approved",
         "partially_finance_approved",
         "fully_finance_approved",
+        "partially_account_approved",
+        "fully_account_approved",
 
         "review_requested",
 
         "sent_to_sales",
         "sent_to_admin",
         "sent_to_finance",
+        "sent_to_account",
         "sent_to_dispatch",
 
         "hold",
@@ -79,6 +83,7 @@ const orderWorkflowSchema = new mongoose.Schema(
 
         "reopened",
         "completed",
+        "closed",
       ],
       required: true,
       index: true,

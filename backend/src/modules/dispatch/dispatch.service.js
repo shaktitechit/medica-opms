@@ -13,6 +13,25 @@ const fulfillmentService = require('../orders/orderFulfillment.service');
 
 const DISP_NF = 'Order dispatch not found';
 
+function isObjectId(value) {
+  return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value);
+}
+
+function resolveWarehouseFields(body = {}) {
+  const rawWarehouse = body.warehouse;
+  const rawLocation = body.warehouse_location;
+  const warehouseRef =
+    rawWarehouse && isObjectId(String(rawWarehouse)) ? String(rawWarehouse) : undefined;
+  const locationFromWarehouse =
+    rawWarehouse && !warehouseRef ? String(rawWarehouse).trim() : '';
+  const warehouseLocation = String(rawLocation || locationFromWarehouse || '').trim();
+
+  return {
+    warehouse: warehouseRef,
+    warehouse_location: warehouseLocation || undefined,
+  };
+}
+
 function getOrderedQuantity(line) {
   return Number(line.ordered_quantity ?? line.quantity ?? 0);
 }
@@ -77,6 +96,8 @@ async function list({ order, dispatch_status } = {}) {
   if (dispatch_status) q.dispatch_status = dispatch_status;
   const rows = await getModels().OrderDispatch.find(q)
     .populate('finance_approval', 'approval_no')
+    .populate('bill_document', 'original_name url mime_type')
+    .populate('dispatch_assignee_user', 'name username email department')
     .sort({ createdAt: -1 })
     .lean();
   return rows.map(toPlain);
@@ -85,6 +106,8 @@ async function list({ order, dispatch_status } = {}) {
 async function get(id) {
   const row = await getModels().OrderDispatch.findById(id)
     .populate('finance_approval')
+    .populate('bill_document', 'original_name url mime_type')
+    .populate('dispatch_assignee_user', 'name username email department')
     .lean();
   if (!row) throw new ApiError(404, DISP_NF);
   return toPlain(row);
@@ -109,17 +132,26 @@ async function create(body, user) {
   const dispatchItems = await validateDispatchItems(order, body.dispatch_items || body.items);
   const requestedStatus = normalizeDispatchStatus(body.dispatch_status || body.status, null);
 
+  const warehouseFields = resolveWarehouseFields(body);
+
   const doc = await OrderDispatch.create({
     dispatch_no: body.dispatch_no || generateDispatchNo(),
     order: body.order,
     finance_approval: body.finance_approval || undefined,
-    warehouse: body.warehouse || undefined,
+    warehouse: warehouseFields.warehouse,
+    warehouse_location: warehouseFields.warehouse_location,
     dispatch_status: requestedStatus || 'partially_dispatched',
     dispatch_items: dispatchItems,
     packed_by: body.packed_by || undefined,
     dispatched_by: body.dispatched_by || user._id,
+    dispatch_assignee_user: body.dispatch_assignee_user || undefined,
     packed_at: body.packed_at ? new Date(body.packed_at) : undefined,
-    dispatched_at: body.dispatched_at ? new Date(body.dispatched_at) : new Date(),
+    dispatched_at: body.dispatched_at || body.dispatch_date
+      ? new Date(body.dispatched_at || body.dispatch_date)
+      : new Date(),
+    bill_number: body.bill_number ? String(body.bill_number).trim() : undefined,
+    billing_date: body.billing_date ? new Date(body.billing_date) : undefined,
+    bill_document: body.bill_document || undefined,
     remarks: body.remarks || '',
     created_by: user._id,
   });
@@ -133,7 +165,11 @@ async function create(body, user) {
   await OrderWorkflow.create({
     order: body.order,
     action_by: user._id,
-    role: user.department === 'admin' ? 'admin' : 'dispatch',
+    role: user.department === 'admin'
+      ? 'admin'
+      : user.department === 'account'
+        ? 'account'
+        : 'dispatch',
     action: state.fullyDispatched ? 'full_dispatch' : 'partial_dispatch',
     to_stage: 'dispatch_execution',
     to_status: state.order.dispatch_status,
@@ -159,6 +195,13 @@ async function patch(id, patchBody, user) {
   if (!existing) throw new ApiError(404, DISP_NF);
 
   const patch = patchBody || {};
+  if (user.department === 'account') {
+    const allowed = new Set(['bill_number', 'billing_date', 'bill_document', 'dispatch_assignee_user']);
+    const keys = Object.keys(patch);
+    if (keys.some((key) => !allowed.has(key))) {
+      throw new ApiError(403, 'Account users may only update billing fields on a dispatch');
+    }
+  }
   if (patch.dispatch_status || patch.status) {
     existing.dispatch_status = normalizeDispatchStatus(patch.dispatch_status || patch.status, existing.dispatch_status);
   }
@@ -170,7 +213,29 @@ async function patch(id, patchBody, user) {
   if (patch.finance_approval !== undefined) {
     existing.finance_approval = patch.finance_approval || undefined;
   }
-  if (patch.warehouse !== undefined) existing.warehouse = patch.warehouse || undefined;
+  if (patch.warehouse !== undefined || patch.warehouse_location !== undefined) {
+    const warehouseFields = resolveWarehouseFields({
+      warehouse: patch.warehouse !== undefined ? patch.warehouse : existing.warehouse,
+      warehouse_location:
+        patch.warehouse_location !== undefined
+          ? patch.warehouse_location
+          : existing.warehouse_location,
+    });
+    existing.warehouse = warehouseFields.warehouse;
+    existing.warehouse_location = warehouseFields.warehouse_location;
+  }
+  if (patch.bill_number !== undefined) {
+    existing.bill_number = patch.bill_number ? String(patch.bill_number).trim() : '';
+  }
+  if (patch.billing_date !== undefined) {
+    existing.billing_date = patch.billing_date ? new Date(patch.billing_date) : undefined;
+  }
+  if (patch.bill_document !== undefined) {
+    existing.bill_document = patch.bill_document || undefined;
+  }
+  if (patch.dispatch_assignee_user !== undefined) {
+    existing.dispatch_assignee_user = patch.dispatch_assignee_user || undefined;
+  }
   if (patch.remarks !== undefined) existing.remarks = patch.remarks || '';
   if (patch.packed_at !== undefined) existing.packed_at = patch.packed_at ? new Date(patch.packed_at) : undefined;
   if (patch.dispatched_at !== undefined) {

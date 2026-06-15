@@ -1,5 +1,4 @@
 export { OrderTab } from "./OrderTab";
-export { FinanceApprovalsTab } from "./FinanceApprovalsTab";
 export { TransportsTab } from "./TransportsTab";
 export { DispatchesTab } from "./DispatchesTab";
 export { default as AttachmentsTab } from "./AttachmentsTab";

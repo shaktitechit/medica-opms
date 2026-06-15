@@ -2,53 +2,28 @@
 
 import { useMemo, useState } from "react";
 import { Info } from "lucide-react";
-import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import {
+  ADMIN_ORDER_TABS,
+  ADMIN_STATUS_COLORS,
+  categorizeOrderForAdminChart,
+  createEmptyAdminChartBreakdown,
+  orderLineQuantity,
+  type AdminChartBreakdown,
+  type AdminOrderTabCategory,
+} from "./adminOrderUtils";
 
 interface AdminOrderVolumeChartProps {
-  orders: any[];
+  orders: unknown[];
   isOrdersFetching: boolean;
 }
 
-const STATUS_COLORS: Record<
-  "pending_review" | "open" | "closed" | "on_hold" | "rejected" | "cancelled",
-  { fill: string; hover: string; dot: string; label: string }
-> = {
-  pending_review: {
-    fill: "fill-purple-500/85 dark:fill-purple-500/60",
-    hover: "fill-purple-600 dark:fill-purple-400",
-    dot: "bg-purple-500 dark:bg-purple-400",
-    label: "Pending Review",
-  },
-  open: {
-    fill: "fill-blue-500/85 dark:fill-blue-500/60",
-    hover: "fill-blue-600 dark:fill-blue-400",
-    dot: "bg-blue-500 dark:bg-blue-400",
-    label: "Open",
-  },
-  closed: {
-    fill: "fill-emerald-500/85 dark:fill-emerald-550/60",
-    hover: "fill-emerald-600 dark:fill-emerald-400",
-    dot: "bg-emerald-500 dark:bg-emerald-450",
-    label: "Closed",
-  },
-  on_hold: {
-    fill: "fill-amber-500/85 dark:fill-amber-500/60",
-    hover: "fill-amber-600 dark:fill-amber-400",
-    dot: "bg-amber-50 dark:bg-amber-450",
-    label: "On Hold",
-  },
-  rejected: {
-    fill: "fill-red-500/85 dark:fill-red-550/60",
-    hover: "fill-red-600 dark:fill-red-400",
-    dot: "bg-red-500 dark:bg-red-450",
-    label: "Rejected",
-  },
-  cancelled: {
-    fill: "fill-rose-500/85 dark:fill-rose-500/60",
-    hover: "fill-rose-600 dark:fill-rose-450",
-    dot: "bg-rose-500 dark:bg-rose-400",
-    label: "Cancelled",
-  },
+type ChartBucket = {
+  key: string;
+  label: string;
+  ordersCount: number;
+  totalQty: number;
+  totalVolume: number;
+  breakdown: AdminChartBreakdown;
 };
 
 function formatMoney(v: number): string {
@@ -65,192 +40,118 @@ function formatMoneyAbbr(v: number): string {
   return String(Math.round(v));
 }
 
-export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: AdminOrderVolumeChartProps) {
+function orderAmount(order: unknown): number {
+  const row = order as { grand_total?: unknown; total?: unknown };
+  return Number(row.grand_total ?? row.total ?? 0);
+}
+
+function orderDateKey(order: unknown, granularity: "monthly" | "daily"): string | null {
+  const row = order as {
+    order_date?: unknown;
+    created_at?: unknown;
+    createdAt?: unknown;
+  };
+  const dateStr = row.order_date ?? row.created_at ?? row.createdAt;
+  if (!dateStr) return null;
+  const d = new Date(String(dateStr));
+  if (Number.isNaN(d.getTime())) return null;
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  if (granularity === "monthly") {
+    return `${d.getFullYear()}-${month}`;
+  }
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+function accumulateOrderIntoBucket(bucket: ChartBucket, order: unknown, cat: AdminOrderTabCategory) {
+  bucket.ordersCount++;
+  bucket.breakdown[cat].count++;
+
+  const orderQty = orderLineQuantity(order);
+  bucket.totalQty += orderQty;
+  bucket.breakdown[cat].quantity += orderQty;
+
+  const amount = orderAmount(order);
+  bucket.totalVolume += amount;
+  bucket.breakdown[cat].amount += amount;
+}
+
+function buildMonthlyBuckets(orders: unknown[]): ChartBucket[] {
+  const months: ChartBucket[] = [];
+  const now = new Date();
+
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+      label: d.toLocaleDateString("en-US", { month: "short" }),
+      ordersCount: 0,
+      totalQty: 0,
+      totalVolume: 0,
+      breakdown: createEmptyAdminChartBreakdown(),
+    });
+  }
+
+  for (const order of orders) {
+    const cat = categorizeOrderForAdminChart(order);
+    if (!cat) continue;
+
+    const key = orderDateKey(order, "monthly");
+    if (!key) continue;
+
+    const bucket = months.find((m) => m.key === key);
+    if (bucket) {
+      accumulateOrderIntoBucket(bucket, order, cat);
+    }
+  }
+
+  return months;
+}
+
+function buildDailyBuckets(orders: unknown[]): ChartBucket[] {
+  const days: ChartBucket[] = [];
+  const now = new Date();
+
+  for (let i = 9; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    days.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+      label: `${d.getDate()} ${d.toLocaleDateString("en-US", { month: "short" })}`,
+      ordersCount: 0,
+      totalQty: 0,
+      totalVolume: 0,
+      breakdown: createEmptyAdminChartBreakdown(),
+    });
+  }
+
+  for (const order of orders) {
+    const cat = categorizeOrderForAdminChart(order);
+    if (!cat) continue;
+
+    const key = orderDateKey(order, "daily");
+    if (!key) continue;
+
+    const bucket = days.find((day) => day.key === key);
+    if (bucket) {
+      accumulateOrderIntoBucket(bucket, order, cat);
+    }
+  }
+
+  return days;
+}
+
+export default function AdminOrderVolumeChart({
+  orders,
+  isOrdersFetching,
+}: AdminOrderVolumeChartProps) {
   const [showMetric, setShowMetric] = useState<"orders" | "quantities" | "volume">("orders");
   const [timeframe, setTimeframe] = useState<"monthly" | "daily">("monthly");
   const [hoveredBarIndex, setHoveredBarIndex] = useState<number | null>(null);
 
-  const totalOrdersCount = orders.length;
+  const totalOrdersCount = orders.filter((o) => categorizeOrderForAdminChart(o) !== null).length;
 
-  const monthlyData = useMemo(() => {
-    type ChartBucket = {
-      key: string;
-      label: string;
-      ordersCount: number;
-      totalQty: number;
-      totalVolume: number;
-      breakdown: Record<
-        "pending_review" | "open" | "closed" | "on_hold" | "rejected" | "cancelled",
-        { count: number; quantity: number; amount: number }
-      >;
-    };
-    const months: ChartBucket[] = [];
-    const now = new Date();
-    // Generate last 6 months in chronological order
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push({
-        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
-        label: d.toLocaleDateString("en-US", { month: "short" }),
-        ordersCount: 0,
-        totalQty: 0,
-        totalVolume: 0,
-        breakdown: {
-          pending_review: { count: 0, quantity: 0, amount: 0 },
-          open: { count: 0, quantity: 0, amount: 0 },
-          closed: { count: 0, quantity: 0, amount: 0 },
-          on_hold: { count: 0, quantity: 0, amount: 0 },
-          rejected: { count: 0, quantity: 0, amount: 0 },
-          cancelled: { count: 0, quantity: 0, amount: 0 },
-        },
-      });
-    }
-
-    orders.forEach((o) => {
-      const status = deriveOrderWorkflowStatus(o);
-      if (status === "draft") return;
-
-      const dateStr = o.order_date ?? o.created_at ?? o.createdAt;
-      if (!dateStr) return;
-      const d = new Date(dateStr);
-      if (Number.isNaN(d.getTime())) return;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const bucket = months.find((m) => m.key === key);
-      if (bucket) {
-        let cat: keyof ChartBucket["breakdown"] = "open";
-
-        if (status === "on_hold") {
-          cat = "on_hold";
-        } else if (status === "cancelled") {
-          cat = "cancelled";
-        } else if (status === "finance_rejected") {
-          cat = "rejected";
-        } else if (status === "submitted") {
-          cat = "pending_review";
-        } else {
-          const items = Array.isArray(o.order_items) ? o.order_items : [];
-          let ordered = 0;
-          let delivered = 0;
-          items.forEach((line: any) => {
-            ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-            delivered += Number(line.delivered_quantity ?? 0);
-          });
-
-          if (ordered > 0 && delivered >= ordered) {
-            cat = "closed";
-          } else {
-            cat = "open";
-          }
-        }
-
-        bucket.ordersCount++;
-        bucket.breakdown[cat].count++;
-        const items = Array.isArray(o.order_items) ? o.order_items : [];
-        let orderQty = 0;
-        items.forEach((item: any) => {
-          orderQty += Number(item.ordered_quantity ?? item.quantity ?? 0);
-        });
-        bucket.totalQty += orderQty;
-        bucket.breakdown[cat].quantity += orderQty;
-
-        const orderAmount = Number(o.grand_total ?? o.total ?? 0);
-        bucket.totalVolume += orderAmount;
-        bucket.breakdown[cat].amount += orderAmount;
-      }
-    });
-
-    return months;
-  }, [orders]);
-
-  const dailyData = useMemo(() => {
-    type ChartBucket = {
-      key: string;
-      label: string;
-      ordersCount: number;
-      totalQty: number;
-      totalVolume: number;
-      breakdown: Record<
-        "pending_review" | "open" | "closed" | "on_hold" | "rejected" | "cancelled",
-        { count: number; quantity: number; amount: number }
-      >;
-    };
-    const days: ChartBucket[] = [];
-    const now = new Date();
-    // Generate last 10 days in chronological order
-    for (let i = 9; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      days.push({
-        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
-        label: `${d.getDate()} ${d.toLocaleDateString("en-US", { month: "short" })}`,
-        ordersCount: 0,
-        totalQty: 0,
-        totalVolume: 0,
-        breakdown: {
-          pending_review: { count: 0, quantity: 0, amount: 0 },
-          open: { count: 0, quantity: 0, amount: 0 },
-          closed: { count: 0, quantity: 0, amount: 0 },
-          on_hold: { count: 0, quantity: 0, amount: 0 },
-          rejected: { count: 0, quantity: 0, amount: 0 },
-          cancelled: { count: 0, quantity: 0, amount: 0 },
-        },
-      });
-    }
-
-    orders.forEach((o) => {
-      const status = deriveOrderWorkflowStatus(o);
-      if (status === "draft") return;
-
-      const dateStr = o.order_date ?? o.created_at ?? o.createdAt;
-      if (!dateStr) return;
-      const d = new Date(dateStr);
-      if (Number.isNaN(d.getTime())) return;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const bucket = days.find((day) => day.key === key);
-      if (bucket) {
-        let cat: keyof ChartBucket["breakdown"] = "open";
-
-        if (status === "on_hold") {
-          cat = "on_hold";
-        } else if (status === "cancelled") {
-          cat = "cancelled";
-        } else if (status === "finance_rejected") {
-          cat = "rejected";
-        } else if (status === "submitted") {
-          cat = "pending_review";
-        } else {
-          const items = Array.isArray(o.order_items) ? o.order_items : [];
-          let ordered = 0;
-          let delivered = 0;
-          items.forEach((line: any) => {
-            ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-            delivered += Number(line.delivered_quantity ?? 0);
-          });
-
-          if (ordered > 0 && delivered >= ordered) {
-            cat = "closed";
-          } else {
-            cat = "open";
-          }
-        }
-
-        bucket.ordersCount++;
-        bucket.breakdown[cat].count++;
-        const items = Array.isArray(o.order_items) ? o.order_items : [];
-        let orderQty = 0;
-        items.forEach((item: any) => {
-          orderQty += Number(item.ordered_quantity ?? item.quantity ?? 0);
-        });
-        bucket.totalQty += orderQty;
-        bucket.breakdown[cat].quantity += orderQty;
-
-        const orderAmount = Number(o.grand_total ?? o.total ?? 0);
-        bucket.totalVolume += orderAmount;
-        bucket.breakdown[cat].amount += orderAmount;
-      }
-    });
-
-    return days;
-  }, [orders]);
+  const monthlyData = useMemo(() => buildMonthlyBuckets(orders), [orders]);
+  const dailyData = useMemo(() => buildDailyBuckets(orders), [orders]);
 
   const activeData = timeframe === "monthly" ? monthlyData : dailyData;
 
@@ -274,6 +175,7 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
   }, [activeData, showMetric]);
 
   const gridTicks = [0, maxVal * 0.25, maxVal * 0.5, maxVal * 0.75, maxVal];
+  const statusKeys = ADMIN_ORDER_TABS.map((tab) => tab.id);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-900 font-sans relative z-10">
@@ -288,7 +190,6 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Metric Selector */}
           <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
             <button
               type="button"
@@ -325,7 +226,6 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
             </button>
           </div>
 
-          {/* Timeframe Toggle */}
           <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
             <button
               type="button"
@@ -353,10 +253,9 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
         </div>
       </div>
 
-      {/* Legend */}
       <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-100/50 pb-3 dark:border-white/5">
-        {(["pending_review", "open", "closed", "on_hold", "rejected", "cancelled"] as const).map((key) => {
-          const colorInfo = STATUS_COLORS[key];
+        {statusKeys.map((key) => {
+          const colorInfo = ADMIN_STATUS_COLORS[key];
           return (
             <div key={key} className="flex items-center gap-1.5">
               <span className={`h-2.5 w-2.5 rounded-full ${colorInfo.dot}`} />
@@ -366,7 +265,6 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
         })}
       </div>
 
-      {/* Bar Chart Container */}
       <div className="mt-6 relative z-20 h-[250px] w-full flex items-center justify-center">
         {isOrdersFetching ? (
           <div className="flex flex-col items-center justify-center space-y-2">
@@ -380,12 +278,10 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
           </div>
         ) : (
           <svg viewBox="0 0 500 200" className="w-full h-full select-none overflow-visible">
-            {/* Grids and Axes */}
             {gridTicks.map((tick, index) => {
               const y = 15 + 155 - (tick / maxVal) * 155;
               return (
                 <g key={index} className="opacity-40 dark:opacity-20">
-                  {/* Grid Line */}
                   <line
                     x1={45}
                     y1={y}
@@ -394,7 +290,6 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
                     className="stroke-slate-200 dark:stroke-slate-700"
                     strokeDasharray="4 4"
                   />
-                  {/* Y-Axis tick label */}
                   <text
                     x={38}
                     y={y + 3}
@@ -407,7 +302,6 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
               );
             })}
 
-            {/* X-Axis base line */}
             <line
               x1={45}
               y1={170}
@@ -416,15 +310,12 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
               className="stroke-slate-200 dark:stroke-slate-700 opacity-60"
             />
 
-            {/* Bars */}
             {activeData.map((d, i) => {
               const slotWidth = 440 / activeData.length;
               const barWidth = slotWidth * 0.6;
               const x = 45 + i * slotWidth + slotWidth / 2;
               const barX = x - barWidth / 2;
               const isHovered = hoveredBarIndex === i;
-
-              const statusKeys = ["pending_review", "open", "closed", "on_hold", "rejected", "cancelled"] as const;
 
               let currentY = 170;
 
@@ -437,7 +328,12 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
                 >
                   {statusKeys.map((statusKey) => {
                     const stats = d.breakdown[statusKey];
-                    const segmentVal = showMetric === "orders" ? stats.count : showMetric === "quantities" ? stats.quantity : stats.amount;
+                    const segmentVal =
+                      showMetric === "orders"
+                        ? stats.count
+                        : showMetric === "quantities"
+                          ? stats.quantity
+                          : stats.amount;
 
                     if (segmentVal <= 0) return null;
 
@@ -445,7 +341,7 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
                     const segmentY = currentY - segmentHeight;
                     currentY = segmentY;
 
-                    const colorInfo = STATUS_COLORS[statusKey];
+                    const colorInfo = ADMIN_STATUS_COLORS[statusKey];
 
                     return (
                       <rect
@@ -461,10 +357,8 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
                     );
                   })}
 
-                  {/* Invisible overlay for easier hovering */}
                   <rect x={barX} y={15} width={barWidth} height={155} className="fill-transparent" />
 
-                  {/* X-Axis labels */}
                   <text
                     x={x}
                     y={185}
@@ -477,23 +371,32 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
               );
             })}
 
-            {/* Floating Tooltip */}
             {hoveredBarIndex !== null &&
               (() => {
                 const item = activeData[hoveredBarIndex];
-                const val = showMetric === "orders" ? item.ordersCount : showMetric === "quantities" ? item.totalQty : item.totalVolume;
+                const val =
+                  showMetric === "orders"
+                    ? item.ordersCount
+                    : showMetric === "quantities"
+                      ? item.totalQty
+                      : item.totalVolume;
                 const barHeight = (val / maxVal) * 155;
                 const barY = 15 + 155 - barHeight;
                 const slotWidth = 440 / activeData.length;
                 const x = 45 + hoveredBarIndex * slotWidth + slotWidth / 2;
 
-                const activeBreakdowns = (["pending_review", "open", "closed", "on_hold", "rejected", "cancelled"] as const)
+                const activeBreakdowns = statusKeys
                   .map((key) => {
                     const stats = item.breakdown[key];
-                    const segmentVal = showMetric === "orders" ? stats.count : showMetric === "quantities" ? stats.quantity : stats.amount;
+                    const segmentVal =
+                      showMetric === "orders"
+                        ? stats.count
+                        : showMetric === "quantities"
+                          ? stats.quantity
+                          : stats.amount;
                     return {
                       key,
-                      label: STATUS_COLORS[key].label,
+                      label: ADMIN_STATUS_COLORS[key].label,
                       val: segmentVal,
                     };
                   })
@@ -529,8 +432,9 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
 
                     {activeBreakdowns.map((ab, idx) => {
                       const lineY = tooltipY + 26 + idx * 12;
-                      const colorInfo = STATUS_COLORS[ab.key];
-                      const displayVal = showMetric === "volume" ? `₹${formatMoney(ab.val)}` : ab.val.toLocaleString();
+                      const colorInfo = ADMIN_STATUS_COLORS[ab.key];
+                      const displayVal =
+                        showMetric === "volume" ? `₹${formatMoney(ab.val)}` : ab.val.toLocaleString();
                       return (
                         <g key={ab.key}>
                           <circle cx={x - 52} cy={lineY - 3} r={3} className={colorInfo.hover} />
@@ -554,10 +458,7 @@ export default function AdminOrderVolumeChart({ orders, isOrdersFetching }: Admi
                       );
                     })}
 
-                    <path
-                      d={arrowD}
-                      className="fill-slate-900/95 dark:fill-slate-800/95"
-                    />
+                    <path d={arrowD} className="fill-slate-900/95 dark:fill-slate-800/95" />
                   </g>
                 );
               })()}

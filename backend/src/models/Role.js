@@ -11,7 +11,7 @@ const roleSchema = new mongoose.Schema(
 
     department: {
       type: String,
-      enum: ["super_admin", "admin", "sales", "finance", "dispatch"],
+      enum: ["super_admin", "admin", "sales", "finance", "account", "dispatch"],
       required: true,
     },
 

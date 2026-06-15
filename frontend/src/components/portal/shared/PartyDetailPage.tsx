@@ -2,8 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Edit,
+import { Edit,
   ArrowLeft,
   Building,
   MapPin,
@@ -30,15 +29,22 @@ import {
   RefreshCw,
   UserCheck,
   Truck,
-  Users,
-} from "lucide-react";
+  Users, Wallet } from "lucide-react";
 
 import { ConfirmDeleteDraftModal } from "@/components/portal/sales/components/modals/ConfirmDeleteDraftModal";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
+import { resolvePortalPresentation } from "@/components/portal/shared/portalPresentation";
 import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
+import {
+  ADMIN_ORDER_TABS,
+  getAdminOrderTabCategory,
+  type AdminOrderTabCategory,
+} from "@/components/portal/admin/adminOrderUtils";
+import { isOrderClosed } from "@/components/portal/sales/orderUtils";
 
 import {
   useGetPartyQuery,
@@ -74,30 +80,48 @@ function orderKey(row: unknown): string {
   return "";
 }
 
-function getAdminOrderTabCategory(order: unknown): "pending_review" | "open" | "draft" | "closed" | "on_hold" | "cancelled" | "rejected" {
-  if (!order || typeof order !== "object") return "open";
+type PartyOrderTabCategory = Exclude<AdminOrderTabCategory, "pending_review">;
+type PartyOrderStageTab = "all" | PartyOrderTabCategory;
+
+const PARTY_ORDER_TABS: ReadonlyArray<{ id: PartyOrderStageTab; label: string }> = [
+  { id: "all", label: "All Orders" },
+  ...ADMIN_ORDER_TABS.filter(
+    (tab): tab is { id: PartyOrderTabCategory; label: string } =>
+      tab.id !== "pending_review",
+  ).map(({ id, label }) => ({
+    id,
+    label:
+      id === "open"
+        ? "Open Orders"
+        : id === "closed"
+          ? "Closed Orders"
+          : label,
+  })),
+];
+
+function getFinancePartyOrderTabCategory(order: unknown): PartyOrderTabCategory | null {
+  if (!order || typeof order !== "object") return null;
   const row = order as Record<string, unknown>;
   const status = deriveOrderWorkflowStatus(row);
 
-  if (status === "draft") return "draft";
+  if (status === "draft") return null;
   if (status === "on_hold") return "on_hold";
   if (status === "cancelled") return "cancelled";
   if (status === "finance_rejected") return "rejected";
-  if (status === "submitted") return "pending_review";
-
-  const items = Array.isArray(row.order_items) ? row.order_items : [];
-  let ordered = 0;
-  let delivered = 0;
-  items.forEach((line: any) => {
-    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-    delivered += Number(line.delivered_quantity ?? 0);
-  });
-
-  if (ordered > 0 && delivered >= ordered) {
-    return "closed";
-  }
+  if (isOrderClosed(row)) return "closed";
 
   return "open";
+}
+
+function getPartyOrderTabCategory(order: unknown, portal: string): PartyOrderTabCategory | null {
+  if (portal === "finance") {
+    return getFinancePartyOrderTabCategory(order);
+  }
+
+  const cat = getAdminOrderTabCategory(order);
+  if (!cat) return null;
+  if (cat === "pending_review") return "open";
+  return cat;
 }
 
 function renderPriorityBadge(priority: string) {
@@ -146,10 +170,11 @@ const valueClass = "text-sm font-semibold text-slate-800 dark:text-slate-200 mt-
 
 export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps) {
   const router = useRouter();
-  const portal = portalHome.replace("/", ""); // e.g. "admin" or "finance"
+  const portal = portalHome.replace("/", "");
+  const { portalName, gradientClass, badgeClass } = resolvePortalPresentation(portal);
 
   // Queries
-  const { data: rawParty, isFetching, isError, refetch } = useGetPartyQuery(id, {
+  const { data: rawParty, isLoading, isFetching, isError, refetch } = useGetPartyQuery(id, {
     skip: !id,
   });
 
@@ -161,7 +186,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
   // Orders related state
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [debouncedOrderSearch, setDebouncedOrderSearch] = useState("");
-  const [orderStageTab, setOrderStageTab] = useState<"all" | "pending_review" | "open" | "closed" | "on_hold" | "cancelled" | "rejected">("all");
+  const [orderStageTab, setOrderStageTab] = useState<PartyOrderStageTab>("all");
   const [orderPriorityFilter, setOrderPriorityFilter] = useState("all");
   const [orderCurrentPage, setOrderCurrentPage] = useState(1);
   const [orderItemsPerPage, setOrderItemsPerPage] = useState(10);
@@ -228,8 +253,9 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
         totalSpent += total;
       }
 
-      const cat = getAdminOrderTabCategory(o);
-      if (cat === "open" || cat === "pending_review" || cat === "on_hold") {
+      const cat = getPartyOrderTabCategory(o, portal);
+      if (!cat) return;
+      if (cat === "open" || cat === "on_hold") {
         openCount++;
       } else if (cat === "closed") {
         closedCount++;
@@ -253,14 +279,12 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
       closedCount,
       fulfillmentRate,
     };
-  }, [allPartyOrders]);
+  }, [allPartyOrders, portal]);
 
   const tabCounts = useMemo(() => {
-    const counts = {
+    const counts: Record<PartyOrderStageTab, number> = {
       all: 0,
-      pending_review: 0,
       open: 0,
-      draft: 0,
       closed: 0,
       on_hold: 0,
       rejected: 0,
@@ -285,14 +309,14 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
       }
 
       counts.all++;
-      const cat = getAdminOrderTabCategory(o) as keyof typeof counts;
-      if (counts[cat] !== undefined) {
+      const cat = getPartyOrderTabCategory(o, portal);
+      if (cat) {
         counts[cat]++;
       }
     });
 
     return counts;
-  }, [allPartyOrders, orderPriorityFilter, orderSearchQuery]);
+  }, [allPartyOrders, orderPriorityFilter, orderSearchQuery, portal]);
 
   const filteredOrders = useMemo(() => pickOrders(rawOrders) as any[], [rawOrders]);
 
@@ -363,26 +387,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
     });
   }, [partyMappings]);
 
-  // Theme selection: emerald/teal for finance, violet/purple for admin
-  const isFinance = portal === "finance";
-  const gradientClass = isFinance
-    ? "from-emerald-500/10 to-teal-500/10 border-emerald-500/10 dark:from-emerald-500/5 dark:to-teal-500/5"
-    : "from-violet-500/10 to-purple-500/10 border-violet-500/10 dark:from-violet-500/5 dark:to-purple-500/5";
-  const badgeClass = isFinance
-    ? "bg-emerald-50 text-emerald-700 ring-emerald-700/10 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20"
-    : "bg-violet-50 text-violet-700 ring-violet-700/10 dark:bg-violet-500/10 dark:text-violet-400 dark:ring-violet-500/20";
-  const portalName = isFinance ? "Finance Portal" : "Admin Portal";
-
-  if (isFetching) {
-    return (
-      <div className="flex flex-col items-center justify-center py-32 space-y-4">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-        <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Loading party profile...</p>
-      </div>
-    );
-  }
-
-  if (isError || !rawParty) {
+  if (isError || (!isLoading && !rawParty)) {
     return (
       <div className="text-center py-20 max-w-md mx-auto">
         <div className="text-4xl">⚠️</div>
@@ -398,6 +403,10 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
         </button>
       </div>
     );
+  }
+
+  if (!rawParty) {
+    return <PortalBusyOverlay active message="Loading party…" />;
   }
 
   const p = rawParty as any;
@@ -416,6 +425,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
       {isEditModalOpen && (
         <PartyDetailModal
           partyId={id}
+          portalHome={portalHome}
           initialTab={editModalTab}
           onClose={() => {
             setIsEditModalOpen(false);
@@ -1100,22 +1110,14 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                   </div>
                 ) : (
                   <nav className="-mb-px flex space-x-6 overflow-x-auto pb-px scrollbar-none" aria-label="Order stages">
-                    {[
-                      { id: "all", label: "All Orders" },
-                      { id: "pending_review", label: "Pending Review" },
-                      { id: "open", label: "Open Orders" },
-                      { id: "closed", label: "Closed Orders" },
-                      { id: "on_hold", label: "On Hold" },
-                      { id: "rejected", label: "Rejected" },
-                      { id: "cancelled", label: "Cancelled" },
-                    ].map((tab) => {
+                    {PARTY_ORDER_TABS.map((tab) => {
                       const isActive = orderStageTab === tab.id;
                       return (
                         <button
                           key={tab.id}
                           type="button"
                           onClick={() => {
-                            setOrderStageTab(tab.id as any);
+                            setOrderStageTab(tab.id);
                             setOrderCurrentPage(1);
                           }}
                           className={`group border-b-2 py-4 px-1 text-sm font-semibold transition whitespace-nowrap inline-flex items-center gap-2 cursor-pointer ${
@@ -1131,7 +1133,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                                 ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
                                 : "bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-400"
                             }`}>
-                              {tabCounts[tab.id as keyof typeof tabCounts] ?? 0}
+                              {tabCounts[tab.id] ?? 0}
                             </span>
                           )}
                         </button>
@@ -1236,12 +1238,14 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                       const adminBox = deptBoxes.find((b) => b.id === "admin");
                       const financeBox = deptBoxes.find((b) => b.id === "finance");
                       const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-                      const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
+                      const accountBox = deptBoxes.find((b) => b.id === "account");
+  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
 
                       const adminStatusDim = adminBox?.status;
                       const financeStatusDim = financeBox?.status;
                       const dispatchStatusDim = dispatchBox?.status;
-                      const deliveryStatusDim = deliveryBox?.status;
+                      const accountStatusDim = accountBox?.status;
+  const deliveryStatusDim = deliveryBox?.status;
 
                       const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
                       const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {

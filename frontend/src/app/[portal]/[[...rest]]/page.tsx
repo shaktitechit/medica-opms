@@ -5,16 +5,15 @@ import { useParams } from "next/navigation";
 import {
   PortalOverview,
   PortalSectionPlaceholder,
-  ListDraftOrderPage,
   ListMyOrdersPage,
   ListPartiesPage,
   ListProductsPage,
   PartyDetailPage,
   ProductDetailPage,
-  ListSubmittedOrders,
   ListAdminOrdersPage,
   AdminCreateOrderPage,
   ListFinanceOrdersPage,
+  ListAccountOrdersPage,
   ListDispatchOrdersPage,
   ListDriversPage,
   ListVehiclesPage,
@@ -77,14 +76,8 @@ export default function PortalCatchAllPage() {
   if (portal === "sales" && restArr.length === 1 && restArr[0] === "create-order") {
     return <CreateOrderPage />;
   }
-  if (portal === "sales" && restArr.length === 1 && restArr[0] === "draft-order") {
-    return <ListDraftOrderPage />;
-  }
   if (portal === "sales" && restArr.length === 1 && restArr[0] === "orders") {
     return <ListMyOrdersPage />;
-  }
-  if (portal === "sales" && restArr.length === 1 && restArr[0] === "submitted-orders") {
-    return <ListSubmittedOrders />;
   }
 
   // ── FINANCE ──────────────────────────────────────────────────────────────
@@ -96,6 +89,17 @@ export default function PortalCatchAllPage() {
   }
   if (portal === "finance" && restArr.length === 1 && restArr[0] === "products") {
     return <ListProductsPage portalHome="/finance" />;
+  }
+
+  // ── ACCOUNT ──────────────────────────────────────────────────────────────
+  if (portal === "account" && restArr.length === 1 && restArr[0] === "orders") {
+    return <ListAccountOrdersPage />;
+  }
+  if (portal === "account" && restArr.length === 1 && restArr[0] === "parties") {
+    return <ListPartiesPage portalHome="/account" />;
+  }
+  if (portal === "account" && restArr.length === 1 && restArr[0] === "products") {
+    return <ListProductsPage portalHome="/account" />;
   }
 
   // ── DISPATCH ─────────────────────────────────────────────────────────────
@@ -146,13 +150,13 @@ export default function PortalCatchAllPage() {
 
   // ── SHARED DETAIL PAGES ──────────────────────────────────────────────────
   if (
-    (portal === "admin" || portal === "finance" || portal === "super_admin") &&
+    (portal === "admin" || portal === "finance" || portal === "account" || portal === "super_admin") &&
     restArr.length === 2 && restArr[0] === "parties"
   ) {
     return <PartyDetailPage id={restArr[1]} portalHome={`/${portal}`} />;
   }
   if (
-    (portal === "admin" || portal === "finance" || portal === "super_admin") &&
+    (portal === "admin" || portal === "finance" || portal === "account" || portal === "super_admin") &&
     restArr.length === 2 && restArr[0] === "products"
   ) {
     return <ProductDetailPage id={restArr[1]} portalHome={`/${portal}`} />;

@@ -8,7 +8,7 @@ const orderEntityTags = (id: string) => [
   { type: "Orders" as const, id: "LIST" },
   { type: "Orders" as const, id: "DELETED" },
   { type: "PartyProducts" as const, id },
-  { type: "OrderFinanceApprovals" as const, id: "LIST" },
+  { type: "OrderApprovals" as const, id: "LIST" },
 ];
 
 function normalizeOrderItem(item: unknown): unknown {
@@ -71,11 +71,16 @@ export const ordersApi = medicaApi.injectEndpoints({
       providesTags: (_r, _e, id) => [
         { type: "Order", id },
         { type: "Approvals", id: "LIST" },
-        { type: "OrderFinanceApprovals", id: "LIST" },
+        { type: "OrderApprovals", id: "LIST" },
       ],
     }),
     getOrderFulfillment: build.query<unknown, string>({
       query: (id) => `orders/${id}/fulfillment`,
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      providesTags: (_r, _e, id) => [{ type: "Order", id }],
+    }),
+    getOrderAssignees: build.query<unknown, string>({
+      query: (id) => `orders/${id}/assignees`,
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       providesTags: (_r, _e, id) => [{ type: "Order", id }],
     }),
@@ -119,10 +124,34 @@ export const ordersApi = medicaApi.injectEndpoints({
       invalidatesTags: (_r, _e, arg) => [
         ...orderEntityTags(arg.id),
         "Approvals",
-        "OrderFinanceApprovals",
+        "OrderApprovals",
         "FinanceQueue",
         "FinanceSummary",
         { type: "Order", id: arg.id },
+      ],
+    }),
+    closeOrderWithReturns: build.mutation<
+      unknown,
+      {
+        id: string;
+        body: {
+          return_id?: string;
+          extra_charges?: number;
+          penalty_amount?: number;
+          damage_charge?: number;
+          remarks?: string;
+        };
+      }
+    >({
+      query: ({ id, body }) => ({
+        url: `orders/${id}/close-with-returns`,
+        method: "POST",
+        body,
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: (_r, _e, arg) => [
+        ...orderEntityTags(arg.id),
+        { type: "Order", id: "RETURN_LIST" },
       ],
     }),
   }),
@@ -141,9 +170,12 @@ export const {
   useLazyGetOrderApprovalsQuery,
   useGetOrderFulfillmentQuery,
   useLazyGetOrderFulfillmentQuery,
+  useGetOrderAssigneesQuery,
+  useLazyGetOrderAssigneesQuery,
   useCreateOrderMutation,
   usePatchOrderMutation,
   useDeleteOrderMutation,
   useRestoreOrderMutation,
   useTransitionOrderMutation,
+  useCloseOrderWithReturnsMutation,
 } = ordersApi;

@@ -30,6 +30,7 @@ import {
 import { VehicleDetailModal } from "./modals/VehicleDetailModal";
 import { ConfirmDeleteVehicleModal } from "./modals/ConfirmDeleteVehicleModal";
 import { AddVehicleDocumentModal } from "./modals/AddVehicleDocumentModal";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { formatVehicleCapacity, transportAgentLabel } from "./fleetDisplay";
 
 const labelClass = "text-xs font-semibold text-slate-500 dark:text-slate-400";
@@ -135,7 +136,7 @@ export default function VehicleDetailPage({ id }: VehicleDetailPageProps) {
   const [addDocOpen, setAddDocOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<VehicleTab>("documents");
 
-  const { data, isFetching, isError, refetch } = useGetVehicleQuery(id, {
+  const { data, isLoading, isFetching, isError, refetch } = useGetVehicleQuery(id, {
     skip: !id,
   });
 
@@ -192,18 +193,7 @@ export default function VehicleDetailPage({ id }: VehicleDetailPageProps) {
     }
   };
 
-  if (isFetching) {
-    return (
-      <div className="flex flex-col items-center justify-center py-32 space-y-4">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-        <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-          Loading vehicle…
-        </p>
-      </div>
-    );
-  }
-
-  if (isError || !detail) {
+  if (isError || (!isLoading && !detail)) {
     return (
       <div className="text-center py-20 max-w-md mx-auto">
         <div className="text-4xl">⚠️</div>
@@ -218,6 +208,10 @@ export default function VehicleDetailPage({ id }: VehicleDetailPageProps) {
         </Link>
       </div>
     );
+  }
+
+  if (!detail) {
+    return <PortalBusyOverlay active message="Loading vehicle…" />;
   }
 
   const statusStr = stringField(detail.status) || "available";

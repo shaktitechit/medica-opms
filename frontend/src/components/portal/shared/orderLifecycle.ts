@@ -34,6 +34,9 @@ const CURRENT_ACTION_TO_STATUS: Record<string, string> = {
   fully_approved: "fully_finance_approved",
   partially_finance_approved: "partially_finance_approved",
   fully_finance_approved: "fully_finance_approved",
+  sent_to_account: "account_review",
+  partially_account_approved: "partially_account_approved",
+  fully_account_approved: "fully_account_approved",
   rejected: "finance_rejected",
   sent_to_dispatch: "dispatch_pending",
   partial_dispatch: "partial_dispatch_created",
@@ -86,14 +89,20 @@ export function deriveOrderWorkflowStatus(order: unknown): string {
   if (stage === "sales") return lifecycle === "draft" ? "draft" : "finance_rejected";
   if (stage === "admin_review") return "submitted";
   if (stage === "finance_review") return "finance_review";
+  if (stage === "account_review") return "account_review";
   if (stage === "dispatch_review") {
     if (action === "sent_to_dispatch") return "dispatch_pending";
+    if (action === "partially_account_approved") return "partially_account_approved";
+    if (action === "fully_account_approved") return "fully_account_approved";
+    const aas = typeof row.account_approval_status === "string" ? row.account_approval_status : "";
+    if (aas === "partial") return "partially_account_approved";
+    if (aas === "full") return "fully_account_approved";
     const fas = typeof row.finance_approval_status === "string" ? row.finance_approval_status : "";
     if (fas === "partial") return "partially_finance_approved";
     if (fas === "full") return "fully_finance_approved";
     if (action === "partially_finance_approved") return "partially_finance_approved";
     if (action === "fully_finance_approved") return "fully_finance_approved";
-    return "dispatch_pending";
+    return "fully_finance_approved";
   }
   if (stage === "dispatch_execution") {
     if (dispatchStatus === "completed") return "full_dispatch_created";

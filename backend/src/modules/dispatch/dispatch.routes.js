@@ -11,11 +11,11 @@ const controller = require('./dispatch.controller');
 router.use(requireAuth);
 
 router.get('/deleted', requireDepartment('sales', 'finance', 'dispatch'), requireSoftDeletePermission, controller.listDeleted);
-router.get('/', requireDepartment('sales', 'finance', 'dispatch'), controller.list);
+router.get('/', requireDepartment('sales', 'finance', 'dispatch', 'account'), controller.list);
 router.delete('/:id', requireDepartment('dispatch'), requireSoftDeletePermission, controller.softDelete);
 router.post('/:id/restore', requireDepartment('dispatch'), requireSoftDeletePermission, controller.restore);
-router.get('/:id', requireDepartment('sales', 'finance', 'dispatch'), controller.get);
-router.post('/', requireDepartment('dispatch'), controller.create);
-router.patch('/:id', requireDepartment('dispatch'), controller.patch);
+router.get('/:id', requireDepartment('sales', 'finance', 'dispatch', 'account'), controller.get);
+router.post('/', requireDepartment('dispatch', 'account'), controller.create);
+router.patch('/:id', requireDepartment('dispatch', 'account'), controller.patch);
 
 module.exports = router;

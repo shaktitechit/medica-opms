@@ -4,7 +4,7 @@
  */
 const { ApiError } = require('../../utils/ApiError');
 
-const USER_DEPARTMENTS = ['super_admin', 'admin', 'sales', 'finance', 'dispatch'];
+const USER_DEPARTMENTS = ['super_admin', 'admin', 'sales', 'finance', 'account', 'dispatch'];
 const PATCH_KEYS = ['name', 'email', 'phone', 'password', 'department', 'roles', 'is_active'];
 
 function assertCreate(body) {

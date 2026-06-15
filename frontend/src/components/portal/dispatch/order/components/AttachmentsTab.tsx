@@ -4,27 +4,78 @@ import { useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import { useAppSelector } from "@/store";
 import { toast } from "@/lib/toast";
-import { useCreateAttachmentMutation } from "@/store/api";
+import { pickList } from "@/components/portal/sales/partyDisplay";
+import {
+  useCreateAttachmentMutation,
+  useDeleteAttachmentMutation,
+  useListAttachmentsQuery,
+} from "@/store/api";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 
 type AttachmentsTabProps = {
   orderId: string;
-  attachments: any[];
-  isLoading: boolean;
   onUploadSuccess?: () => void;
 };
 
 const DEPARTMENT_LABELS: Record<string, string> = {
+  account: "Account Department",
   finance: "Finance & Accounts",
   dispatch: "Dispatch & Warehouse",
-  other: "Other",
 };
 
 const DEPARTMENT_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  finance: { bg: "bg-blue-50 dark:bg-blue-950/20", text: "text-blue-700 dark:text-blue-400", border: "border-blue-100 dark:border-blue-950/30" },
-  dispatch: { bg: "bg-amber-50 dark:bg-amber-950/20", text: "text-amber-700 dark:text-amber-400", border: "border-amber-100 dark:border-amber-950/30" },
-  other: { bg: "bg-slate-50 dark:bg-slate-950/20", text: "text-slate-700 dark:text-slate-400", border: "border-slate-100 dark:border-slate-950/30" },
+  account: {
+    bg: "bg-indigo-50 dark:bg-indigo-950/20",
+    text: "text-indigo-700 dark:text-indigo-400",
+    border: "border-indigo-100 dark:border-indigo-950/30",
+  },
+  finance: {
+    bg: "bg-blue-50 dark:bg-blue-950/20",
+    text: "text-blue-700 dark:text-blue-400",
+    border: "border-blue-100 dark:border-blue-950/30",
+  },
+  dispatch: {
+    bg: "bg-amber-50 dark:bg-amber-950/20",
+    text: "text-amber-700 dark:text-amber-400",
+    border: "border-amber-100 dark:border-amber-950/30",
+  },
 };
+
+const VISIBLE_DEPARTMENTS = new Set(["account", "finance", "dispatch"]);
+
+function normalizeAttachmentDepartment(dept: string | undefined): string | undefined {
+  if (!dept) return undefined;
+  if (dept === "transport") return "dispatch";
+  if (dept === "collection") return "finance";
+  return dept;
+}
+
+function attachmentEntityId(att: unknown): string {
+  if (!att || typeof att !== "object") return "";
+  const row = att as Record<string, unknown>;
+  const entityId = row.entity_id;
+  if (entityId != null && typeof entityId === "object") {
+    const ref = entityId as Record<string, unknown>;
+    return String(ref._id ?? ref.id ?? "");
+  }
+  return String(entityId ?? "");
+}
+
+export function pickOrderAttachments(raw: unknown, orderId: string): unknown[] {
+  if (!orderId) return [];
+  return pickList(raw).filter((att) => attachmentEntityId(att) === String(orderId));
+}
+
+export function countDispatchVisibleAttachments(attachments: unknown[]): number {
+  let count = 0;
+  for (const att of attachments) {
+    const dept = normalizeAttachmentDepartment(
+      (att as { uploaded_by?: { department?: string } }).uploaded_by?.department,
+    );
+    if (dept && VISIBLE_DEPARTMENTS.has(dept)) count++;
+  }
+  return count;
+}
 
 const btnSecondaryClass =
   "rounded-lg border border-slate-200/95 px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5";
@@ -90,11 +141,22 @@ function getFileIcon(mime: string) {
 
 export default function AttachmentsTab({
   orderId,
-  attachments,
-  isLoading,
   onUploadSuccess,
 }: AttachmentsTabProps) {
   const token = useAppSelector((s) => s.auth.token);
+  const [deleteAttachment, { isLoading: isDeleting }] = useDeleteAttachmentMutation();
+
+  const attachmentsQ = useListAttachmentsQuery(
+    { entity_type: "order", entity_id: orderId },
+    { skip: !orderId },
+  );
+
+  const attachments = useMemo(
+    () => pickOrderAttachments(attachmentsQ.data, orderId),
+    [attachmentsQ.data, orderId],
+  );
+
+  const isLoading = attachmentsQ.isFetching;
 
   // Upload state
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -104,15 +166,14 @@ export default function AttachmentsTab({
 
   const grouped = useMemo(() => {
     const groups: Record<string, any[]> = {
+      account: [],
       finance: [],
       dispatch: [],
     };
 
     for (const att of attachments) {
-      let dept = att.uploaded_by?.department as string | undefined;
-      if (dept === "transport") dept = "dispatch";
-      if (dept === "collection") dept = "finance";
-      if (dept === "finance" || dept === "dispatch") {
+      const dept = normalizeAttachmentDepartment(att.uploaded_by?.department as string | undefined);
+      if (dept && VISIBLE_DEPARTMENTS.has(dept)) {
         groups[dept].push(att);
       }
     }
@@ -157,6 +218,19 @@ export default function AttachmentsTab({
     } catch (error) {
       console.error("View failed:", error);
       toast.error("Failed to view file");
+    }
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+    try {
+      await deleteAttachment(id).unwrap();
+      toast.success("Attachment deleted successfully");
+      if (onUploadSuccess) {
+        onUploadSuccess();
+      }
+    } catch {
+      toast.error("Failed to delete attachment");
     }
   };
 
@@ -316,7 +390,9 @@ export default function AttachmentsTab({
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/90 dark:border-white/10 shadow-sm">
         <div>
           <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Order Attachments</h3>
-          <p className="text-xs text-slate-505 dark:text-slate-400">View, download, and upload files related to this dispatch or finance record.</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            View, download, and upload account, finance, and dispatch files for this order.
+          </p>
         </div>
         <button
           type="button"
@@ -334,7 +410,9 @@ export default function AttachmentsTab({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 13h6m-3-3v6m-9 1V4a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2-2z" />
             </svg>
             <h3 className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-200">No attachments</h3>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 mb-4">Get started by uploading a file to this order.</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 mb-4">
+              No account, finance, or dispatch files are available for this order yet.
+            </p>
             <button
               type="button"
               onClick={() => setIsUploadModalOpen(true)}
@@ -346,8 +424,9 @@ export default function AttachmentsTab({
         </DashboardCard>
       ) : (
         grouped.map(([deptKey, list]) => {
-          const colors = DEPARTMENT_COLORS[deptKey] || DEPARTMENT_COLORS.other;
-          const label = DEPARTMENT_LABELS[deptKey] || DEPARTMENT_LABELS.other;
+          const colors = DEPARTMENT_COLORS[deptKey];
+          const label = DEPARTMENT_LABELS[deptKey];
+          const canDeleteInGroup = deptKey === "dispatch";
 
           return (
             <div key={deptKey} className="overflow-hidden rounded-xl border border-slate-200/90 dark:border-white/10 shadow-sm">
@@ -410,6 +489,19 @@ export default function AttachmentsTab({
                         </svg>
                         Download
                       </button>
+                      {canDeleteInGroup ? (
+                        <button
+                          type="button"
+                          disabled={isDeleting}
+                          onClick={() => handleDelete(att._id, att.original_name)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-700 bg-white hover:bg-rose-50 transition dark:border-rose-950/20 dark:text-rose-400 dark:bg-slate-950 dark:hover:bg-rose-950/10 disabled:opacity-50"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          Delete
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ))}

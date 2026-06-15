@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import OrderVolumeChart from "./AdminOrderVolumeChart";
 import AdminOverviewWidgets from "./AdminOverviewWidgets";
 import AdminRecentOrdersWidget from "./AdminRecentOrdersWidget";
+import { computeAdminOrderStats } from "./adminOrderUtils";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
   useGetDashboardAdminQuery,
@@ -98,52 +99,7 @@ export default function AdminOverview() {
   // 2. Data processing
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
-  const orderStats = useMemo(() => {
-    const stats = {
-      pending_review: { count: 0 },
-      open: { count: 0 },
-      closed: { count: 0 },
-      on_hold: { count: 0 },
-      rejected: { count: 0 },
-      cancelled: { count: 0 },
-    };
-
-    for (const o of orders) {
-      const status = deriveOrderWorkflowStatus(o);
-      if (status === "draft") {
-        continue;
-      }
-
-      let cat: keyof typeof stats = "open";
-      if (status === "on_hold") {
-        cat = "on_hold";
-      } else if (status === "cancelled") {
-        cat = "cancelled";
-      } else if (status === "finance_rejected") {
-        cat = "rejected";
-      } else if (status === "submitted") {
-        cat = "pending_review";
-      } else {
-        const items = Array.isArray(o.order_items) ? o.order_items : [];
-        let ordered = 0;
-        let delivered = 0;
-        items.forEach((line: any) => {
-          ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-          delivered += Number(line.delivered_quantity ?? 0);
-        });
-
-        if (ordered > 0 && delivered >= ordered) {
-          cat = "closed";
-        } else {
-          cat = "open";
-        }
-      }
-
-      stats[cat].count++;
-    }
-
-    return stats;
-  }, [orders]);
+  const orderStats = useMemo(() => computeAdminOrderStats(orders), [orders]);
 
   const totalOrdersCount = useMemo(() => {
     return orders.filter((o) => deriveOrderWorkflowStatus(o) !== "draft").length;

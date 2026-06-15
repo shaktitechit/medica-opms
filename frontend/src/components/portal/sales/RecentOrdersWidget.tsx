@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { AlertTriangle, UserCheck, DollarSign, Package, Truck, ArrowRight } from "lucide-react";
+import { AlertTriangle, UserCheck, DollarSign, Package, Truck, ArrowRight, Wallet } from "lucide-react";
 import { resolveOrderCounterparty } from "./partyDisplay";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
@@ -115,7 +115,7 @@ export default function RecentOrdersWidget({
           </p>
         </div>
         <Link
-          href="/sales/my-orders"
+          href="/sales/orders"
           className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
         >
           See all
@@ -170,11 +170,13 @@ export default function RecentOrdersWidget({
               const adminBox = deptBoxes.find((b) => b.id === "admin");
               const financeBox = deptBoxes.find((b) => b.id === "finance");
               const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
+              const accountBox = deptBoxes.find((b) => b.id === "account");
               const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
 
               const adminStatusDim = adminBox?.status;
               const financeStatusDim = financeBox?.status;
               const dispatchStatusDim = dispatchBox?.status;
+              const accountStatusDim = accountBox?.status;
               const deliveryStatusDim = deliveryBox?.status;
 
               const orderItems = Array.isArray(o.order_items) ? o.order_items : [];

@@ -72,7 +72,7 @@ const orderDispatchSchema = new mongoose.Schema(
 
     finance_approval: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "OrderFinanceApproval",
+      ref: "OrderApproval",
       index: true,
     },
 
@@ -80,6 +80,8 @@ const orderDispatchSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Warehouse",
     },
+
+    warehouse_location: String,
 
     dispatch_status: {
       type: String,
@@ -108,9 +110,24 @@ const orderDispatchSchema = new mongoose.Schema(
       ref: "User",
     },
 
+    dispatch_assignee_user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+    },
+
     packed_at: Date,
 
     dispatched_at: Date,
+
+    bill_number: String,
+
+    billing_date: Date,
+
+    bill_document: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Attachment",
+    },
 
     remarks: String,
 

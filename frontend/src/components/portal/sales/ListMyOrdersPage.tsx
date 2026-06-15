@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ConfirmDeleteDraftModal } from "@/components/portal/sales/components/modals/ConfirmDeleteDraftModal";
 import {
@@ -10,8 +10,15 @@ import {
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { SALES_ORDER_STATUSES, PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
+import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import {
+  getOrderTabCategory,
+  isSalesOrderTabCategory,
+  SALES_ORDER_TABS,
+  type SalesOrderTabCategory,
+} from "@/components/portal/sales/orderUtils";
 import {
   computeOrderStatusDimensions,
   dimensionToneClass,
@@ -34,8 +41,7 @@ import {
   buildUserNameById,
   resolveUserDisplay,
 } from "@/components/portal/shared/userDisplay";
-import {
-  Search,
+import { Search,
   X,
   ChevronLeft,
   ChevronRight,
@@ -49,8 +55,7 @@ import {
   UserCheck,
   DollarSign,
   Package,
-  Truck,
-} from "lucide-react";
+  Truck, Wallet } from "lucide-react";
 
 type OrderRow = {
   _id?: string;
@@ -93,33 +98,6 @@ function formatDateShort(v: unknown): string {
     month: "short",
     year: "numeric",
   });
-}
-
-function getOrderTabCategory(order: unknown): "draft" | "open" | "closed" | "on_hold" | "cancelled" | "rejected" {
-  if (!order || typeof order !== "object") return "open";
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-
-  if (status === "draft") return "draft";
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-  if (status === "finance_rejected") return "rejected";
-
-  // Calculate quantities from items
-  const items = Array.isArray(row.order_items) ? row.order_items : [];
-  let ordered = 0;
-  let delivered = 0;
-  items.forEach((line: any) => {
-    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-    delivered += Number(line.delivered_quantity ?? 0);
-  });
-
-  // An order which is delivered less than what have been ordered will be in open order list
-  if (ordered > 0 && delivered >= ordered) {
-    return "closed";
-  }
-
-  return "open";
 }
 
 function renderStatusDimensionBadge(dimension: OrderStatusDimension | null | undefined) {
@@ -235,22 +213,49 @@ function renderWorkflowStatusBadge(status: string) {
 
 export default function ListMyOrdersPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
+
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"open" | "draft" | "closed" | "on_hold" | "cancelled" | "rejected">("open");
+  const [activeTab, setActiveTab] = useState<SalesOrderTabCategory>(() =>
+    tabFromUrl && isSalesOrderTabCategory(tabFromUrl) ? tabFromUrl : "open",
+  );
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    if (tabFromUrl && isSalesOrderTabCategory(tabFromUrl)) {
+      setActiveTab(tabFromUrl);
+      setCurrentPage(1);
+    }
+  }, [tabFromUrl]);
 
   const queryParams = useMemo(() => {
     const base: Record<string, string | undefined> = {};
-    
-    // Only apply activeTab status filter if search query is empty (universal search)
+
     if (!searchQuery.trim()) {
-      if (activeTab === "draft") base.status = "draft";
-      else if (activeTab === "on_hold") base.status = "on_hold";
-      else if (activeTab === "cancelled") base.status = "cancelled";
-      else if (activeTab === "closed") base.status = "delivered";
-      else if (activeTab === "rejected") base.status = "finance_rejected";
-      else base.exclude_status = "draft,on_hold,cancelled,delivered,finance_rejected";
+      switch (activeTab) {
+        case "draft":
+          base.status = "draft";
+          break;
+        case "on_hold":
+          base.status = "on_hold";
+          break;
+        case "cancelled":
+          base.status = "cancelled";
+          break;
+        case "rejected":
+          base.status = "finance_rejected";
+          break;
+        case "open":
+          // Broad fetch; client excludes closed / terminal buckets
+          base.exclude_status = "draft,on_hold,cancelled,finance_rejected";
+          break;
+        case "closed":
+          base.status = "closed";
+          break;
+      }
     }
 
     if (searchQuery.trim()) {
@@ -259,12 +264,11 @@ export default function ListMyOrdersPage() {
     return base;
   }, [activeTab, searchQuery]);
 
-  const { data, isFetching, isError, refetch } = useListOrdersQuery(queryParams);
+  const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery(queryParams);
   const partiesQ = useListPartiesQuery({});
   const usersQ = useListUsersQuery({});
 
   // Pagination State
-  const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const orders = useMemo(() => pickOrders(data) as OrderRow[], [data]);
@@ -356,6 +360,7 @@ export default function ListMyOrdersPage() {
 
   return (
     <div className="space-y-6">
+      <PortalBusyOverlay active={isLoading} message="Loading orders…" />
       <ConfirmDeleteDraftModal
         orderId={deleteTarget?.id ?? null}
         orderLabel={deleteTarget?.label ?? ""}
@@ -459,21 +464,14 @@ export default function ListMyOrdersPage() {
           </div>
         ) : (
           <nav className="-mb-px flex space-x-6 overflow-x-auto pb-px scrollbar-none" aria-label="Order stages">
-            {[
-              { id: "open", label: "Open Orders" },
-              { id: "draft", label: "Draft Orders" },
-              { id: "closed", label: "Closed Orders" },
-              { id: "on_hold", label: "On Hold" },
-              { id: "rejected", label: "Rejected" },
-              { id: "cancelled", label: "Cancelled" },
-            ].map((tab) => {
+            {SALES_ORDER_TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => {
-                    setActiveTab(tab.id as any);
+                    setActiveTab(tab.id);
                     setCurrentPage(1);
                   }}
                   className={`group border-b-2 py-4 px-1 text-sm font-semibold transition whitespace-nowrap inline-flex items-center gap-2 cursor-pointer ${
@@ -526,13 +524,6 @@ export default function ListMyOrdersPage() {
 
       {/* Main Grid/Table Card */}
       <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
-        {isFetching && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Loading orders...</p>
-          </div>
-        )}
-
         {isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
@@ -545,7 +536,7 @@ export default function ListMyOrdersPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredOrders.length === 0 && (
+        {!isLoading && !isError && filteredOrders.length === 0 && (
           <div className="text-center py-16 px-4">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-955 text-slate-400 text-xl border border-slate-100 dark:border-white/5">
               📋
@@ -570,7 +561,7 @@ export default function ListMyOrdersPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredOrders.length > 0 && (
+        {!isLoading && !isError && filteredOrders.length > 0 && (
           <>
                         <div className="p-4 flex flex-col gap-3.5 bg-slate-50/10 dark:bg-slate-955/10">
               {paginatedOrders.map((o) => {
@@ -592,12 +583,14 @@ export default function ListMyOrdersPage() {
                  const adminBox = deptBoxes.find((b) => b.id === "admin");
                  const financeBox = deptBoxes.find((b) => b.id === "finance");
                  const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-                 const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
+                 const accountBox = deptBoxes.find((b) => b.id === "account");
+  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
 
                  const adminStatusDim = adminBox?.status;
                  const financeStatusDim = financeBox?.status;
                  const dispatchStatusDim = dispatchBox?.status;
-                 const deliveryStatusDim = deliveryBox?.status;
+                 const accountStatusDim = accountBox?.status;
+  const deliveryStatusDim = deliveryBox?.status;
                  
                  const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
                  const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {

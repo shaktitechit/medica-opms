@@ -2061,6 +2061,7 @@ const spec = {
           assigned_finance_user: { type: 'string' },
           assigned_dispatch_user: { type: 'string' },
           assigned_admin_user: { type: 'string' },
+          assigned_account_user: { type: 'string' },
         },
       },
       OrderTransition: {
@@ -2083,8 +2084,8 @@ const spec = {
           password: { type: 'string', format: 'password' },
           department: {
             type: 'string',
-            description: 'One of super_admin, admin, sales, finance, dispatch',
-            enum: ['super_admin', 'admin', 'sales', 'finance', 'dispatch'],
+            description: 'One of super_admin, admin, sales, finance, account, dispatch',
+            enum: ['super_admin', 'admin', 'sales', 'finance', 'account', 'dispatch'],
           },
           phone: { type: 'string' },
           roles: { type: 'array', items: { type: 'string' } },
@@ -2101,7 +2102,7 @@ const spec = {
           password: { type: 'string', format: 'password' },
           department: {
             type: 'string',
-            enum: ['super_admin', 'admin', 'sales', 'finance', 'dispatch'],
+            enum: ['super_admin', 'admin', 'sales', 'finance', 'account', 'dispatch'],
           },
           phone: { type: 'string' },
           roles: { type: 'array', items: { type: 'string' } },
@@ -2206,6 +2207,7 @@ const spec = {
           dispatch_date: { type: 'string', format: 'date-time' },
           status: { type: 'string' },
           warehouse_location: { type: 'string' },
+          dispatch_assignee_user: { type: 'string', description: 'Dispatch operator assigned to this batch' },
           remarks: { type: 'string' },
         },
       },

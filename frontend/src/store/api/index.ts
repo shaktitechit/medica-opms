@@ -17,7 +17,7 @@ export * from "./slices/financeApi";
 export * from "./slices/flagsApi";
 export * from "./slices/notificationsApi";
 export * from "./slices/ordersApi";
-export * from "./slices/orderFinanceApprovalApi";
+export * from "./slices/orderApprovalApi";
 export * from "./slices/productsApi";
 export * from "./slices/transportApi";
 export * from "./slices/usersApi";
@@ -25,4 +25,8 @@ export * from "./slices/vehiclesApi";
 export * from "./slices/filesApi";
 export * from "./slices/partyProductsApi";
 export * from "./slices/partyOrderProductsRateApi";
+export * from "./slices/orderDeliveryApi";
+export * from "./slices/orderReturnApi";
+export * from "./slices/finalOrderStatementApi";
+
 

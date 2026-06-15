@@ -129,10 +129,16 @@ async function recalculateOrderShipmentState(orderId, user) {
       orderDoc.current_action = 'sent_to_dispatch';
     }
   } else if (shipments.every((shipment) => shipment.shipment_status === 'delivered')) {
-    orderDoc.delivery_status = 'completed';
-    orderDoc.lifecycle_status = 'fulfilled';
-    orderDoc.workflow_stage = 'completed';
-    orderDoc.current_action = 'delivered';
+    orderDoc.delivery_status = fulfillmentState.fullyDelivered ? 'completed' : 'partial';
+    if (fulfillmentState.fullyDelivered) {
+      orderDoc.lifecycle_status = 'fulfilled';
+      orderDoc.workflow_stage = 'completed';
+      orderDoc.current_action = 'delivered';
+    } else if (!['closed', 'cancelled', 'on_hold'].includes(orderDoc.lifecycle_status)) {
+      orderDoc.lifecycle_status = 'partially_fulfilled';
+      orderDoc.workflow_stage = 'dispatch_execution';
+      orderDoc.current_action = 'delivered';
+    }
     orderDoc.status = 'delivered';
   } else {
     orderDoc.delivery_status = fulfillmentState.fullyDelivered ? 'completed' : 'partial';
@@ -169,6 +175,27 @@ async function recalculateOrderShipmentState(orderId, user) {
 
   orderDoc.updated_by = user._id;
   await orderDoc.save();
+
+  const allShipmentsDelivered =
+    shipments.length > 0 && shipments.every((s) => s.shipment_status === 'delivered');
+
+  if (
+    fulfillmentState.fullyDelivered &&
+    allShipmentsDelivered &&
+    !['closed', 'cancelled'].includes(String(orderDoc.lifecycle_status || ''))
+  ) {
+    const orderService = require('../orders/order.service');
+    try {
+      return await orderService.closeAfterFullDelivery(
+        orderId,
+        { remarks: 'Closed after full delivery' },
+        user,
+      );
+    } catch (err) {
+      if (err.statusCode !== 400) throw err;
+    }
+  }
+
   return toPlain(orderDoc.toObject());
 }
 

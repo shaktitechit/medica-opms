@@ -19,6 +19,11 @@ const { syncPartyProductLastRatesFromOrder } = require('../../services/opms/part
 const partyProductService = require('../partyProducts/partyProduct.service');
 const partyOrderProductsRateService = require('../partyOrderProductsRate/partyOrderProductsRate.service');
 const fulfillmentService = require('./orderFulfillment.service');
+const assigneeService = require('./orderAssignee.service');
+const {
+  ASSIGNED_USER_ORDER_FIELDS,
+  resolveWorkflowAssigneeUserId,
+} = require('./orderAssignee.util');
 
 /**
  * PATCH may only contain these plain fields. Everything else must go through `/transition`.
@@ -40,6 +45,7 @@ const ORDER_PATCH_KEYS = new Set([
   'assigned_finance_user',
   'assigned_dispatch_user',
   'assigned_admin_user',
+  'assigned_account_user',
 ]);
 
 function assertSafePlainPatch(patch) {
@@ -78,10 +84,9 @@ function applyWhitelistedPatchToMongooseDoc(doc, patch) {
     doc.set('expected_delivery_date', patch.expected_delivery_date ? new Date(patch.expected_delivery_date) : null);
   }
   if (patch.remarks !== undefined) doc.set('remarks', patch.remarks);
-  if (patch.assigned_sales_user !== undefined) doc.set('assigned_sales_user', patch.assigned_sales_user);
-  if (patch.assigned_finance_user !== undefined) doc.set('assigned_finance_user', patch.assigned_finance_user);
-  if (patch.assigned_dispatch_user !== undefined) doc.set('assigned_dispatch_user', patch.assigned_dispatch_user);
-  if (patch.assigned_admin_user !== undefined) doc.set('assigned_admin_user', patch.assigned_admin_user);
+  for (const key of ASSIGNED_USER_ORDER_FIELDS) {
+    if (patch[key] !== undefined) doc.set(key, patch[key]);
+  }
   if (patch.order_items !== undefined) {
     doc.set('order_items', normalizeItems(patch.order_items));
     doc.markModified('order_items');
@@ -127,6 +132,465 @@ function recalcCommercials(order) {
 }
 
 /**
+ * Recalculate line and header totals after returns are applied at order closure.
+ * Uses settled net delivered_quantity on each line (gross delivered minus returned).
+ */
+function recalcCommercialsForClosure(order) {
+  let subtotal = 0;
+  let gstAmount = 0;
+
+  for (const item of order.order_items || []) {
+    const q = Math.max(0, Number(item.delivered_quantity || 0));
+
+    const lineGross = q * Number(item.unit_price || 0);
+    let disc = Number(item.discount_amount || 0);
+    const dp = Number(item.discount_percent || 0);
+    if (dp > 0) {
+      disc = (lineGross * dp) / 100;
+      item.discount_amount = disc;
+    }
+    const taxable = Math.max(0, lineGross - disc);
+    const gst = (taxable * (item.gst_percent ?? 0)) / 100;
+    item.taxable_amount = taxable;
+    item.gst_amount = gst;
+    item.total_amount = taxable + gst;
+    subtotal += taxable;
+    gstAmount += gst;
+  }
+
+  order.subtotal = subtotal;
+  order.gst_amount = gstAmount;
+  const extras =
+    Number(order.extra_charges || 0) +
+    Number(order.penalty_amount || 0) +
+    Number(order.damage_charge || 0);
+  order.grand_total = subtotal + gstAmount - Number(order.discount_amount || 0) + extras;
+  return order;
+}
+
+function refId(value) {
+  if (value == null) return '';
+  if (typeof value === 'object') return String(value._id ?? value.id ?? '');
+  return String(value);
+}
+
+function aggregateReceivedReturnsByProduct(returns) {
+  const map = {};
+  for (const ret of returns) {
+    if (String(ret.return_status || '') !== 'received') continue;
+    for (const item of ret.return_items || []) {
+      const pid = refId(item.product);
+      if (!pid) continue;
+      map[pid] = (map[pid] || 0) + Number(item.returned_quantity || 0);
+    }
+  }
+  return map;
+}
+
+/** Map received return qty to order line ids via dispatch item linkage. */
+function aggregateReceivedReturnsByOrderLine(returns, dispatches) {
+  const byLine = {};
+  const dispatchById = {};
+  for (const dispatch of dispatches || []) {
+    dispatchById[String(dispatch._id)] = dispatch;
+  }
+
+  for (const ret of returns) {
+    if (String(ret.return_status || '') !== 'received') continue;
+    const dispatch = dispatchById[String(ret.dispatch)];
+    if (!dispatch) continue;
+
+    for (const retItem of ret.return_items || []) {
+      const productId = refId(retItem.product);
+      const qty = Number(retItem.returned_quantity || 0);
+      if (!productId || qty <= 0) continue;
+
+      const matching = (dispatch.dispatch_items || []).filter(
+        (di) => refId(di.product) === productId,
+      );
+
+      if (matching.length === 1) {
+        const key = String(matching[0].order_item_id);
+        byLine[key] = (byLine[key] || 0) + qty;
+        continue;
+      }
+
+      if (matching.length > 1) {
+        const totalDisp = matching.reduce(
+          (sum, di) => sum + Number(di.dispatched_quantity || 0),
+          0,
+        );
+        let allocated = 0;
+        matching.forEach((di, idx) => {
+          const key = String(di.order_item_id);
+          let share;
+          if (idx === matching.length - 1) {
+            share = qty - allocated;
+          } else if (totalDisp > 0) {
+            share = Math.round((Number(di.dispatched_quantity || 0) / totalDisp) * qty);
+          } else {
+            share = Math.floor(qty / matching.length);
+          }
+          allocated += share;
+          byLine[key] = (byLine[key] || 0) + share;
+        });
+      }
+    }
+  }
+
+  return byLine;
+}
+
+function grossAcceptedQty(line) {
+  const delivered = Number(line.delivered_quantity || 0);
+  const dispatched = Number(line.dispatched_quantity || 0);
+  const approved = Number(line.approved_quantity || 0);
+  if (delivered > 0) return delivered;
+  if (dispatched > 0) return dispatched;
+  return approved;
+}
+
+/** Apply warehouse returns to a line: persist returned qty and settle delivered to net billable. */
+function applyReturnSettlementToLine(line, returnedQty) {
+  const gross = grossAcceptedQty(line);
+  const returned = Math.max(0, Math.min(Number(returnedQty || 0), gross));
+  const netQty = Math.max(0, gross - returned);
+
+  line.returned_quantity = returned;
+  line.delivered_quantity = netQty;
+
+  if (returned > 0 && netQty === 0) {
+    line.line_status = 'cancelled';
+  } else if (returned > 0) {
+    line.line_status = 'fully_delivered';
+  } else {
+    line.line_status = 'fully_delivered';
+  }
+
+  return line;
+}
+
+async function syncDispatchDeliveredAfterSettlement(orderId, settledLines) {
+  const { OrderDispatch } = getModels();
+  const lineById = {};
+  for (const line of settledLines) {
+    lineById[String(line._id)] = line;
+  }
+
+  const dispatches = await OrderDispatch.find({
+    order: orderId,
+    deletedAt: null,
+    dispatch_status: { $ne: 'cancelled' },
+  });
+
+  for (const dispatch of dispatches) {
+    let changed = false;
+    for (const item of dispatch.dispatch_items || []) {
+      const settled = lineById[String(item.order_item_id)];
+      if (!settled) continue;
+      const target = Number(settled.delivered_quantity || 0);
+      if (Number(item.delivered_quantity || 0) !== target) {
+        item.delivered_quantity = target;
+        changed = true;
+      }
+    }
+    if (changed) await dispatch.save();
+  }
+}
+
+/**
+ * Close order after full delivery with no returns: sync delivered qty on lines,
+ * recalculate settled totals, and lock the order.
+ */
+async function closeAfterFullDelivery(id, body, user) {
+  const dept = String(user.department || '');
+  if (!['dispatch', 'account', 'admin', 'super_admin'].includes(dept)) {
+    throw new ApiError(403, 'Not authorized to close order after delivery');
+  }
+
+  const { remarks } = body || {};
+  const { Order, OrderReturn, TransportShipment, OrderWorkflow, OrderStatusHistory } = getModels();
+
+  let doc = await Order.findById(id);
+  if (!doc) throw new ApiError(404, 'Order not found');
+
+  if (['closed', 'cancelled'].includes(String(doc.lifecycle_status || ''))) {
+    return toPlain(doc.toObject());
+  }
+
+  const returnCount = await OrderReturn.countDocuments({ order: id, deletedAt: null });
+  if (returnCount > 0) {
+    throw new ApiError(
+      400,
+      'Order has return records; close via account after warehouse return receipt',
+    );
+  }
+
+  await fulfillmentService.recalculateFromExecutions(id, user);
+  doc = await Order.findById(id);
+  if (!doc) throw new ApiError(404, 'Order not found');
+
+  const shipments = await TransportShipment.find({
+    order: id,
+    deletedAt: null,
+    shipment_status: { $nin: ['delivery_failed', 'returned'] },
+  }).lean();
+
+  if (shipments.length === 0) {
+    throw new ApiError(400, 'No active transport shipments exist for this order');
+  }
+
+  const allShipmentsDelivered = shipments.every((s) => s.shipment_status === 'delivered');
+  if (!allShipmentsDelivered) {
+    throw new ApiError(400, 'All transport shipments must be marked delivered before closing');
+  }
+
+  const fullyDelivered = (doc.order_items || []).every((line) => {
+    const q = fulfillmentService.lineQuantities(line);
+    return Number(line.delivered_quantity || 0) >= q.dispatchCap && q.dispatchCap > 0;
+  });
+
+  if (!fullyDelivered) {
+    throw new ApiError(400, 'Order lines are not fully delivered yet');
+  }
+
+  const nextItems = (doc.order_items || []).map((line) => {
+    const item = line.toObject ? line.toObject() : { ...line };
+    item.returned_quantity = 0;
+    item.line_status = 'fully_delivered';
+    return item;
+  });
+
+  doc.order_items = nextItems;
+  const plainForRecalc = doc.toObject();
+  recalcCommercialsForClosure(plainForRecalc);
+  doc.order_items = plainForRecalc.order_items;
+  doc.subtotal = plainForRecalc.subtotal;
+  doc.gst_amount = plainForRecalc.gst_amount;
+  doc.grand_total = plainForRecalc.grand_total;
+  doc.markModified('order_items');
+
+  await syncDispatchDeliveredAfterSettlement(id, nextItems);
+
+  const fromStatus = doc.status || 'delivered';
+  const fromLifecycle = doc.lifecycle_status || 'fulfilled';
+  const fromStage = doc.workflow_stage || 'dispatch_execution';
+
+  doc.status = 'delivered';
+  doc.lifecycle_status = 'closed';
+  doc.workflow_stage = 'completed';
+  doc.current_action = 'closed';
+  doc.dispatch_status = 'completed';
+  doc.delivery_status = 'completed';
+  doc.is_locked = true;
+  doc.closed_at = new Date();
+  doc.closed_by = user._id;
+  doc.updated_by = user._id;
+  doc.current_revision = Number(doc.current_revision || 1) + 1;
+  if (remarks) {
+    doc.closure_remarks = String(remarks).trim();
+  }
+
+  await doc.save();
+
+  await OrderStatusHistory.create({
+    order: id,
+    from_status: fromStatus,
+    to_status: 'closed',
+    changed_by: user._id,
+    remarks: remarks || 'Order closed after full delivery',
+  });
+
+  await OrderWorkflow.create({
+    order: id,
+    action_by: user._id,
+    role: dept === 'super_admin' ? 'admin' : dept,
+    action: 'closed',
+    from_stage: fromStage,
+    to_stage: 'completed',
+    to_status: 'closed',
+    remarks: remarks || '',
+    revision_number: doc.current_revision,
+  });
+
+  await activityService.create({
+    actor: user._id,
+    entity_type: 'order',
+    entity_id: String(doc._id),
+    action: 'status_changed',
+    message: `Order ${doc.order_no} closed after full delivery`,
+    old_value: { lifecycle_status: fromLifecycle, status: fromStatus },
+    new_value: {
+      lifecycle_status: 'closed',
+      status: doc.status,
+      grand_total: doc.grand_total,
+    },
+  });
+
+  return toPlain(doc.toObject());
+}
+
+/**
+ * Account closes an order after warehouse return receipt: apply returned quantities,
+ * optional extra/penalty/damage charges, recalculate totals, and mark order closed.
+ */
+async function closeWithReturns(id, body, user) {
+  const dept = String(user.department || '');
+  if (!['account', 'admin', 'super_admin'].includes(dept)) {
+    throw new ApiError(403, 'Only account can close orders after returns');
+  }
+
+  const {
+    return_id: returnId,
+    extra_charges: extraCharges = 0,
+    penalty_amount: penaltyAmount = 0,
+    damage_charge: damageCharge = 0,
+    remarks,
+  } = body || {};
+
+  const { Order, OrderReturn, OrderDispatch, OrderWorkflow, OrderStatusHistory } = getModels();
+
+  const doc = await Order.findById(id);
+  if (!doc) throw new ApiError(404, 'Order not found');
+
+  if (['closed', 'cancelled'].includes(String(doc.lifecycle_status || ''))) {
+    throw new ApiError(400, 'Order is already closed or cancelled');
+  }
+
+  const allReturns = await OrderReturn.find({
+    order: id,
+    deletedAt: null,
+  }).lean();
+
+  const pendingReturns = allReturns.filter((r) => String(r.return_status || '') === 'pending');
+  if (pendingReturns.length > 0) {
+    throw new ApiError(
+      400,
+      'All return records must be received at warehouse before closing the order',
+    );
+  }
+
+  const returns = allReturns.filter((r) => String(r.return_status || '') === 'received');
+
+  if (returns.length === 0) {
+    throw new ApiError(400, 'No received returns exist for this order');
+  }
+
+  if (returnId) {
+    const trigger = returns.find((r) => String(r._id) === String(returnId));
+    if (!trigger) {
+      throw new ApiError(400, 'Return must be received at warehouse before closing the order');
+    }
+  }
+
+  const dispatches = await OrderDispatch.find({
+    order: id,
+    deletedAt: null,
+    dispatch_status: { $ne: 'cancelled' },
+  }).lean();
+
+  const returnedByLine = aggregateReceivedReturnsByOrderLine(returns, dispatches);
+  const returnedByProduct = aggregateReceivedReturnsByProduct(returns);
+
+  const nextItems = (doc.order_items || []).map((line) => {
+    const item = line.toObject ? line.toObject() : { ...line };
+    const lineId = String(item._id);
+    const pid = refId(item.product);
+    const returnedQty = returnedByLine[lineId] ?? returnedByProduct[pid] ?? 0;
+    return applyReturnSettlementToLine(item, returnedQty);
+  });
+
+  doc.order_items = nextItems;
+  doc.extra_charges = Math.max(0, Number(extraCharges) || 0);
+  doc.penalty_amount = Math.max(0, Number(penaltyAmount) || 0);
+  doc.damage_charge = Math.max(0, Number(damageCharge) || 0);
+  doc.closure_remarks = remarks ? String(remarks).trim() : doc.closure_remarks || '';
+
+  const plainForRecalc = doc.toObject();
+  recalcCommercialsForClosure(plainForRecalc);
+  doc.order_items = plainForRecalc.order_items;
+  doc.subtotal = plainForRecalc.subtotal;
+  doc.gst_amount = plainForRecalc.gst_amount;
+  doc.grand_total = plainForRecalc.grand_total;
+  doc.markModified('order_items');
+
+  await syncDispatchDeliveredAfterSettlement(id, nextItems);
+
+  const totalReturned = nextItems.reduce(
+    (sum, line) => sum + Number(line.returned_quantity || 0),
+    0,
+  );
+  const totalNetDelivered = nextItems.reduce(
+    (sum, line) => sum + Number(line.delivered_quantity || 0),
+    0,
+  );
+
+  const fromStatus = doc.status || 'delivered';
+  const fromLifecycle = doc.lifecycle_status || 'fulfilled';
+  const fromStage = doc.workflow_stage || 'dispatch_execution';
+  doc.status = 'delivered';
+  doc.lifecycle_status = 'closed';
+  doc.workflow_stage = 'completed';
+  doc.current_action = 'closed';
+  doc.dispatch_status = 'completed';
+  doc.delivery_status = totalNetDelivered > 0 ? 'completed' : 'partial';
+  doc.is_locked = true;
+  doc.closed_at = new Date();
+  doc.closed_by = user._id;
+  doc.updated_by = user._id;
+  doc.current_revision = Number(doc.current_revision || 1) + 1;
+
+  await doc.save();
+
+  const closedAt = doc.closed_at;
+  await OrderReturn.updateMany(
+    { order: id, return_status: 'received', order_closed_at: null },
+    { $set: { order_closed_at: closedAt } },
+  );
+
+  await OrderStatusHistory.create({
+    order: id,
+    from_status: fromStatus,
+    to_status: 'closed',
+    changed_by: user._id,
+    remarks: remarks || 'Order closed after warehouse return receipt',
+  });
+
+  await OrderWorkflow.create({
+    order: id,
+    action_by: user._id,
+    role: dept === 'super_admin' ? 'admin' : dept,
+    action: 'closed',
+    from_stage: fromStage,
+    to_stage: 'completed',
+    to_status: 'closed',
+    remarks: remarks || '',
+    revision_number: doc.current_revision,
+  });
+
+  await activityService.create({
+    actor: user._id,
+    entity_type: 'order',
+    entity_id: String(doc._id),
+    action: 'status_changed',
+    message: `Order ${doc.order_no} closed after returns with adjusted totals`,
+    old_value: { lifecycle_status: fromLifecycle, status: fromStatus },
+    new_value: {
+      lifecycle_status: 'closed',
+      status: doc.status,
+      grand_total: doc.grand_total,
+      extra_charges: doc.extra_charges,
+      penalty_amount: doc.penalty_amount,
+      damage_charge: doc.damage_charge,
+      total_returned: totalReturned,
+      total_net_delivered: totalNetDelivered,
+    },
+  });
+
+  return toPlain(doc.toObject());
+}
+
+/**
  * Map API line payloads into mongoose subdocuments with normalized numbers.
  * Preserves `_id` when patching existing lines so updates do not blindly replace embedded doc ids.
  */
@@ -151,6 +615,7 @@ function normalizeItems(items) {
       dispatched_quantity: Number(line.dispatched_quantity || 0),
       delivered_quantity: Number(line.delivered_quantity || 0),
       cancelled_quantity: Number(line.cancelled_quantity || 0),
+      returned_quantity: Number(line.returned_quantity || 0),
       unit_price: Number(line.unit_price),
       applied_rate_type: line.applied_rate_type || 'MANUAL',
       pricing_reference: line.pricing_reference || undefined,
@@ -193,16 +658,8 @@ function parseExcludeStatuses(raw) {
 }
 
 /** Restrict visibility to assigned users or the creator. */
-function applyVisibilityFilter(q, user) {
-  if (!user) return;
-  if (user.department === 'super_admin') return;
-  q.$or = [
-    { created_by: user._id },
-    { assigned_sales_user: user._id },
-    { assigned_finance_user: user._id },
-    { assigned_dispatch_user: user._id },
-    { assigned_admin_user: user._id },
-  ];
+async function applyVisibilityFilter(q, user) {
+  await assigneeService.applyAssigneeVisibilityFilter(q, user);
 }
 
 /** Active orders only (no trash filter here). Optional filters: status, exclude_status ($nin), customer, or party ObjectId. */
@@ -218,10 +675,8 @@ async function list(query = {}, user) {
       q.$or = [{ finance_approval_status: 'rejected' }, { status: 'finance_rejected' }];
     } else if (s === 'closed') {
       q.$or = [
-        { delivery_status: 'completed' },
-        { lifecycle_status: 'fulfilled' },
-        { status: 'delivered' },
-        { workflow_stage: 'completed' }
+        { lifecycle_status: 'closed' },
+        { closed_at: { $exists: true, $ne: null } },
       ];
     } else if (s === 'open') {
       q.status = { $nin: ['draft', 'cancelled', 'finance_rejected', 'submitted', 'on_hold', 'delivered'] };
@@ -263,21 +718,8 @@ async function list(query = {}, user) {
     q.priority = String(priority).toLowerCase();
   }
 
-  const visibilityOr = [];
-  if (user && user.department !== 'super_admin') {
-    visibilityOr.push(
-      { created_by: user._id },
-      { assigned_sales_user: user._id },
-      { assigned_finance_user: user._id },
-      { assigned_dispatch_user: user._id },
-      { assigned_admin_user: user._id }
-    );
-  }
-
   const andConditions = [];
-  if (visibilityOr.length > 0) {
-    andConditions.push({ $or: visibilityOr });
-  }
+  await assigneeService.appendAssigneeVisibilityAnd(andConditions, user);
 
   if (search && String(search).trim()) {
     const searchRegex = new RegExp(String(search).trim(), 'i');
@@ -330,7 +772,7 @@ async function list(query = {}, user) {
 
 async function getById(id, user) {
   const q = { _id: id };
-  applyVisibilityFilter(q, user);
+  await applyVisibilityFilter(q, user);
   const row = await getModels().Order.findOne(q).lean();
   if (!row) throw new ApiError(404, 'Order not found');
   return toPlain(row);
@@ -409,6 +851,7 @@ async function create(body, user) {
     allocation_status: 'pending',
     delivery_status: 'pending',
     finance_approval_status: 'pending',
+    account_approval_status: 'pending',
     remarks: body.remarks || '',
     created_by: user._id,
     updated_by: user._id,
@@ -422,6 +865,7 @@ async function create(body, user) {
   const doc = await getModels().Order.create(payload);
   const plain = toPlain(doc.toObject());
 
+  await assigneeService.seedFromOrderCreate(doc, user._id);
   await syncPartyProductLastRatesFromOrder(getModels, plain);
   await activityService.create({
     actor: user._id,
@@ -449,7 +893,7 @@ async function update(id, patch, user) {
   assertSafePlainPatch(p);
 
   const q = { _id: id };
-  applyVisibilityFilter(q, user);
+  await applyVisibilityFilter(q, user);
   const doc = await getModels().Order.findOne(q);
   if (!doc) throw new ApiError(404, 'Order not found');
 
@@ -457,8 +901,8 @@ async function update(id, patch, user) {
   policy.assertDispatchMayNotChangeCommercials(user, p);
 
   if (p.order_items) {
-    if (!['sales', 'admin', 'super_admin', 'finance'].includes(user.department)) {
-      throw new ApiError(403, 'Only sales, admin, super_admin, or finance may edit order line items');
+    if (!['sales', 'admin', 'super_admin', 'finance', 'account'].includes(user.department)) {
+      throw new ApiError(403, 'Only sales, admin, super_admin, finance, or account may edit order line items');
     }
     policy.assertMayEditOrderPricing(user, order);
   }
@@ -480,12 +924,12 @@ async function update(id, patch, user) {
 
   if (p.payment_status !== undefined) {
     if (user.department === 'sales') policy.assertMayEditOrderPricing(user, order);
-    if (!['sales', 'admin', 'super_admin', 'finance'].includes(user.department)) {
+    if (!['sales', 'admin', 'super_admin', 'finance', 'account'].includes(user.department)) {
       throw new ApiError(403, 'Insufficient access to edit payment_status');
     }
   }
 
-  if (p.order_date !== undefined && !['admin', 'super_admin', 'finance'].includes(user.department)) {
+  if (p.order_date !== undefined && !['admin', 'super_admin', 'finance', 'account'].includes(user.department)) {
     policy.assertMayEditOrderPricing(user, order);
   }
 
@@ -501,7 +945,7 @@ async function update(id, patch, user) {
 
   const recalcBase = doc.toObject();
 
-  if (p.order_items && !['admin', 'super_admin', 'finance'].includes(user.department)) {
+  if (p.order_items && !['admin', 'super_admin', 'finance', 'account'].includes(user.department)) {
     await resolveNegotiatedRates(recalcBase.order_items, p.party || order.party);
   }
 
@@ -521,6 +965,7 @@ async function update(id, patch, user) {
 
   doc.set('updated_by', user._id);
   await doc.save();
+  await assigneeService.syncFromOrderPatch(id, p, user._id);
   const out = toPlain(doc.toObject());
 
   await syncPartyProductLastRatesFromOrder(getModels, out);
@@ -567,7 +1012,7 @@ async function listDeleted(query = {}, user) {
   }
   if (customer) q.customer = customer;
   if (party) q.party = party;
-  applyVisibilityFilter(q, user);
+  await applyVisibilityFilter(q, user);
   const rows = await listDeletedLean(getModels().Order, q);
   return rows.map((r) => toPlain(r));
 }
@@ -590,7 +1035,7 @@ async function softDelete(id, user) {
 /** Restore from trash; activity log for compliance trail. */
 async function restore(id, user) {
   const q = { _id: id };
-  applyVisibilityFilter(q, user);
+  await applyVisibilityFilter(q, user);
   const checkAccess = await getModels().Order.findOne(q).withDeleted().lean();
   if (!checkAccess) throw new ApiError(404, ORDER_NF);
 
@@ -611,6 +1056,14 @@ async function fulfillment(id, user) {
   return fulfillmentService.getSnapshot(id);
 }
 
+async function assignees(id, user) {
+  const q = { _id: id };
+  await applyVisibilityFilter(q, user);
+  const exists = await getModels().Order.exists(q);
+  if (!exists) throw new ApiError(404, 'Order not found');
+  return assigneeService.listByOrder(id);
+}
+
 module.exports = {
   list,
   getById,
@@ -619,9 +1072,13 @@ module.exports = {
   transition,
   history,
   fulfillment,
+  assignees,
+  closeWithReturns,
+  closeAfterFullDelivery,
   recalcCommercials,
   normalizeItems,
   listDeleted,
   softDelete,
   restore,
+  resolveWorkflowAssigneeUserId,
 };

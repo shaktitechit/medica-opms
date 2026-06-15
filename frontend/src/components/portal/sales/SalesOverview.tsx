@@ -13,7 +13,7 @@ import {
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { computeSalesOrderStats } from "@/components/portal/sales/orderUtils";
 import {
   buildPartyNameById,
   resolveOrderCounterparty,
@@ -64,33 +64,6 @@ function extractFlags(raw: unknown): unknown[] {
   return [];
 }
 
-function getOrderTabCategory(order: unknown): "draft" | "open" | "closed" | "on_hold" | "cancelled" | "rejected" {
-  if (!order || typeof order !== "object") return "open";
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-
-  if (status === "draft") return "draft";
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-  if (status === "finance_rejected") return "rejected";
-
-  // Calculate quantities from items
-  const items = Array.isArray(row.order_items) ? row.order_items : [];
-  let ordered = 0;
-  let delivered = 0;
-  items.forEach((line: any) => {
-    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-    delivered += Number(line.delivered_quantity ?? 0);
-  });
-
-  // An order which is delivered less than what have been ordered will be in open order list
-  if (ordered > 0 && delivered >= ordered) {
-    return "closed";
-  }
-
-  return "open";
-}
-
 export default function SalesOverview() {
   // 1. Redux State & Hooks
   const user = useAppSelector((state) => state.auth.user);
@@ -123,32 +96,7 @@ export default function SalesOverview() {
   // 2. Data processing
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
-  const orderStats = useMemo(() => {
-    const stats = {
-      draft: { count: 0, quantity: 0 },
-      open: { count: 0, quantity: 0 },
-      closed: { count: 0, quantity: 0 },
-      on_hold: { count: 0, quantity: 0 },
-      rejected: { count: 0, quantity: 0 },
-      cancelled: { count: 0, quantity: 0 },
-    };
-
-    for (const o of orders) {
-      const cat = getOrderTabCategory(o);
-      const items = Array.isArray(o.order_items) ? o.order_items : [];
-      let orderQty = 0;
-      items.forEach((item: any) => {
-        orderQty += Number(item.ordered_quantity ?? item.quantity ?? 0);
-      });
-
-      if (cat in stats) {
-        stats[cat].count++;
-        stats[cat].quantity += orderQty;
-      }
-    }
-
-    return stats;
-  }, [orders]);
+  const orderStats = useMemo(() => computeSalesOrderStats(orders), [orders]);
 
   const totalOrdersCount = orders.length;
 

@@ -10,8 +10,12 @@ import {
   useListTransportAgentsQuery,
   useListVehiclesQuery,
   useTransitionOrderMutation,
+  useListOrderApprovalsQuery,
 } from "@/store/api";
 import { formatAgentType } from "../../fleetDisplay";
+import { groupAccountDispatchesByRelease } from "@/components/portal/account/order/components/accountDispatchAvailability";
+import { useAppSelector } from "@/store/hooks";
+import { publicApiOrigin } from "@/lib/env";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
@@ -27,6 +31,32 @@ function pickList(raw: unknown): Record<string, unknown>[] {
     if (Array.isArray(o.data)) return o.data as Record<string, unknown>[];
   }
   return [];
+}
+
+function resolveFileUrl(url: string): string {
+  if (/^https?:\/\//i.test(url)) return url;
+  const normalized = url.startsWith("/") ? url : `/${url}`;
+  return `${publicApiOrigin()}${normalized}`;
+}
+
+function billDocumentMeta(
+  billDocument: unknown,
+): { name: string; url: string } | null {
+  if (!billDocument) return null;
+  if (typeof billDocument === "object" && billDocument !== null) {
+    const doc = billDocument as Record<string, unknown>;
+    const url = String(doc.url ?? "");
+    const name = String(doc.original_name ?? doc.file_name ?? "Bill document");
+    if (url) return { name, url };
+  }
+  return null;
+}
+
+function formatDateOnly(v: unknown): string {
+  if (v == null || v === "") return "—";
+  const d = v instanceof Date ? v : new Date(String(v));
+  if (Number.isNaN(d.getTime())) return String(v);
+  return d.toLocaleDateString();
 }
 
 interface DispatchesTabProps {
@@ -85,9 +115,86 @@ export function DispatchesTab({
 
   const [createTransport, { isLoading: isCreatingTransport }] = useCreateTransportMutation();
   const [transitionOrder, { isLoading: isTransitioning }] = useTransitionOrderMutation();
-  const transportAgentsQ = useListTransportAgentsQuery({ is_active: "true" });
-  const driversQ = useListDriversQuery({});
-  const vehiclesQ = useListVehiclesQuery({});
+  const transportAgentsQ = useListTransportAgentsQuery(
+    { is_active: "true" },
+    { skip: !isCreateTransportModalOpen }
+  );
+  const driversQ = useListDriversQuery(
+    {},
+    { skip: !isCreateTransportModalOpen }
+  );
+  const vehiclesQ = useListVehiclesQuery(
+    {},
+    { skip: !isCreateTransportModalOpen }
+  );
+
+  const token = useAppSelector((state) => state.auth.token);
+  const approvalsQ = useListOrderApprovalsQuery(
+    { order: orderId },
+    { skip: !orderId },
+  );
+  const approvals = useMemo(() => pickList(approvalsQ.data), [approvalsQ.data]);
+
+  const currentUser = useAppSelector((state) => state.auth.user);
+  const currentUserId = useMemo(
+    () => String(currentUser?._id ?? currentUser?.id ?? ""),
+    [currentUser],
+  );
+
+  const filteredDispatchesForUser = useMemo(() => {
+    return dispatches.filter((disp) => {
+      const assigneeId = typeof disp.dispatch_assignee_user === "object" && disp.dispatch_assignee_user !== null
+        ? String((disp.dispatch_assignee_user as any)._id ?? (disp.dispatch_assignee_user as any).id ?? "")
+        : String(disp.dispatch_assignee_user ?? "");
+      return assigneeId === currentUserId;
+    });
+  }, [dispatches, currentUserId]);
+
+  const releaseGroups = useMemo(
+    () => groupAccountDispatchesByRelease(filteredDispatchesForUser, approvals),
+    [filteredDispatchesForUser, approvals],
+  );
+
+
+  const handleViewBillDocument = useCallback(
+    async (fileUrl: string) => {
+      try {
+        const response = await fetch(resolveFileUrl(fileUrl), {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!response.ok) throw new Error("Failed to view file");
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        window.open(blobUrl, "_blank");
+      } catch {
+        toast.error("Failed to view bill document");
+      }
+    },
+    [token],
+  );
+
+  const handleDownloadBillDocument = useCallback(
+    async (fileUrl: string, fileName: string) => {
+      try {
+        const response = await fetch(resolveFileUrl(fileUrl), {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!response.ok) throw new Error("Failed to download file");
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.setAttribute("download", fileName);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(blobUrl);
+      } catch {
+        toast.error("Failed to download bill document");
+      }
+    },
+    [token],
+  );
 
   const transportAgents = useMemo(
     () => pickList(transportAgentsQ.data),
@@ -187,7 +294,7 @@ export function DispatchesTab({
   useEffect(() => {
     if (!isCreateTransportModalOpen || !transportDispatchId) return;
 
-    const disp = dispatches.find((d: any) => String(d._id ?? d.id) === transportDispatchId);
+    const disp = filteredDispatchesForUser.find((d: any) => String(d._id ?? d.id) === transportDispatchId);
     if (disp) {
       if (!sourceLocation) {
         const warehouseVal = (disp as any).warehouse_location || (disp as any).warehouse || "";
@@ -201,7 +308,7 @@ export function DispatchesTab({
         setTransportDispatchDate(new Date(String(dDate)).toISOString().split("T")[0]);
       }
     }
-  }, [isCreateTransportModalOpen, transportDispatchId, dispatches, sourceLocation, transportDispatchDate]);
+  }, [isCreateTransportModalOpen, transportDispatchId, filteredDispatchesForUser, sourceLocation, transportDispatchDate]);
 
 
 
@@ -371,52 +478,88 @@ export function DispatchesTab({
         title="Recorded Dispatch Batches"
         description="View dispatch details, dispatched items list, and manage dispatch status."
       >
-        {isFetching ? (
+        {isFetching || approvalsQ.isLoading ? (
           <p className="text-sm text-slate-500 font-sans">Loading dispatches...</p>
-        ) : dispatches.length === 0 ? (
+        ) : filteredDispatchesForUser.length === 0 ? (
           <p className="text-sm text-slate-500 font-sans">No dispatch batches recorded yet.</p>
         ) : (
-          <div className="space-y-6 font-sans">
-            {dispatches.map((disp: any) => {
-              const dispId = String(disp._id ?? disp.id ?? "");
-              const dispatchStatus = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
-              const dispatchItems = Array.isArray(disp.dispatch_items) ? disp.dispatch_items : disp.items || [];
-
-              // Resolve packing and dispatch staff names
-              const packedByVal = disp.packed_by;
-              const dispatchedByVal = disp.dispatched_by;
-
-              const packedByName = typeof packedByVal === "object" && packedByVal !== null
-                ? (packedByVal.name || packedByVal.username || "")
-                : userNameById && typeof packedByVal === "string"
-                  ? (userNameById[packedByVal] || packedByVal)
-                  : "";
-
-              const dispatchedByName = typeof dispatchedByVal === "object" && dispatchedByVal !== null
-                ? (dispatchedByVal.name || dispatchedByVal.username || "")
-                : userNameById && typeof dispatchedByVal === "string"
-                  ? (userNameById[dispatchedByVal] || dispatchedByVal)
-                  : "";
-
-              // Check if transport records match this dispatch
-              const dispatchTransports = transports.filter((tr) => {
-                const trDispatchId = typeof tr.dispatch === "object" && tr.dispatch !== null
-                  ? String(tr.dispatch._id ?? tr.dispatch.id ?? "")
-                  : String(tr.dispatch ?? "");
-                return trDispatchId === dispId;
+          <div className="space-y-8 font-sans">
+            {releaseGroups.map((group) => {
+              const activeReleaseDispatches = group.dispatches.filter((disp) => {
+                const status = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
+                return status !== "cancelled";
               });
-
-              // Find active transport (non-returned)
-              const activeTransport = dispatchTransports.find((tr) => {
-                const status = String(tr.shipment_status ?? tr.status ?? "");
-                return status !== "returned";
-              });
-
-              // Display active transport if it exists, otherwise display the latest returned transport
-              const transport = activeTransport || dispatchTransports[dispatchTransports.length - 1];
-              const hasTransport = !!activeTransport;
-
               return (
+                <div key={group.releaseId} className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 pb-3 dark:border-white/10">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-50">
+                        Release {group.releaseNo}
+                      </h3>
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        {activeReleaseDispatches.length} dispatch batch
+                        {activeReleaseDispatches.length === 1 ? "" : "es"} recorded
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    {group.dispatches.map((disp: any) => {
+                      const dispId = String(disp._id ?? disp.id ?? "");
+                      const dispatchStatus = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
+                      const dispatchItems = Array.isArray(disp.dispatch_items) ? disp.dispatch_items : disp.items || [];
+
+                      // Resolve packing and dispatch staff names
+                      const packedByVal = disp.packed_by;
+                      const dispatchedByVal = disp.dispatched_by;
+
+                      const packedByName = typeof packedByVal === "object" && packedByVal !== null
+                        ? (packedByVal.name || packedByVal.username || "")
+                        : userNameById && typeof packedByVal === "string"
+                          ? (userNameById[packedByVal] || packedByVal)
+                          : "";
+
+                      const dispatchedByName = typeof dispatchedByVal === "object" && dispatchedByVal !== null
+                        ? (dispatchedByVal.name || dispatchedByVal.username || "")
+                        : userNameById && typeof dispatchedByVal === "string"
+                          ? (userNameById[dispatchedByVal] || dispatchedByVal)
+                          : "";
+
+                      // Check if transport records match this dispatch
+                      const dispatchTransports = transports.filter((tr) => {
+                        const trDispatchId = typeof tr.dispatch === "object" && tr.dispatch !== null
+                          ? String(tr.dispatch._id ?? tr.dispatch.id ?? "")
+                          : String(tr.dispatch ?? "");
+                        return trDispatchId === dispId;
+                      });
+
+                      // Find active transport (non-returned)
+                      const activeTransport = dispatchTransports.find((tr) => {
+                        const status = String(tr.shipment_status ?? tr.status ?? "");
+                        return status !== "returned";
+                      });
+
+                      // Display active transport if it exists, otherwise display the latest returned transport
+                      const transport = activeTransport || dispatchTransports[dispatchTransports.length - 1];
+                      const hasTransport = !!activeTransport;
+
+                      const billDoc = billDocumentMeta(disp.bill_document);
+                      const billNumber = String(disp.bill_number ?? "").trim();
+                      const billingDate = disp.billing_date;
+
+                      const dispatchAssigneeName = (() => {
+                        const val = disp.dispatch_assignee_user;
+                        if (!val) return "—";
+                        if (typeof val === "object" && val !== null) {
+                          return String((val as any).name || (val as any).username || "—");
+                        }
+                        if (typeof val === "string" && userNameById) {
+                          return userNameById[val] || val;
+                        }
+                        return "—";
+                      })();
+
+                      return (
                 <div
                   key={dispId}
                   className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900"
@@ -540,6 +683,58 @@ export function DispatchesTab({
                     </div>
 
                     <div className="space-y-3 rounded-lg bg-slate-50/50 p-4 border border-slate-100 dark:bg-slate-950/10 dark:border-white/5 text-xs">
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Bill Number
+                        </span>
+                        <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                          {billNumber || "—"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Billing Date
+                        </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                          {formatDateOnly(billingDate)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Bill Document
+                        </span>
+                        {billDoc ? (
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleViewBillDocument(billDoc.url)}
+                              className="rounded border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-50 dark:border-white/10 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                            >
+                              View
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDownloadBillDocument(billDoc.url, billDoc.name)}
+                              className="rounded border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/5"
+                            >
+                              Download
+                            </button>
+                            <span className="block w-full truncate text-[10px] text-slate-500 dark:text-slate-400" title={billDoc.name}>
+                              {billDoc.name}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-500 dark:text-slate-400">—</span>
+                        )}
+                      </div>
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Assigned Dispatch User
+                        </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                          {dispatchAssigneeName}
+                        </span>
+                      </div>
                       <div>
                         <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                           Warehouse Location
@@ -695,6 +890,10 @@ export function DispatchesTab({
                   )}
                 </div>
               );
+                    })}
+                  </div>
+                </div>
+              );
             })}
           </div>
         )}
@@ -724,8 +923,8 @@ export function DispatchesTab({
               </div>
             </div>
 
-            {dispatches.length === 0 ? (
-              <div className="mt-4 p-4 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/30 text-amber-800 dark:text-amber-300 text-sm font-sans">
+            {filteredDispatchesForUser.length === 0 ? (
+              <div className="mt-4 p-4 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-955/20 dark:border-amber-900/30 text-amber-800 dark:text-amber-300 text-sm font-sans">
                 ⚠️ <strong>No dispatches found:</strong> You must create at least one dispatch batch before arranging transport logistics.
               </div>
             ) : (
@@ -742,7 +941,7 @@ export function DispatchesTab({
                       required
                     >
                       <option value="">— Select Dispatch Batch —</option>
-                      {dispatches.map((d: any) => {
+                      {filteredDispatchesForUser.map((d: any) => {
                         const did = String(d._id ?? d.id ?? "");
                         return (
                           <option key={did} value={did}>

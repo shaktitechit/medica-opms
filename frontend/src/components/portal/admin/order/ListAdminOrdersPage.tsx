@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ConfirmDeleteDraftModal } from "@/components/portal/sales/components/modals/ConfirmDeleteDraftModal";
 import {
@@ -10,13 +10,9 @@ import {
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { ADMIN_ORDER_STATUSES, PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
+import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
-import {
-  computeOrderStatusDimensions,
-  dimensionToneClass,
-  type OrderStatusDimension,
-} from "@/components/portal/shared/orderStatusDimensions";
 import {
   mutationRejectedMessage,
   mutationSuccessCopy,
@@ -26,9 +22,7 @@ import {
   useDeleteOrderMutation,
   useListPartiesQuery,
   useListOrdersQuery,
-  useListUsersQuery,
 } from "@/store/api";
-import { buildUserNameById, resolveUserDisplay } from "@/components/portal/shared/userDisplay";
 import {
   Search,
   X,
@@ -38,7 +32,6 @@ import {
   ChevronsRight,
   RefreshCw,
   LayoutDashboard,
-  Eye,
   Plus,
   Trash2,
   UserCheck,
@@ -48,7 +41,12 @@ import {
 } from "lucide-react";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
-import { getOrderTabCategory } from "@/components/portal/sales/orderUtils";
+import {
+  getAdminOrderTabCategory,
+  isAdminOrderTabCategory,
+  ADMIN_ORDER_TABS,
+  type AdminOrderTabCategory,
+} from "@/components/portal/admin/adminOrderUtils";
 
 type OrderRow = {
   _id?: string;
@@ -122,46 +120,115 @@ function formatDateShort(v: unknown): string {
   });
 }
 
-function getAdminOrderTabCategory(order: unknown): "pending_review" | "open" | "draft" | "closed" | "on_hold" | "cancelled" | "rejected" {
-  if (!order || typeof order !== "object") return "open";
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-
-  if (status === "draft") return "draft";
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-  if (status === "finance_rejected") return "rejected";
-  if (status === "submitted") return "pending_review";
-
-  const items = Array.isArray(row.order_items) ? row.order_items : [];
-  let ordered = 0;
-  let delivered = 0;
-  items.forEach((line: any) => {
-    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-    delivered += Number(line.delivered_quantity ?? 0);
-  });
-
-  if (ordered > 0 && delivered >= ordered) {
-    return "closed";
+function renderWorkflowStatusBadge(status: string) {
+  let label = "";
+  let bgClass = "";
+  switch (status) {
+    case "pending_review":
+      label = "Pending Review";
+      bgClass =
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
+      break;
+    case "draft":
+      label = "Draft";
+      bgClass =
+        "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
+      break;
+    case "open":
+      label = "Open";
+      bgClass =
+        "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
+      break;
+    case "closed":
+      label = "Closed";
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+      break;
+    case "on_hold":
+      label = "On Hold";
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "rejected":
+      label = "Rejected";
+      bgClass =
+        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-955/30 dark:text-red-400 dark:ring-red-500/25";
+      break;
+    case "cancelled":
+      label = "Cancelled";
+      bgClass =
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25";
+      break;
+    default:
+      label = status;
+      bgClass =
+        "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
   }
 
-  return "open";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
+    >
+      {label}
+    </span>
+  );
 }
+
 export default function ListAdminOrdersPage() {
   const router = useRouter();
-
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"pending_review" | "open" | "closed" | "on_hold" | "cancelled" | "rejected">("pending_review");
+  const [activeTab, setActiveTab] = useState<AdminOrderTabCategory>(() =>
+    tabFromUrl && isAdminOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_review",
+  );
   const [priorityFilter, setPriorityFilter] = useState("all");
-
-  const { data, isFetching, isError, refetch } = useListOrdersQuery({});
-  const partiesQ = useListPartiesQuery({});
-  const usersQ = useListUsersQuery({});
-
-  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    if (tabFromUrl && isAdminOrderTabCategory(tabFromUrl)) {
+      setActiveTab(tabFromUrl);
+      setCurrentPage(1);
+    }
+  }, [tabFromUrl]);
+
+  const queryParams = useMemo(() => {
+    const base: Record<string, string | undefined> = {};
+
+    if (!searchQuery.trim()) {
+      switch (activeTab) {
+        case "pending_review":
+          base.status = "pending_review";
+          break;
+        case "on_hold":
+          base.status = "on_hold";
+          break;
+        case "cancelled":
+          base.status = "cancelled";
+          break;
+        case "rejected":
+          base.status = "finance_rejected";
+          break;
+        case "open":
+          base.exclude_status = "draft,submitted,on_hold,cancelled,finance_rejected";
+          break;
+        case "closed":
+          base.status = "closed";
+          break;
+      }
+    }
+
+    if (searchQuery.trim()) {
+      base.search = searchQuery.trim();
+    }
+    return base;
+  }, [activeTab, searchQuery]);
+
+  const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery(queryParams);
+  const partiesQ = useListPartiesQuery({});
+
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const orders = useMemo(
@@ -172,11 +239,6 @@ export default function ListAdminOrdersPage() {
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesQ.data),
     [partiesQ.data],
-  );
-
-  const userNameById = useMemo(
-    () => buildUserNameById(usersQ.data),
-    [usersQ.data],
   );
 
   // Dynamic filter reset
@@ -201,35 +263,13 @@ export default function ListAdminOrdersPage() {
   // Filtered Orders memo
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
-      // 1. Search filter (universal search)
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const id = orderKey(o);
-        const ref = (
-          typeof o.order_no === "string"
-            ? o.order_no
-            : typeof o.order_number === "string"
-              ? o.order_number
-              : id || ""
-        ).toLowerCase();
-
-        const partyLabel = resolveOrderCounterparty(
-          o as Record<string, unknown>,
-          partyNameById,
-        ).toLowerCase();
-
-        if (!ref.includes(query) && !partyLabel.includes(query)) {
-          return false;
-        }
-      } else {
-        // 2. Tab filter (only if search query is empty)
+      if (!searchQuery.trim()) {
         const category = getAdminOrderTabCategory(o);
         if (category !== activeTab) {
           return false;
         }
       }
 
-      // 3. Priority filter
       if (priorityFilter !== "all") {
         if ((o.priority || "").toLowerCase() !== priorityFilter.toLowerCase()) {
           return false;
@@ -238,7 +278,7 @@ export default function ListAdminOrdersPage() {
 
       return true;
     });
-  }, [orders, searchQuery, activeTab, priorityFilter, partyNameById]);
+  }, [orders, activeTab, priorityFilter, searchQuery]);
 
   // Paginated Orders slice
   const paginatedOrders = useMemo(() => {
@@ -275,6 +315,7 @@ export default function ListAdminOrdersPage() {
 
   return (
     <div className="space-y-6">
+      <PortalBusyOverlay active={isLoading} message="Loading orders…" />
       <ConfirmDeleteDraftModal
         orderId={deleteTarget?.id ?? null}
         orderLabel={deleteTarget?.label ?? ""}
@@ -377,21 +418,14 @@ export default function ListAdminOrdersPage() {
           </div>
         ) : (
           <nav className="-mb-px flex space-x-6 overflow-x-auto pb-px scrollbar-none" aria-label="Order stages">
-            {[
-              { id: "pending_review", label: "Pending Review" },
-              { id: "open", label: "Open Orders" },
-              { id: "closed", label: "Closed Orders" },
-              { id: "on_hold", label: "On Hold" },
-              { id: "rejected", label: "Rejected" },
-              { id: "cancelled", label: "Cancelled" },
-            ].map((tab) => {
+            {ADMIN_ORDER_TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => {
-                    setActiveTab(tab.id as any);
+                    setActiveTab(tab.id);
                     setCurrentPage(1);
                   }}
                   className={`group border-b-2 py-4 px-1 text-sm font-semibold transition whitespace-nowrap inline-flex items-center gap-2 cursor-pointer ${
@@ -444,13 +478,6 @@ export default function ListAdminOrdersPage() {
 
       {/* Main Grid/Table Card */}
       <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
-        {isFetching && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Loading orders...</p>
-          </div>
-        )}
-
         {isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
@@ -463,7 +490,7 @@ export default function ListAdminOrdersPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredOrders.length === 0 && (
+        {!isLoading && !isError && filteredOrders.length === 0 && (
           <div className="text-center py-16 px-4">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-955 text-slate-400 text-xl border border-slate-100 dark:border-white/5">
               📋
@@ -479,7 +506,7 @@ export default function ListAdminOrdersPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredOrders.length > 0 && (
+        {!isLoading && !isError && filteredOrders.length > 0 && (
           <>
                         <div className="p-4 flex flex-col gap-3.5 bg-slate-50/10 dark:bg-slate-955/10">
               {paginatedOrders.map((o) => {
@@ -499,12 +526,14 @@ export default function ListAdminOrdersPage() {
                 const adminBox = deptBoxes.find((b) => b.id === "admin");
                 const financeBox = deptBoxes.find((b) => b.id === "finance");
                 const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-                const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
+                const accountBox = deptBoxes.find((b) => b.id === "account");
+  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
 
                 const adminStatusDim = adminBox?.status;
                 const financeStatusDim = financeBox?.status;
                 const dispatchStatusDim = dispatchBox?.status;
-                const deliveryStatusDim = deliveryBox?.status;
+                const accountStatusDim = accountBox?.status;
+  const deliveryStatusDim = deliveryBox?.status;
 
                 const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
                 const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {
@@ -548,6 +577,7 @@ export default function ListAdminOrdersPage() {
                             {ref}
                           </span>
                           {renderPriorityBadge(pri)}
+                          {renderWorkflowStatusBadge(getAdminOrderTabCategory(o) ?? "open")}
                         </div>
 
                         {/* Mobile Actions (hidden on lg and up) */}

@@ -17,6 +17,7 @@ router.get('/deleted', requireSoftDeletePermission, controller.listDeleted);
 router.get('/:id/history', requirePermissions('orders:read', '*'), controller.history);
 router.get('/:id/fulfillment', requirePermissions('orders:read', '*'), controller.fulfillment);
 router.get('/:id/approvals', requirePermissions('orders:read', '*'), controller.approvals);
+router.get('/:id/assignees', requirePermissions('orders:read', '*'), controller.assignees);
 
 router.delete('/:id', requireSoftDeletePermission, controller.softDelete);
 router.post('/:id/restore', requireSoftDeletePermission, controller.restore);
@@ -24,6 +25,9 @@ router.post('/:id/restore', requireSoftDeletePermission, controller.restore);
 router.get('/:id', requirePermissions('orders:read', '*'), controller.get);
 
 router.patch('/:id', controller.update);
+
+router.post('/:id/close-with-returns', controller.closeWithReturns);
+router.post('/:id/close-after-full-delivery', controller.closeAfterFullDelivery);
 
 router.post('/:id/transition', controller.transition);
 

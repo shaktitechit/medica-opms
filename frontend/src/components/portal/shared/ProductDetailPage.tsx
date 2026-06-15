@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 
 import { useGetProductQuery } from "@/store/api";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
+import { resolvePortalPresentation } from "@/components/portal/shared/portalPresentation";
 import { ProductDetailModal } from "./ProductDetailModal";
 
 export type ProductDetailPageProps = {
@@ -29,10 +31,11 @@ function formatMoney(v: unknown): string {
 
 export default function ProductDetailPage({ id, portalHome }: ProductDetailPageProps) {
   const router = useRouter();
-  const portal = portalHome.replace("/", ""); // e.g. "admin" or "finance"
+  const portal = portalHome.replace("/", "");
+  const { portalName, gradientClass, badgeClass } = resolvePortalPresentation(portal);
 
   // Queries
-  const { data: rawProduct, isFetching, isError, refetch } = useGetProductQuery(id, {
+  const { data: rawProduct, isLoading, isFetching, isError, refetch } = useGetProductQuery(id, {
     skip: !id,
   });
 
@@ -40,26 +43,7 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"specifications" | "commercials">("specifications");
 
-  // Theme selection: emerald/teal for finance, violet/purple for admin
-  const isFinance = portal === "finance";
-  const gradientClass = isFinance
-    ? "from-emerald-500/10 to-teal-500/10 border-emerald-500/10 dark:from-emerald-500/5 dark:to-teal-500/5"
-    : "from-violet-500/10 to-purple-500/10 border-violet-500/10 dark:from-violet-500/5 dark:to-purple-500/5";
-  const badgeClass = isFinance
-    ? "bg-emerald-50 text-emerald-700 ring-emerald-700/10 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20"
-    : "bg-violet-50 text-violet-700 ring-violet-700/10 dark:bg-violet-500/10 dark:text-violet-400 dark:ring-violet-500/20";
-  const portalName = isFinance ? "Finance Portal" : "Admin Portal";
-
-  if (isFetching) {
-    return (
-      <div className="flex flex-col items-center justify-center py-32 space-y-4">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-        <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Loading catalog files...</p>
-      </div>
-    );
-  }
-
-  if (isError || !rawProduct) {
+  if (isError || (!isLoading && !rawProduct)) {
     return (
       <div className="text-center py-20 max-w-md mx-auto">
         <div className="text-4xl">⚠️</div>
@@ -75,6 +59,10 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
         </button>
       </div>
     );
+  }
+
+  if (!rawProduct) {
+    return <PortalBusyOverlay active message="Loading product…" />;
   }
 
   const p = rawProduct as any;

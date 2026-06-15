@@ -2,13 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAppSelector } from "@/store/hooks";
 
 import { FlagsTab } from "./components/FlagsTab";
-import AttachmentsTab from "./components/AttachmentsTab";
+import AttachmentsTab, {
+  countDispatchVisibleAttachments,
+  pickOrderAttachments,
+} from "./components/AttachmentsTab";
 import { DispatchesTab } from "./components/DispatchesTab";
 import { TransportsTab } from "./components/TransportsTab";
-import { FinanceReleasesTab } from "./components/FinanceReleasesTab";
-import { DashboardCard } from "@/components/widgets";
+import { DeliveriesTab } from "./components/DeliveriesTab";
+import { ReturnsTab } from "./components/ReturnsTab";
 import {
   buildPartyNameById,
   resolveOrderCounterparty,
@@ -24,28 +28,28 @@ import {
   useTransitionOrderMutation,
   useListFlagsQuery,
   useCreateFlagMutation,
-  useCreateDispatchMutation,
   useListAttachmentsQuery,
   usePatchDispatchMutation,
   useListDispatchesQuery,
   useListTransportsQuery,
   usePatchTransportMutation,
   useGetPartyQuery,
-  useListOrderFinanceApprovalsQuery,
   useGetOrderFulfillmentQuery,
+  useListOrderDeliveriesQuery,
+  useListOrderReturnsQuery,
 } from "@/store/api";
 
 import { ALL_FLAG_TYPES, FLAGS_FOR_TARGET_DEPARTMENT } from "@/components/portal/shared/flagTypes";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
-import { UserCheck, DollarSign, Package, Truck } from "lucide-react";
+import { UserCheck, DollarSign, Package, Truck, Wallet } from "lucide-react";
 
 import OrderDetailsModal from "./components/OrderDetailsModal";
 import PartyDetailsModal from "./components/PartyDetailsModal";
-import OrderItemsModal from "./components/OrderItemsModal";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
@@ -68,32 +72,6 @@ function formatDate(v: unknown): string {
   const d = v instanceof Date ? v : new Date(String(v));
   if (Number.isNaN(d.getTime())) return String(v);
   return d.toLocaleString();
-}
-
-// Format status label to readable text
-function formatStatusLabel(v: string): string {
-  return v
-    ? v
-      .split("_")
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ")
-    : "—";
-}
-
-function statusBadgeClass(status: string): string {
-  if (status === "cancelled" || status.includes("rejected")) {
-    return "bg-rose-50 text-rose-700 ring-1 ring-rose-600/15 dark:bg-rose-955/30 dark:text-rose-300 dark:ring-rose-500/20";
-  }
-  if (status === "on_hold" || status === "submitted") {
-    return "bg-amber-50 text-amber-700 ring-1 ring-amber-600/15 dark:bg-amber-955/30 dark:text-amber-305 dark:ring-amber-500/20";
-  }
-  if (status.includes("dispatch") || status.includes("transport")) {
-    return "bg-blue-50 text-blue-700 ring-1 ring-blue-600/15 dark:bg-blue-955/30 dark:text-blue-300 dark:ring-blue-500/20";
-  }
-  if (status === "delivered" || status.includes("approved")) {
-    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-955/30 dark:text-emerald-300 dark:ring-emerald-500/25";
-  }
-  return "bg-slate-100 text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-900 dark:text-slate-300 dark:ring-white/10";
 }
 
 function formatDateShort(v: unknown): string {
@@ -124,42 +102,6 @@ function resolveUserId(userVal: unknown): string {
     return String(o._id ?? o.id ?? "");
   }
   return "";
-}
-
-function isApprovedFinanceRelease(app: Record<string, unknown>): boolean {
-  const s = String(app.approval_status || "").toLowerCase();
-  return (
-    s === "fully_approved" || s === "partially_approved" || s === "approved"
-  );
-}
-
-function financeApprovalId(app: Record<string, unknown>): string {
-  return String(app._id ?? app.id ?? "");
-}
-
-function normalizeOrderItemId(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    return String(o._id ?? o.id ?? "");
-  }
-  return String(value);
-}
-
-function formatFinanceReleaseStatus(status: unknown): string {
-  const s = String(status || "").toLowerCase();
-  const labels: Record<string, string> = {
-    fully_approved: "Fully approved",
-    partially_approved: "Partially approved",
-    pending_review: "Pending review",
-    draft: "Draft",
-    rejected: "Rejected",
-    hold: "On hold",
-    cancelled: "Cancelled",
-    approved: "Approved",
-  };
-  return labels[s] || formatStatusLabel(s);
 }
 
 const departmentLabels: Record<string, string> = {
@@ -201,14 +143,10 @@ function renderPriorityBadge(priority: string) {
 
 export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
   const router = useRouter();
-  const { data, isFetching, isError, refetch } = useGetOrderQuery(orderId);
+  const { data, isLoading, isFetching, isError, refetch } = useGetOrderQuery(orderId);
 
-  const salesUsersQ = useListUsersQuery({ department: "sales" });
-  const financeUsersQ = useListUsersQuery({ department: "finance" });
-  const dispatchUsersQ = useListUsersQuery({ department: "dispatch" });
-  const adminUsersQ = useListUsersQuery({ department: "admin" });
+  const usersQ = useListUsersQuery({});
   const partiesQ = useListPartiesQuery({});
-  const financeApprovalsQ = useListOrderFinanceApprovalsQuery({ order: orderId });
   const fulfillmentQ = useGetOrderFulfillmentQuery(orderId);
 
   const detail =
@@ -232,19 +170,9 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
     skip: !currentPartyId,
   });
 
-  const salesUsers = useMemo(() => pickList(salesUsersQ.data), [salesUsersQ.data]);
-  const financeUsers = useMemo(() => pickList(financeUsersQ.data), [financeUsersQ.data]);
-  const dispatchUsers = useMemo(() => pickList(dispatchUsersQ.data), [dispatchUsersQ.data]);
-  const adminUsers = useMemo(() => pickList(adminUsersQ.data), [adminUsersQ.data]);
-
   const users = useMemo(() => {
-    return [
-      ...salesUsers,
-      ...financeUsers,
-      ...dispatchUsers,
-      ...adminUsers,
-    ] as Record<string, unknown>[];
-  }, [salesUsers, financeUsers, dispatchUsers, adminUsers]);
+    return pickList(usersQ.data) as Record<string, unknown>[];
+  }, [usersQ.data]);
 
   const resolveUser = useCallback(
     (userVal: unknown): { name: string; phone: string } => {
@@ -283,7 +211,7 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
   const [transitioningTo, setTransitioningTo] = useState<string | null>(null);
   const [transitionRemarks, setTransitionRemarks] = useState("");
 
-  const [activeTab, setActiveTab] = useState<"finance_releases" | "dispatches" | "transports" | "flags" | "attachments">("finance_releases");
+  const [activeTab, setActiveTab] = useState<"dispatches" | "transports" | "deliveries" | "returns" | "flags" | "attachments">("dispatches");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
   const [showRaiseFlagModal, setShowRaiseFlagModal] = useState(false);
   const [newFlagDept, setNewFlagDept] = useState("sales");
@@ -300,34 +228,14 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
     }
   }, [newFlagDept]);
 
-  // Create Dispatch form state variables
-  const [isCreateDispatchModalOpen, setIsCreateDispatchModalOpen] = useState(false);
-  const [dispatchDate, setDispatchDate] = useState("");
-  const [warehouseLocation, setWarehouseLocation] = useState("");
-  const [dispatchRemarks, setDispatchRemarks] = useState("");
-  const [dispatchItemsQuantities, setDispatchItemsQuantities] = useState<Record<string, number>>({});
-  const [activeApproval, setActiveApproval] = useState<any | null>(null);
-
-  const handleCloseCreateDispatchModal = useCallback(() => {
-    setIsCreateDispatchModalOpen(false);
-    setWarehouseLocation("");
-    setDispatchRemarks("");
-    setDispatchItemsQuantities({});
-    setActiveApproval(null);
-  }, []);
-
-  const attachmentsQ = useListAttachmentsQuery({ entity_type: "order", entity_id: orderId });
-  const attachments = useMemo(() => {
-    const arr = pickList(attachmentsQ.data);
-    return arr;
-  }, [attachmentsQ.data]);
+  const attachmentsQ = useListAttachmentsQuery(
+    { entity_type: "order", entity_id: orderId },
+    { skip: !orderId },
+  );
 
   const attachmentsCount = useMemo(() => {
-    return attachments.filter((att: any) => {
-      const dept = att.uploaded_by?.department;
-      return dept === "finance" || dept === "dispatch";
-    }).length;
-  }, [attachments]);
+    return countDispatchVisibleAttachments(pickOrderAttachments(attachmentsQ.data, orderId));
+  }, [attachmentsQ.data, orderId]);
 
   const flagsQ = useListFlagsQuery({ order: orderId });
   const [createFlag, { isLoading: isCreatingFlag }] = useCreateFlagMutation();
@@ -339,108 +247,30 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
   // Dispatch / Transport mutations & queries
   const dispatchesQ = useListDispatchesQuery({ order: orderId });
   const transportsQ = useListTransportsQuery({ order: orderId });
-  const [createDispatch, { isLoading: isCreatingDispatch }] = useCreateDispatchMutation();
+  const deliveriesQ = useListOrderDeliveriesQuery({ order: orderId });
+  const returnsQ = useListOrderReturnsQuery({ order: orderId });
   const [patchDispatch, { isLoading: isPatchingDispatch }] = usePatchDispatchMutation();
   const [patchTransport, { isLoading: isPatchingTransport }] = usePatchTransportMutation();
 
   const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
   const transports = useMemo(() => pickList(transportsQ.data), [transportsQ.data]);
-  const approvals = useMemo(() => pickList(financeApprovalsQ.data), [financeApprovalsQ.data]);
+  const deliveries = useMemo(() => pickList(deliveriesQ.data), [deliveriesQ.data]);
+  const returns = useMemo(() => pickList(returnsQ.data), [returnsQ.data]);
 
-  const dispatchedQtyByItemForActiveApproval = useMemo(() => {
-    if (!activeApproval || !dispatches) return {};
-    const map: Record<string, number> = {};
+  const currentUser = useAppSelector((state) => state.auth.user);
+  const currentUserId = useMemo(
+    () => String(currentUser?._id ?? currentUser?.id ?? ""),
+    [currentUser],
+  );
 
-    const filteredDispatches = dispatches.filter((disp: any) => {
-      const statusValue = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
-      if (statusValue === "cancelled") return false;
-
-      const dispApprovalId = typeof disp.finance_approval === "object" && disp.finance_approval !== null
-        ? String(disp.finance_approval._id ?? disp.finance_approval.id ?? "")
-        : String(disp.finance_approval ?? "");
-
-      return dispApprovalId === String(activeApproval._id);
+  const filteredDispatches = useMemo(() => {
+    return dispatches.filter((disp) => {
+      const assigneeId = typeof disp.dispatch_assignee_user === "object" && disp.dispatch_assignee_user !== null
+        ? String((disp.dispatch_assignee_user as any)._id ?? (disp.dispatch_assignee_user as any).id ?? "")
+        : String(disp.dispatch_assignee_user ?? "");
+      return assigneeId === currentUserId;
     });
-
-    filteredDispatches.forEach((disp: any) => {
-      const items = Array.isArray(disp.dispatch_items) ? disp.dispatch_items : disp.items || [];
-      items.forEach((item: any) => {
-        const lineId = String(item.order_item_id);
-        const qty = Number(item.dispatched_quantity ?? item.dispatch_quantity ?? 0);
-        map[lineId] = (map[lineId] || 0) + qty;
-      });
-    });
-
-    return map;
-  }, [activeApproval, dispatches]);
-
-  const getReleaseDispatches = useCallback(
-    (appId: string) => {
-      return dispatches.filter((disp: Record<string, unknown>) => {
-        const statusValue = String(
-          disp.dispatch_status ?? disp.status ?? "partially_dispatched",
-        );
-        if (statusValue === "cancelled") return false;
-
-        const dispApproval = disp.finance_approval;
-        const dispApprovalId =
-          typeof dispApproval === "object" && dispApproval !== null
-            ? String(
-              (dispApproval as Record<string, unknown>)._id ??
-              (dispApproval as Record<string, unknown>).id ??
-              "",
-            )
-            : String(dispApproval ?? "");
-
-        return dispApprovalId === appId;
-      });
-    },
-    [dispatches],
-  );
-
-  const isReleaseFullyDispatched = useCallback(
-    (app: Record<string, unknown>) => {
-      const items = Array.isArray(app.approval_items)
-        ? (app.approval_items as Record<string, unknown>[])
-        : [];
-      if (items.length === 0) return false;
-
-      const appId = financeApprovalId(app);
-      const releaseDispatches = getReleaseDispatches(appId);
-
-      const dispatchedMap: Record<string, number> = {};
-      releaseDispatches.forEach((disp) => {
-        const rawItems = Array.isArray(disp.dispatch_items)
-          ? disp.dispatch_items
-          : (disp.items as unknown[]) || [];
-        (rawItems as Record<string, unknown>[]).forEach((item) => {
-          const lineId = normalizeOrderItemId(item.order_item_id);
-          const qty = Number(item.dispatched_quantity ?? item.dispatch_quantity ?? 0);
-          dispatchedMap[lineId] = (dispatchedMap[lineId] || 0) + qty;
-        });
-      });
-
-      const linesWithApproval = items.filter(
-        (ai) => Number(ai.approved_quantity || 0) > 0,
-      );
-      if (linesWithApproval.length === 0) return false;
-
-      return linesWithApproval.every((ai) => {
-        const approvedQty = Number(ai.approved_quantity || 0);
-        const lineId = normalizeOrderItemId(ai.order_item_id);
-        const dispatchedQty = dispatchedMap[lineId] || 0;
-        return dispatchedQty >= approvedQty;
-      });
-    },
-    [getReleaseDispatches],
-  );
-
-  const releaseHasDispatches = useCallback(
-    (app: Record<string, unknown>) => {
-      return getReleaseDispatches(financeApprovalId(app)).length > 0;
-    },
-    [getReleaseDispatches],
-  );
+  }, [dispatches, currentUserId]);
 
   const handleRefetch = useCallback(() => {
     refetch();
@@ -449,8 +279,9 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
     if (!attachmentsQ.isUninitialized) attachmentsQ.refetch();
     if (!dispatchesQ.isUninitialized) dispatchesQ.refetch();
     if (!transportsQ.isUninitialized) transportsQ.refetch();
-    if (!financeApprovalsQ.isUninitialized) financeApprovalsQ.refetch();
-  }, [refetch, fulfillmentQ, flagsQ, attachmentsQ, dispatchesQ, transportsQ, financeApprovalsQ]);
+    if (!deliveriesQ.isUninitialized) deliveriesQ.refetch();
+    if (!returnsQ.isUninitialized) returnsQ.refetch();
+  }, [refetch, fulfillmentQ, flagsQ, attachmentsQ, dispatchesQ, transportsQ, deliveriesQ, returnsQ]);
 
   const handleUpdateDispatchStatus = useCallback(async (dispatchId: string, nextStatus: string) => {
     try {
@@ -465,60 +296,31 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
     }
   }, [patchDispatch, handleRefetch]);
 
-  const handleUpdateTransportStatus = useCallback(async (transportId: string, nextStatus: string, remarks?: string) => {
+  const handleUpdateTransportStatus = useCallback(async (
+    transportId: string,
+    nextStatus: string,
+    remarks?: string,
+    suppressToast?: boolean,
+  ) => {
     try {
       await patchTransport({
         id: transportId,
         patch: { status: nextStatus, ...(remarks ? { remarks } : {}) },
       }).unwrap();
-      toast.success(`Transport status updated to ${nextStatus.replace(/_/g, ' ')}`);
+      const refreshed = await refetch();
+      const order = refreshed.data as Record<string, unknown> | undefined;
+      const orderClosed =
+        String(order?.lifecycle_status ?? "") === "closed" || Boolean(order?.closed_at);
+      if (!suppressToast && !orderClosed) {
+        toast.success(`Transport status updated to ${nextStatus.replace(/_/g, " ")}`);
+      }
       handleRefetch();
+      return { orderClosed };
     } catch (err) {
       toast.error(mutationRejectedMessage(err));
+      throw err;
     }
-  }, [patchTransport, handleRefetch]);
-
-
-
-
-
-  const handleCreateDispatch = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!orderId) return;
-
-    const items = Object.entries(dispatchItemsQuantities)
-      .map(([order_item_id, qty]) => ({
-        order_item_id,
-        dispatch_quantity: qty,
-      }))
-      .filter((item) => item.dispatch_quantity > 0);
-
-    if (items.length === 0) {
-      toast.error("Please enter a dispatch quantity for at least one item.");
-      return;
-    }
-
-    try {
-      await createDispatch({
-        order: orderId,
-        finance_approval: activeApproval?._id || undefined,
-        dispatch_date: dispatchDate ? new Date(dispatchDate).toISOString() : new Date().toISOString(),
-        warehouse_location: warehouseLocation.trim() || undefined,
-        remarks: dispatchRemarks.trim() || undefined,
-        items,
-      }).unwrap();
-
-      toast.success("Dispatch created successfully.");
-      setIsCreateDispatchModalOpen(false);
-      setWarehouseLocation("");
-      setDispatchRemarks("");
-      setDispatchItemsQuantities({});
-      setActiveApproval(null);
-      handleRefetch();
-    } catch (err) {
-      toast.error(mutationRejectedMessage(err));
-    }
-  }, [orderId, activeApproval, dispatchItemsQuantities, dispatchDate, warehouseLocation, dispatchRemarks, createDispatch, handleRefetch]);
+  }, [patchTransport, handleRefetch, refetch]);
 
   const userNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -616,65 +418,6 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
     return [];
   }, [status]);
 
-  const buildInitialDispatchQuantities = useCallback(
-    (app: Record<string, unknown> | null) => {
-      const init: Record<string, number> = {};
-      const appId = app ? financeApprovalId(app) : "";
-      const releaseDispatches = appId ? getReleaseDispatches(appId) : [];
-
-      readOnlyItems.forEach((line) => {
-        const lineId = String(line._id ?? line.id ?? "");
-        const appItem = app?.approval_items
-          ? (app.approval_items as Record<string, unknown>[]).find(
-            (ai) => normalizeOrderItemId(ai.order_item_id) === lineId,
-          )
-          : undefined;
-
-        const approved = appItem
-          ? Number(appItem.approved_quantity || 0)
-          : line.approved_quantity !== undefined
-            ? Number(line.approved_quantity || 0)
-            : Number(line.ordered_quantity ?? line.quantity ?? 0);
-
-        let alreadyDispatched = 0;
-        if (app) {
-          releaseDispatches.forEach((disp) => {
-            const items = Array.isArray(disp.dispatch_items)
-              ? disp.dispatch_items
-              : (disp.items as unknown[]) || [];
-            (items as Record<string, unknown>[]).forEach((item) => {
-              if (normalizeOrderItemId(item.order_item_id) === lineId) {
-                alreadyDispatched += Number(
-                  item.dispatched_quantity ?? item.dispatch_quantity ?? 0,
-                );
-              }
-            });
-          });
-        } else {
-          alreadyDispatched = Number(line.dispatched_quantity || 0);
-        }
-
-        const remaining = Math.max(0, approved - alreadyDispatched);
-        if (remaining > 0) {
-          init[lineId] = remaining;
-        }
-      });
-
-      return init;
-    },
-    [readOnlyItems, getReleaseDispatches],
-  );
-
-  const dispatchableApprovals = useMemo(() => {
-    return approvals.filter(
-      (app) =>
-        isApprovedFinanceRelease(app as Record<string, unknown>) &&
-        !isReleaseFullyDispatched(app),
-    );
-  }, [approvals, isReleaseFullyDispatched]);
-
-  const primaryDispatchApproval = dispatchableApprovals[0] ?? null;
-
   const dispatchFulfillment = useMemo(() => {
     const totals =
       fulfillmentSnapshot?.totals &&
@@ -706,113 +449,7 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
     };
   }, [fulfillmentSnapshot, readOnlyItems]);
 
-  const isOrderFullyDispatched = useMemo(() => {
-    const approvedReleases = approvals.filter((app) =>
-      isApprovedFinanceRelease(app as Record<string, unknown>),
-    );
-    if (approvedReleases.length > 0) {
-      return approvedReleases.every((app) => isReleaseFullyDispatched(app));
-    }
-    if (dispatchFulfillment.approved > 0) {
-      return dispatchFulfillment.pendingDispatch <= 0;
-    }
-    return false;
-  }, [approvals, isReleaseFullyDispatched, dispatchFulfillment]);
 
-  const canCreateDispatch = useMemo(() => {
-    if (status === "cancelled" || status === "on_hold") return false;
-
-    if (!isOrderFullyDispatched && approvals.some(app => isApprovedFinanceRelease(app as Record<string, unknown>))) {
-      return true;
-    }
-
-    const dispatchableStatuses = [
-      "finance_approved",
-      "fully_finance_approved",
-      "partially_finance_approved",
-      "dispatch_pending",
-      "partial_dispatch_created",
-      "full_dispatch_created",
-      "transport_pending",
-      "partially_transported",
-      "transport_assigned",
-      "in_transit",
-    ];
-    if (dispatchableStatuses.includes(status)) return true;
-
-    const stage = String(detail?.workflow_stage ?? "");
-    if (stage === "dispatch_review" || stage === "dispatch_execution") {
-      const fas = String(detail?.finance_approval_status ?? "");
-      return fas === "partial" || fas === "full" || status !== "finance_review";
-    }
-
-    return false;
-  }, [status, detail, isOrderFullyDispatched, approvals]);
-
-  const hasPartialDispatch = dispatchFulfillment.dispatched > 0 && !isOrderFullyDispatched;
-
-  const openDispatchModal = useCallback(
-    (app?: Record<string, unknown> | null) => {
-      const approval =
-        app ??
-        (primaryDispatchApproval as Record<string, unknown> | null) ??
-        null;
-
-      if (!approval && dispatchableApprovals.length === 0) {
-        toast.error("No finance-approved quantities remain to dispatch.");
-        return;
-      }
-
-      setDispatchItemsQuantities(buildInitialDispatchQuantities(approval));
-      setDispatchDate(new Date().toISOString().split("T")[0]);
-      setActiveApproval(approval);
-      setIsCreateDispatchModalOpen(true);
-    },
-    [
-      primaryDispatchApproval,
-      dispatchableApprovals.length,
-      buildInitialDispatchQuantities,
-    ],
-  );
-
-  const modalRemainingTotal = useMemo(() => {
-    if (!isCreateDispatchModalOpen) return 0;
-
-    let total = 0;
-    readOnlyItems.forEach((line) => {
-      const orderItemId = String(line._id || "");
-      const appItem = activeApproval?.approval_items?.find(
-        (ai: Record<string, unknown>) =>
-          normalizeOrderItemId(ai.order_item_id) === orderItemId,
-      );
-
-      const approved = appItem
-        ? Number(appItem.approved_quantity || 0)
-        : line.approved_quantity !== undefined
-          ? Number(line.approved_quantity || 0)
-          : Number(line.ordered_quantity ?? line.quantity ?? 0);
-
-      const alreadyDispatched = activeApproval
-        ? (dispatchedQtyByItemForActiveApproval[orderItemId] ?? 0)
-        : Number(line.dispatched_quantity || 0);
-
-      total += Math.max(0, approved - alreadyDispatched);
-    });
-    return total;
-  }, [
-    isCreateDispatchModalOpen,
-    readOnlyItems,
-    activeApproval,
-    dispatchedQtyByItemForActiveApproval,
-  ]);
-
-  const hasDispatchQtyEntered = useMemo(
-    () => Object.values(dispatchItemsQuantities).some((qty) => qty > 0),
-    [dispatchItemsQuantities],
-  );
-
-  const canSubmitCreateDispatch =
-    modalRemainingTotal > 0 && hasDispatchQtyEntered && !isCreatingDispatch;
 
   const canHold = useMemo(() => {
     return ["dispatch_pending", "partial_dispatch_created", "full_dispatch_created", "transport_pending"].includes(status);
@@ -822,7 +459,7 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
     return ["dispatch_pending", "partial_dispatch_created", "on_hold"].includes(status);
   }, [status]);
 
-  const busy = isSubmitting || isCreatingDispatch;
+  const busy = isSubmitting;
 
   const orderKpis = useMemo(() => {
     const totalLines = readOnlyItems.length;
@@ -871,18 +508,36 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
 
   const adminBox = useMemo(() => deptBoxes.find((b) => b.id === "admin"), [deptBoxes]);
   const financeBox = useMemo(() => deptBoxes.find((b) => b.id === "finance"), [deptBoxes]);
+  const accountBox = useMemo(() => deptBoxes.find((b) => b.id === "account"), [deptBoxes]);
   const dispatchBox = useMemo(() => deptBoxes.find((b) => b.id === "dispatch"), [deptBoxes]);
   const deliveryBox = useMemo(() => deptBoxes.find((b) => b.id === "delivery"), [deptBoxes]);
 
   const adminStatusDim = adminBox?.status;
   const financeStatusDim = financeBox?.status;
   const dispatchStatusDim = dispatchBox?.status;
+  const accountStatusDim = accountBox?.status;
   const deliveryStatusDim = deliveryBox?.status;
 
   const [isFulfillmentModalOpen, setIsFulfillmentModalOpen] = useState(false);
-  const [isOrderItemsModalOpen, setIsOrderItemsModalOpen] = useState(false);
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
   const [isPartyDetailsModalOpen, setIsPartyDetailsModalOpen] = useState(false);
+
+  if (isError || (!isLoading && !detail)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center px-4 font-sans">
+        <p className="text-sm text-rose-600 dark:text-rose-400 font-semibold">
+          Could not load order details.
+        </p>
+        <button type="button" onClick={() => router.back()} className={`${btnSecondaryClass} mt-4`}>
+          Back
+        </button>
+      </div>
+    );
+  }
+
+  if (!detail) {
+    return <PortalBusyOverlay active message="Loading order details…" />;
+  }
 
   return (
     <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden pb-20 md:pb-0 space-y-4">
@@ -935,187 +590,6 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {/* Create Dispatch Modal */}
-      {isCreateDispatchModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-2xl rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[90vh] overflow-y-auto">
-            <div className="flex flex-col gap-1.5 border-b border-slate-100 pb-3 dark:border-white/5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 font-sans">
-                  {hasPartialDispatch ? "Continue Dispatch" : "Create Dispatch"}
-                </h3>
-                <button
-                  type="button"
-                  onClick={handleCloseCreateDispatchModal}
-                  className="rounded-md text-slate-400 hover:text-slate-505 hover:bg-slate-100 dark:hover:bg-white/5 p-1"
-                >
-                  <span className="sr-only">Close</span>
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              {activeApproval && (
-                <div className="flex items-center gap-1 text-[11px] font-sans text-slate-500 dark:text-slate-400">
-                  <span>Linked Release:</span>
-                  <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded">
-                    {activeApproval.approval_no} (Rev #{activeApproval.revision_number})
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <form onSubmit={handleCreateDispatch} className="mt-4 space-y-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5 font-sans">
-                  <label htmlFor="dispatch-date-input" className={labelClass}>Dispatch Date *</label>
-                  <input
-                    id="dispatch-date-input"
-                    type="date"
-                    value={dispatchDate}
-                    onChange={(e) => setDispatchDate(e.target.value)}
-                    className={inputClass}
-                    required
-                  />
-                </div>
-                <div className="space-y-1.5 font-sans">
-                  <label htmlFor="warehouse-location-input" className={labelClass}>Warehouse Location</label>
-                  <input
-                    id="warehouse-location-input"
-                    type="text"
-                    value={warehouseLocation}
-                    onChange={(e) => setWarehouseLocation(e.target.value)}
-                    className={inputClass}
-                    placeholder="E.g., Aisle 4, Shelf B"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5 font-sans">
-                <label htmlFor="dispatch-remarks-input" className={labelClass}>Remarks / Special Instructions</label>
-                <textarea
-                  id="dispatch-remarks-input"
-                  rows={2}
-                  value={dispatchRemarks}
-                  onChange={(e) => setDispatchRemarks(e.target.value)}
-                  className={inputClass}
-                  placeholder="E.g., Fragile items, pack with bubble wrap"
-                />
-              </div>
-
-              <div className="border-t border-slate-200/90 pt-4 dark:border-white/10">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 font-sans mb-3">
-                  Select Quantities to Dispatch
-                </h4>
-                <div className="overflow-x-auto rounded-lg border border-slate-200/60 dark:border-white/5">
-                  <table className="w-full text-left text-xs font-sans">
-                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-medium">
-                      <tr>
-                        <th className="px-4 py-2.5">Product</th>
-                        <th className="px-4 py-2.5 text-center">Approved</th>
-                        <th className="px-4 py-2.5 text-center">Already Dispatched</th>
-                        <th className="px-4 py-2.5 text-center">Remaining</th>
-                        <th className="px-4 py-2.5 text-right w-32">Dispatch Qty</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                      {modalRemainingTotal === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={5}
-                            className="px-4 py-6 text-center text-xs text-slate-500 dark:text-slate-400"
-                          >
-                            All approved quantities for this release have been dispatched.
-                          </td>
-                        </tr>
-                      ) : null}
-                      {readOnlyItems.map((line: Record<string, unknown>) => {
-                        const orderItemId = String(line._id || "");
-                        const appItem = activeApproval?.approval_items?.find(
-                          (ai: Record<string, unknown>) =>
-                            normalizeOrderItemId(ai.order_item_id) === orderItemId,
-                        );
-
-                        const approved = appItem
-                          ? Number(appItem.approved_quantity || 0)
-                          : line.approved_quantity !== undefined
-                            ? Number(line.approved_quantity || 0)
-                            : Number(line.ordered_quantity ?? line.quantity ?? 0);
-
-                        const alreadyDispatched = activeApproval
-                          ? (dispatchedQtyByItemForActiveApproval[orderItemId] ?? 0)
-                          : Number(line.dispatched_quantity || 0);
-                        const remaining = Math.max(0, approved - alreadyDispatched);
-                        if (remaining <= 0) return null;
-
-                        const currentVal = dispatchItemsQuantities[orderItemId] ?? 0;
-
-                        return (
-                          <tr key={orderItemId} className="bg-white dark:bg-slate-900">
-                            <td className="px-4 py-3">
-                              <span className="font-semibold text-slate-800 dark:text-slate-200 block">
-                                {String(line.product_name || "—")}
-                              </span>
-                              {line.sku ? (
-                                <span className="text-[10px] text-slate-400">
-                                  SKU {String(line.sku)}
-                                </span>
-                              ) : null}
-                            </td>
-                            <td className="px-4 py-3 text-center text-slate-655 text-slate-500">{approved}</td>
-                            <td className="px-4 py-3 text-center text-slate-655 text-slate-500">{alreadyDispatched}</td>
-                            <td className="px-4 py-3 text-center font-semibold text-blue-600 dark:text-blue-400">{remaining}</td>
-                            <td className="px-4 py-3 text-right">
-                              <input
-                                type="number"
-                                min={0}
-                                max={remaining}
-                                value={currentVal || ""}
-                                onChange={(e) => {
-                                  const val = Math.min(remaining, Math.max(0, parseInt(e.target.value) || 0));
-                                  setDispatchItemsQuantities((prev) => ({
-                                    ...prev,
-                                    [orderItemId]: val,
-                                  }));
-                                }}
-                                className="w-20 text-right rounded border border-slate-200 px-2 py-1 text-xs dark:border-white/10 dark:bg-slate-950 text-slate-900 dark:text-slate-50 focus:border-blue-600 focus:outline-none"
-                                placeholder="0"
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-white/5 font-sans font-medium">
-                <button
-                  type="button"
-                  onClick={handleCloseCreateDispatchModal}
-                  className={btnSecondaryClass}
-                  disabled={isCreatingDispatch}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!canSubmitCreateDispatch}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
-                >
-                  {isCreatingDispatch
-                    ? "Creating Dispatch..."
-                    : hasPartialDispatch
-                      ? "Continue Dispatch"
-                      : "Create Dispatch"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Item Fulfillment Details Modal */}
       {isFulfillmentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
@@ -1158,13 +632,7 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      <OrderItemsModal
-        isOpen={isOrderItemsModalOpen}
-        onClose={() => setIsOrderItemsModalOpen(false)}
-        detail={detail}
-        status={status}
-        readOnlyItems={readOnlyItems}
-      />
+
 
       <OrderDetailsModal
         isOpen={isOrderDetailsModalOpen}
@@ -1184,25 +652,9 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
       />
 
       {/* Loading & Error Indicators */}
-      {(isFetching || isError || !detail) && (
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={() => router.back()} className={btnSecondaryClass}>
-            Back
-          </button>
-        </div>
-      )}
-
-      {isFetching && (
-        <p className="text-sm text-slate-500 dark:text-slate-400 font-sans">Loading order...</p>
-      )}
-      {isError && (
-        <p className="text-sm text-rose-600 dark:text-rose-455 font-sans font-semibold">
-          Could not load order details.
-        </p>
-      )}
 
       {/* Order Main Content */}
-      {!isFetching && !isError && detail && (
+      {detail && (
         <>
           <div className="flex-shrink-0 space-y-3">
             <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
@@ -1251,12 +703,15 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
                   <button type="button" onClick={() => setIsFulfillmentModalOpen(true)} className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-amber-200/80 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[10px] sm:text-xs font-bold text-amber-600 shadow-sm transition dark:border-white/10 dark:bg-slate-950 dark:text-amber-400 dark:hover:bg-white/5 cursor-pointer active:scale-[0.98]">Details</button>
                 </div>
                 <div className="overflow-x-auto -mx-1 px-1 pb-1">
-                  <div className="grid grid-cols-7 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
+                  <div className="grid grid-cols-9 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
                     <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderKpis.totalQty} icon={UserCheck} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
                     <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderKpis.totalQty} icon={DollarSign} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderKpis.totalQty} icon={Package} />
+                    
+                        <FulfillmentCircleStep label="Account" status={accountStatusDim} completed={accountBox?.completedQty} total={orderKpis.totalQty} icon={Wallet} />
+                        <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
+                        <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderKpis.totalQty} icon={Package} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
                     <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderKpis.totalQty} icon={Truck} />
                   </div>
@@ -1266,15 +721,6 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
               {/* ── Action buttons bar ── */}
               <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/10">
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 font-sans font-medium">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setIsOrderItemsModalOpen(true)}
-                    className="rounded-lg bg-emerald-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400 active:scale-[0.98] cursor-pointer"
-                  >
-                    Approved Items
-                  </button>
-                  {isOrderFullyDispatched && canCreateDispatch && (<span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 font-sans">Fully dispatched</span>)}
                   <button type="button" disabled={!canHold || busy} onClick={() => setTransitioningTo("on_hold")} className="rounded-lg bg-amber-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Hold</button>
                   <button type="button" disabled={status !== "on_hold" || busy} onClick={() => setTransitioningTo("dispatch_pending")} className="rounded-lg bg-blue-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Resume</button>
                   <button type="button" disabled={!canCancel || busy} onClick={() => setTransitioningTo("cancelled")} className="rounded-lg bg-rose-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Cancel</button>
@@ -1287,12 +733,8 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
           {/* ── DESKTOP: Tab Content ── */}
           <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
             {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} setShowRaiseFlagModal={setShowRaiseFlagModal} currentDepartment="dispatch" refetchOrder={handleRefetch} />)}
-            {activeTab === "attachments" && (<AttachmentsTab
-              orderId={orderId}
-              attachments={attachments}
-              isLoading={attachmentsQ.isFetching}
-              onUploadSuccess={handleRefetch}
-            />
+            {activeTab === "attachments" && (
+              <AttachmentsTab orderId={orderId} onUploadSuccess={handleRefetch} />
             )}
 
             {activeTab === "dispatches" && (
@@ -1322,30 +764,41 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
                 formatDate={formatDate}
                 orderId={orderId}
                 onRefetch={handleRefetch}
+                dispatches={dispatches}
+                orderItems={readOnlyItems}
               />
             )}
 
-            {activeTab === "finance_releases" && (
-              <FinanceReleasesTab
-                approvals={approvals}
-                isLoading={financeApprovalsQ.isLoading}
-                canCreateDispatch={canCreateDispatch}
-                busy={busy}
-                openDispatchModal={openDispatchModal}
+            {activeTab === "deliveries" && (
+              <DeliveriesTab
+                deliveries={deliveries}
+                isFetching={deliveriesQ.isFetching}
                 formatDate={formatDate}
-                isReleaseFullyDispatched={isReleaseFullyDispatched}
-                releaseHasDispatches={releaseHasDispatches}
+                orderItems={readOnlyItems}
               />
             )}
+
+            {activeTab === "returns" && (
+              <ReturnsTab
+                returns={returns}
+                isFetching={returnsQ.isFetching}
+                formatDate={formatDate}
+                orderItems={readOnlyItems}
+                userNameById={userNameById}
+                onRefetch={handleRefetch}
+              />
+            )}
+
           </div>
 
           {/* ── DESKTOP: Footer Tab Nav ── */}
           <div className="hidden md:block flex-shrink-0 pt-2 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-slate-955/20 p-2 rounded-xl">
             <OrderDetailTabsNav
               tabs={[
-                { id: "finance_releases", name: "Finance Releases", count: approvals.length },
-                { id: "dispatches", name: "Dispatches", count: dispatches.length },
+                { id: "dispatches", name: "Dispatches", count: filteredDispatches.length },
                 { id: "transports", name: "Transports", count: transports.length },
+                { id: "deliveries", name: "Deliveries", count: deliveries.length },
+                { id: "returns", name: "Returns", count: returns.length },
                 {
                   id: "flags",
                   name: "Flags",
@@ -1363,8 +816,8 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
           {mobileTabOpen && (
             <div className="md:hidden fixed inset-0 z-[60] flex flex-col bg-white dark:bg-slate-900">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-0 z-10">
-                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-50">
-                  {activeTab === "finance_releases" && "Finance Releases"}{activeTab === "flags" && "Flags"}{activeTab === "attachments" && "Attachments"}{activeTab === "dispatches" && "Dispatches"}{activeTab === "transports" && "Transports"}
+                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-550 dark:text-slate-50">
+                  {activeTab === "flags" && "Flags"}{activeTab === "attachments" && "Attachments"}{activeTab === "dispatches" && "Dispatches"}{activeTab === "transports" && "Transports"}{activeTab === "deliveries" && "Deliveries"}{activeTab === "returns" && "Returns"}
                 </h2>
                 <button type="button" onClick={() => setMobileTabOpen(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10 transition" aria-label="Close panel">
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -1372,14 +825,13 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
               </div>
               <div className="flex-1 overflow-y-auto p-4 pb-24">
                 {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} setShowRaiseFlagModal={setShowRaiseFlagModal} currentDepartment="dispatch" refetchOrder={handleRefetch} />)}
-                {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachments} isLoading={attachmentsQ.isFetching} onUploadSuccess={handleRefetch} />)}
-                {activeTab === "dispatches" && (<DispatchesTab dispatches={dispatches} transports={transports} isFetching={dispatchesQ.isFetching} isPatchingDispatch={isPatchingDispatch} onUpdateStatus={handleUpdateDispatchStatus} formatDate={formatDate} userNameById={userNameById} orderItems={readOnlyItems} orderId={orderId} orderStatus={status} expectedDeliveryDate={detail?.expected_delivery_date ? String(detail.expected_delivery_date) : undefined} shippingAddress={(partyDetailQ.data as any)?.shipping_address} onRefetch={handleRefetch} />)}
-                {activeTab === "transports" && (<TransportsTab transports={transports} isFetching={transportsQ.isFetching} isPatchingTransport={isPatchingTransport} onUpdateStatus={handleUpdateTransportStatus} formatDate={formatDate} orderId={orderId} onRefetch={handleRefetch} />)}
-                {activeTab === "finance_releases" && (
-                  <DashboardCard title="Finance Release History" description="Audit records and approved item allocations from the finance department.">
-                    {financeApprovalsQ.isLoading ? (<p className="text-xs text-slate-500 font-sans">Loading release history...</p>) : approvals.length === 0 ? (<div className="flex flex-col items-center justify-center py-6 text-center"><h3 className="mt-2 text-xs font-semibold text-slate-900 dark:text-slate-200 font-sans">No finance releases</h3></div>) : (<div className="space-y-3 text-xs font-sans">{approvals.map((app: any) => (<div key={app._id} className="rounded-xl border border-slate-200/90 p-3">{app.approval_no}</div>))}</div>)}
-                  </DashboardCard>
+                {activeTab === "attachments" && (
+                  <AttachmentsTab orderId={orderId} onUploadSuccess={handleRefetch} />
                 )}
+                {activeTab === "dispatches" && (<DispatchesTab dispatches={dispatches} transports={transports} isFetching={dispatchesQ.isFetching} isPatchingDispatch={isPatchingDispatch} onUpdateStatus={handleUpdateDispatchStatus} formatDate={formatDate} userNameById={userNameById} orderItems={readOnlyItems} orderId={orderId} orderStatus={status} expectedDeliveryDate={detail?.expected_delivery_date ? String(detail.expected_delivery_date) : undefined} shippingAddress={(partyDetailQ.data as any)?.shipping_address} onRefetch={handleRefetch} />)}
+                {activeTab === "transports" && (<TransportsTab transports={transports} isFetching={transportsQ.isFetching} isPatchingTransport={isPatchingTransport} onUpdateStatus={handleUpdateTransportStatus} formatDate={formatDate} orderId={orderId} onRefetch={handleRefetch} dispatches={dispatches} orderItems={readOnlyItems} />)}
+                {activeTab === "deliveries" && (<DeliveriesTab deliveries={deliveries} isFetching={deliveriesQ.isFetching} formatDate={formatDate} orderItems={readOnlyItems} />)}
+                {activeTab === "returns" && (<ReturnsTab returns={returns} isFetching={returnsQ.isFetching} formatDate={formatDate} orderItems={readOnlyItems} userNameById={userNameById} onRefetch={handleRefetch} />)}
               </div>
             </div>
           )}
@@ -1391,9 +843,10 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
         <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 dark:border-white/10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2">
           <nav className="flex items-stretch justify-around">
             {([
-              { id: "finance_releases" as const, name: "Releases", count: approvals.length, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
-              { id: "dispatches" as const, name: "Dispatch", count: dispatches.length, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg> },
+              { id: "dispatches" as const, name: "Dispatch", count: filteredDispatches.length, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg> },
               { id: "transports" as const, name: "Transport", count: transports.length, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2.556-2.556M13 16H9m4 0h2m2 0h.01M13 16V6m0 0h3l3 4v6h-1M6 16H5m8-10H5" /></svg> },
+              { id: "deliveries" as const, name: "Delivery", count: deliveries.length, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg> },
+              { id: "returns" as const, name: "Return", count: returns.length, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg> },
               { id: "flags" as const, name: "Flags", count: rawFlags.filter((f) => f.status === "open").length, dangerBadge: true, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg> },
               { id: "attachments" as const, name: "Files", count: attachmentsCount, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg> },
             ]).map((tab) => {

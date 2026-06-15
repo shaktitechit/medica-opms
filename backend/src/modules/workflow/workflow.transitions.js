@@ -11,9 +11,17 @@ module.exports = {
 
   finance_approved: ['dispatch_pending', 'on_hold', 'finance_rejected'],
 
-  partially_finance_approved: ['dispatch_pending', 'on_hold', 'finance_rejected', 'finance_review', 'partially_finance_approved', 'fully_finance_approved', 'cancelled'],
+  partially_finance_approved: ['account_review', 'dispatch_pending', 'on_hold', 'finance_rejected', 'finance_review', 'partially_finance_approved', 'fully_finance_approved', 'cancelled'],
 
-  fully_finance_approved: ['dispatch_pending', 'on_hold', 'finance_rejected', 'finance_review'],
+  fully_finance_approved: ['account_review', 'dispatch_pending', 'on_hold', 'finance_rejected', 'finance_review', 'cancelled'],
+
+  account_review: ['partially_account_approved', 'fully_account_approved', 'account_rejected', 'on_hold', 'cancelled'],
+
+  partially_account_approved: ['dispatch_pending', 'account_review', 'account_rejected', 'on_hold', 'cancelled'],
+
+  fully_account_approved: ['dispatch_pending', 'account_review', 'account_rejected', 'on_hold', 'cancelled'],
+
+  account_rejected: ['account_review', 'fully_finance_approved', 'partially_finance_approved', 'cancelled'],
 
   dispatch_pending: ['partial_dispatch_created', 'full_dispatch_created', 'on_hold', 'cancelled'],
 
@@ -118,6 +126,9 @@ module.exports = {
     'finance_review',
     'partially_finance_approved',
     'fully_finance_approved',
+    'account_review',
+    'partially_account_approved',
+    'fully_account_approved',
     'dispatch_pending',
     'transport_pending',
     'transport_assigned',

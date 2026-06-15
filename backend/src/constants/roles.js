@@ -8,4 +8,5 @@ module.exports = {
   SALES: 'sales',
   FINANCE: 'finance',
   DISPATCH: 'dispatch',
+  ACCOUNT: 'account',
 };

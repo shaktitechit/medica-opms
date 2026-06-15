@@ -194,7 +194,9 @@ export function OrderTab({
           patch: { order_items: orderItems },
         }).unwrap();
         toast.success("Line price updated to negotiated rate.");
-        void rateCheckQ.refetch();
+        if (!rateCheckQ.isUninitialized) {
+          void rateCheckQ.refetch();
+        }
         refetchOrder?.();
       } catch (rejected) {
         toast.error(mutationRejectedMessage(rejected));

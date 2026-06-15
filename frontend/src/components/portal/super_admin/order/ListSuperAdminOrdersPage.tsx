@@ -9,6 +9,7 @@ import {
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import {
   ADMIN_ORDER_STATUSES,
   PRIORITY_OPTIONS,
@@ -129,7 +130,7 @@ export default function ListSuperAdminOrdersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  const { data, isFetching, isError, refetch } = useListOrdersQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
   });
   const partiesQ = useListPartiesQuery({});
@@ -204,6 +205,7 @@ export default function ListSuperAdminOrdersPage() {
 
   return (
     <div className="space-y-6">
+      <PortalBusyOverlay active={isLoading} message="Loading orders…" />
       <div className="relative overflow-hidden rounded-2xl border border-violet-500/10 bg-gradient-to-r from-violet-600/5 to-indigo-600/10 p-6 shadow-sm dark:from-violet-500/5 dark:to-indigo-500/5">
         <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-violet-500/10 blur-2xl pointer-events-none" />
         <div className="absolute -left-10 -bottom-10 h-32 w-32 rounded-full bg-indigo-500/10 blur-2xl pointer-events-none" />
@@ -312,14 +314,6 @@ export default function ListSuperAdminOrdersPage() {
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900">
-        {isFetching && (
-          <div className="flex flex-col items-center justify-center space-y-2 py-16">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-              Loading orders...
-            </p>
-          </div>
-        )}
         {isError && (
           <div className="px-4 py-16 text-center">
             <span className="text-2xl">⚠️</span>
@@ -328,7 +322,7 @@ export default function ListSuperAdminOrdersPage() {
             </h3>
           </div>
         )}
-        {!isFetching && !isError && filteredOrders.length === 0 && (
+        {!isLoading && !isError && filteredOrders.length === 0 && (
           <div className="px-4 py-16 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg border border-slate-100 bg-slate-50 text-xl text-slate-400 dark:border-white/5 dark:bg-slate-955">
               📋
@@ -338,7 +332,7 @@ export default function ListSuperAdminOrdersPage() {
             </h3>
           </div>
         )}
-        {!isFetching && !isError && filteredOrders.length > 0 && (
+        {!isLoading && !isError && filteredOrders.length > 0 && (
           <>
             <div className="bg-slate-50/10 p-4 dark:bg-slate-955/10">
               <div className="flex flex-col gap-3.5">

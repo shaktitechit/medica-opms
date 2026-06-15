@@ -1,19 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   buildPartyNameById,
+  pickList,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
   useListPartiesQuery,
   useListOrdersQuery,
+  useListOrderReturnsQuery,
   useListUsersQuery,
 } from "@/store/api";
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
@@ -33,6 +36,13 @@ import {
 } from "lucide-react";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
+import {
+  DISPATCH_ORDER_TABS,
+  buildPendingReturnOrderIds,
+  getDispatchOrderTabCategory,
+  isDispatchOrderTabCategory,
+  type DispatchOrderTabCategory,
+} from "../dispatchOrderUtils";
 
 type OrderRow = {
   _id?: string;
@@ -108,57 +118,41 @@ function formatDateShort(v: unknown): string {
   });
 }
 
-function getDispatchOrderTabCategory(order: unknown): "pending_dispatch" | "pending_delivery" | "closed" | "on_hold" | "cancelled" {
-  if (!order || typeof order !== "object") return "pending_delivery";
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-
-  if (status === "dispatch_pending" || status === "partially_finance_approved" || status === "fully_finance_approved" || row.workflow_stage === "dispatch_review") {
-    return "pending_dispatch";
-  }
-
-  if (status === "delivered") {
-    return "closed";
-  }
-
-  const items = Array.isArray(row.order_items) ? row.order_items : [];
-  let ordered = 0;
-  let delivered = 0;
-  items.forEach((line: any) => {
-    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-    delivered += Number(line.delivered_quantity ?? 0);
-  });
-
-  if (ordered > 0 && delivered >= ordered) {
-    return "closed";
-  }
-
-  // upstream / draft fallbacks
-  if (status === "draft" || status === "submitted" || status === "sales_approved" || status === "finance_review" || status === "finance_rejected") {
-    return "pending_dispatch";
-  }
-
-  return "pending_delivery";
-}
-
 export default function ListDispatchOrdersPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"pending_dispatch" | "pending_delivery" | "closed" | "on_hold" | "cancelled">("pending_dispatch");
+  const [activeTab, setActiveTab] = useState<DispatchOrderTabCategory>(
+    tabFromUrl && isDispatchOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_transport",
+  );
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  const { data, isFetching, isError, refetch } = useListOrdersQuery({});
+  useEffect(() => {
+    if (tabFromUrl && isDispatchOrderTabCategory(tabFromUrl)) {
+      setActiveTab(tabFromUrl);
+      setCurrentPage(1);
+    }
+  }, [tabFromUrl]);
+
+  const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery({});
+  const { data: returnsData } = useListOrderReturnsQuery({});
   const partiesQ = useListPartiesQuery({});
   const usersQ = useListUsersQuery({});
 
-  // Pagination State
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const pendingReturnOrderIds = useMemo(
+    () => buildPendingReturnOrderIds(pickList(returnsData)),
+    [returnsData],
+  );
+
+  const categoryOptions = useMemo(
+    () => ({ pendingReturnOrderIds }),
+    [pendingReturnOrderIds],
+  );
 
   const orders = useMemo(
     () => pickOrders(data) as OrderRow[],
@@ -178,7 +172,7 @@ export default function ListDispatchOrdersPage() {
   // Dynamic filter reset
   const handleResetFilters = useCallback(() => {
     setSearchQuery("");
-    setActiveTab("pending_dispatch");
+    setActiveTab("pending_transport");
     setPriorityFilter("all");
     setCurrentPage(1);
   }, []);
@@ -219,7 +213,8 @@ export default function ListDispatchOrdersPage() {
         }
       } else {
         // 2. Tab filter (only if search query is empty)
-        const category = getDispatchOrderTabCategory(o);
+        if (deriveOrderWorkflowStatus(o) === "draft") return false;
+        const category = getDispatchOrderTabCategory(o, categoryOptions);
         if (category !== activeTab) {
           return false;
         }
@@ -234,7 +229,7 @@ export default function ListDispatchOrdersPage() {
 
       return true;
     });
-  }, [orders, searchQuery, activeTab, priorityFilter, partyNameById]);
+  }, [orders, searchQuery, activeTab, priorityFilter, partyNameById, categoryOptions]);
 
   // Paginated Orders slice
   const paginatedOrders = useMemo(() => {
@@ -250,6 +245,7 @@ export default function ListDispatchOrdersPage() {
 
   return (
     <div className="space-y-6 font-sans">
+      <PortalBusyOverlay active={isLoading} message="Loading orders…" />
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-2xl border border-amber-500/10 bg-gradient-to-r from-amber-600/5 to-orange-600/10 p-6 dark:from-amber-500/5 dark:to-orange-500/5 shadow-sm">
         <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-amber-500/10 blur-2xl pointer-events-none" />
@@ -338,20 +334,14 @@ export default function ListDispatchOrdersPage() {
           </div>
         ) : (
           <nav className="-mb-px flex space-x-6 overflow-x-auto pb-px scrollbar-none" aria-label="Order stages">
-            {[
-              { id: "pending_dispatch", label: "Pending Dispatch" },
-              { id: "pending_delivery", label: "Pending Delivery" },
-              { id: "closed", label: "Closed Orders" },
-              { id: "on_hold", label: "On Hold" },
-              { id: "cancelled", label: "Cancelled" },
-            ].map((tab) => {
+            {DISPATCH_ORDER_TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => {
-                    setActiveTab(tab.id as any);
+                    setActiveTab(tab.id);
                     setCurrentPage(1);
                   }}
                   className={`group border-b-2 py-4 px-1 text-sm font-semibold transition whitespace-nowrap inline-flex items-center gap-2 cursor-pointer ${
@@ -389,7 +379,7 @@ export default function ListDispatchOrdersPage() {
                 </option>
               ))}
             </select>
-            {(searchQuery || activeTab !== "pending_dispatch" || priorityFilter !== "all") && (
+            {(searchQuery || activeTab !== "pending_transport" || priorityFilter !== "all") && (
               <button
                 type="button"
                 onClick={handleResetFilters}
@@ -404,13 +394,6 @@ export default function ListDispatchOrdersPage() {
 
       {/* Main Grid/Table Card */}
       <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
-        {isFetching && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-amber-650 border-t-transparent" />
-            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Loading orders...</p>
-          </div>
-        )}
-
         {isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
@@ -423,7 +406,7 @@ export default function ListDispatchOrdersPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredOrders.length === 0 && (
+        {!isLoading && !isError && filteredOrders.length === 0 && (
           <div className="text-center py-16 px-4">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-955 text-slate-400 text-xl border border-slate-100 dark:border-white/5">
               📋
@@ -439,7 +422,7 @@ export default function ListDispatchOrdersPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredOrders.length > 0 && (
+        {!isLoading && !isError && filteredOrders.length > 0 && (
           <>
             <div className="p-4 flex flex-col gap-3.5 bg-slate-50/10 dark:bg-slate-955/10">
               {paginatedOrders.map((o) => {
@@ -459,12 +442,14 @@ export default function ListDispatchOrdersPage() {
                 const adminBox = deptBoxes.find((b) => b.id === "admin");
                 const financeBox = deptBoxes.find((b) => b.id === "finance");
                 const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-                const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
+                const accountBox = deptBoxes.find((b) => b.id === "account");
+  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
 
                 const adminStatusDim = adminBox?.status;
                 const financeStatusDim = financeBox?.status;
                 const dispatchStatusDim = dispatchBox?.status;
-                const deliveryStatusDim = deliveryBox?.status;
+                const accountStatusDim = accountBox?.status;
+  const deliveryStatusDim = deliveryBox?.status;
 
                 const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
                 const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {

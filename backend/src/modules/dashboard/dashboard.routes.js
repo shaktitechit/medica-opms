@@ -13,6 +13,7 @@ const adminDash = require('./admin.dashboard');
 const salesDash = require('./sales.dashboard');
 const financeDash = require('./finance.dashboard');
 const dispatchDash = require('./dispatch.dashboard');
+const accountDash = require('./account.dashboard');
 const superDash = require('./super.dashboard');
 
 router.use(requireAuth);
@@ -46,6 +47,14 @@ router.get(
   requireDepartmentOnly('dispatch'),
   asyncHandler(async (_req, res) => {
     res.json({ success: true, data: await dispatchDash.summary() });
+  })
+);
+
+router.get(
+  '/account',
+  requireDepartmentOnly('account'),
+  asyncHandler(async (req, res) => {
+    res.json({ success: true, data: await accountDash.summary(req.user._id) });
   })
 );
 

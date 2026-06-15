@@ -20,6 +20,10 @@ const LEGACY_STATUS_TO_WORKFLOW = Object.freeze({
   partially_finance_approved: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'partially_finance_approved' },
   fully_finance_approved: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'fully_finance_approved' },
   finance_rejected: { lifecycle_status: 'active', workflow_stage: 'sales', current_action: 'rejected' },
+  account_review: { lifecycle_status: 'active', workflow_stage: 'account_review', current_action: 'sent_to_account' },
+  partially_account_approved: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'partially_account_approved' },
+  fully_account_approved: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'fully_account_approved' },
+  account_rejected: { lifecycle_status: 'active', workflow_stage: 'account_review', current_action: 'rejected' },
   dispatch_pending: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'sent_to_dispatch' },
   partial_dispatch_created: {
     lifecycle_status: 'partially_fulfilled',
@@ -56,6 +60,9 @@ const ACTION_TO_LEGACY_STATUS = Object.freeze({
   fully_approved: 'finance_approved',
   partially_finance_approved: 'partially_finance_approved',
   fully_finance_approved: 'fully_finance_approved',
+  sent_to_account: 'account_review',
+  partially_account_approved: 'partially_account_approved',
+  fully_account_approved: 'fully_account_approved',
   rejected: 'finance_rejected',
   sent_to_dispatch: 'dispatch_pending',
   partial_dispatch: 'partial_dispatch_created',
@@ -83,7 +90,7 @@ function transitionSpec(nextStatus) {
 }
 
 function workflowRole(department) {
-  return ['sales', 'admin', 'super_admin', 'finance', 'dispatch'].includes(department) ? (department === 'super_admin' ? 'admin' : department) : 'admin';
+  return ['sales', 'admin', 'super_admin', 'finance', 'account', 'dispatch'].includes(department) ? (department === 'super_admin' ? 'admin' : department) : 'admin';
 }
 
 async function transitionOrderStatus(params) {
@@ -182,6 +189,22 @@ async function transitionOrderStatus(params) {
       }
       if (nextStatus === 'finance_rejected') {
         doc.finance_approval_status = 'rejected';
+      }
+      if (nextStatus === 'partially_account_approved' || nextStatus === 'fully_account_approved') {
+        doc.account_approval_status = nextStatus === 'fully_account_approved' ? 'full' : 'partial';
+        doc.workflow_stage = 'dispatch_review';
+        doc.current_action = nextStatus === 'fully_account_approved'
+          ? 'fully_account_approved'
+          : 'partially_account_approved';
+      }
+      if (nextStatus === 'account_rejected') {
+        doc.account_approval_status = 'rejected';
+      }
+      if (nextStatus === 'account_review') {
+        doc.workflow_stage = 'account_review';
+        doc.current_action = 'sent_to_account';
+        doc.pending_with_role = 'account';
+        doc.current_department = 'account';
       }
       await doc.save({ session });
 

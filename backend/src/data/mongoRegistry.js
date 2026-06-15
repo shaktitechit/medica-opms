@@ -59,7 +59,7 @@ function registerModels() {
   
       department: {
         type: String,
-        enum: ["super_admin", "admin", "sales", "finance", "dispatch"],
+        enum: ["super_admin", "admin", "sales", "finance", "account", "dispatch"],
         required: true,
       },
   
@@ -89,7 +89,7 @@ function registerModels() {
   
       department: {
         type: String,
-        enum: ["super_admin", "admin", "sales", "finance", "dispatch"],
+        enum: ["super_admin", "admin", "sales", "finance", "account", "dispatch"],
         required: true,
       },
   
@@ -775,6 +775,11 @@ function registerModels() {
         default: 0,
         min: 0,
       },
+      sales_approved_quantity: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
       free_quantity: {
         type: Number,
         default: 0,
@@ -796,6 +801,11 @@ function registerModels() {
         min: 0,
       },
       cancelled_quantity: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      returned_quantity: {
         type: Number,
         default: 0,
         min: 0,
@@ -895,6 +905,10 @@ function registerModels() {
           "partially_finance_approved",
           "fully_finance_approved",
           "finance_rejected",
+          "account_review",
+          "partially_account_approved",
+          "fully_account_approved",
+          "account_rejected",
           "dispatch_pending",
           "partial_dispatch_created",
           "full_dispatch_created",
@@ -930,6 +944,7 @@ function registerModels() {
           "sales",
           "admin_review",
           "finance_review",
+          "account_review",
           "dispatch_review",
           "dispatch_execution",
           "completed",
@@ -946,15 +961,16 @@ function registerModels() {
       assigned_sales_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
       assigned_admin_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
       assigned_finance_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+      assigned_account_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
       assigned_dispatch_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
       current_department: {
         type: String,
-        enum: ["super_admin", "sales", "admin", "finance", "dispatch"],
+        enum: ["super_admin", "sales", "admin", "finance", "account", "dispatch"],
         index: true,
       },
       pending_with_role: {
         type: String,
-        enum: ["super_admin", "sales", "admin", "finance", "dispatch"],
+        enum: ["super_admin", "sales", "admin", "finance", "account", "dispatch"],
         index: true,
       },
       subtotal: { type: Number, default: 0 },
@@ -976,7 +992,29 @@ function registerModels() {
       },
       last_finance_approval: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "OrderFinanceApproval",
+        ref: "OrderApproval",
+        index: true,
+      },
+      admin_approval_status: {
+        type: String,
+        enum: ["pending", "approved", "rejected", "sent_to_finance"],
+        default: "pending",
+        index: true,
+      },
+      last_admin_approval: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "OrderApproval",
+        index: true,
+      },
+      account_approval_status: {
+        type: String,
+        enum: ["pending", "partial", "full", "rejected"],
+        default: "pending",
+        index: true,
+      },
+      last_account_approval: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "OrderApproval",
         index: true,
       },
       allocation_status: {
@@ -994,6 +1032,12 @@ function registerModels() {
         enum: ["pending", "partial", "completed"],
         default: "pending",
       },
+      extra_charges: { type: Number, default: 0, min: 0 },
+      penalty_amount: { type: Number, default: 0, min: 0 },
+      damage_charge: { type: Number, default: 0, min: 0 },
+      closed_at: Date,
+      closed_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+      closure_remarks: String,
       order_items: {
         type: [orderItemSchema],
         validate: {
@@ -1024,6 +1068,28 @@ function registerModels() {
   orderSchema.plugin(softDeletePlugin);
   mongoose.model("Order", orderSchema);
 
+  // --- Schemas from OrderAssignee.js ---
+  const orderAssigneeSchema = new mongoose.Schema(
+    {
+      order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
+      department: {
+        type: String,
+        enum: ["sales", "admin", "finance", "account", "dispatch"],
+        required: true,
+        index: true,
+      },
+      assignee: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+      assigned_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      assigned_at: { type: Date, default: Date.now, index: true },
+      remarks: String,
+    },
+    { timestamps: true }
+  );
+  orderAssigneeSchema.index({ order: 1, department: 1, assignee: 1 }, { unique: true });
+  orderAssigneeSchema.index({ assignee: 1, department: 1 });
+  orderAssigneeSchema.index({ order: 1, assigned_at: -1 });
+  mongoose.model("OrderAssignee", orderAssigneeSchema);
+
   // --- Schemas from OrderWorkflow.js ---
   const orderWorkflowSchema = new mongoose.Schema(
     {
@@ -1031,7 +1097,7 @@ function registerModels() {
       action_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
       role: {
         type: String,
-        enum: ["super_admin", "sales", "admin", "finance", "dispatch"],
+        enum: ["super_admin", "sales", "admin", "finance", "account", "dispatch"],
         required: true,
         index: true,
       },
@@ -1045,10 +1111,13 @@ function registerModels() {
           "fully_approved",
           "partially_finance_approved",
           "fully_finance_approved",
+          "partially_account_approved",
+          "fully_account_approved",
           "review_requested",
           "sent_to_sales",
           "sent_to_admin",
           "sent_to_finance",
+          "sent_to_account",
           "sent_to_dispatch",
           "hold",
           "released",
@@ -1070,6 +1139,7 @@ function registerModels() {
           "returned",
           "reopened",
           "completed",
+          "closed",
         ],
         required: true,
         index: true,
@@ -1092,77 +1162,7 @@ function registerModels() {
   orderWorkflowSchema.index({ order: 1, created_at: -1 });
   mongoose.model("OrderWorkflow", orderWorkflowSchema);
 
-  // --- Schemas from OrderFinanceApproval.js ---
-  const financeApprovalItemSchema = new mongoose.Schema(
-    {
-      order_item_id: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
-      product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
-      ordered_quantity: { type: Number, required: true },
-      ordered_unit_price: { type: Number, required: true },
-      ordered_total_amount: { type: Number, required: true },
-      approved_quantity: { type: Number, default: 0, min: 0 },
-      approved_unit_price: { type: Number, default: 0, min: 0 },
-      approved_total_amount: { type: Number, default: 0, min: 0 },
-      approval_status: {
-        type: String,
-        enum: ["pending", "partially_approved", "fully_approved", "rejected", "hold"],
-        default: "pending",
-        index: true,
-      },
-      rejection_reason: String,
-      hold_reason: String,
-      remarks: String,
-    },
-    { _id: true }
-  );
 
-  const orderFinanceApprovalSchema = new mongoose.Schema(
-    {
-      approval_no: { type: String, required: true, unique: true, index: true },
-      order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
-      revision_number: { type: Number, default: 1, index: true },
-      approval_status: {
-        type: String,
-        enum: [
-          "draft",
-          "pending_review",
-          "partially_approved",
-          "fully_approved",
-          "rejected",
-          "hold",
-          "cancelled",
-        ],
-        default: "draft",
-        index: true,
-      },
-      ordered_total_amount: { type: Number, required: true },
-      approved_total_amount: { type: Number, default: 0 },
-      rejected_total_amount: { type: Number, default: 0 },
-      approval_items: [financeApprovalItemSchema],
-      credit_limit_checked: { type: Boolean, default: false },
-      outstanding_checked: { type: Boolean, default: false },
-      risk_level: {
-        type: String,
-        enum: ["low", "medium", "high", "critical"],
-        default: "low",
-      },
-      approval_notes: String,
-      rejection_reason: String,
-      hold_reason: String,
-      reviewed_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-      approved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-      rejected_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-      reviewed_at: Date,
-      approved_at: Date,
-      rejected_at: Date,
-      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    },
-    { timestamps: true }
-  );
-  orderFinanceApprovalSchema.index({ order: 1, revision_number: -1 });
-  orderFinanceApprovalSchema.index({ approval_status: 1, createdAt: -1 });
-  orderFinanceApprovalSchema.plugin(softDeletePlugin);
-  mongoose.model("OrderFinanceApproval", orderFinanceApprovalSchema);
 
   // --- Schemas from OrderStatusHistory.js ---
   /**
@@ -1196,44 +1196,110 @@ function registerModels() {
   
   const orderApprovalSchema = new mongoose.Schema(
     {
+      approval_no: { type: String, unique: true, sparse: true, index: true },
       order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
-  
-      department: {
-        type: String,
-        enum: ["sales", "finance", "dispatch"],
-        required: true,
-      },
-  
-      approval_type: {
-        type: String,
-        enum: [
-          "sales_approval",
-          "finance_approval",
-          "dispatch_approval",
-          "transport_approval",
-        ],
-        required: true,
-      },
-  
-      status: {
-        type: String,
-        enum: ["pending", "approved", "rejected"],
-        default: "pending",
-      },
-  
+      revision_number: { type: Number, default: 1, index: true },
+
+
+      ordered_total_amount: { type: Number },
+      approved_total_amount: { type: Number, default: 0 },
+      rejected_total_amount: { type: Number, default: 0 },
+
+      // Decisions/Signatures for Sales/Admin
+      is_admin_approved: { type: Boolean, default: false },
+      admin_approved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      admin_approved_at: Date,
+
+      // Decisions/Signatures for Finance
+      is_finance_approved: { type: Boolean, default: false },
+      finance_approved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      finance_approved_at: Date,
+
+      // Decisions/Signatures for Account
+      is_account_approved: { type: Boolean, default: false },
+      account_approved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      account_approved_at: Date,
+
+      // Operational properties
+      rates_reviewed: { type: Boolean, default: false },
+      all_rates_mapped: { type: Boolean, default: false },
+      credit_limit_checked: { type: Boolean, default: false },
+      outstanding_checked: { type: Boolean, default: false },
+      risk_level: { type: String, enum: ["low", "medium", "high", "critical"], default: "low" },
+      approval_notes: String,
+      rejection_reason: String,
+      hold_reason: String,
+
+      assigned_finance_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+      assigned_account_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+      sent_to_finance_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      sent_to_finance_at: Date,
+      sent_to_account_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      sent_to_account_at: Date,
+      reviewed_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      reviewed_at: Date,
+      finance_amended: { type: Boolean, default: false },
+      finance_amended_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      finance_amended_at: Date,
+      account_amended: { type: Boolean, default: false },
+      account_amended_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      account_amended_at: Date,
+
+      // Detailed line items being approved
+      approval_items: [
+        {
+          order_item_id: { type: mongoose.Schema.Types.ObjectId, required: true },
+          product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+          ordered_quantity: { type: Number, required: true },
+          ordered_unit_price: { type: Number, required: true },
+          ordered_total_amount: { type: Number, required: true },
+          approved_quantity: { type: Number, default: 0 },
+          approved_unit_price: { type: Number, default: 0 },
+          approved_total_amount: { type: Number, default: 0 },
+
+          applied_rate_type: { type: String, default: "MANUAL" },
+          pricing_reference: { type: mongoose.Schema.Types.ObjectId, ref: "PartyProductRate" },
+          manual_price_override: { type: Boolean, default: false },
+          rate_mapped: { type: Boolean, default: false },
+          discount_percent: { type: Number, default: 0 },
+          discount_amount: { type: Number, default: 0 },
+          gst_percent: { type: Number, default: 0 },
+          free_quantity: { type: Number, default: 0 },
+          remarks: String,
+        }
+      ],
+
       approved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       approved_at: Date,
-  
       rejected_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       rejected_at: Date,
-  
       remarks: String,
-      rejection_reason: String,
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      deletedAt: { type: Date, default: null, index: true },
     },
     { timestamps: true }
   );
-  
+
+  orderApprovalSchema.index({ order: 1, revision_number: -1 });
+  orderApprovalSchema.plugin(softDeletePlugin);
   mongoose.model("OrderApproval", orderApprovalSchema);
+
+  const orderAmmendmentUserSchema = new mongoose.Schema(
+    {
+      order_approval: { type: mongoose.Schema.Types.ObjectId, ref: "OrderApproval", required: true, index: true },
+      department: {
+        type: String,
+        enum: ["admin", "finance", "account"],
+        required: true,
+        index: true,
+      },
+      ammended_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+      ammended_at: { type: Date, default: Date.now },
+    },
+    { timestamps: true }
+  );
+
+  mongoose.model("OrderAmmendmentUser", orderAmmendmentUserSchema);
 
   // --- Schemas from OrderFlag.js ---
   /**
@@ -1280,7 +1346,7 @@ function registerModels() {
   
       department: {
         type: String,
-        enum: ["sales", "finance", "dispatch"],
+        enum: ["sales", "finance", "account", "dispatch"],
       },
   
       raised_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -1335,6 +1401,8 @@ function registerModels() {
           "driver",
           "vehicle",
           "transport_agent",
+          "delivery",
+          "return",
         ],
         required: true,
       },
@@ -1388,10 +1456,11 @@ function registerModels() {
       order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
       finance_approval: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "OrderFinanceApproval",
+        ref: "OrderApproval",
         index: true,
       },
       warehouse: { type: mongoose.Schema.Types.ObjectId, ref: "Warehouse" },
+      warehouse_location: String,
       dispatch_status: {
         type: String,
         enum: [
@@ -1409,8 +1478,12 @@ function registerModels() {
       dispatch_items: [dispatchItemSchema],
       packed_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       dispatched_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      dispatch_assignee_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
       packed_at: Date,
       dispatched_at: Date,
+      bill_number: String,
+      billing_date: Date,
+      bill_document: { type: mongoose.Schema.Types.ObjectId, ref: "Attachment" },
       remarks: String,
       created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     },
@@ -1477,6 +1550,81 @@ function registerModels() {
   transportShipmentSchema.plugin(softDeletePlugin);
   mongoose.model("TransportShipment", transportShipmentSchema);
 
+  const orderDeliveryItemSchema = new mongoose.Schema(
+    {
+      product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+      delivered_quantity: { type: Number, required: true, min: 0 },
+      remarks: String,
+    },
+    { _id: true }
+  );
+
+  const orderDeliverySchema = new mongoose.Schema(
+    {
+      delivery_no: { type: String, required: true, unique: true, index: true },
+      order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
+      dispatch: { type: mongoose.Schema.Types.ObjectId, ref: "OrderDispatch", required: true, index: true },
+      transport: { type: mongoose.Schema.Types.ObjectId, ref: "TransportShipment", index: true },
+      delivery_status: {
+        type: String,
+        enum: ["pending", "delivered", "failed", "returned"],
+        default: "pending",
+        index: true,
+      },
+      delivery_items: [orderDeliveryItemSchema],
+      delivered_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      delivered_at: Date,
+      actual_delivery_date: Date,
+      received_by: String,
+      delivery_proof_url: String,
+      remarks: String,
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true }
+  );
+
+  orderDeliverySchema.plugin(softDeletePlugin);
+  mongoose.model("OrderDelivery", orderDeliverySchema);
+
+  const orderReturnItemSchema = new mongoose.Schema(
+    {
+      product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+      returned_quantity: { type: Number, required: true, min: 1 },
+      return_reason: String,
+      remarks: String,
+    },
+    { _id: true }
+  );
+
+  const orderReturnSchema = new mongoose.Schema(
+    {
+      return_no: { type: String, required: true, unique: true, index: true },
+      order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
+      dispatch: { type: mongoose.Schema.Types.ObjectId, ref: "OrderDispatch", index: true },
+      transport: { type: mongoose.Schema.Types.ObjectId, ref: "TransportShipment", index: true },
+      delivery: { type: mongoose.Schema.Types.ObjectId, ref: "OrderDelivery", index: true },
+      return_status: {
+        type: String,
+        enum: ["pending", "received", "cancelled"],
+        default: "pending",
+        index: true,
+      },
+      return_items: [orderReturnItemSchema],
+      returned_by: String,
+      received_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      received_at: Date,
+      order_closed_at: Date,
+      remarks: String,
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true }
+  );
+
+  orderReturnSchema.plugin(softDeletePlugin);
+  mongoose.model("OrderReturn", orderReturnSchema);
+
   // --- Schemas from ActivityLog.js ---
   /**
    * @fileoverview ESM mongoose mirror for ActivityLog (canonical runtime schemas live in data/mongoRegistry.js).
@@ -1504,6 +1652,8 @@ function registerModels() {
           "vehicle",
           "driver",
           "attachment",
+          "delivery",
+          "return",
         ],
       },
   
@@ -1632,17 +1782,20 @@ function registerModels() {
     Vehicle: mongoose.models.Vehicle || mongoose.model('Vehicle', vehicleSchema),
     Driver: mongoose.models.Driver || mongoose.model('Driver', driverSchema),
     Order: mongoose.models.Order || mongoose.model('Order', orderSchema),
+    OrderAssignee: mongoose.models.OrderAssignee || mongoose.model('OrderAssignee', orderAssigneeSchema),
     OrderWorkflow: mongoose.models.OrderWorkflow || mongoose.model('OrderWorkflow', orderWorkflowSchema),
-    OrderFinanceApproval:
-      mongoose.models.OrderFinanceApproval || mongoose.model('OrderFinanceApproval', orderFinanceApprovalSchema),
     OrderStatusHistory:
       mongoose.models.OrderStatusHistory || mongoose.model('OrderStatusHistory', orderStatusHistorySchema),
     OrderApproval: mongoose.models.OrderApproval || mongoose.model('OrderApproval', orderApprovalSchema),
+    OrderAmmendmentUser:
+      mongoose.models.OrderAmmendmentUser || mongoose.model('OrderAmmendmentUser', orderAmmendmentUserSchema),
     OrderFlag: mongoose.models.OrderFlag || mongoose.model('OrderFlag', orderFlagSchema),
     Attachment: mongoose.models.Attachment || mongoose.model('Attachment', attachmentSchema),
     OrderDispatch: mongoose.models.OrderDispatch || mongoose.model('OrderDispatch', orderDispatchSchema),
     TransportShipment:
       mongoose.models.TransportShipment || mongoose.model('TransportShipment', transportShipmentSchema),
+    OrderDelivery: mongoose.models.OrderDelivery || mongoose.model('OrderDelivery', orderDeliverySchema),
+    OrderReturn: mongoose.models.OrderReturn || mongoose.model('OrderReturn', orderReturnSchema),
     ActivityLog: mongoose.models.ActivityLog || mongoose.model('ActivityLog', activityLogSchema),
     Notification: mongoose.models.Notification || mongoose.model('Notification', notificationSchema),
     Message: mongoose.models.Message || mongoose.model('Message', messageSchema),

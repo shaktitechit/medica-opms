@@ -8,6 +8,7 @@ export const PORTALS = [
   "finance",
   "dispatch",
   "super_admin",
+  "account",
 ] as const;
 
 export type PortalKey = (typeof PORTALS)[number];
@@ -43,11 +44,19 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
     { segments: ["parties"], label: "Parties", icon: "Users" },
     { segments: ["products"], label: "Products", icon: "Package" },
   ],
+  account: [
+    { segments: [], label: "Overview", icon: "LayoutDashboard" },
+    {
+      segments: ["orders"],
+      label: "Orders",
+      icon: "ClipboardCheck",
+    },
+    { segments: ["parties"], label: "Parties", icon: "Users" },
+    { segments: ["products"], label: "Products", icon: "Package" },
+  ],
   dispatch: [
     { segments: [], label: "Overview", icon: "LayoutDashboard" },
     { segments: ["orders"], label: "Orders", icon: "Inbox" },
-    { segments: ["drivers"], label: "Drivers", icon: "Users" },
-    { segments: ["vehicles"], label: "Vehicles", icon: "Truck" },
     { segments: ["transport-agents"], label: "Transport Agents", icon: "Building2" },
   ],
   super_admin: [

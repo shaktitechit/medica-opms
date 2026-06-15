@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useState, useMemo } from "react";
-import {
-  AlertTriangle,
+import { AlertTriangle,
   UserCheck,
   DollarSign,
   Package,
@@ -17,12 +16,19 @@ import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import {
+  DISPATCH_ORDER_TAB_LABELS,
+  getDispatchOrderTabCategory,
+  type DispatchOrderCategoryOptions,
+  type DispatchOrderTabCategory,
+} from "../dispatchOrderUtils";
 
 interface DispatchRecentOrdersWidgetProps {
-  orders: any[];
+  orders: unknown[];
   isOrdersFetching: boolean;
   isOrdersError: boolean;
   partyNameById: Map<string, string>;
+  categoryOptions?: DispatchOrderCategoryOptions;
 }
 
 function formatMoney(v: number): string {
@@ -73,72 +79,45 @@ function renderPriorityBadge(priority: string) {
   );
 }
 
-function getDispatchOrderTabCategoryLabel(order: any): string {
-  if (!order || typeof order !== "object") return "Open";
-  const status = deriveOrderWorkflowStatus(order);
-  switch (status) {
-    case "dispatch_pending":
-    case "partially_finance_approved":
-    case "fully_finance_approved":
-      return "Pending Dispatch";
-    case "partial_dispatch_created":
-      return "Partial Dispatch";
-    case "full_dispatch_created":
-      return "Dispatched";
-    case "transport_pending":
-    case "transport_assigned":
-    case "partially_transported":
-    case "fully_transported":
-      return "Transport Arranged";
-    case "in_transit":
-      return "In Transit";
-    case "delivered":
-      return "Delivered";
-    case "cancelled":
-      return "Cancelled";
-    case "on_hold":
-      return "On Hold";
-    default:
-      return "Open";
-  }
-}
-
-function renderWorkflowStatusBadge(status: string) {
+function renderWorkflowStatusBadge(category: DispatchOrderTabCategory) {
   let bgClass = "";
-  switch (status.toLowerCase()) {
-    case "pending dispatch":
-    case "pending_dispatch":
-      bgClass = "bg-amber-55 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+  const label = DISPATCH_ORDER_TAB_LABELS[category];
+
+  switch (category) {
+    case "pending_transport":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
       break;
-    case "partial dispatch":
-      bgClass = "bg-orange-50 text-orange-700 ring-orange-600/10 dark:bg-orange-955/30 dark:text-orange-400 dark:ring-orange-500/25";
+    case "pending_delivery":
+      bgClass =
+        "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
       break;
-    case "dispatched":
-      bgClass = "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-955/30 dark:text-blue-400 dark:ring-blue-500/25";
+    case "returns_pending":
+      bgClass =
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
       break;
-    case "transport arranged":
-      bgClass = "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-955/30 dark:text-purple-400 dark:ring-purple-500/25";
+    case "closed":
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
       break;
-    case "in transit":
-      bgClass = "bg-indigo-50 text-indigo-700 ring-indigo-600/10 dark:bg-indigo-955/30 dark:text-indigo-400 dark:ring-indigo-500/25";
-      break;
-    case "delivered":
-      bgClass = "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
-      break;
-    case "on hold":
     case "on_hold":
-      bgClass = "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      bgClass =
+        "bg-orange-50 text-orange-700 ring-orange-600/10 dark:bg-orange-950/30 dark:text-orange-400 dark:ring-orange-500/25";
       break;
     case "cancelled":
-      bgClass = "bg-rose-50 text-rose-700 ring-rose-650/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25";
+      bgClass =
+        "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-slate-950/30 dark:text-slate-400 dark:ring-slate-500/25";
       break;
     default:
-      bgClass = "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+      bgClass =
+        "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
   }
 
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}>
-      {status}
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
+    >
+      {label}
     </span>
   );
 }
@@ -148,6 +127,7 @@ export default function DispatchRecentOrdersWidget({
   isOrdersFetching,
   isOrdersError,
   partyNameById,
+  categoryOptions,
 }: DispatchRecentOrdersWidgetProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -184,7 +164,7 @@ export default function DispatchRecentOrdersWidget({
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bTime - aTime;
       })
-      .slice(0, 5); // Show latest 5 matching records for dashboard view
+      .slice(0, 5);
   }, [orders, searchQuery, priorityFilter, partyNameById]);
 
   const hasActiveFilters = searchQuery.trim() !== "" || priorityFilter !== "all";
@@ -306,41 +286,39 @@ export default function DispatchRecentOrdersWidget({
         {!isOrdersFetching && !isOrdersError && filteredOrders.length > 0 && (
           <div className="flex flex-col gap-3.5">
             {filteredOrders.map((o) => {
-              const id = o._id != null ? String(o._id) : o.id != null ? String(o.id) : "";
-              const ref = o.order_no || o.order_number || id || "—";
-              const pri = typeof o.priority === "string" ? o.priority : "normal";
-              const grandTotal = Number(o.grand_total ?? o.total ?? 0);
+              const row = o as Record<string, unknown>;
+              const id =
+                row._id != null ? String(row._id) : row.id != null ? String(row.id) : "";
+              const ref = String(row.order_no ?? row.order_number ?? id ?? "—");
+              const pri = typeof row.priority === "string" ? row.priority : "normal";
+              const grandTotal = Number(row.grand_total ?? row.total ?? 0);
 
-              const deptBoxes = computeDepartmentStageBoxes(
-                o as Record<string, unknown>,
-                null
-              );
+              const deptBoxes = computeDepartmentStageBoxes(row, null);
               const adminBox = deptBoxes.find((b) => b.id === "admin");
               const financeBox = deptBoxes.find((b) => b.id === "finance");
               const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-              const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
+              const accountBox = deptBoxes.find((b) => b.id === "account");
+  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
 
               const adminStatusDim = adminBox?.status;
               const financeStatusDim = financeBox?.status;
               const dispatchStatusDim = dispatchBox?.status;
-              const deliveryStatusDim = deliveryBox?.status;
+              const accountStatusDim = accountBox?.status;
+  const deliveryStatusDim = deliveryBox?.status;
 
-              const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
+              const orderItems = Array.isArray(row.order_items) ? row.order_items : [];
               const orderedQty = Math.max(
                 1,
-                orderItems.reduce((acc: number, item: any) => {
-                  return acc + (Number(item.ordered_quantity ?? item.quantity) || 0);
-                }, 0)
+                orderItems.reduce((acc: number, item) => {
+                  const line = item as { ordered_quantity?: unknown; quantity?: unknown };
+                  return acc + (Number(line.ordered_quantity ?? line.quantity) || 0);
+                }, 0),
               );
 
-              const partyLabel = resolveOrderCounterparty(
-                o as Record<string, unknown>,
-                partyNameById
-              );
-
-              const orderDateStr = formatDateShort(o.order_date ?? o.created_at ?? o.createdAt);
-              const expectedDeliveryStr = formatDateShort(o.expected_delivery_date);
-              const statusLabel = getDispatchOrderTabCategoryLabel(o);
+              const partyLabel = resolveOrderCounterparty(row, partyNameById);
+              const orderDateStr = formatDateShort(row.order_date ?? row.created_at ?? row.createdAt);
+              const expectedDeliveryStr = formatDateShort(row.expected_delivery_date);
+              const statusCategory = getDispatchOrderTabCategory(row, categoryOptions);
 
               let stripeColor = "bg-slate-350 dark:bg-slate-700";
               if (pri === "urgent") stripeColor = "bg-rose-500";
@@ -364,7 +342,7 @@ export default function DispatchRecentOrdersWidget({
                         {ref.slice(0, 12)}
                       </span>
                       {renderPriorityBadge(pri)}
-                      {renderWorkflowStatusBadge(statusLabel)}
+                      {renderWorkflowStatusBadge(statusCategory)}
                     </div>
 
                     {/* Party Title */}

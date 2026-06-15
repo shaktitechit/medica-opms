@@ -114,15 +114,31 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
 
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-white/10">
-      <table className="w-full min-w-[720px] text-left text-[11px]">
+      <table className="w-full min-w-[900px] text-left text-[11px]">
         <thead className="bg-slate-50/90 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-950/50 dark:text-slate-400">
           <tr>
             <th className="px-3 py-2">Item</th>
             <th className="px-3 py-2 text-right">Ordered</th>
-            <th className="px-3 py-2 text-right">Approved</th>
+            <th className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-400">
+              Sales approved
+            </th>
+            <th className="px-3 py-2 text-right text-indigo-700 dark:text-indigo-400">
+              Finance approved
+            </th>
+            <th className="px-3 py-2 text-right text-teal-700 dark:text-teal-400">
+              Account cleared
+            </th>
             <th className="px-3 py-2 text-right">Dispatched</th>
             <th className="px-3 py-2 text-right">Delivered</th>
-            <th className="px-3 py-2 text-right text-amber-700 dark:text-amber-400">Pending finance</th>
+            <th className="px-3 py-2 text-right text-amber-700 dark:text-amber-400">
+              Pending sales approval
+            </th>
+            <th className="px-3 py-2 text-right text-sky-700 dark:text-sky-400">
+              Pending finance
+            </th>
+            <th className="px-3 py-2 text-right text-teal-700 dark:text-teal-400">
+              Pending account
+            </th>
             <th className="px-3 py-2 text-right text-blue-700 dark:text-blue-400">Pending dispatch</th>
             <th className="px-3 py-2 text-right text-violet-700 dark:text-violet-400">Pending delivery</th>
           </tr>
@@ -141,11 +157,25 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
                 ) : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">{line.ordered}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{line.approved}</td>
+              <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-700 dark:text-emerald-400">
+                {line.salesApproved}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums font-medium text-indigo-700 dark:text-indigo-400">
+                {line.approved}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums font-medium text-teal-700 dark:text-teal-400">
+                {line.accountCleared}
+              </td>
               <td className="px-3 py-2 text-right tabular-nums">{line.dispatched}</td>
               <td className="px-3 py-2 text-right tabular-nums">{line.delivered}</td>
               <td className="px-3 py-2 text-right tabular-nums font-medium text-amber-700 dark:text-amber-400">
+                {line.pendingAdmin}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums font-medium text-sky-700 dark:text-sky-400">
                 {line.pendingFinance}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums font-medium text-teal-700 dark:text-teal-400">
+                {line.pendingAccount}
               </td>
               <td className="px-3 py-2 text-right tabular-nums font-medium text-blue-700 dark:text-blue-400">
                 {line.pendingDispatch}
@@ -186,7 +216,7 @@ export function OrderDepartmentFulfillmentPanel({
       </div> */}
 
       {showDepartmentBoxes ? (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {departmentBoxes.map((box) => (
             <DepartmentBox key={box.id} box={box} />
           ))}

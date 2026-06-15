@@ -12,6 +12,7 @@ import {
   mutationRejectedMessage,
 } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
+import { useAppSelector } from "@/store/hooks";
 import {
   useGetOrderQuery,
   useListPartiesQuery,
@@ -24,16 +25,16 @@ import {
   useGetOrderHistoryQuery,
   useListAttachmentsQuery,
   useCreateAttachmentMutation,
-  useCreateOrderFinanceApprovalMutation,
-  useApproveOrderFinanceApprovalMutation,
-  useRejectOrderFinanceApprovalMutation,
-  useListOrderFinanceApprovalsQuery,
+  useCreateOrderApprovalMutation,
+  useApproveOrderApprovalMutation,
+  useRejectOrderApprovalMutation,
+  useListOrderApprovalsQuery,
   useGetOrderFulfillmentQuery,
 } from "@/store/api";
 
 import { FlagsTab } from "./components/FlagsTab";
 import AttachmentsTab from "./components/AttachmentsTab";
-import { ApprovalAllocationsTab } from "./components/ApprovalAllocationsTab";
+import { ApprovalTab } from "./components/ApprovalTab";
 import { DispatchesTab } from "./components/DispatchesTab";
 import { TransportsTab } from "./components/TransportsTab";
 
@@ -42,15 +43,14 @@ import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNa
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
   computeFinanceApprovalCapabilities,
-  orderHasDispatchReviewHandoff,
 } from "@/components/portal/shared/financeApprovalStatus";
 import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
-import { UserCheck, DollarSign, Package, Truck } from "lucide-react";
+import { UserCheck, DollarSign, Package, Truck, Wallet } from "lucide-react";
 import OrderDetailsModal from "./components/OrderDetailsModal";
 import PartyDetailsModal from "./components/PartyDetailsModal";
-import OrderItemsModal from "./components/OrderItemsModal";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-955 dark:text-slate-50";
@@ -141,10 +141,34 @@ function renderPriorityBadge(priority: string) {
 
 export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
   const router = useRouter();
-  const { data, isFetching, isError, refetch } = useGetOrderQuery(orderId);
+  const currentUser = useAppSelector((state) => state.auth.user);
+  const currentUserId = useMemo(() => {
+    return String(currentUser?._id ?? currentUser?.id ?? "");
+  }, [currentUser]);
+
+  const { data, isLoading, isFetching, isError, refetch } = useGetOrderQuery(orderId);
   const partiesQ = useListPartiesQuery({});
-  const financeApprovalsQ = useListOrderFinanceApprovalsQuery({ order: orderId });
+  const financeApprovalsQ = useListOrderApprovalsQuery({ order: orderId, is_admin_approved: true });
   const fulfillmentQ = useGetOrderFulfillmentQuery(orderId);
+  const adminApprovalsQ = useListOrderApprovalsQuery(
+    { order: orderId, assigned_finance_user: currentUserId },
+    { skip: !orderId || !currentUserId },
+  );
+
+  const adminApprovalsCount = useMemo(() => {
+    return pickList(adminApprovalsQ.data).filter((app) => {
+      const assigneeId =
+        typeof app.assigned_finance_user === "string"
+          ? app.assigned_finance_user
+          : String(
+              (app.assigned_finance_user as { _id?: unknown; id?: unknown } | undefined)
+                ?._id ??
+                (app.assigned_finance_user as { id?: unknown } | undefined)?.id ??
+                "",
+            );
+      return assigneeId && assigneeId === currentUserId;
+    }).length;
+  }, [adminApprovalsQ.data, currentUserId]);
 
   const detail =
     data && typeof data === "object"
@@ -214,25 +238,27 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
 
   const [transitionOrder, { isLoading: isSubmitting }] =
     useTransitionOrderMutation();
-  const [createFinanceApproval] = useCreateOrderFinanceApprovalMutation();
-  const [approveFinanceApproval] = useApproveOrderFinanceApprovalMutation();
-  const [rejectFinanceApproval] = useRejectOrderFinanceApprovalMutation();
+  const [createFinanceApproval] = useCreateOrderApprovalMutation();
+  const [approveFinanceApproval] = useApproveOrderApprovalMutation();
+  const [rejectFinanceApproval] = useRejectOrderApprovalMutation();
 
   const [transitioningTo, setTransitioningTo] = useState<string | null>(null);
   const [transitionRemarks, setTransitionRemarks] = useState("");
 
-  const [activeTab, setActiveTab] = useState<"flags" | "attachments" | "approval_allocations" | "dispatches" | "transports">("approval_allocations");
+  const [activeTab, setActiveTab] = useState<
+    | "approvals"
+    | "dispatches"
+    | "transports"
+    | "flags"
+    | "attachments"
+  >("approvals");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
   // Order Patch Mutation
   const [patchOrder, { isLoading: isPatching }] = usePatchOrderMutation();
+  const [confirmResolveOpen, setConfirmResolveOpen] = useState(false);
 
-  // Approve & Dispatch state
-  const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
-  const [dispatchRemarks, setDispatchRemarks] = useState("");
-  const [dispatchAssignee, setDispatchAssignee] = useState("");
-  const [dispatchUploadFile, setDispatchUploadFile] = useState<File | null>(null);
-  const [isApprovingAndDispatching, setIsApprovingAndDispatching] = useState(false);
+
 
   const [showRaiseFlagModal, setShowRaiseFlagModal] = useState(false);
   const [newFlagDept, setNewFlagDept] = useState("sales");
@@ -276,7 +302,6 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
 
   // Modular Modals Overlay states
   const [isFulfillmentModalOpen, setIsFulfillmentModalOpen] = useState(false);
-  const [isOrderItemsModalOpen, setIsOrderItemsModalOpen] = useState(false);
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
   const [isPartyDetailsModalOpen, setIsPartyDetailsModalOpen] = useState(false);
 
@@ -325,18 +350,28 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     return map;
   }, [users]);
 
-  // Filtered operators
-  const dispatchUsers = useMemo(() => {
-    return users.filter(
-      (u) =>
-        String(u.department).toLowerCase() === "dispatch" ||
-        String(u.role).toLowerCase() === "dispatch_operator"
-    );
-  }, [users]);
+
 
   const readOnlyItems = useMemo(() => {
     if (!detail || !Array.isArray(detail.order_items)) return [];
     return detail.order_items as Record<string, unknown>[];
+  }, [detail]);
+
+  const totalApproved = useMemo(() => {
+    if (!detail || !Array.isArray(detail.order_items)) return 0;
+    return detail.order_items.reduce(
+      (sum, item: any) => sum + Number(item.approved_quantity ?? 0),
+      0
+    );
+  }, [detail]);
+
+  const hasRemainingQty = useMemo(() => {
+    if (!detail || !Array.isArray(detail.order_items)) return false;
+    return detail.order_items.some((item: any) => {
+      const approvedSoFar = Number(item.approved_quantity ?? 0);
+      const remainingQty = Math.max(0, Number(item.sales_approved_quantity ?? 0) - approvedSoFar);
+      return remainingQty > 0;
+    });
   }, [detail]);
 
   const handleRefetch = useCallback(() => {
@@ -346,7 +381,40 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     if (!attachmentsQ.isUninitialized) attachmentsQ.refetch();
     if (!financeApprovalsQ.isUninitialized) financeApprovalsQ.refetch();
     if (!fulfillmentQ.isUninitialized) fulfillmentQ.refetch();
-  }, [refetch, flagsQ, historyQ, attachmentsQ, financeApprovalsQ, fulfillmentQ]);
+    if (!adminApprovalsQ.isUninitialized) adminApprovalsQ.refetch();
+  }, [refetch, flagsQ, historyQ, attachmentsQ, financeApprovalsQ, fulfillmentQ, adminApprovalsQ]);
+
+  const handleResolveOrder = useCallback(async () => {
+    if (!detail || !Array.isArray(detail.order_items)) return;
+    try {
+      const updatedItems = detail.order_items.map((item: any) => ({
+        ...item,
+        ordered_quantity: Number(item.approved_quantity ?? 0),
+        quantity: Number(item.approved_quantity ?? 0),
+      }));
+
+      await patchOrder({
+        id: orderId,
+        patch: {
+          order_items: updatedItems,
+        },
+      }).unwrap();
+
+      await transitionOrder({
+        id: orderId,
+        body: {
+          next_status: "fully_finance_approved",
+          remarks: "Resolved partial release to match approved quantities",
+        },
+      }).unwrap();
+
+      toast.success("Order resolved to approved quantities.");
+      setConfirmResolveOpen(false);
+      handleRefetch();
+    } catch (err) {
+      toast.error(mutationRejectedMessage(err));
+    }
+  }, [detail, orderId, patchOrder, transitionOrder, handleRefetch]);
 
   const handleRaiseFlag = useCallback(
     async (e: React.FormEvent) => {
@@ -471,93 +539,13 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     ],
   );
 
-  const handleApproveAndDispatch = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!orderId) return;
-      if (!dispatchAssignee) {
-        toast.error("Please assign a dispatch operator.");
-        return;
-      }
 
-      setIsApprovingAndDispatching(true);
-      try {
-        if (dispatchUploadFile) {
-          const formData = new FormData();
-          formData.append("file", dispatchUploadFile);
-          formData.append("entity_type", "order");
-          formData.append("entity_id", orderId);
-          formData.append("remarks", dispatchRemarks.trim() || "Uploaded bill during Send to Dispatch");
-
-          await createAttachment(formData).unwrap();
-        }
-
-        await patchOrder({
-          id: orderId,
-          patch: {
-            assigned_dispatch_user: dispatchAssignee,
-          },
-        }).unwrap();
-
-        await transitionOrder({
-          id: orderId,
-          body: {
-            next_status: "dispatch_pending",
-            remarks: dispatchRemarks.trim() || "Sent to dispatch from finance dashboard",
-          },
-        }).unwrap();
-
-        toast.success("Order sent to dispatch successfully.");
-        setIsDispatchModalOpen(false);
-        setDispatchRemarks("");
-        setDispatchAssignee("");
-        setDispatchUploadFile(null);
-        handleRefetch();
-      } catch (err) {
-        toast.error(mutationRejectedMessage(err));
-      } finally {
-        setIsApprovingAndDispatching(false);
-      }
-    },
-    [
-      orderId,
-      dispatchAssignee,
-      dispatchRemarks,
-      dispatchUploadFile,
-      patchOrder,
-      transitionOrder,
-      createAttachment,
-      handleRefetch,
-    ]
-  );
 
   const custLabel = detail
     ? resolveOrderCounterparty(detail, partyNameById)
     : "—";
 
-  const sentToDispatchReview = useMemo(
-    () =>
-      orderHasDispatchReviewHandoff(detail, {
-        statusHistory: historyList,
-        fulfillmentSnapshot,
-      }),
-    [detail, historyList, fulfillmentSnapshot],
-  );
 
-  const canClickSendToDispatch = useMemo(() => {
-    if (sentToDispatchReview) return false;
-    return (
-      financeCaps.hasFinanceApprovalRecord &&
-      (financeCaps.approvedQty > 0 || hasApprovedFinanceApproval) &&
-      financeCaps.financeApprovalStatus !== "rejected"
-    );
-  }, [
-    sentToDispatchReview,
-    financeCaps.hasFinanceApprovalRecord,
-    financeCaps.approvedQty,
-    financeCaps.financeApprovalStatus,
-    hasApprovedFinanceApproval,
-  ]);
 
   const canReject = useMemo(() => {
     if (financeCaps.isFullyApproved) return false;
@@ -585,7 +573,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     ].includes(status);
   }, [status]);
 
-  const busy = isPatching || isSubmitting || isApprovingAndDispatching;
+  const busy = isPatching || isSubmitting;
 
   const orderKpis = useMemo(() => {
     const totalLines = readOnlyItems.length;
@@ -638,13 +626,32 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
 
   const adminBox = useMemo(() => deptBoxes.find((b) => b.id === "admin"), [deptBoxes]);
   const financeBox = useMemo(() => deptBoxes.find((b) => b.id === "finance"), [deptBoxes]);
+  const accountBox = useMemo(() => deptBoxes.find((b) => b.id === "account"), [deptBoxes]);
   const dispatchBox = useMemo(() => deptBoxes.find((b) => b.id === "dispatch"), [deptBoxes]);
   const deliveryBox = useMemo(() => deptBoxes.find((b) => b.id === "delivery"), [deptBoxes]);
 
   const adminStatusDim = adminBox?.status;
   const financeStatusDim = financeBox?.status;
   const dispatchStatusDim = dispatchBox?.status;
+  const accountStatusDim = accountBox?.status;
   const deliveryStatusDim = deliveryBox?.status;
+
+  if (isError || (!isLoading && !detail)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center px-4 font-sans">
+        <p className="text-sm text-rose-600 dark:text-rose-400 font-medium">
+          Could not load order details.
+        </p>
+        <button type="button" onClick={() => router.back()} className={`${btnSecondaryClass} mt-4`}>
+          Back
+        </button>
+      </div>
+    );
+  }
+
+  if (!detail) {
+    return <PortalBusyOverlay active message="Loading order details…" />;
+  }
 
   return (
     <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden space-y-4 pb-20 md:pb-0">
@@ -705,156 +712,33 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {/* Send to Dispatch Modal */}
-      {isDispatchModalOpen && (
+      {/* Resolve Confirmation Modal */}
+      {confirmResolveOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-2xl rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 font-sans">
-                Send to Dispatch
-              </h3>
+          <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-555 dark:text-slate-50 font-sans font-medium">
+              Confirm Resolve Partial Release
+            </h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              Are you sure you want to resolve this order? This will adjust the ordered quantity of all items to match their currently approved quantities, completing the order releases.
+            </p>
+            <div className="mt-6 flex justify-end gap-3 font-medium">
               <button
                 type="button"
-                onClick={() => {
-                  setIsDispatchModalOpen(false);
-                  setDispatchRemarks("");
-                  setDispatchAssignee("");
-                  setDispatchUploadFile(null);
-                }}
-                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
+                onClick={() => setConfirmResolveOpen(false)}
+                className="rounded-lg border border-slate-200/95 px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer font-sans"
               >
-                <span className="sr-only">Close</span>
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResolveOrder}
+                disabled={isPatching || isSubmitting}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 cursor-pointer font-sans"
+              >
+                {isPatching || isSubmitting ? "Resolving..." : "Yes, Resolve Order"}
               </button>
             </div>
-
-            <form onSubmit={(e) => void handleApproveAndDispatch(e)} className="mt-4 space-y-5">
-              <div className="bg-slate-50 dark:bg-slate-950/40 border border-slate-200/50 dark:border-white/5 rounded-xl p-4 space-y-3 font-sans">
-                <div className="grid grid-cols-2 gap-4 text-xs">
-                  <div>
-                    <span className="block text-slate-500 font-semibold uppercase tracking-wider">Party</span>
-                    <span className="block mt-1 font-semibold text-slate-900 dark:text-slate-100">{custLabel}</span>
-                  </div>
-                  <div>
-                    <span className="block text-slate-500 font-semibold uppercase tracking-wider">Order Reference</span>
-                    <span className="block mt-1 font-semibold text-slate-900 dark:text-slate-100">#{detail?.order_no ? String(detail.order_no) : "—"}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Assign Dispatch Operator */}
-              <div className="space-y-1.5">
-                <label htmlFor="dispatch-assignee" className={labelClass}>Assign Dispatch Operator *</label>
-                <select
-                  id="dispatch-assignee"
-                  value={dispatchAssignee}
-                  onChange={(e) => setDispatchAssignee(e.target.value)}
-                  className={inputClass}
-                  required
-                >
-                  <option value="">— Select Dispatch Operator —</option>
-                  {dispatchUsers.map((u) => {
-                    const uid = String(u._id ?? u.id ?? "");
-                    return (
-                      <option key={uid} value={uid}>
-                        {String(u.username || u.name || uid)}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              {/* Remarks */}
-              <div className="space-y-1.5">
-                <label htmlFor="dispatch-remarks" className={labelClass}>Remarks (Optional)</label>
-                <textarea
-                  id="dispatch-remarks"
-                  rows={3}
-                  value={dispatchRemarks}
-                  onChange={(e) => setDispatchRemarks(e.target.value)}
-                  className={inputClass}
-                  placeholder="Add remarks or notes for this dispatch..."
-                />
-              </div>
-
-              {/* Upload Bill Attachment (Optional) */}
-              <div className="space-y-1.5">
-                <label className={labelClass}>Upload Bill Document (Optional)</label>
-                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-5 text-center hover:border-blue-500 transition cursor-pointer relative bg-slate-50/20 dark:bg-slate-950/10">
-                  <input
-                    type="file"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setDispatchUploadFile(e.target.files[0]);
-                      }
-                    }}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
-                  <svg className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                  </svg>
-                  <p className="mt-2 text-xs font-semibold text-blue-600">Select bill file</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">PDF, Image, or DOC up to 50MB</p>
-                </div>
-
-                {dispatchUploadFile && (
-                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950/40 border border-slate-200/50 dark:border-white/5 font-sans text-xs">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <svg className="h-4 w-4 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <span className="text-slate-700 dark:text-slate-300 truncate max-w-[280px]" title={dispatchUploadFile.name}>
-                        {dispatchUploadFile.name}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono">({(dispatchUploadFile.size / 1024 / 1024).toFixed(2)} MB)</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setDispatchUploadFile(null)}
-                      className="text-xs font-semibold text-rose-600 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Submit Actions */}
-              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-white/5 font-sans font-medium">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsDispatchModalOpen(false);
-                    setDispatchRemarks("");
-                    setDispatchAssignee("");
-                    setDispatchUploadFile(null);
-                  }}
-                  className={btnSecondaryClass}
-                  disabled={isApprovingAndDispatching}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isApprovingAndDispatching || !dispatchAssignee}
-                  className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isApprovingAndDispatching ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Processing...
-                    </>
-                  ) : (
-                    "Confirm & Send to Dispatch"
-                  )}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
@@ -901,15 +785,6 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      <OrderItemsModal
-        isOpen={isOrderItemsModalOpen}
-        onClose={() => setIsOrderItemsModalOpen(false)}
-        detail={detail}
-        status={status}
-        readOnlyItems={readOnlyItems}
-        refetchOrder={handleRefetch}
-      />
-
       <OrderDetailsModal
         isOpen={isOrderDetailsModalOpen}
         onClose={() => setIsOrderDetailsModalOpen(false)}
@@ -927,26 +802,8 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
         custLabel={custLabel}
       />
 
-      {/* Loading & Error Indicators */}
-      {(isFetching || isError || !detail) && (
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={() => router.back()} className={btnSecondaryClass}>
-            Back
-          </button>
-        </div>
-      )}
-
-      {isFetching && (
-        <p className="text-sm text-slate-500 dark:text-slate-400 font-sans">Loading order...</p>
-      )}
-      {isError && (
-        <p className="text-sm text-rose-600 dark:text-rose-400 font-sans font-medium">
-          Could not load order details.
-        </p>
-      )}
-
       {/* Order Main Content */}
-      {!isFetching && !isError && detail && (
+      {detail && (
         <>
           <div className="flex-shrink-0 space-y-3">
             <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
@@ -1042,12 +899,15 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 </div>
                 {/* Horizontally scrollable on mobile */}
                 <div className="overflow-x-auto -mx-1 px-1 pb-1">
-                  <div className="grid grid-cols-7 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
+                  <div className="grid grid-cols-9 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
                     <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderKpis.totalQty} icon={UserCheck} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
                     <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderKpis.totalQty} icon={DollarSign} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderKpis.totalQty} icon={Package} />
+                    
+                        <FulfillmentCircleStep label="Account" status={accountStatusDim} completed={accountBox?.completedQty} total={orderKpis.totalQty} icon={Wallet} />
+                        <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
+                        <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderKpis.totalQty} icon={Package} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
                     <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderKpis.totalQty} icon={Truck} />
                   </div>
@@ -1057,35 +917,16 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
               {/* ── Action buttons bar ── */}
               <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/10">
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 font-sans font-medium">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setIsOrderItemsModalOpen(true)}
-                    className="rounded-lg bg-emerald-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400 active:scale-[0.98]"
-                  >
-                    Approved Items
-                  </button>
-                  {detail ? (
+                  {totalApproved > 0 && hasRemainingQty && (
                     <button
                       type="button"
-                      disabled={!canClickSendToDispatch || busy}
-                      title={
-                        sentToDispatchReview
-                          ? "Already sent to dispatch review"
-                          : !financeCaps.hasFinanceApprovalRecord
-                            ? "Create at least one finance approval in Approval & Allocations first"
-                            : !hasApprovedFinanceApproval && financeCaps.approvedQty <= 0
-                              ? "Approve a finance approval with quantities before sending to dispatch"
-                              : financeCaps.financeApprovalStatus === "rejected"
-                                ? "Finance approval was rejected"
-                                : undefined
-                      }
-                      onClick={() => setIsDispatchModalOpen(true)}
-                      className="rounded-lg bg-emerald-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400 active:scale-[0.98]"
+                      disabled={busy}
+                      onClick={() => setConfirmResolveOpen(true)}
+                      className="rounded-lg bg-indigo-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                     >
-                      Send to Dispatch
+                      Resolve Order
                     </button>
-                  ) : null}
+                  )}
                   <button
                     type="button"
                     disabled={!canReject || busy}
@@ -1126,7 +967,34 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
 
           {/* ── DESKTOP: Independently Scrollable Tab Content ── */}
           <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
-            {activeTab === "flags" && (
+        
+
+            {activeTab === "approvals" && (
+              <ApprovalTab
+                orderId={orderId}
+                detail={detail}
+                readOnlyItems={readOnlyItems}
+                refetchOrder={handleRefetch}
+                partyLabel={custLabel}
+              />
+            )}
+
+            {activeTab === "dispatches" && (
+              <DispatchesTab
+                orderId={orderId}
+                detail={detail}
+                refetchOrder={handleRefetch}
+              />
+            )}
+
+            {activeTab === "transports" && (
+              <TransportsTab
+                orderId={orderId}
+                detail={detail}
+                refetchOrder={handleRefetch}
+              />
+            )}
+                {activeTab === "flags" && (
               <FlagsTab
                 orderId={orderId}
                 flagsQ={flagsQ}
@@ -1147,30 +1015,6 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 onUploadSuccess={handleRefetch}
               />
             )}
-
-            {activeTab === "approval_allocations" && (
-              <ApprovalAllocationsTab
-                orderId={orderId}
-                detail={detail}
-                refetchOrder={handleRefetch}
-              />
-            )}
-
-            {activeTab === "dispatches" && (
-              <DispatchesTab
-                orderId={orderId}
-                detail={detail}
-                refetchOrder={handleRefetch}
-              />
-            )}
-
-            {activeTab === "transports" && (
-              <TransportsTab
-                orderId={orderId}
-                detail={detail}
-                refetchOrder={handleRefetch}
-              />
-            )}
           </div>
 
           {/* ── DESKTOP: Fixed Footer Tab Nav ── */}
@@ -1178,15 +1022,19 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
             <OrderDetailTabsNav
               tabs={[
                 {
+                  id: "approvals",
+                  name: "Order Approval",
+                  count: adminApprovalsCount,
+                },
+                { id: "dispatches", name: "Dispatches" },
+                { id: "transports", name: "Transports" },
+                {
                   id: "flags",
                   name: "Flags",
                   count: rawFlags.filter((f) => f.status === "open").length,
                   dangerBadge: true,
                 },
                 { id: "attachments", name: "Attachments", count: attachments.length },
-                { id: "approval_allocations", name: "Approval & Allocations" },
-                { id: "dispatches", name: "Dispatches" },
-                { id: "transports", name: "Transports" },
               ]}
               activeId={activeTab}
               onChange={(id) => setActiveTab(id as typeof activeTab)}
@@ -1199,9 +1047,9 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
               {/* Mobile popup header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-0 z-10">
                 <h2 className="text-sm font-bold text-slate-900 dark:text-slate-50 capitalize">
+                  {activeTab === "approvals" && "Order Approval"}
                   {activeTab === "flags" && "Flags"}
                   {activeTab === "attachments" && "Attachments"}
-                  {activeTab === "approval_allocations" && "Approval & Allocations"}
                   {activeTab === "dispatches" && "Dispatches"}
                   {activeTab === "transports" && "Transports"}
                 </h2>
@@ -1239,11 +1087,13 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                     onUploadSuccess={handleRefetch}
                   />
                 )}
-                {activeTab === "approval_allocations" && (
-                  <ApprovalAllocationsTab
+                {activeTab === "approvals" && (
+                  <ApprovalTab
                     orderId={orderId}
                     detail={detail}
+                    readOnlyItems={readOnlyItems}
                     refetchOrder={handleRefetch}
+                    partyLabel={custLabel}
                   />
                 )}
                 {activeTab === "dispatches" && (
@@ -1272,35 +1122,13 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
           <nav className="flex items-stretch justify-around">
             {([
               {
-                id: "flags" as const,
-                name: "Flags",
-                count: rawFlags.filter((f) => f.status === "open").length,
-                dangerBadge: true,
-                icon: (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
-                  </svg>
-                ),
-              },
-              {
-                id: "attachments" as const,
-                name: "Files",
-                count: attachments.length,
+                id: "approvals" as const,
+                name: "Approval",
+                count: adminApprovalsCount,
                 dangerBadge: false,
                 icon: (
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                  </svg>
-                ),
-              },
-              {
-                id: "approval_allocations" as const,
-                name: "Approvals",
-                count: undefined,
-                dangerBadge: false,
-                icon: (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9h6m-6 4h6" />
                   </svg>
                 ),
               },
@@ -1324,6 +1152,28 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2.556-2.556M13 16H9m4 0h2m2 0h.01M13 16V6m0 0h3l3 4v6h-1M6 16H5m8-10H5" />
+                  </svg>
+                ),
+              },
+              {
+                id: "flags" as const,
+                name: "Flags",
+                count: rawFlags.filter((f) => f.status === "open").length,
+                dangerBadge: true,
+                icon: (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                  </svg>
+                ),
+              },
+              {
+                id: "attachments" as const,
+                name: "Files",
+                count: attachments.length,
+                dangerBadge: false,
+                icon: (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                   </svg>
                 ),
               },

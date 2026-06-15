@@ -25,18 +25,19 @@ import {
 } from "@/components/portal/sales/partyDisplay";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
 import { type OrderStatusDimension } from "@/components/portal/shared/orderStatusDimensions";
-import { UserCheck, DollarSign, Package, Truck } from "lucide-react";
+import { UserCheck, DollarSign, Package, Truck, Wallet } from "lucide-react";
 import OrderTab from "./components/OrderTab";
 import EditOrderModal from "./components/EditOrderModal";
 import FlagsTab from "./components/FlagsTab";
 import AttachmentsTab from "./components/AttachmentsTab";
-import FinanceApprovalsTab from "./components/FinanceApprovalsTab";
 import DispatchesTab from "./components/DispatchesTab";
 import TransportsTab from "./components/TransportsTab";
+import ApprovalTab from "./components/ApprovalTab";
 
 const btnSecondaryClass =
   "rounded-lg border border-slate-200/95 px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5";
@@ -145,12 +146,12 @@ function renderPriorityBadge(priority: string) {
 
 export default function SalesOrderDetail({ orderId }: { orderId: string }) {
   const router = useRouter();
-  const { data, isFetching, isError, refetch } = useGetOrderQuery(orderId);
+  const { data, isLoading, isFetching, isError, refetch } = useGetOrderQuery(orderId);
   const user = useAppSelector((s) => s.auth.user);
 
   const [activeTab, setActiveTab] = useState<
-    "flags" | "attachments" | "finance_approvals" | "dispatches" | "transports"
-  >("finance_approvals");
+    "flags" | "attachments" | "dispatches" | "transports" | "approvals"
+  >("dispatches");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
@@ -252,12 +253,14 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
 
   const adminBox = useMemo(() => deptBoxes.find((b) => b.id === "admin"), [deptBoxes]);
   const financeBox = useMemo(() => deptBoxes.find((b) => b.id === "finance"), [deptBoxes]);
+  const accountBox = useMemo(() => deptBoxes.find((b) => b.id === "account"), [deptBoxes]);
   const dispatchBox = useMemo(() => deptBoxes.find((b) => b.id === "dispatch"), [deptBoxes]);
   const deliveryBox = useMemo(() => deptBoxes.find((b) => b.id === "delivery"), [deptBoxes]);
 
   const adminStatusDim = adminBox?.status;
   const financeStatusDim = financeBox?.status;
   const dispatchStatusDim = dispatchBox?.status;
+  const accountStatusDim = accountBox?.status;
   const deliveryStatusDim = deliveryBox?.status;
   const currentPartyId = detail ? detailRefId(detail.party) : "";
   const partyDetailQ = useGetPartyQuery(currentPartyId, {
@@ -390,6 +393,23 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
     },
     [orderId, submitAssignee, submitRemarks, patchOrder, transitionOrder, handleRefetch]
   );
+
+  if (isError || (!isLoading && !detail)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center px-4 font-sans">
+        <p className="text-sm text-rose-600 dark:text-rose-400">
+          Could not load order details.
+        </p>
+        <button type="button" onClick={() => router.back()} className={`${btnSecondaryClass} mt-4`}>
+          Back
+        </button>
+      </div>
+    );
+  }
+
+  if (!detail) {
+    return <PortalBusyOverlay active message="Loading order details…" />;
+  }
 
   return (
     <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden space-y-4 pb-20 md:pb-0">
@@ -791,26 +811,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {(isFetching || isError || !detail) && (
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={() => router.back()} className={btnSecondaryClass}>
-            Back
-          </button>
-        </div>
-      )}
-
-      {isFetching && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Loading order...
-        </p>
-      )}
-      {isError && (
-        <p className="text-sm text-rose-600 dark:text-rose-400">
-          Could not load order details.
-        </p>
-      )}
-
-      {!isFetching && !isError && detail && (
+      {detail && (
         <>
           <div className="flex-shrink-0 space-y-3">
             <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
@@ -869,12 +870,15 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                   <button type="button" onClick={() => setIsFulfillmentModalOpen(true)} className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-blue-200/80 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[10px] sm:text-xs font-bold text-blue-600 shadow-sm transition dark:border-white/10 dark:bg-slate-950 dark:text-blue-400 dark:hover:bg-white/5 cursor-pointer active:scale-[0.98]">Details</button>
                 </div>
                 <div className="overflow-x-auto -mx-1 px-1 pb-1">
-                  <div className="grid grid-cols-7 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
+                  <div className="grid grid-cols-9 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
                     <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderKpis.totalQty} icon={UserCheck} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
                     <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderKpis.totalQty} icon={DollarSign} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderKpis.totalQty} icon={Package} />
+                    
+                        <FulfillmentCircleStep label="Account" status={accountStatusDim} completed={accountBox?.completedQty} total={orderKpis.totalQty} icon={Wallet} />
+                        <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
+                        <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderKpis.totalQty} icon={Package} />
                     <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
                     <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderKpis.totalQty} icon={Truck} />
                   </div>
@@ -893,22 +897,22 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
 
           {/* ── DESKTOP: Tab Content ── */}
           <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
-            {activeTab === "flags" && (<FlagsTab orderId={orderId} refetchOrder={handleRefetch} />)}
-            {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isLoading} onUploadSuccess={handleRefetch} />)}
-            {activeTab === "finance_approvals" && (<FinanceApprovalsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+            {activeTab === "approvals" && (<ApprovalTab orderId={orderId} detail={detail} />)}
             {activeTab === "dispatches" && (<DispatchesTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
             {activeTab === "transports" && (<TransportsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+            {activeTab === "flags" && (<FlagsTab orderId={orderId} refetchOrder={handleRefetch} />)}
+            {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isLoading} onUploadSuccess={handleRefetch} />)}
           </div>
 
           {/* ── DESKTOP: Footer Tab Nav ── */}
           <div className="hidden md:block flex-shrink-0 pt-2 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 p-2 rounded-xl">
             <OrderDetailTabsNav
               tabs={[
-                { id: "flags", name: "Flags", count: openFlagsCount, dangerBadge: true },
-                { id: "attachments", name: "Attachments", count: attachmentsCount },
-                { id: "finance_approvals", name: "Finance Approvals & Allocations" },
+                { id: "approvals", name: "Order Approval" },
                 { id: "dispatches", name: "Dispatches" },
                 { id: "transports", name: "Transports" },
+                { id: "flags", name: "Flags", count: openFlagsCount, dangerBadge: true },
+                { id: "attachments", name: "Attachments", count: attachmentsCount },
               ]}
               activeId={activeTab}
               onChange={(id) => setActiveTab(id as typeof activeTab)}
@@ -920,18 +924,18 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
             <div className="md:hidden fixed inset-0 z-[60] flex flex-col bg-white dark:bg-slate-900">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-0 z-10">
                 <h2 className="text-sm font-bold text-slate-900 dark:text-slate-50">
-                  {activeTab === "flags" && "Flags"}{activeTab === "attachments" && "Attachments"}{activeTab === "finance_approvals" && "Finance Approvals"}{activeTab === "dispatches" && "Dispatches"}{activeTab === "transports" && "Transports"}
+                  {activeTab === "approvals" && "Order Approval"}{activeTab === "dispatches" && "Dispatches"}{activeTab === "transports" && "Transports"}{activeTab === "flags" && "Flags"}{activeTab === "attachments" && "Attachments"}
                 </h2>
                 <button type="button" onClick={() => setMobileTabOpen(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10 transition" aria-label="Close panel">
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 pb-24">
-                {activeTab === "flags" && (<FlagsTab orderId={orderId} refetchOrder={handleRefetch} />)}
-                {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isLoading} onUploadSuccess={handleRefetch} />)}
-                {activeTab === "finance_approvals" && (<FinanceApprovalsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+                {activeTab === "approvals" && (<ApprovalTab orderId={orderId} detail={detail} />)}
                 {activeTab === "dispatches" && (<DispatchesTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
                 {activeTab === "transports" && (<TransportsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
+                {activeTab === "flags" && (<FlagsTab orderId={orderId} refetchOrder={handleRefetch} />)}
+                {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isLoading} onUploadSuccess={handleRefetch} />)}
               </div>
             </div>
           )}
@@ -943,11 +947,11 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
         <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 dark:border-white/10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2">
           <nav className="flex items-stretch justify-around">
             {([
-              { id: "flags" as const, name: "Flags", count: openFlagsCount, dangerBadge: true, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg> },
-              { id: "attachments" as const, name: "Files", count: attachmentsCount, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg> },
-              { id: "finance_approvals" as const, name: "Approvals", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
+              { id: "approvals" as const, name: "Approval", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
               { id: "dispatches" as const, name: "Dispatch", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg> },
               { id: "transports" as const, name: "Transport", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2.556-2.556M13 16H9m4 0h2m2 0h.01M13 16V6m0 0h3l3 4v6h-1M6 16H5m8-10H5" /></svg> },
+              { id: "flags" as const, name: "Flags", count: openFlagsCount, dangerBadge: true, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg> },
+              { id: "attachments" as const, name: "Files", count: attachmentsCount, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg> },
             ]).map((tab) => {
               const isActive = activeTab === tab.id && mobileTabOpen;
               return (

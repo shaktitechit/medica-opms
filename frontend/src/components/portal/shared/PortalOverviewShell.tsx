@@ -14,6 +14,7 @@ import { useListOrdersQuery } from "@/store/api";
 
 import type { PortalKey } from "@/constants/portalNav";
 import { pickOrders } from "./pickOrders";
+import { PortalBusyOverlay } from "./PortalBusyOverlay";
 import { usePortalDashboardKpi } from "./usePortalDashboardKpi";
 
 type PortalOverviewShellProps = { portal: PortalKey };
@@ -59,6 +60,7 @@ export default function PortalOverviewShell({
 
   return (
     <div className="space-y-8">
+      <PortalBusyOverlay active={ordersQ.isLoading} message="Loading orders…" />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
           {portal.charAt(0).toUpperCase() + portal.slice(1)} overview

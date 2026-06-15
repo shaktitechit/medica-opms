@@ -32,6 +32,7 @@ import {
 import { DriverDetailModal } from "./modals/DriverDetailModal";
 import { ConfirmDeleteDriverModal } from "./modals/ConfirmDeleteDriverModal";
 import { AddDriverDocumentModal } from "./modals/AddDriverDocumentModal";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { transportAgentLabel } from "./fleetDisplay";
 
 const labelClass = "text-xs font-semibold text-slate-500 dark:text-slate-400";
@@ -158,7 +159,7 @@ export default function DriverDetailPage({ id }: DriverDetailPageProps) {
   const [addDocOpen, setAddDocOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<DriverTab>("documents");
 
-  const { data, isFetching, isError, refetch } = useGetDriverQuery(id, {
+  const { data, isLoading, isFetching, isError, refetch } = useGetDriverQuery(id, {
     skip: !id,
   });
 
@@ -256,18 +257,7 @@ export default function DriverDetailPage({ id }: DriverDetailPageProps) {
     }
   };
 
-  if (isFetching) {
-    return (
-      <div className="flex flex-col items-center justify-center py-32 space-y-4">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-        <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-          Loading driver…
-        </p>
-      </div>
-    );
-  }
-
-  if (isError || !detail) {
+  if (isError || (!isLoading && !detail)) {
     return (
       <div className="text-center py-20 max-w-md mx-auto">
         <div className="text-4xl">⚠️</div>
@@ -282,6 +272,10 @@ export default function DriverDetailPage({ id }: DriverDetailPageProps) {
         </Link>
       </div>
     );
+  }
+
+  if (!detail) {
+    return <PortalBusyOverlay active message="Loading driver…" />;
   }
 
   const statusStr = stringField(detail.status) || "available";

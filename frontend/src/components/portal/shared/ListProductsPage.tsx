@@ -20,6 +20,7 @@ import {
 
 import { ConfirmDeleteProductModal } from "@/components/portal/shared/ConfirmDeleteProductModal";
 import { ProductDetailModal } from "@/components/portal/shared/ProductDetailModal";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { BulkUploadProductsModal } from "@/components/portal/shared/BulkUploadProductsModal";
 import {
   mutationRejectedMessage,
@@ -109,7 +110,7 @@ export default function ListProductsPage({
     return () => clearTimeout(handler);
   }, [search]);
 
-  const { data, isFetching, isError, refetch } = useListProductsQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useListProductsQuery({
     paginate: "true",
     page: currentPage.toString(),
     limit: itemsPerPage.toString(),
@@ -190,6 +191,7 @@ export default function ListProductsPage({
 
   return (
     <div className="space-y-6">
+      <PortalBusyOverlay active={isLoading} message="Loading products…" />
       <ConfirmDeleteProductModal
         productId={deleteTarget?.id ?? null}
         productLabel={deleteTarget?.label ?? ""}
@@ -309,13 +311,6 @@ export default function ListProductsPage({
 
       {/* Main Grid/Table Card */}
       <div className="rounded-xl border border-slate-200/80 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
-        {isFetching && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500 dark:text-slate-400">Loading catalog...</p>
-          </div>
-        )}
-
         {isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
@@ -328,7 +323,7 @@ export default function ListProductsPage({
           </div>
         )}
 
-        {!isFetching && !isError && totalMatching === 0 && (
+        {!isLoading && !isError && totalMatching === 0 && (
           <div className="text-center py-16 px-4">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-950 text-xl text-slate-400">
               📦
@@ -353,7 +348,7 @@ export default function ListProductsPage({
           </div>
         )}
 
-        {!isFetching && !isError && totalMatching > 0 && (
+        {!isLoading && !isError && totalMatching > 0 && (
           <>
           <div className="divide-y divide-slate-100 dark:divide-white/5">
             {products.map((p) => {

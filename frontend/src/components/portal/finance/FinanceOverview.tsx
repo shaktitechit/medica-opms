@@ -6,6 +6,7 @@ import FinanceOrderVolumeChart from "./components/FinanceOrderVolumeChart";
 import FinanceOverviewWidgets from "./components/FinanceOverviewWidgets";
 import FinanceRecentOrdersWidget from "./components/FinanceRecentOrdersWidget";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { computeFinanceOrderStats } from "./financeOrderUtils";
 import {
   useGetDashboardFinanceQuery,
   useListOrdersQuery,
@@ -63,30 +64,6 @@ function extractFlags(raw: unknown): unknown[] {
   return [];
 }
 
-// Helper to determine the finance tab category
-function getFinanceOrderTabCategory(o: any): "pending_review" | "open" | "closed" | "on_hold" | "cancelled" | "rejected" {
-  const status = deriveOrderWorkflowStatus(o);
-
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-  if (status === "finance_rejected") return "rejected";
-  if (status === "finance_review" || status === "submitted" || status === "sales_approved") return "pending_review";
-
-  const items = Array.isArray(o.order_items) ? o.order_items : [];
-  let ordered = 0;
-  let delivered = 0;
-  items.forEach((line: any) => {
-    ordered += Number(line.ordered_quantity ?? line.quantity ?? 0);
-    delivered += Number(line.delivered_quantity ?? 0);
-  });
-
-  if (ordered > 0 && delivered >= ordered) {
-    return "closed";
-  }
-
-  return "open";
-}
-
 export default function FinanceOverview() {
   const user = useAppSelector((state) => state.auth.user);
   const userName =
@@ -118,27 +95,7 @@ export default function FinanceOverview() {
 
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
-  const orderStats = useMemo(() => {
-    const stats = {
-      pending_review: { count: 0 },
-      open: { count: 0 },
-      closed: { count: 0 },
-      on_hold: { count: 0 },
-      rejected: { count: 0 },
-      cancelled: { count: 0 },
-    };
-
-    for (const o of orders) {
-      const status = deriveOrderWorkflowStatus(o);
-      if (status === "draft") {
-        continue;
-      }
-      const cat = getFinanceOrderTabCategory(o);
-      stats[cat].count++;
-    }
-
-    return stats;
-  }, [orders]);
+  const orderStats = useMemo(() => computeFinanceOrderStats(orders), [orders]);
 
   const totalOrdersCount = useMemo(() => {
     return orders.filter((o) => deriveOrderWorkflowStatus(o) !== "draft").length;
@@ -199,7 +156,8 @@ export default function FinanceOverview() {
   const isAnyLoading =
     isKpiFetching || isOrdersFetching || isFlagsFetching || isRefreshing;
 
-  const pendingReviewPercent = totalOrdersCount > 0 ? (orderStats.pending_review.count / totalOrdersCount) * 100 : 0;
+  const pendingFinanceReviewPercent =
+    totalOrdersCount > 0 ? (orderStats.pending_finance_review.count / totalOrdersCount) * 100 : 0;
   const openPercent = totalOrdersCount > 0 ? (orderStats.open.count / totalOrdersCount) * 100 : 0;
   const closedPercent = totalOrdersCount > 0 ? (orderStats.closed.count / totalOrdersCount) * 100 : 0;
   const onHoldPercent = totalOrdersCount > 0 ? (orderStats.on_hold.count / totalOrdersCount) * 100 : 0;
@@ -345,8 +303,8 @@ export default function FinanceOverview() {
                   <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                     <div
                       className="bg-purple-500 transition-all duration-500"
-                      style={{ width: `${pendingReviewPercent}%` }}
-                      title={`Pending Review: ${orderStats.pending_review.count}`}
+                      style={{ width: `${pendingFinanceReviewPercent}%` }}
+                      title={`Pending Finance Review: ${orderStats.pending_finance_review.count}`}
                     />
                     <div
                       className="bg-teal-500 transition-all duration-500"
@@ -379,9 +337,9 @@ export default function FinanceOverview() {
                   <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] font-medium pt-1 font-sans">
                     <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
                       <span className="h-2 w-2 rounded-full bg-purple-500 shrink-0" />
-                      <span>Pending:</span>
+                      <span>Pending Finance Review:</span>
                       <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.pending_review.count} ({pendingReviewPercent.toFixed(0)}%)
+                        {orderStats.pending_finance_review.count} ({pendingFinanceReviewPercent.toFixed(0)}%)
                       </span>
                     </div>
 

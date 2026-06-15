@@ -15,7 +15,7 @@ import "./slices/financeApi";
 import "./slices/flagsApi";
 import "./slices/notificationsApi";
 import "./slices/ordersApi";
-import "./slices/orderFinanceApprovalApi";
+import "./slices/orderApprovalApi";
 import "./slices/productsApi";
 import "./slices/transportApi";
 import "./slices/usersApi";

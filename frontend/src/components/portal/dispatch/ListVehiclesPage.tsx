@@ -13,6 +13,7 @@ import {
   type VehicleRecord,
 } from "@/store/api";
 import { formatVehicleCapacity, transportAgentLabel } from "./fleetDisplay";
+import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { VehicleDetailModal } from "./modals/VehicleDetailModal";
 import { ConfirmDeleteVehicleModal } from "./modals/ConfirmDeleteVehicleModal";
 import {
@@ -58,7 +59,7 @@ function rowKey(row: unknown): string {
 }
 
 export default function ListVehiclesPage() {
-  const { data, isFetching, isError, refetch } = useListVehiclesQuery({});
+  const { data, isLoading, isFetching, isError, refetch } = useListVehiclesQuery({});
 
   const vehicles = useMemo(() => pickList(data) as VehicleRow[], [data]);
 
@@ -162,6 +163,7 @@ export default function ListVehiclesPage() {
 
   return (
     <div className="space-y-6">
+      <PortalBusyOverlay active={isLoading} message="Loading vehicles…" />
       <ConfirmDeleteVehicleModal
         vehicleId={deleteTarget?.id ?? null}
         vehicleLabel={deleteTarget?.label ?? ""}
@@ -291,13 +293,6 @@ export default function ListVehiclesPage() {
 
       {/* Main Grid/Table Card */}
       <div className="rounded-xl border border-slate-200/80 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
-        {isFetching && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500 dark:text-slate-400">Loading vehicles...</p>
-          </div>
-        )}
-
         {isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
@@ -310,7 +305,7 @@ export default function ListVehiclesPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredVehicles.length === 0 && (
+        {!isLoading && !isError && filteredVehicles.length === 0 && (
           <div className="text-center py-16 px-4">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-955 text-xl text-slate-400 border border-slate-100 dark:border-white/5">
               🚚
@@ -335,7 +330,7 @@ export default function ListVehiclesPage() {
           </div>
         )}
 
-        {!isFetching && !isError && filteredVehicles.length > 0 && (
+        {!isLoading && !isError && filteredVehicles.length > 0 && (
           <>
             <div className="divide-y divide-slate-100 dark:divide-white/5">
               {paginatedVehicles.map((v) => {
