@@ -8,6 +8,9 @@ import {
   useCreateDispatchMutation,
   usePatchDispatchMutation,
 } from "@/store/api";
+import {
+  summarizeReleaseDispatchState,
+} from "./accountDispatchAvailability";
 
 type CreateAccountDispatchModalProps = {
   open: boolean;
@@ -18,7 +21,9 @@ type CreateAccountDispatchModalProps = {
   orderItems: Record<string, unknown>[];
   dispatches: Record<string, unknown>[];
   approvals: Record<string, unknown>[];
+  initialApprovalId?: string;
   onCreated?: () => void;
+  onResolveRelease?: (approval: Record<string, unknown>) => void;
 };
 
 const inputClass =
@@ -60,7 +65,9 @@ export function CreateAccountDispatchModal({
   orderItems,
   dispatches,
   approvals,
+  initialApprovalId,
   onCreated,
+  onResolveRelease,
 }: CreateAccountDispatchModalProps) {
   const [createDispatch, { isLoading: isCreating }] = useCreateDispatchMutation();
   const [createAttachment] = useCreateAttachmentMutation();
@@ -211,16 +218,20 @@ export function CreateAccountDispatchModal({
 
   useEffect(() => {
     if (!open) return;
-    const primary = dispatchableApprovals[0] ?? null;
-    setActiveApprovalId(primary ? approvalId(primary) : "");
-    setDispatchItemsQuantities(buildInitialDispatchQuantities(primary));
+    const preferred =
+      (initialApprovalId &&
+        dispatchableApprovals.find((app) => approvalId(app) === initialApprovalId)) ||
+      dispatchableApprovals[0] ||
+      null;
+    setActiveApprovalId(preferred ? approvalId(preferred) : "");
+    setDispatchItemsQuantities(buildInitialDispatchQuantities(preferred));
     setDispatchDate(new Date().toISOString().split("T")[0]);
     setBillNumber("");
     setBillingDate(new Date().toISOString().split("T")[0]);
     setBillDocumentFile(null);
     setWarehouseLocation("");
     setDispatchRemarks("");
-  }, [open, dispatchableApprovals, buildInitialDispatchQuantities]);
+  }, [open, dispatchableApprovals, buildInitialDispatchQuantities, initialApprovalId]);
 
   useEffect(() => {
     if (!open || !activeApproval) return;
@@ -268,6 +279,13 @@ export function CreateAccountDispatchModal({
     billNumber.trim().length > 0 &&
     Boolean(billingDate) &&
     Boolean(billDocumentFile);
+
+  const releaseSummary = useMemo(
+    () => summarizeReleaseDispatchState(activeApproval, dispatches),
+    [activeApproval, dispatches],
+  );
+
+  const isContinueMode = releaseSummary.hasDispatches && releaseSummary.canContinueDispatch;
 
   const handleClose = useCallback(() => {
     onClose();
@@ -374,10 +392,12 @@ export function CreateAccountDispatchModal({
         <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4 dark:border-white/5">
           <div>
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-              Create Dispatch
+              {isContinueMode ? "Continue dispatch" : "Create dispatch"}
             </h3>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Preview and confirm dispatch quantities for account-cleared items.
+              {isContinueMode
+                ? "Record another dispatch batch for remaining cleared quantities on this release."
+                : "Preview and confirm dispatch quantities for account-cleared items."}
             </p>
           </div>
           <button
@@ -667,6 +687,16 @@ export function CreateAccountDispatchModal({
           </div>
 
           <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4 dark:border-white/5 dark:bg-slate-950/40">
+            {releaseSummary.canResolveRelease && activeApproval && onResolveRelease ? (
+              <button
+                type="button"
+                onClick={() => onResolveRelease(activeApproval)}
+                disabled={isCreating}
+                className="mr-auto rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/50"
+              >
+                Resolve release
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={handleClose}
@@ -680,7 +710,13 @@ export function CreateAccountDispatchModal({
               disabled={!canSubmit}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
             >
-              {isCreating ? "Creating dispatch…" : "Create dispatch"}
+              {isCreating
+                ? isContinueMode
+                  ? "Recording dispatch…"
+                  : "Creating dispatch…"
+                : isContinueMode
+                  ? "Continue dispatch"
+                  : "Create dispatch"}
             </button>
           </div>
         </form>

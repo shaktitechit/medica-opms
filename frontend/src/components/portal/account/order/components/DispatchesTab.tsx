@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import { CreateAccountDispatchModal } from "./CreateAccountDispatchModal";
+import { ResolveAccountDispatchReleaseModal } from "./ResolveAccountDispatchReleaseModal";
 import { SendAccountOrderToDispatchModal } from "./SendAccountOrderToDispatchModal";
 import {
   filterAccountApprovalsForUser,
@@ -10,6 +11,7 @@ import {
   idFromRef,
   isDispatchBatchSentToDispatch,
   listDispatchableAccountApprovals,
+  summarizeReleaseDispatchState,
 } from "./accountDispatchAvailability";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { resolveUserDisplay } from "@/components/portal/shared/userDisplay";
@@ -107,6 +109,11 @@ export function DispatchesTab({
   );
 
   const [isCreateDispatchModalOpen, setIsCreateDispatchModalOpen] = useState(false);
+  const [createDispatchApprovalId, setCreateDispatchApprovalId] = useState("");
+  const [resolveModalContext, setResolveModalContext] = useState<{
+    approval: Record<string, unknown>;
+    releaseNo: string;
+  } | null>(null);
   const [sendModalContext, setSendModalContext] = useState<{
     dispatch: Record<string, unknown>;
     approval: Record<string, unknown> | null;
@@ -153,6 +160,27 @@ export function DispatchesTab({
     isAssignedToMe &&
     !["cancelled", "on_hold"].includes(orderStatus) &&
     dispatchableApprovals.length > 0;
+
+  const hasPartialDispatchRemaining =
+    isAssignedToMe &&
+    !["cancelled", "on_hold"].includes(orderStatus) &&
+    accountApprovals.some((approval) => {
+      const summary = summarizeReleaseDispatchState(approval, dispatches);
+      return summary.canContinueDispatch;
+    });
+
+  const openCreateDispatch = useCallback((approvalId?: string) => {
+    setCreateDispatchApprovalId(approvalId ?? "");
+    setIsCreateDispatchModalOpen(true);
+  }, []);
+
+  const openResolveRelease = useCallback(
+    (approval: Record<string, unknown>, releaseNo: string) => {
+      setIsCreateDispatchModalOpen(false);
+      setResolveModalContext({ approval, releaseNo });
+    },
+    [],
+  );
 
   const defaultDispatchUserId = useMemo(
     () => idFromRef(detail?.assigned_dispatch_user),
@@ -226,14 +254,20 @@ export function DispatchesTab({
                 : ""}
             </p>
           </div>
-          <button
-            type="button"
-            disabled={!canCreateDispatch}
-            onClick={() => setIsCreateDispatchModalOpen(true)}
-            className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
-          >
-            Create dispatch
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={!canCreateDispatch}
+              onClick={() => openCreateDispatch()}
+              className={`shrink-0 rounded-lg px-4 py-2 text-xs font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                hasPartialDispatchRemaining
+                  ? "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+                  : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+              }`}
+            >
+              {hasPartialDispatchRemaining ? "Continue dispatch" : "Create dispatch"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -252,6 +286,14 @@ export function DispatchesTab({
                 const status = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
                 return status !== "cancelled";
               });
+              const releaseSummary = summarizeReleaseDispatchState(
+                group.approval,
+                dispatches,
+              );
+              const releaseApprovalId = group.approval
+                ? idFromRef(group.approval._id ?? group.approval.id)
+                : "";
+
               return (
                 <div key={group.releaseId} className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 pb-3 dark:border-white/10">
@@ -262,8 +304,36 @@ export function DispatchesTab({
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                         {activeReleaseDispatches.length} dispatch batch
                         {activeReleaseDispatches.length === 1 ? "" : "es"} recorded
+                        {releaseSummary.remainingTotal > 0
+                          ? ` · ${releaseSummary.remainingTotal} unit${releaseSummary.remainingTotal === 1 ? "" : "s"} remaining`
+                          : ""}
                       </p>
                     </div>
+                    {isAssignedToMe &&
+                    !["cancelled", "on_hold"].includes(orderStatus) ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {releaseSummary.canContinueDispatch ? (
+                          <button
+                            type="button"
+                            onClick={() => openCreateDispatch(releaseApprovalId)}
+                            className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+                          >
+                            Continue dispatch
+                          </button>
+                        ) : null}
+                        {releaseSummary.canResolveRelease && group.approval ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openResolveRelease(group.approval!, group.releaseNo)
+                            }
+                            className="shrink-0 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/50"
+                          >
+                            Resolve release
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="space-y-6">
@@ -636,14 +706,32 @@ export function DispatchesTab({
 
       <CreateAccountDispatchModal
         open={isCreateDispatchModalOpen}
-        onClose={() => setIsCreateDispatchModalOpen(false)}
+        onClose={() => {
+          setIsCreateDispatchModalOpen(false);
+          setCreateDispatchApprovalId("");
+        }}
         orderId={orderId}
         detail={detail}
         partyLabel={partyLabel}
         orderItems={orderItems}
         dispatches={dispatches}
         approvals={dispatchableApprovals}
+        initialApprovalId={createDispatchApprovalId || undefined}
         onCreated={handleRefetch}
+        onResolveRelease={(approval) => {
+          const releaseNo = String(approval.approval_no ?? "—");
+          openResolveRelease(approval, releaseNo);
+        }}
+      />
+
+      <ResolveAccountDispatchReleaseModal
+        open={resolveModalContext !== null}
+        onClose={() => setResolveModalContext(null)}
+        approval={resolveModalContext?.approval ?? null}
+        dispatches={dispatches}
+        orderItems={orderItems}
+        releaseNo={resolveModalContext?.releaseNo}
+        onResolved={handleRefetch}
       />
 
       <SendAccountOrderToDispatchModal

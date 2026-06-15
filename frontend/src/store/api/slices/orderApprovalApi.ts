@@ -134,6 +134,18 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         ...orderApprovalTags(arg.id),
       ],
     }),
+    resolvePartialDispatchRelease: build.mutation<unknown, ApprovalMutationArg>({
+      query: ({ id, body }) => ({
+        url: `order-approvals/${id}/resolve-dispatch`,
+        method: "POST",
+        body: body ?? {},
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: (_r, _e, arg) => [
+        ...orderApprovalTags(arg.id),
+        "Dispatch",
+      ],
+    }),
     deleteOrderApproval: build.mutation<unknown, string>({
       query: (id) => ({
         url: `order-approvals/${id}`,
@@ -174,6 +186,7 @@ export const {
   useSendOrderApprovalToAccountMutation,
   useFinanceAmendOrderApprovalMutation,
   useAmendOrderApprovalMutation,
+  useResolvePartialDispatchReleaseMutation,
   useDeleteOrderApprovalMutation,
   useRestoreOrderApprovalMutation,
 } = orderApprovalApi;

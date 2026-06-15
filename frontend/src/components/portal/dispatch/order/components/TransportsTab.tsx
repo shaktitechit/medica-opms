@@ -443,29 +443,6 @@ export function TransportsTab({
                             </button>
                           )}
 
-                          {/* Returned — always available while not terminal */}
-                          <button
-                            type="button"
-                            disabled={isPatchingTransport}
-                            onClick={() => openConfirm(trId, "returned", dispatchId)}
-                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              className="h-3.5 w-3.5"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                              />
-                            </svg>
-                            Returned
-                          </button>
                         </div>
                       )}
                     </div>

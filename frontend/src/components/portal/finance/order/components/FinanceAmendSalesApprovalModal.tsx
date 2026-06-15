@@ -655,6 +655,7 @@ export function FinanceAmendSalesApprovalModal({
                 <table className="w-full min-w-[1300px] text-left text-xs">
                   <thead className="bg-slate-50 dark:bg-slate-950">
                     <tr>
+                      <th className="px-3 py-2 font-medium text-center w-10"></th>
                       <th className="px-3 py-2 font-medium">Product</th>
                       <th className="px-3 py-2 font-medium text-right">Batch Qty</th>
                       <th className="px-3 py-2 font-medium">Rate Status</th>
@@ -668,7 +669,6 @@ export function FinanceAmendSalesApprovalModal({
                       <th className="px-3 py-2 font-medium">Status</th>
                       <th className="px-3 py-2 font-medium">Map</th>
                       <th className="px-3 py-2 font-medium">Remarks</th>
-                      <th className="px-3 py-2 font-medium text-center w-10"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200/80 dark:divide-white/10">
@@ -689,6 +689,17 @@ export function FinanceAmendSalesApprovalModal({
 
                       return (
                         <tr key={line.order_item_id} className="bg-white dark:bg-slate-900">
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => removeLine(line.order_item_id)}
+                              className="rounded p-1 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer transition-colors"
+                              title="Remove item"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
                           <td className="px-3 py-2">
                             <span className="font-medium text-slate-900 dark:text-slate-100">
                               {line.product_name}
@@ -837,17 +848,6 @@ export function FinanceAmendSalesApprovalModal({
                               }
                               className={inputClass}
                             />
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => removeLine(line.order_item_id)}
-                              className="rounded p-1 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer transition-colors"
-                              title="Remove item"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
                           </td>
                         </tr>
                       );

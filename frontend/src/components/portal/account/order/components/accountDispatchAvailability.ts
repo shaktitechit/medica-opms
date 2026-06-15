@@ -24,6 +24,98 @@ export function filterAccountApprovalsForUser(
   });
 }
 
+export function getReleaseDispatches(
+  dispatches: Record<string, unknown>[],
+  approvalId: string,
+): Record<string, unknown>[] {
+  return dispatches.filter((disp) => {
+    const statusValue = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
+    if (statusValue === "cancelled") return false;
+
+    const dispApproval = disp.finance_approval;
+    const dispApprovalId =
+      typeof dispApproval === "object" && dispApproval !== null
+        ? idFromRef(
+            (dispApproval as Record<string, unknown>)._id ??
+              (dispApproval as Record<string, unknown>).id,
+          )
+        : idFromRef(dispApproval);
+
+    return dispApprovalId === approvalId;
+  });
+}
+
+export function computeReleaseDispatchedByLine(
+  dispatches: Record<string, unknown>[],
+  approvalId: string,
+): Record<string, number> {
+  const map: Record<string, number> = {};
+  getReleaseDispatches(dispatches, approvalId).forEach((disp) => {
+    const rawItems = Array.isArray(disp.dispatch_items)
+      ? disp.dispatch_items
+      : (disp.items as Record<string, unknown>[]) || [];
+    rawItems.forEach((item) => {
+      const lineId = idFromRef(item.order_item_id);
+      const qty = Number(item.dispatched_quantity ?? item.dispatch_quantity ?? 0);
+      map[lineId] = (map[lineId] || 0) + qty;
+    });
+  });
+  return map;
+}
+
+export type ReleaseDispatchSummary = {
+  hasDispatches: boolean;
+  remainingTotal: number;
+  canContinueDispatch: boolean;
+  canResolveRelease: boolean;
+};
+
+export function summarizeReleaseDispatchState(
+  approval: Record<string, unknown> | null,
+  dispatches: Record<string, unknown>[],
+): ReleaseDispatchSummary {
+  if (!approval) {
+    return {
+      hasDispatches: false,
+      remainingTotal: 0,
+      canContinueDispatch: false,
+      canResolveRelease: false,
+    };
+  }
+
+  const approvalId = idFromRef(approval._id ?? approval.id);
+  const items = Array.isArray(approval.approval_items)
+    ? (approval.approval_items as Record<string, unknown>[])
+    : [];
+  const dispatchedByLine = computeReleaseDispatchedByLine(dispatches, approvalId);
+  const releaseDispatches = getReleaseDispatches(dispatches, approvalId);
+  const hasDispatches = releaseDispatches.length > 0;
+
+  let remainingTotal = 0;
+  let hasRemaining = false;
+
+  for (const item of items) {
+    const approved = Number(item.approved_quantity || 0);
+    if (approved <= 0) continue;
+    const lineId = idFromRef(item.order_item_id);
+    const dispatched = dispatchedByLine[lineId] || 0;
+    const remaining = Math.max(0, approved - dispatched);
+    remainingTotal += remaining;
+    if (remaining > 0) hasRemaining = true;
+  }
+
+  const fullyDispatched =
+    items.filter((ai) => Number(ai.approved_quantity || 0) > 0).length > 0 &&
+    !hasRemaining;
+
+  return {
+    hasDispatches,
+    remainingTotal,
+    canContinueDispatch: hasRemaining && !fullyDispatched,
+    canResolveRelease: hasDispatches && hasRemaining,
+  };
+}
+
 export function listDispatchableAccountApprovals(
   accountApprovals: Record<string, unknown>[],
   dispatches: Record<string, unknown>[],

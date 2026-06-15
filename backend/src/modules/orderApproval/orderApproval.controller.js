@@ -45,6 +45,13 @@ exports.amend = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.amend(req.params.id, req.body, req.user) });
 });
 
+exports.resolvePartialDispatch = asyncHandler(async (req, res) => {
+  res.json({
+    success: true,
+    data: await service.resolvePartialDispatchByAccount(req.params.id, req.body, req.user),
+  });
+});
+
 exports.listDeleted = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.listDeleted(req.query) });
 });
