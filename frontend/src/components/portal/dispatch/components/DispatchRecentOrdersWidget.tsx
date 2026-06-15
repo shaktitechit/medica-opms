@@ -140,19 +140,21 @@ export default function DispatchRecentOrdersWidget({
         return status !== "draft" && status !== "submitted" && status !== "sales_approved" && status !== "finance_review" && status !== "finance_rejected";
       })
       .filter((o) => {
+        const row = o as Record<string, unknown>;
         // 1. Search Query filter
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
-          const id = o._id != null ? String(o._id) : o.id != null ? String(o.id) : "";
-          const ref = (o.order_no || o.order_number || id || "").toLowerCase();
-          const partyLabel = resolveOrderCounterparty(o, partyNameById).toLowerCase();
+          const id =
+            row._id != null ? String(row._id) : row.id != null ? String(row.id) : "";
+          const ref = String(row.order_no ?? row.order_number ?? id ?? "").toLowerCase();
+          const partyLabel = resolveOrderCounterparty(row, partyNameById).toLowerCase();
           if (!ref.includes(q) && !partyLabel.includes(q)) {
             return false;
           }
         }
         // 2. Priority filter
         if (priorityFilter !== "all") {
-          const p = typeof o.priority === "string" ? o.priority.toLowerCase() : "normal";
+          const p = typeof row.priority === "string" ? row.priority.toLowerCase() : "normal";
           if (p !== priorityFilter.toLowerCase()) {
             return false;
           }
@@ -160,8 +162,10 @@ export default function DispatchRecentOrdersWidget({
         return true;
       })
       .sort((a, b) => {
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        const aRow = a as Record<string, unknown>;
+        const bRow = b as Record<string, unknown>;
+        const aTime = aRow.createdAt ? new Date(String(aRow.createdAt)).getTime() : 0;
+        const bTime = bRow.createdAt ? new Date(String(bRow.createdAt)).getTime() : 0;
         return bTime - aTime;
       })
       .slice(0, 5);

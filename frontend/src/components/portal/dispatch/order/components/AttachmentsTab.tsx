@@ -172,9 +172,11 @@ export default function AttachmentsTab({
     };
 
     for (const att of attachments) {
-      const dept = normalizeAttachmentDepartment(att.uploaded_by?.department as string | undefined);
+      const row = att as Record<string, unknown>;
+      const uploadedBy = row.uploaded_by as { department?: string } | undefined;
+      const dept = normalizeAttachmentDepartment(uploadedBy?.department);
       if (dept && VISIBLE_DEPARTMENTS.has(dept)) {
-        groups[dept].push(att);
+        groups[dept].push(row);
       }
     }
 
