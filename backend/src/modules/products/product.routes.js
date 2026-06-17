@@ -1,22 +1,38 @@
 /**
- * @fileoverview Products: Express router mounts + RBAC wrappers.
+ * @fileoverview Products: Express router mounts + department RBAC.
  * @module modules/products/product.routes
  */
 const { Router } = require('express');
 const router = Router();
-const { requireAuth, requirePermissions, requireSoftDeletePermission } = require('../../middlewares/auth.middleware');
+const { requireAuth, requireSoftDeletePermission } = require('../../middlewares/auth.middleware');
+const { requireDepartment } = require('../../middlewares/dept.middleware');
 const controller = require('./product.controller');
 
 router.use(requireAuth);
 
-router.post('/bulk', controller.bulkCreate);
+const readDepartments = ['sales', 'admin', 'finance', 'account', 'dispatch'];
+const manageDepartments = ['admin', 'super_admin', 'sales','finance','account'];
 
-router.get('/deleted', requireSoftDeletePermission, controller.listDeleted);
-router.get('/', controller.list);
-router.delete('/:id', requireSoftDeletePermission, controller.softDelete);
-router.post('/:id/restore', requireSoftDeletePermission, controller.restore);
-router.get('/:id', controller.get);
-router.post('/', controller.create);
-router.patch('/:id', controller.update);
+router.post('/bulk', requireDepartment(...manageDepartments), controller.bulkCreate);
+
+router.get(
+  '/deleted',
+  requireDepartment(...manageDepartments),
+  controller.listDeleted,
+);
+router.get('/', requireDepartment(...readDepartments), controller.list);
+router.delete(
+  '/:id',
+  requireDepartment(...manageDepartments),
+  controller.softDelete,
+);
+router.post(
+  '/:id/restore',
+  requireDepartment(...manageDepartments),
+  controller.restore,
+);
+router.get('/:id', requireDepartment(...readDepartments), controller.get);
+router.post('/', requireDepartment(...manageDepartments), controller.create);
+router.patch('/:id', requireDepartment(...manageDepartments), controller.update);
 
 module.exports = router;

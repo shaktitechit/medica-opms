@@ -1,21 +1,37 @@
 /**
- * @fileoverview Parties Express router mounts + RBAC.
+ * @fileoverview Parties Express router mounts + department RBAC.
  * @module modules/parties/party.routes
  */
 const { Router } = require('express');
 const router = Router();
-const { requireAuth, requireSoftDeletePermission } = require('../../middlewares/auth.middleware');
-const { requirePartiesManage } = require('./party.policy');
+const { requireAuth } = require('../../middlewares/auth.middleware');
+const { requireDepartment } = require('../../middlewares/dept.middleware');
 const controller = require('./party.controller');
 
 router.use(requireAuth);
-router.get('/deleted', requireSoftDeletePermission, controller.listDeleted);
-router.get('/', controller.list);
-router.post('/bulk', requirePartiesManage, controller.bulkCreate);
-router.delete('/:id', requireSoftDeletePermission, controller.softDelete);
-router.post('/:id/restore', requireSoftDeletePermission, controller.restore);
-router.get('/:id', controller.get);
-router.post('/', requirePartiesManage, controller.create);
-router.patch('/:id', requirePartiesManage, controller.update);
+
+const readDepartments = ['sales', 'admin', 'finance', 'account', 'dispatch'];
+const manageDepartments = ['admin', 'super_admin', 'sales', 'finance', 'account'];
+
+router.get(
+  '/deleted',
+  requireDepartment(...manageDepartments),
+  controller.listDeleted,
+);
+router.get('/', requireDepartment(...readDepartments), controller.list);
+router.post('/bulk', requireDepartment(...manageDepartments), controller.bulkCreate);
+router.delete(
+  '/:id',
+  requireDepartment(...manageDepartments),
+  controller.softDelete,
+);
+router.post(
+  '/:id/restore',
+  requireDepartment(...manageDepartments),
+  controller.restore,
+);
+router.get('/:id', requireDepartment(...readDepartments), controller.get);
+router.post('/', requireDepartment(...manageDepartments), controller.create);
+router.patch('/:id', requireDepartment(...manageDepartments), controller.update);
 
 module.exports = router;

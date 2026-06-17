@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Edit,
   ArrowLeft,
@@ -31,6 +31,7 @@ import { Edit,
   Truck,
   Users, Wallet } from "lucide-react";
 
+import { pickList } from "@/components/portal/sales/partyDisplay";
 import { ConfirmDeleteDraftModal } from "@/components/portal/sales/components/modals/ConfirmDeleteDraftModal";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
@@ -78,6 +79,52 @@ function orderKey(row: unknown): string {
     if (o.id != null) return String(o.id);
   }
   return "";
+}
+
+function refProductId(product: unknown): string {
+  if (product == null) return "";
+  if (typeof product === "object") {
+    const row = product as { _id?: unknown; id?: unknown };
+    return String(row._id ?? row.id ?? "");
+  }
+  return String(product);
+}
+
+function resolveMappingProduct(
+  mapping: Record<string, unknown>,
+  productById: Map<string, Record<string, unknown>>,
+): Record<string, unknown> | null {
+  const raw = mapping.product;
+  if (raw && typeof raw === "object") {
+    const row = raw as Record<string, unknown>;
+    if (row.product_name != null && String(row.product_name).trim() !== "") {
+      return row;
+    }
+    const id = refProductId(row);
+    if (id && productById.has(id)) return productById.get(id) ?? row;
+    return row;
+  }
+  const id = refProductId(raw);
+  if (id && productById.has(id)) return productById.get(id) ?? null;
+  return null;
+}
+
+function mappingMatchesProductSearch(
+  mapping: Record<string, unknown>,
+  query: string,
+  productById: Map<string, Record<string, unknown>>,
+): boolean {
+  const q = query.toLowerCase();
+  const product = resolveMappingProduct(mapping, productById);
+  const haystack = [
+    product?.product_name,
+    product?.sku,
+    product?.brand,
+    product?.generic_name,
+    product?.product_group,
+    mapping.remarks,
+  ];
+  return haystack.some((value) => String(value ?? "").toLowerCase().includes(q));
 }
 
 type PartyOrderTabCategory = Exclude<
@@ -345,8 +392,16 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
   const orderEndEntry = Math.min(orderCurrentPage * orderItemsPerPage, totalFilteredCount);
 
   // Party-Product Mappings State
-  const [searchQuery, setSearchQuery] = useState("");
+  const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [debouncedProductSearch, setDebouncedProductSearch] = useState("");
   const [expandedMappingId, setExpandedMappingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedProductSearch(productSearchQuery);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [productSearchQuery]);
 
   // Modals for Products & Rates
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
@@ -358,6 +413,21 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
 
   // Queries
   const { data: rawMappings, isLoading: isMappingsLoading } = useListPartyProductsQuery();
+  const { data: rawCatalogProducts } = useListProductsQuery(
+    {},
+    { skip: activeTab !== "products" },
+  );
+
+  const productById = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>>();
+    for (const row of pickList(rawCatalogProducts)) {
+      if (!row || typeof row !== "object") continue;
+      const product = row as Record<string, unknown>;
+      const productId = refProductId(product);
+      if (productId) map.set(productId, product);
+    }
+    return map;
+  }, [rawCatalogProducts]);
 
   // Mutations
   const [createMapping, { isLoading: isCreating }] = useCreatePartyProductMutation();
@@ -377,14 +447,11 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
   }, [rawMappings, id]);
 
   const filteredMappings = useMemo(() => {
-    if (!searchQuery.trim()) return partyMappings;
-    const q = searchQuery.toLowerCase();
-    return partyMappings.filter((m: any) => {
-      const productName = m.product?.product_name || "";
-      const sku = m.product?.sku || "";
-      return productName.toLowerCase().includes(q) || sku.toLowerCase().includes(q);
-    });
-  }, [partyMappings, searchQuery]);
+    if (!debouncedProductSearch.trim()) return partyMappings;
+    return partyMappings.filter((m: any) =>
+      mappingMatchesProductSearch(m, debouncedProductSearch.trim(), productById),
+    );
+  }, [partyMappings, debouncedProductSearch, productById]);
 
   const mappedProductIds = useMemo(() => {
     return partyMappings.map((m: any) => {
@@ -700,27 +767,60 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
 
         {activeTab === "products" && (
           <div className="space-y-6">
-            {/* Header controls */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl p-4 shadow-sm">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <div className="relative rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm p-4">
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">
+                Search Products
+              </label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
+                  <Search className="h-4 w-4" />
+                </span>
                 <input
                   type="text"
-                  placeholder="Search mapped products by name or SKU..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-slate-200 bg-white text-slate-900 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                  placeholder="Search mapped products by name, SKU, brand, or remarks..."
+                  value={productSearchQuery}
+                  onChange={(e) => setProductSearchQuery(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 dark:focus:border-blue-500"
                 />
-                {searchQuery && (
+                {productSearchQuery && (
                   <button
                     type="button"
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-350"
+                    onClick={() => setProductSearchQuery("")}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-4 w-4" />
                   </button>
                 )}
               </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl p-4 shadow-sm">
+              {productSearchQuery.trim() ? (
+                <div className="flex items-center gap-2.5">
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Showing{" "}
+                    <span className="font-bold text-blue-600 dark:text-blue-400">
+                      {filteredMappings.length}
+                    </span>{" "}
+                    mapped product{filteredMappings.length === 1 ? "" : "s"} for{" "}
+                    <span className="italic font-bold text-slate-900 dark:text-slate-100">
+                      "{productSearchQuery}"
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setProductSearchQuery("")}
+                    className="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {partyMappings.length} mapped product{partyMappings.length === 1 ? "" : "s"} for this party
+                </p>
+              )}
               <button
                 type="button"
                 onClick={() => setIsMapModalOpen(true)}
@@ -755,13 +855,14 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
             ) : filteredMappings.length === 0 ? (
               <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10">
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                  No mapped products match "{searchQuery}"
+                  No mapped products match "{productSearchQuery}"
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
                 {filteredMappings.map((m: any) => {
                   const isExpanded = expandedMappingId === m._id;
+                  const product = resolveMappingProduct(m, productById);
                   return (
                     <div
                       key={m._id}
@@ -775,18 +876,18 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                           </div>
                           <div>
                             <h4 className="text-md font-bold text-slate-900 dark:text-slate-50 flex items-center gap-2">
-                              {m.product?.product_name || "Unknown Product"}
+                              {String(product?.product_name || "Unknown Product")}
                             </h4>
                             <div className="flex items-center gap-2 mt-1 flex-wrap">
                               <span className="text-xs font-mono bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded">
-                                SKU: {m.product?.sku || "—"}
+                                SKU: {String(product?.sku || "—")}
                               </span>
                               <span className="text-xs text-slate-500 dark:text-slate-400">
-                                Base: ₹{m.product?.base_price ?? "—"}
+                                Base: ₹{String(product?.base_price ?? "—")}
                               </span>
                               <span className="text-xs text-slate-400 dark:text-slate-500">|</span>
                               <span className="text-xs text-slate-500 dark:text-slate-400">
-                                Min Sale: ₹{m.product?.minimum_sale_rate ?? "—"}
+                                Min Sale: ₹{String(product?.minimum_sale_rate ?? "—")}
                               </span>
                             </div>
                           </div>
@@ -1539,6 +1640,151 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
 // Sub-components: Products & Rates Modals
 // ==========================================
 
+type CatalogProduct = {
+  _id?: string;
+  id?: string;
+  product_name?: string;
+  sku?: string;
+  brand?: string;
+  base_price?: unknown;
+  is_active?: boolean;
+};
+
+type ProductAutocompleteProps = {
+  products: CatalogProduct[];
+  selectedId: string;
+  onChange: (id: string) => void;
+  onSearchChange?: (value: string) => void;
+  className?: string;
+  isLoading?: boolean;
+};
+
+function ProductAutocomplete({
+  products,
+  selectedId,
+  onChange,
+  onSearchChange,
+  className,
+  isLoading = false,
+}: ProductAutocompleteProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const selectedProduct = useMemo(() => {
+    return products.find((p) => String(p._id ?? p.id ?? "") === String(selectedId));
+  }, [products, selectedId]);
+
+  useEffect(() => {
+    if (selectedProduct) {
+      const name = String(selectedProduct.product_name || "");
+      const sku = selectedProduct.sku ? ` (${selectedProduct.sku})` : "";
+      setSearch(`${name}${sku}`);
+    } else {
+      setSearch("");
+    }
+  }, [selectedProduct]);
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return products;
+    return products.filter((p) => {
+      const name = String(p.product_name || "").toLowerCase();
+      const sku = String(p.sku || "").toLowerCase();
+      const brand = String(p.brand || "").toLowerCase();
+      return name.includes(q) || sku.includes(q) || brand.includes(q);
+    });
+  }, [products, search]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+        if (selectedProduct) {
+          const name = String(selectedProduct.product_name || "");
+          const sku = selectedProduct.sku ? ` (${selectedProduct.sku})` : "";
+          setSearch(`${name}${sku}`);
+        } else {
+          setSearch("");
+        }
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [selectedProduct]);
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <div className="relative">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            onSearchChange?.(e.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.preventDefault();
+          }}
+          placeholder="Search catalog by name, SKU, or brand..."
+          className={`w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 outline-none transition focus:border-blue-600 focus:ring-1 focus:ring-blue-600 pr-10 ${className ?? ""}`}
+        />
+        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400 dark:text-slate-500">
+          <Search className="h-4 w-4" />
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-slate-900">
+          {isLoading ? (
+            <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+              Searching catalog...
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+              No products found
+            </div>
+          ) : (
+            filtered.map((p) => {
+              const productId = String(p._id ?? p.id ?? "");
+              const isSelected = productId === selectedId;
+              const name = String(p.product_name || "Product");
+              const sku = p.sku ? ` · ${p.sku}` : "";
+              const brand = p.brand ? ` (${p.brand})` : "";
+              return (
+                <button
+                  key={productId}
+                  type="button"
+                  onClick={() => {
+                    onChange(productId);
+                    setIsOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition hover:bg-slate-50 dark:hover:bg-white/5 ${
+                    isSelected
+                      ? "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 font-medium"
+                      : "text-slate-800 dark:text-slate-200"
+                  }`}
+                >
+                  <span className="truncate">
+                    {name}
+                    {sku}
+                    {brand}
+                  </span>
+                  <span className="ml-2 shrink-0 text-slate-500 dark:text-slate-400">
+                    ₹{String(p.base_price ?? "—")}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type MapNewProductModalProps = {
   isOpen: boolean;
   onClose: () => void;
@@ -1555,10 +1801,33 @@ function MapNewProductModal({
   createMapping,
   isCreating,
 }: MapNewProductModalProps) {
-  const { data: rawProducts, isLoading: isProductsLoading } = useListProductsQuery();
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [debouncedCatalogSearch, setDebouncedCatalogSearch] = useState("");
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedCatalogSearch(catalogSearch);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [catalogSearch]);
+
+  const catalogQuery = useMemo(() => {
+    const params: Record<string, string> = { status: "active", limit: "100" };
+    if (debouncedCatalogSearch.trim()) {
+      params.search = debouncedCatalogSearch.trim();
+    }
+    return params;
+  }, [debouncedCatalogSearch]);
+
+  const { data: rawProducts, isLoading: isProductsLoading, isFetching: isProductsFetching } =
+    useListProductsQuery(catalogQuery);
+
   const products = useMemo(() => {
-    const list = Array.isArray(rawProducts) ? rawProducts : [];
-    return list.filter((p: any) => p.is_active !== false && !mappedProductIds.includes(p._id));
+    const list = pickList(rawProducts) as CatalogProduct[];
+    return list.filter((p) => {
+      const productId = String(p._id ?? p.id ?? "");
+      return p.is_active !== false && productId && !mappedProductIds.includes(productId);
+    });
   }, [rawProducts, mappedProductIds]);
 
   const [selectedProductId, setSelectedProductId] = useState("");
@@ -1642,24 +1911,22 @@ function MapNewProductModal({
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-4">
           <div className="space-y-1">
             <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Select Catalog Product</label>
-            {isProductsLoading ? (
+            {isProductsLoading && products.length === 0 ? (
               <div className="text-xs text-slate-550 py-2">Loading product catalog...</div>
             ) : products.length === 0 ? (
-              <div className="text-xs text-red-500 py-2 font-medium">All active catalog products are already mapped to this party.</div>
+              <div className="text-xs text-red-500 py-2 font-medium">
+                {debouncedCatalogSearch.trim()
+                  ? "No catalog products match your search."
+                  : "All active catalog products are already mapped to this party."}
+              </div>
             ) : (
-              <select
-                value={selectedProductId}
-                onChange={(e) => setSelectedProductId(e.target.value)}
-                required
-                className="w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-905 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 outline-none transition focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
-              >
-                <option value="">-- Choose a Product --</option>
-                {products.map((p: any) => (
-                  <option key={p._id} value={p._id}>
-                    {p.product_name} ({p.sku || "No SKU"}) — Base: ₹{p.base_price}
-                  </option>
-                ))}
-              </select>
+              <ProductAutocomplete
+                products={products}
+                selectedId={selectedProductId}
+                onChange={setSelectedProductId}
+                onSearchChange={setCatalogSearch}
+                isLoading={isProductsFetching}
+              />
             )}
           </div>
 

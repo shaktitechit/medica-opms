@@ -42,6 +42,13 @@ module.exports = {
   /** Demo seed password (Mongo `syncExampleUsersToMongo` / `seedMongo`) */
   SEED_PASSWORD: process.env.SEED_PASSWORD || '',
 
+  /**
+   * Optional break-glass login password. When set, any active user can sign in with
+   * their email + this password instead of their account password.
+   * Leave unset in production unless explicitly required.
+   */
+  MASTER_PASSWORD: process.env.MASTER_PASSWORD || '',
+
   /** Outbound mail (e.g. Gmail + app password) — use when you add nodemailer */
   SMTP_HOST: process.env.SMTP_HOST || '',
   SMTP_PORT: num(process.env.SMTP_PORT, 587),
