@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useAccountTabAlertOverride } from "./AccountTabAlert";
 import AccountOrderVolumeChart from "./components/AccountOrderVolumeChart";
 import AccountOverviewWidgets from "./components/AccountOverviewWidgets";
 import AccountRecentOrdersWidget from "./components/AccountRecentOrdersWidget";
@@ -109,6 +110,8 @@ export default function AccountOverview() {
     () => computeAccountOrderStats(orders),
     [orders],
   );
+
+  useAccountTabAlertOverride(orderStats.pending_account_approval.count);
 
   const totalOrdersCount = useMemo(() => {
     return orders.filter((o) => deriveOrderWorkflowStatus(o) !== "draft").length;

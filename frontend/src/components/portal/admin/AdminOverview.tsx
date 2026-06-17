@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useAdminTabAlertOverride } from "./AdminTabAlert";
 import OrderVolumeChart from "./AdminOrderVolumeChart";
 import AdminOverviewWidgets from "./AdminOverviewWidgets";
 import AdminRecentOrdersWidget from "./AdminRecentOrdersWidget";
@@ -100,6 +101,8 @@ export default function AdminOverview() {
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
   const orderStats = useMemo(() => computeAdminOrderStats(orders), [orders]);
+
+  useAdminTabAlertOverride(orderStats.pending_admin_approval.count);
 
   const totalOrdersCount = useMemo(() => {
     return orders.filter((o) => deriveOrderWorkflowStatus(o) !== "draft").length;

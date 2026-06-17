@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useDispatchTabAlertOverride } from "./DispatchTabAlert";
 import DispatchOrderVolumeChart from "./components/DispatchOrderVolumeChart";
 import DispatchOverviewWidgets from "./components/DispatchOverviewWidgets";
 import DispatchRecentOrdersWidget from "./components/DispatchRecentOrdersWidget";
@@ -121,6 +122,9 @@ export default function DispatchOverview() {
   const orderStats = useMemo(
     () => computeDispatchOrderStats(orders, categoryOptions),
     [orders, categoryOptions],
+  );
+  useDispatchTabAlertOverride(
+    orderStats.pending_transport.count + orderStats.pending_delivery.count,
   );
 
   const totalOrdersCount = useMemo(() => {

@@ -110,7 +110,14 @@ function formatDateShort(v: unknown): string {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  }  );
+  });
+}
+
+function formatMoney(v: number): string {
+  return v.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function renderWorkflowStatusBadge(category: AccountOrderTabCategory) {
@@ -562,7 +569,7 @@ export default function ListAccountOrdersPage() {
                             Grand Total
                           </span>
                           <span className="mt-0.5 font-bold tabular-nums text-slate-900 dark:text-slate-50 text-xs">
-                            ₹{total.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            ₹{formatMoney(Number.isFinite(total) ? total : 0)}
                           </span>
                         </div>
                         <div className="flex flex-col">

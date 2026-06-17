@@ -121,6 +121,13 @@ function formatDateShort(v: unknown): string {
   });
 }
 
+function formatMoney(v: number): string {
+  return v.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function renderWorkflowStatusBadge(status: string) {
   let label = "";
   let bgClass = "";
@@ -628,7 +635,7 @@ export default function ListAdminOrdersPage() {
                             Grand Total
                           </span>
                           <span className="mt-0.5 font-bold tabular-nums text-slate-900 dark:text-slate-50 text-xs">
-                            ${Number.isFinite(total) ? total.toFixed(2) : "0.00"}
+                            ₹{formatMoney(Number.isFinite(total) ? total : 0)}
                           </span>
                         </div>
                         <div className="flex flex-col">

@@ -1392,22 +1392,22 @@ async function decideFinance(id, decision, body, user) {
         normalizeOrderWorkflowFields(orderAfterTransition);
         await orderAfterTransition.save();
 
-        await OrderWorkflow.create({
-          order: order._id,
-          action_by: user._id,
-          role: 'finance',
-          action: allApproved ? 'fully_finance_approved' : 'partially_finance_approved',
+      await OrderWorkflow.create({
+        order: order._id,
+        action_by: user._id,
+        role: 'finance',
+        action: allApproved ? 'fully_finance_approved' : 'partially_finance_approved',
           to_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
           to_status: ORDER_STATUS.FINANCE_APPROVED,
-          remarks: body?.approval_notes || '',
-          revision_number: doc.revision_number,
-          metadata: {
-            entity_type: 'OrderApproval',
-            entity_id: String(doc._id),
-            approval_no: doc.approval_no,
+        remarks: body?.approval_notes || '',
+        revision_number: doc.revision_number,
+        metadata: {
+          entity_type: 'OrderApproval',
+          entity_id: String(doc._id),
+          approval_no: doc.approval_no,
             finance_approval_status: allApproved ? APPROVAL_STATUS.APPROVED : APPROVAL_STATUS.PARTIAL,
-          },
-        });
+        },
+      });
 
         await enqueuePostFinanceApprovalJobs(order._id, user._id);
       }
@@ -1947,20 +1947,20 @@ async function amendByFinance(id, body, user) {
   doc.reviewed_by = user._id;
   doc.reviewed_at = new Date();
   if (wasFinanceApproved) {
-    doc.finance_amended = true;
-    doc.finance_amended_by = user._id;
-    doc.finance_amended_at = new Date();
+  doc.finance_amended = true;
+  doc.finance_amended_by = user._id;
+  doc.finance_amended_at = new Date();
   }
   await doc.save();
 
   if (wasFinanceApproved) {
-    const { OrderAmmendmentUser } = getModels();
-    await OrderAmmendmentUser.create({
-      order_approval: doc._id,
-      department: 'finance',
-      ammended_by: user._id,
-      ammended_at: new Date(),
-    });
+  const { OrderAmmendmentUser } = getModels();
+  await OrderAmmendmentUser.create({
+    order_approval: doc._id,
+    department: 'finance',
+    ammended_by: user._id,
+    ammended_at: new Date(),
+  });
   }
 
   await activityService.create({

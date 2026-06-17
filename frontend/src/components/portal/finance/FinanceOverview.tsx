@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useFinanceTabAlertOverride } from "./FinanceTabAlert";
 import FinanceOrderVolumeChart from "./components/FinanceOrderVolumeChart";
 import FinanceOverviewWidgets from "./components/FinanceOverviewWidgets";
 import FinanceRecentOrdersWidget from "./components/FinanceRecentOrdersWidget";
@@ -96,6 +97,8 @@ export default function FinanceOverview() {
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
   const orderStats = useMemo(() => computeFinanceOrderStats(orders), [orders]);
+
+  useFinanceTabAlertOverride(orderStats.pending_finance_approval.count);
 
   const totalOrdersCount = useMemo(() => {
     return orders.filter((o) => deriveOrderWorkflowStatus(o) !== "draft").length;
