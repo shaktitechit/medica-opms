@@ -16,8 +16,11 @@ type AttachmentsTabProps = {
 
 const DEPARTMENT_LABELS: Record<string, string> = {
   account: "Account Department",
+  admin: "Administration",
+  sales: "Sales Department",
   finance: "Finance & Accounts",
   dispatch: "Dispatch & Warehouse",
+  other: "Other Attachments",
 };
 
 const DEPARTMENT_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -25,6 +28,16 @@ const DEPARTMENT_COLORS: Record<string, { bg: string; text: string; border: stri
     bg: "bg-indigo-50 dark:bg-indigo-950/20",
     text: "text-indigo-700 dark:text-indigo-400",
     border: "border-indigo-100 dark:border-indigo-950/30",
+  },
+  admin: {
+    bg: "bg-purple-50 dark:bg-purple-950/20",
+    text: "text-purple-700 dark:text-purple-400",
+    border: "border-purple-100 dark:border-purple-950/30",
+  },
+  sales: {
+    bg: "bg-emerald-50 dark:bg-emerald-950/20",
+    text: "text-emerald-700 dark:text-emerald-400",
+    border: "border-emerald-100 dark:border-emerald-950/30",
   },
   finance: {
     bg: "bg-blue-50 dark:bg-blue-950/20",
@@ -36,9 +49,12 @@ const DEPARTMENT_COLORS: Record<string, { bg: string; text: string; border: stri
     text: "text-amber-700 dark:text-amber-400",
     border: "border-amber-100 dark:border-amber-950/30",
   },
+  other: {
+    bg: "bg-slate-50 dark:bg-slate-950/20",
+    text: "text-slate-700 dark:text-slate-400",
+    border: "border-slate-100 dark:border-slate-950/30",
+  },
 };
-
-const VISIBLE_DEPARTMENTS = new Set(["account", "finance", "dispatch"]);
 
 function normalizeAttachmentDepartment(dept: string | undefined): string | undefined {
   if (!dept) return undefined;
@@ -127,15 +143,17 @@ export default function AttachmentsTab({
   const grouped = useMemo(() => {
     const groups: Record<string, any[]> = {
       account: [],
+      admin: [],
+      sales: [],
       finance: [],
       dispatch: [],
+      other: [],
     };
 
     for (const att of attachments) {
       const dept = normalizeAttachmentDepartment(att.uploaded_by?.department as string | undefined);
-      if (dept && VISIBLE_DEPARTMENTS.has(dept)) {
-        groups[dept].push(att);
-      }
+      const key = dept && groups[dept] !== undefined ? dept : "other";
+      groups[key].push(att);
     }
 
     return Object.entries(groups).filter(([_, list]) => list.length > 0);
@@ -351,7 +369,7 @@ export default function AttachmentsTab({
         <div>
           <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 font-sans">Order Attachments</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
-            View, download, and upload account, finance, and dispatch files for this order.
+            View, download, and upload files for this order from all departments.
           </p>
         </div>
         <button
@@ -373,7 +391,7 @@ export default function AttachmentsTab({
               No attachments
             </h3>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 mb-4 font-sans">
-              No account, finance, or dispatch files are available for this order yet.
+              No files are available for this order yet.
             </p>
             <button
               type="button"

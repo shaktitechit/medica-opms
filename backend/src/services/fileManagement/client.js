@@ -4,7 +4,7 @@ import {
   FILE_MANAGEMENT_REQUEST_TIMEOUT_MS,
 } from "../../config/fileManagement.js";
 import { FileManagementError } from "./errors.js";
-import logger from "../../config/logger.js";
+import { logger } from "../../config/logger.js";
 
 function createTimeoutSignal(ms) {
   if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) {

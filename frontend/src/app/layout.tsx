@@ -9,6 +9,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Medica",
   description: "Medica web app",
+  icons: {
+    icon: "/medica-fabicon.svg",
+  },
 };
 
 export const viewport: Viewport = {
