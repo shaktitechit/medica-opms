@@ -2058,10 +2058,6 @@ const spec = {
           expected_delivery_date: { type: 'string', format: 'date-time', nullable: true },
           remarks: { type: 'string' },
           assigned_sales_user: { type: 'string' },
-          assigned_finance_user: { type: 'string' },
-          assigned_dispatch_user: { type: 'string' },
-          assigned_admin_user: { type: 'string' },
-          assigned_account_user: { type: 'string' },
         },
       },
       OrderTransition: {

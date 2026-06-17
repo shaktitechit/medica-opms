@@ -7,9 +7,12 @@ export function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Admin / sales-review approved qty on an order line (separate from finance `approved_quantity`). */
+/** Admin / sales-review approved qty on an order line. */
 export function salesApprovedOnLine(line: Record<string, unknown>): number {
-  return num(line.sales_approved_quantity);
+  const explicit = num(line.sales_approved_quantity);
+  if (explicit > 0) return explicit;
+  // Order lines persist admin approval in `approved_quantity` (see backend orderFulfillment.service).
+  return num(line.approved_quantity);
 }
 
 /** Finance-approved qty on an order line. */
@@ -76,6 +79,56 @@ export function resolveAccountApprovalStatus(
   const raw = String(
     fulfillmentSnapshot?.account_approval_status ?? order?.account_approval_status ?? "pending",
   );
-  if (raw === "partial" || raw === "full" || raw === "rejected") return raw;
+  if (raw === "approved" || raw === "full") return "full";
+  if (raw === "partial" || raw === "rejected") return raw;
   return "pending";
+}
+
+const ADMIN_APPROVED_ORDER_STATUSES = new Set([
+  "approved",
+  "full",
+  "sales_approved",
+  "finance_review",
+  "fully_finance_approved",
+  "partially_finance_approved",
+  "finance_rejected",
+  "account_review",
+  "fully_account_approved",
+  "partially_account_approved",
+  "dispatch_pending",
+  "partial_dispatch_created",
+  "full_dispatch_created",
+  "delivered",
+]);
+
+/** When line fields lack sales qty, infer from order-level admin sign-off (list rows). */
+export function resolveSalesApprovedTotals(
+  order: Record<string, unknown>,
+  totals: {
+    ordered: number;
+    salesApproved: number;
+    approved: number;
+    pendingAdmin: number;
+  },
+): { salesApproved: number; pendingAdmin: number } {
+  if (totals.salesApproved > 0) {
+    return { salesApproved: totals.salesApproved, pendingAdmin: totals.pendingAdmin };
+  }
+
+  const adminStatus = String(order.admin_approval_status ?? "pending");
+  const orderStatus = String(order.status ?? "");
+  const passedAdmin =
+    adminStatus === "approved" ||
+    adminStatus === "full" ||
+    ADMIN_APPROVED_ORDER_STATUSES.has(orderStatus);
+
+  if (!passedAdmin) {
+    return { salesApproved: totals.salesApproved, pendingAdmin: totals.pendingAdmin };
+  }
+
+  const salesApproved = totals.approved > 0 ? totals.approved : totals.ordered;
+  return {
+    salesApproved,
+    pendingAdmin: Math.max(0, totals.ordered - salesApproved),
+  };
 }

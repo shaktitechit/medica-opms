@@ -6,20 +6,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   buildPartyNameById,
-  pickList,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
-import {
-  useListPartiesQuery,
-  useListOrdersQuery,
-  useListOrderReturnsQuery,
-  useListUsersQuery,
-} from "@/store/api";
-import { buildUserNameById } from "@/components/portal/shared/userDisplay";
-import { useAppSelector } from "@/store/hooks";
+import { useListPartiesQuery, useListOrdersQuery } from "@/store/api";
 import { Search,
   X,
   ChevronLeft,
@@ -27,20 +19,20 @@ import { Search,
   ChevronsLeft,
   ChevronsRight,
   RefreshCw,
-  LayoutDashboard,
-  UserCheck,
-  DollarSign,
-  Package,
-  Truck, Wallet } from "lucide-react";
-import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
-import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
+  LayoutDashboard } from "lucide-react";
+import {
+  OrderFulfillmentPipelineStrip,
+  buildListOrderFulfillmentPipeline,
+} from "@/components/portal/shared/FulfillmentCircleStep";
 import {
   ACCOUNT_ORDER_TABS,
-  buildPendingReturnOrderIds,
   getAccountOrderTabCategory,
   isAccountOrderTabCategory,
+  orderMatchesAccountTab,
+  pendingApprovalStageLabel,
   type AccountOrderTabCategory,
 } from "../accountOrderUtils";
+import { resolveApprovalPending } from "@/components/portal/sales/orderUtils";
 
 type OrderRow = {
   _id?: string;
@@ -57,13 +49,18 @@ type OrderRow = {
   finance_approval_status?: string;
   party?: unknown;
   customer?: unknown;
-  assigned_account_user?: unknown;
   assigned_sales_user?: unknown;
   order_date?: string;
   expected_delivery_date?: string;
   created_at?: string;
   createdAt?: string;
   order_items?: unknown[];
+  approval_pending?: {
+    admin?: boolean;
+    finance?: boolean;
+    account?: boolean;
+    stage?: string;
+  };
 };
 
 function orderKey(row: unknown): string {
@@ -113,73 +110,160 @@ function formatDateShort(v: unknown): string {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  });
+  }  );
+}
+
+function renderWorkflowStatusBadge(category: AccountOrderTabCategory) {
+  let label = "";
+  let bgClass = "";
+  switch (category) {
+    case "pending_account_approval":
+      label = "Pending Account";
+      bgClass =
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
+      break;
+    case "pending_approvals":
+      label = "Pending Approvals";
+      bgClass =
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
+      break;
+    case "open":
+      label = "Open";
+      bgClass =
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
+      break;
+    case "closed":
+      label = "Closed";
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+      break;
+    case "on_hold":
+      label = "On Hold";
+      bgClass =
+        "bg-orange-50 text-orange-700 ring-orange-600/10 dark:bg-orange-950/30 dark:text-orange-400 dark:ring-orange-500/25";
+      break;
+    case "cancelled":
+      label = "Cancelled";
+      bgClass =
+        "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-slate-950/30 dark:text-slate-400 dark:ring-slate-500/25";
+      break;
+    default:
+      label = category;
+      bgClass =
+        "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function renderPendingApprovalBadge(order: OrderRow) {
+  const pending = resolveApprovalPending(order);
+  if (!pending.admin && !pending.finance && !pending.account) return null;
+
+  const parts: string[] = [];
+  if (pending.admin) parts.push("Admin");
+  if (pending.finance) parts.push("Finance");
+  if (pending.account) parts.push("Account");
+
+  const title = parts.length > 0 ? `Pending: ${parts.join(", ")}` : "Pending approval";
+  const label = pending.stage
+    ? `${pendingApprovalStageLabel(pending.stage)} pending`
+    : "Pending approval";
+
+  return (
+    <span
+      className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700 ring-1 ring-inset ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25"
+      title={title}
+    >
+      {label}
+    </span>
+  );
 }
 
 export default function ListAccountOrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
-  const user = useAppSelector((state) => state.auth.user);
-  const currentUserId = useMemo(() => {
-    return String(user?._id ?? user?.id ?? "");
-  }, [user]);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<AccountOrderTabCategory>(
-    tabFromUrl && isAccountOrderTabCategory(tabFromUrl) ? tabFromUrl : "dispatch_pending",
-  );
+  const [activeTab, setActiveTab] = useState<AccountOrderTabCategory>(() => {
+    if (tabFromUrl === "pending_account_review") return "pending_account_approval";
+    return tabFromUrl && isAccountOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_account_approval";
+  });
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
   useEffect(() => {
+    if (tabFromUrl === "pending_account_review") {
+      setActiveTab("pending_account_approval");
+      setCurrentPage(1);
+      return;
+    }
     if (tabFromUrl && isAccountOrderTabCategory(tabFromUrl)) {
       setActiveTab(tabFromUrl);
       setCurrentPage(1);
     }
   }, [tabFromUrl]);
 
-  const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery({});
-  const { data: returnsData } = useListOrderReturnsQuery({});
+  const queryParams = useMemo(() => {
+    const base: Record<string, string | undefined> = {};
+
+    if (!searchQuery.trim()) {
+      switch (activeTab) {
+        case "pending_account_approval":
+          base.status = "pending_account_review";
+          break;
+        case "pending_approvals":
+          base.status = "pending_approval";
+          break;
+        case "on_hold":
+          base.status = "on_hold";
+          break;
+        case "cancelled":
+          base.status = "cancelled";
+          break;
+        case "open":
+          base.exclude_status = "draft,submitted,on_hold,cancelled,finance_rejected";
+          break;
+        case "closed":
+          base.status = "closed";
+          break;
+      }
+    }
+
+    if (searchQuery.trim()) {
+      base.search = searchQuery.trim();
+    }
+    return base;
+  }, [activeTab, searchQuery]);
+
+  const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery(queryParams);
   const partiesQ = useListPartiesQuery({});
-  const usersQ = useListUsersQuery({});
 
-  const pendingReturnOrderIds = useMemo(
-    () => buildPendingReturnOrderIds(pickList(returnsData)),
-    [returnsData],
+  const orders = useMemo(
+    () => pickOrders(data) as OrderRow[],
+    [data],
   );
-
-  const categoryOptions = useMemo(
-    () => ({ pendingReturnOrderIds }),
-    [pendingReturnOrderIds],
-  );
-
-  const orders = useMemo(() => {
-    const raw = pickOrders(data) as OrderRow[];
-    // Filter for orders where this account user is assigned
-    return raw.filter((o) => String(o.assigned_account_user ?? "") === currentUserId);
-  }, [data, currentUserId]);
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesQ.data),
     [partiesQ.data],
   );
 
-  const userNameById = useMemo(
-    () => buildUserNameById(usersQ.data),
-    [usersQ.data],
-  );
-
-  // Dynamic filter reset
   const handleResetFilters = useCallback(() => {
     setSearchQuery("");
-    setActiveTab("dispatch_pending");
+    setActiveTab("pending_account_approval");
     setPriorityFilter("all");
     setCurrentPage(1);
   }, []);
 
-  // Setters that reset page to 1
   const handleSearchChange = useCallback((val: string) => {
     setSearchQuery(val);
     setCurrentPage(1);
@@ -190,11 +274,13 @@ export default function ListAccountOrdersPage() {
     setCurrentPage(1);
   }, []);
 
-  // Filtered Orders memo
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
-      // 1. Universal Search (checks order # or party name across all tabs)
-      if (searchQuery.trim()) {
+      if (!searchQuery.trim()) {
+        if (!orderMatchesAccountTab(o, activeTab)) {
+          return false;
+        }
+      } else {
         const query = searchQuery.toLowerCase();
         const id = orderKey(o);
         const ref = (
@@ -213,15 +299,8 @@ export default function ListAccountOrdersPage() {
         if (!ref.includes(query) && !partyLabel.includes(query)) {
           return false;
         }
-      } else {
-        // 2. Tab filter (only if search query is empty)
-        const category = getAccountOrderTabCategory(o, categoryOptions);
-        if (category !== activeTab) {
-          return false;
-        }
       }
 
-      // 3. Priority filter
       if (priorityFilter !== "all") {
         if ((o.priority || "").toLowerCase() !== priorityFilter.toLowerCase()) {
           return false;
@@ -230,9 +309,8 @@ export default function ListAccountOrdersPage() {
 
       return true;
     });
-  }, [orders, searchQuery, activeTab, priorityFilter, partyNameById, categoryOptions]);
+  }, [orders, searchQuery, activeTab, priorityFilter, partyNameById]);
 
-  // Paginated Orders slice
   const paginatedOrders = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     const end = start + itemsPerPage;
@@ -247,7 +325,6 @@ export default function ListAccountOrdersPage() {
   return (
     <div className="space-y-6">
       <PortalBusyOverlay active={isLoading} message="Loading orders…" />
-      {/* Header Banner */}
       <div className="relative overflow-hidden rounded-2xl border border-blue-500/10 bg-gradient-to-r from-blue-600/5 to-teal-600/10 p-6 dark:from-blue-500/5 dark:to-teal-500/5 shadow-sm">
         <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-blue-500/10 blur-2xl pointer-events-none" />
         <div className="absolute -left-10 -bottom-10 h-32 w-32 rounded-full bg-teal-500/10 blur-2xl pointer-events-none" />
@@ -258,7 +335,7 @@ export default function ListAccountOrdersPage() {
               Account Clearance Queue
             </h1>
             <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400 max-w-xl font-medium">
-              Review finance-approved orders, manage billing releases, and dispatch released consignments.
+              Review finance-approved orders, manage billing releases, and track dispatch progress.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
@@ -285,11 +362,10 @@ export default function ListAccountOrdersPage() {
 
       {partiesQ.isError && (
         <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-955/20 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/30">
-          ⚠️ Party directory failed to load — names may show as shortened IDs.
+          Party directory failed to load — names may show as shortened IDs.
         </div>
       )}
 
-      {/* Universal Search Bar */}
       <div className="relative rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm p-4">
         <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">
           Universal Search
@@ -317,7 +393,6 @@ export default function ListAccountOrdersPage() {
         </div>
       </div>
 
-      {/* Horizontal Nav Tabs & Priority Filter */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/10 mt-2 pb-2 md:pb-0">
         {searchQuery.trim() ? (
           <div className="flex items-center gap-2.5 py-3">
@@ -380,7 +455,7 @@ export default function ListAccountOrdersPage() {
                 </option>
               ))}
             </select>
-            {(searchQuery || activeTab !== "dispatch_pending" || priorityFilter !== "all") && (
+            {(searchQuery || activeTab !== "pending_account_approval" || priorityFilter !== "all") && (
               <button
                 type="button"
                 onClick={handleResetFilters}
@@ -393,7 +468,6 @@ export default function ListAccountOrdersPage() {
         </div>
       </div>
 
-      {/* Main Grid/Table Card */}
       <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
         {isError && (
           <div className="text-center py-16 px-4">
@@ -436,26 +510,6 @@ export default function ListAccountOrdersPage() {
                       : id || "—";
                 const total = Number(o.grand_total ?? o.total ?? 0);
                 const pri = typeof o.priority === "string" ? o.priority : "normal";
-                const deptBoxes = computeDepartmentStageBoxes(
-                  o as Record<string, unknown>,
-                  null,
-                );
-                const adminBox = deptBoxes.find((b) => b.id === "admin");
-                const financeBox = deptBoxes.find((b) => b.id === "finance");
-                const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-                const accountBox = deptBoxes.find((b) => b.id === "account");
-  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
-
-                const adminStatusDim = adminBox?.status;
-                const financeStatusDim = financeBox?.status;
-                const dispatchStatusDim = dispatchBox?.status;
-                const accountStatusDim = accountBox?.status;
-  const deliveryStatusDim = deliveryBox?.status;
-
-                const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
-                const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {
-                  return acc + (Number(item.ordered_quantity ?? item.quantity) || 0);
-                }, 0));
 
                 const partyLabel = resolveOrderCounterparty(
                   o as Record<string, unknown>,
@@ -480,22 +534,21 @@ export default function ListAccountOrdersPage() {
                     }}
                     className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 transition-all duration-300 hover:shadow-md hover:border-blue-500/20 dark:border-white/10 dark:bg-slate-900 flex flex-col gap-4 pl-5 animate-fadeIn cursor-pointer"
                   >
-                    {/* Priority Accent Stripe */}
                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${stripeColor}`} />
 
-                    {/* Top Row: Ref, Badges, Party, Financials & Dates */}
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
-                      {/* Ref & Badges */}
                       <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[130px] lg:shrink-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
                             {ref}
                           </span>
                           {renderPriorityBadge(pri)}
+                          {activeTab === "pending_account_approval" || activeTab === "pending_approvals"
+                            ? renderPendingApprovalBadge(o)
+                            : renderWorkflowStatusBadge(getAccountOrderTabCategory(o) ?? "open")}
                         </div>
                       </div>
 
-                      {/* Party Title */}
                       <span
                         className="text-xs font-semibold text-slate-800 dark:text-slate-200 lg:flex-1 break-words whitespace-normal font-sans"
                         title={partyLabel}
@@ -503,7 +556,6 @@ export default function ListAccountOrdersPage() {
                         {partyLabel}
                       </span>
 
-                      {/* Financials & Dates */}
                       <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-8 lg:w-[280px] lg:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
                         <div className="flex flex-col min-w-[90px]">
                           <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -532,16 +584,15 @@ export default function ListAccountOrdersPage() {
                       </div>
                     </div>
 
-                    {/* Bottom Row: Pipeline */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-950/5 border border-slate-100/50 dark:border-white/5">
-                      <span className="text-slate-400 dark:text-slate-500 font-bold text-[9px] uppercase tracking-wider">
-                        Fulfillment Pipeline
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between bg-slate-50/30 px-2 py-1.5 rounded-lg dark:bg-slate-950/5 border border-slate-100/50 dark:border-white/5">
+                      <span className="shrink-0 text-slate-400 dark:text-slate-500 font-bold text-[8px] uppercase tracking-wider">
+                        Pipeline
                       </span>
-                      <div className="flex items-center gap-4 sm:gap-6">
-                        <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderedQty} icon={UserCheck} />
-                        <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderedQty} icon={DollarSign} />
-                        <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderedQty} icon={Package} />
-                        <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderedQty} icon={Truck} />
+                      <div className="min-w-0 overflow-x-auto">
+                        <OrderFulfillmentPipelineStrip
+                          steps={buildListOrderFulfillmentPipeline(o as Record<string, unknown>)}
+                          size="xs"
+                        />
                       </div>
                     </div>
                   </div>
@@ -549,7 +600,6 @@ export default function ListAccountOrdersPage() {
               })}
             </div>
 
-            {/* Pagination Navigation Footer */}
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-t border-slate-200/60 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/10 text-slate-600 dark:text-slate-400">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs">

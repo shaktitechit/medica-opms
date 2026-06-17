@@ -1,18 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import { ApprovalRecordCard } from "./ApprovalRecordCard";
-import { SendAdminApprovalToFinanceModal } from "@/components/portal/admin/order/components/SendAdminApprovalToFinanceModal";
 import { ApprovalModal } from "./ApprovalModal";
 import { canOpenAdminApprovalModal } from "@/components/portal/shared/orderAdminApprovalDisplay";
-import { mutationRejectedMessage } from "@/lib/mutationMessages";
-import { toast } from "@/lib/toast";
 import {
-  useGetOrderAssigneesQuery,
   useListOrderApprovalsQuery,
   useListUsersQuery,
-  useSendOrderApprovalToFinanceMutation,
   useCheckOrderRatesQuery,
 } from "@/store/api";
 import {
@@ -40,16 +35,6 @@ function pickList(raw: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function resolveUserId(userVal: unknown): string {
-  if (!userVal) return "";
-  if (typeof userVal === "string") return userVal;
-  if (typeof userVal === "object" && userVal !== null) {
-    const o = userVal as Record<string, unknown>;
-    return String(o._id ?? o.id ?? "");
-  }
-  return "";
-}
-
 function idFromRef(ref: unknown): string {
   if (typeof ref === "string") return ref.trim();
   if (ref && typeof ref === "object" && "_id" in ref) {
@@ -74,28 +59,13 @@ export function ApprovalTab({
     { skip: !orderId },
   );
   const usersQ = useListUsersQuery({});
-  const financeUsersQ = useListUsersQuery({ department: "finance" });
-  const orderAssigneesQ = useGetOrderAssigneesQuery(orderId, { skip: !orderId });
-  const [sendAdminApprovalToFinance] =
-    useSendOrderApprovalToFinanceMutation();
-
   const rateCheckQ = useCheckOrderRatesQuery(orderId, { skip: !orderId });
 
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
-  const [sendFinanceApprovalId, setSendFinanceApprovalId] = useState<string | null>(
-    null,
-  );
-  const [isSendFinanceModalOpen, setIsSendFinanceModalOpen] = useState(false);
-  const [isSendingToFinance, setIsSendingToFinance] = useState(false);
 
   const mayApprove = useMemo(
     () => canOpenAdminApprovalModal(status, readOnlyItems),
     [status, readOnlyItems],
-  );
-
-  const financeUsers = useMemo(
-    () => pickList(financeUsersQ.data),
-    [financeUsersQ.data],
   );
 
   const approvals = useMemo(() => {
@@ -115,33 +85,6 @@ export function ApprovalTab({
     return map;
   }, [usersQ.data]);
 
-  const existingFinanceAssigneeLabels = useMemo(() => {
-    const rows = pickList(orderAssigneesQ.data).filter(
-      (row) => String(row.department ?? "").toLowerCase() === "finance",
-    );
-    return rows
-      .map((row) => {
-        const id = resolveUserId(row.assignee);
-        return id ? userNameById[id] || id : "";
-      })
-      .filter(Boolean);
-  }, [orderAssigneesQ.data, userNameById]);
-
-  const selectedApproval = useMemo(
-    () =>
-      sendFinanceApprovalId
-        ? approvals.find(
-          (app) => String(app._id ?? app.id) === sendFinanceApprovalId,
-        ) ?? null
-        : null,
-    [approvals, sendFinanceApprovalId],
-  );
-
-  const openSendToFinanceModal = useCallback((approvalId: string) => {
-    setSendFinanceApprovalId(approvalId);
-    setIsSendFinanceModalOpen(true);
-  }, []);
-
   const rateItemByLine = useMemo(() => {
     const map = new Map<string, CheckOrderRatesItem>();
     for (const item of rateCheckQ.data?.items ?? []) {
@@ -159,82 +102,6 @@ export function ApprovalTab({
       return resolveRateDisplayStatus(rateItem) === "negotiated";
     });
   }, [readOnlyItems, rateItemByLine]);
-
-  const handleSendToFinanceSubmit = useCallback(
-    async ({
-      assignedFinanceUser,
-      remarks,
-    }: {
-      assignedFinanceUser: string;
-      remarks: string;
-    }) => {
-      if (!orderId || !sendFinanceApprovalId) return;
-      if (!assignedFinanceUser) {
-        toast.error("Please select a finance operator.");
-        return;
-      }
-      setIsSendingToFinance(true);
-      const note =
-        remarks.trim() || "Sent to finance from admin dashboard";
-      try {
-        await sendAdminApprovalToFinance({
-          id: sendFinanceApprovalId,
-          body: {
-            assigned_finance_user: assignedFinanceUser,
-            approval_notes: note,
-            remarks: note,
-          },
-        }).unwrap();
-
-        toast.success("Approval sent to Finance successfully.");
-        setIsSendFinanceModalOpen(false);
-        setSendFinanceApprovalId(null);
-        const tasks: Promise<any>[] = [];
-        if (refetchOrder) {
-          const res = refetchOrder() as unknown;
-          if (res instanceof Promise) tasks.push(res);
-        }
-        if (!adminApprovalsQ.isUninitialized) {
-          tasks.push(adminApprovalsQ.refetch() as any);
-        }
-        if (!orderAssigneesQ.isUninitialized) {
-          tasks.push(orderAssigneesQ.refetch() as any);
-        }
-        if (tasks.length > 0) {
-          await Promise.all(tasks);
-        }
-      } catch (err) {
-        toast.error(mutationRejectedMessage(err));
-      } finally {
-        setIsSendingToFinance(false);
-      }
-    },
-    [
-      orderId,
-      sendFinanceApprovalId,
-      sendAdminApprovalToFinance,
-      refetchOrder,
-      adminApprovalsQ,
-      orderAssigneesQ,
-    ],
-  );
-
-  const modalDefaultAssignee = useMemo(() => {
-    if (!selectedApproval) return "";
-    const currentAssignee = resolveUserId(selectedApproval.assigned_finance_user);
-    if (currentAssignee) return currentAssignee;
-
-    const currentRev = Number(selectedApproval.revision_number ?? 1);
-    const prevApprovals = approvals.filter(
-      (app) =>
-        Number(app.revision_number ?? 0) < currentRev &&
-        resolveUserId(app.assigned_finance_user) !== ""
-    );
-    if (prevApprovals.length > 0) {
-      return resolveUserId(prevApprovals[0].assigned_finance_user);
-    }
-    return "";
-  }, [selectedApproval, approvals]);
 
   const orderNo = String(detail?.order_no ?? orderId);
 
@@ -269,7 +136,7 @@ export function ApprovalTab({
 
       <DashboardCard
         title="Admin Approvals"
-        description="Each sales review approval with financial breakdown, approved items, PDF export, and send to finance."
+        description="Each sales review approval with financial breakdown, approved items, and PDF export."
       >
         {adminApprovalsQ.isLoading ? (
           <p className="text-xs font-sans text-slate-500">Loading approvals…</p>
@@ -310,30 +177,11 @@ export function ApprovalTab({
                 orderDate={detail?.order_date}
                 expectedDeliveryDate={detail?.expected_delivery_date}
                 userNameById={userNameById}
-                onSendToFinance={openSendToFinanceModal}
-                sendToFinanceBusy={isSendingToFinance}
-                sendingApprovalId={sendFinanceApprovalId}
               />
             ))}
           </div>
         )}
       </DashboardCard>
-
-      <SendAdminApprovalToFinanceModal
-        key={sendFinanceApprovalId ?? "closed"}
-        open={isSendFinanceModalOpen}
-        approval={selectedApproval}
-        userNameById={userNameById}
-        financeUsers={financeUsers}
-        defaultFinanceAssignee={modalDefaultAssignee}
-        existingFinanceAssignees={existingFinanceAssigneeLabels}
-        isSubmitting={isSendingToFinance}
-        onClose={() => {
-          setIsSendFinanceModalOpen(false);
-          setSendFinanceApprovalId(null);
-        }}
-        onSubmit={(payload) => void handleSendToFinanceSubmit(payload)}
-      />
 
       <ApprovalModal
         open={approvalModalOpen}

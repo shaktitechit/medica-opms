@@ -12,6 +12,7 @@ router.use(requireAuth);
 
 router.get('/deleted', requireDepartment('finance', 'dispatch','account'), requireSoftDeletePermission, controller.listDeleted);
 router.get('/', requireDepartment('sales', 'finance', 'dispatch','account'), controller.list);
+router.post('/log-shipment', requireDepartment('dispatch','account'), controller.logShipmentDelivery);
 router.delete('/:id', requireDepartment('dispatch','account'), requireSoftDeletePermission, controller.softDelete);
 router.post('/:id/restore', requireDepartment('dispatch'), requireSoftDeletePermission, controller.restore);
 router.get('/:id', requireDepartment('sales', 'finance', 'dispatch','account'), controller.get);

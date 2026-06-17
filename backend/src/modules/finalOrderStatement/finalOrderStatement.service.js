@@ -5,6 +5,7 @@
 const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
+const { ORDER_RETURN_STATUS } = require('../../constants/orderReturnStatus');
 
 function num(value) {
   const n = Number(value);
@@ -161,8 +162,7 @@ async function loadClosedOrder(orderId) {
 
   if (!order) throw new ApiError(404, 'Order not found');
 
-  const lifecycle = String(order.lifecycle_status || '').toLowerCase();
-  if (lifecycle !== 'closed' && !order.closed_at) {
+  if (String(order.status || '') !== 'closed' && !order.closed_at) {
     throw new ApiError(
       400,
       'Final order statement is available only after the order is closed',
@@ -185,7 +185,9 @@ async function generateForOrder(orderId) {
     .OrderReturn.find({
       order: orderId,
       deletedAt: null,
-      return_status: 'received',
+      return_status: {
+        $in: [ORDER_RETURN_STATUS.RECEIVED_AT_WAREHOUSE, 'received'],
+      },
     })
     .sort({ createdAt: 1 })
     .lean();
@@ -234,7 +236,7 @@ async function list({ order } = {}) {
   const orders = await getModels()
     .Order.find({
       deletedAt: null,
-      $or: [{ lifecycle_status: 'closed' }, { closed_at: { $ne: null } }],
+      $or: [{ status: 'closed' }, { closed_at: { $ne: null } }],
     })
     .sort({ closed_at: -1 })
     .select('_id order_no closed_at')

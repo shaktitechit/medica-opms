@@ -5,21 +5,27 @@
 const { getModels } = require('../../data/mongoRegistry');
 const { ORDER_STATUS } = require('../../constants/domain');
 
-async function summary(userId) {
+const NOT_DRAFT = { status: { $ne: ORDER_STATUS.DRAFT } };
+
+async function summary() {
   const { Order } = getModels();
 
-  const [awaiting_dispatch, on_hold, total_assigned] = await Promise.all([
+  const [awaiting_dispatch, on_hold, total_open] = await Promise.all([
     Order.countDocuments({
-      lifecycle_status: { $nin: ['cancelled', 'closed'] },
-      status: { $in: [ORDER_STATUS.FULLY_FINANCE_APPROVED, ORDER_STATUS.PARTIALLY_FINANCE_APPROVED] },
-      assigned_account_user: userId,
+      ...NOT_DRAFT,
+      lifecycle_status: { $ne: 'cancelled' },
+      status: { $ne: ORDER_STATUS.CLOSED },
+      closed_at: null,
     }),
     Order.countDocuments({
+      ...NOT_DRAFT,
       lifecycle_status: 'on_hold',
-      assigned_account_user: userId,
     }),
     Order.countDocuments({
-      assigned_account_user: userId,
+      ...NOT_DRAFT,
+      lifecycle_status: { $ne: 'cancelled' },
+      status: { $ne: ORDER_STATUS.CLOSED },
+      closed_at: null,
     }),
   ]);
 
@@ -27,7 +33,7 @@ async function summary(userId) {
     queue_size: awaiting_dispatch,
     awaiting_dispatch,
     on_hold,
-    total_assigned,
+    total_assigned: total_open,
   };
 }
 

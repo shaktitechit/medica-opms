@@ -19,7 +19,6 @@ import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifec
 import {
   ACCOUNT_ORDER_TAB_LABELS,
   getAccountOrderTabCategory,
-  type AccountOrderCategoryOptions,
   type AccountOrderTabCategory,
 } from "../accountOrderUtils";
 
@@ -28,7 +27,6 @@ interface AccountRecentOrdersWidgetProps {
   isOrdersFetching: boolean;
   isOrdersError: boolean;
   partyNameById: Map<string, string>;
-  categoryOptions?: AccountOrderCategoryOptions;
 }
 
 function formatMoney(v: number): string {
@@ -84,21 +82,17 @@ function renderWorkflowStatusBadge(category: AccountOrderTabCategory) {
   const label = ACCOUNT_ORDER_TAB_LABELS[category];
 
   switch (category) {
-    case "dispatch_pending":
+    case "pending_account_approval":
       bgClass =
-        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
       break;
-    case "dispatched":
+    case "pending_approvals":
       bgClass =
-        "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
       break;
-    case "pending_delivery":
+    case "open":
       bgClass =
-        "bg-indigo-50 text-indigo-700 ring-indigo-600/10 dark:bg-indigo-950/30 dark:text-indigo-400 dark:ring-indigo-500/25";
-      break;
-    case "returns_pending":
-      bgClass =
-        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
       break;
     case "closed":
       bgClass =
@@ -131,7 +125,6 @@ export default function AccountRecentOrdersWidget({
   isOrdersFetching,
   isOrdersError,
   partyNameById,
-  categoryOptions,
 }: AccountRecentOrdersWidgetProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -310,7 +303,7 @@ export default function AccountRecentOrdersWidget({
               const partyLabel = resolveOrderCounterparty(row, partyNameById);
               const orderDateStr = formatDateShort(row.order_date ?? row.created_at ?? row.createdAt);
               const expectedDeliveryStr = formatDateShort(row.expected_delivery_date);
-              const statusCategory = getAccountOrderTabCategory(row, categoryOptions);
+              const statusCategory = getAccountOrderTabCategory(row);
 
               let stripeColor = "bg-slate-350 dark:bg-slate-700";
               if (pri === "urgent") stripeColor = "bg-rose-500";
@@ -331,7 +324,7 @@ export default function AccountRecentOrdersWidget({
                         {ref.slice(0, 12)}
                       </span>
                       {renderPriorityBadge(pri)}
-                      {renderWorkflowStatusBadge(statusCategory)}
+                      {renderWorkflowStatusBadge(statusCategory ?? "open")}
                     </div>
 
                     <span

@@ -8,7 +8,9 @@ const { toPlain } = require('../../utils/mongoJson');
 async function financeQueue() {
   const rows = await getModels()
     .Order.find({
-      lifecycle_status: { $nin: ['cancelled', 'closed'] },
+      status: { $ne: 'closed' },
+      closed_at: null,
+      lifecycle_status: { $ne: 'cancelled' },
       workflow_stage: 'finance_review',
     })
     .sort({ createdAt: -1 })
@@ -19,7 +21,9 @@ async function financeQueue() {
 async function summary() {
   const { Order } = getModels();
   const awaiting = await Order.countDocuments({
-    lifecycle_status: { $nin: ['cancelled', 'closed'] },
+    status: { $ne: 'closed' },
+    closed_at: null,
+    lifecycle_status: { $ne: 'cancelled' },
     workflow_stage: 'finance_review',
   });
   const held = await Order.countDocuments({

@@ -7,8 +7,13 @@ const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
 const { softDeleteActiveById, restoreSoftDeletedById, listDeletedLean } = require('../../utils/mongoSoftDelete');
 const activityService = require('../activity/activity.service');
-const { assertTransportAllowedForOrder } = require('./transport.policy');
 const fulfillmentService = require('../orders/orderFulfillment.service');
+const orderQueue = require('../../queues/order.queue');
+const {
+  ORDER_STATUS,
+  ORDER_WORKFLOW_STAGE,
+  ORDER_LIFECYCLE_STATUS,
+} = require('../orders/order.constants');
 
 const TR_NF = 'Transport shipment not found';
 
@@ -119,38 +124,44 @@ async function recalculateOrderShipmentState(orderId, user) {
 
   if (shipments.length === 0) {
     if (orderDoc.dispatch_status === 'completed') {
-      orderDoc.status = 'full_dispatch_created';
+      orderDoc.status = ORDER_STATUS.DISPATCH;
       orderDoc.current_action = 'full_dispatch';
     } else if (orderDoc.dispatch_status === 'partial') {
-      orderDoc.status = 'partial_dispatch_created';
+      orderDoc.status = ORDER_STATUS.DISPATCH;
       orderDoc.current_action = 'partial_dispatch';
     } else if (Number(orderDoc.order_items?.reduce((s, l) => s + Number(l.approved_quantity || 0), 0) || 0) > 0) {
-      orderDoc.status = 'dispatch_pending';
+      orderDoc.status = ORDER_STATUS.DISPATCH;
       orderDoc.current_action = 'sent_to_dispatch';
     }
   } else if (shipments.every((shipment) => shipment.shipment_status === 'delivered')) {
     orderDoc.delivery_status = fulfillmentState.fullyDelivered ? 'completed' : 'partial';
-    if (fulfillmentState.fullyDelivered) {
-      orderDoc.lifecycle_status = 'fulfilled';
-      orderDoc.workflow_stage = 'completed';
+    if (fulfillmentState.fullyDelivered && orderDoc.status !== ORDER_STATUS.CLOSED && !orderDoc.closed_at) {
+      orderDoc.lifecycle_status = ORDER_LIFECYCLE_STATUS.FULFILLED;
+      orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.COMPLETED;
       orderDoc.current_action = 'delivered';
-    } else if (!['closed', 'cancelled', 'on_hold'].includes(orderDoc.lifecycle_status)) {
-      orderDoc.lifecycle_status = 'partially_fulfilled';
-      orderDoc.workflow_stage = 'dispatch_execution';
+    } else if (
+      orderDoc.status !== ORDER_STATUS.CLOSED &&
+      !orderDoc.closed_at &&
+      ![ORDER_LIFECYCLE_STATUS.CANCELLED, ORDER_LIFECYCLE_STATUS.ON_HOLD].includes(orderDoc.lifecycle_status)
+    ) {
+      orderDoc.lifecycle_status = ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED;
+      orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
       orderDoc.current_action = 'delivered';
     }
-    orderDoc.status = 'delivered';
+    orderDoc.status = orderDoc.status === ORDER_STATUS.CLOSED || orderDoc.closed_at
+      ? ORDER_STATUS.CLOSED
+      : ORDER_STATUS.DELIVERED;
   } else {
     orderDoc.delivery_status = fulfillmentState.fullyDelivered ? 'completed' : 'partial';
-    orderDoc.workflow_stage = 'dispatch_execution';
+    orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
     if (shipments.some((shipment) => ['in_transit', 'out_for_delivery', 'picked_up'].includes(shipment.shipment_status))) {
       orderDoc.current_action = shipments.some((s) => s.shipment_status === 'out_for_delivery')
         ? 'out_for_delivery'
         : 'in_transit';
-      orderDoc.status = 'in_transit';
+      orderDoc.status = ORDER_STATUS.IN_TRANSIT;
     } else if (shipments.some((s) => ['transporter_assigned', 'vehicle_assigned'].includes(s.shipment_status))) {
       orderDoc.current_action = 'transporter_assigned';
-      orderDoc.status = 'transport_assigned';
+      orderDoc.status = ORDER_STATUS.IN_TRANSIT;
     } else {
       const { OrderDispatch } = getModels();
       const dispatches = await OrderDispatch.find({
@@ -165,10 +176,10 @@ async function recalculateOrderShipmentState(orderId, user) {
 
       if (allDispatchesShipped) {
         orderDoc.current_action = 'fully_transported';
-        orderDoc.status = 'fully_transported';
+        orderDoc.status = ORDER_STATUS.IN_TRANSIT;
       } else {
         orderDoc.current_action = 'partially_transported';
-        orderDoc.status = 'partially_transported';
+        orderDoc.status = ORDER_STATUS.IN_TRANSIT;
       }
     }
   }
@@ -182,7 +193,9 @@ async function recalculateOrderShipmentState(orderId, user) {
   if (
     fulfillmentState.fullyDelivered &&
     allShipmentsDelivered &&
-    !['closed', 'cancelled'].includes(String(orderDoc.lifecycle_status || ''))
+    orderDoc.status !== ORDER_STATUS.CLOSED &&
+    !orderDoc.closed_at &&
+    String(orderDoc.lifecycle_status || '') !== ORDER_LIFECYCLE_STATUS.CANCELLED
   ) {
     const orderService = require('../orders/order.service');
     try {
@@ -199,15 +212,74 @@ async function recalculateOrderShipmentState(orderId, user) {
   return toPlain(orderDoc.toObject());
 }
 
+function workflowRoleForUser(user) {
+  return user?.department === 'admin' ? 'admin' : 'dispatch';
+}
+
+async function enqueuePostTransportJobs(orderId, userId, extras = {}) {
+  const oid = String(orderId);
+  await orderQueue.enqueue({
+    type: 'post_transport_shipment',
+    payload: {
+      orderId: oid,
+      userId: userId ? String(userId) : undefined,
+      ...extras,
+    },
+  });
+}
+
+async function processPostTransportShipmentJob(payload = {}) {
+  const orderId = payload.orderId;
+  if (!orderId) throw new Error('post_transport_shipment requires orderId');
+  if (!payload.userId) throw new Error('post_transport_shipment requires userId');
+
+  const { Order, User } = getModels();
+  const orderBefore = await Order.findById(orderId).lean();
+  if (!orderBefore) return { orderId, skipped: true };
+
+  const actor = await User.findById(payload.userId).lean();
+  if (!actor) throw new Error(`post_transport_shipment user not found: ${payload.userId}`);
+  const user = toPlain(actor);
+
+  const orderState = await recalculateOrderShipmentState(orderId, user);
+  if (!orderState) return { orderId, skipped: true };
+
+  const action =
+    payload.workflowActionOverride
+    || (payload.shipmentStatus
+      ? workflowActionForShipmentStatus(payload.shipmentStatus)
+      : null)
+    || orderState.current_action
+    || 'partially_transported';
+
+  await getModels().OrderWorkflow.create({
+    order: orderId,
+    action_by: payload.userId,
+    role: workflowRoleForUser(user),
+    action,
+    from_stage: orderBefore.workflow_stage,
+    to_stage: orderState.workflow_stage || ORDER_WORKFLOW_STAGE.DISPATCH,
+    from_status: orderBefore.status,
+    to_status: orderState.status || ORDER_STATUS.IN_TRANSIT,
+    remarks: payload.remarks || '',
+    revision_number: orderState.current_revision || orderBefore.current_revision || 1,
+    metadata: payload.metadata || undefined,
+  });
+
+  return {
+    orderId,
+    status: orderState.status,
+    current_action: orderState.current_action,
+  };
+}
+
 async function create(body, user) {
-  const { Order, OrderDispatch, TransportShipment, OrderWorkflow } = getModels();
+  const { Order, OrderDispatch, TransportShipment } = getModels();
   const order = await Order.findById(body.order).lean();
   if (!order) throw new ApiError(404, 'Order not found');
 
   const dispatchExists = await OrderDispatch.exists({ _id: body.dispatch, order: body.order });
   if (!dispatchExists) throw new ApiError(404, 'Order dispatch not found');
-
-  assertTransportAllowedForOrder(toPlain(order));
 
   const doc = await TransportShipment.create({
     shipment_no: body.shipment_no || generateShipmentNo(),
@@ -240,19 +312,20 @@ async function create(body, user) {
     })(),
     weight: body.weight !== undefined ? Number(body.weight) : undefined,
     weight_unit: body.weight_unit || 'Kg',
+    packed_boxes: body.packed_boxes !== undefined ? Number(body.packed_boxes) : undefined,
+    open_boxes: body.open_boxes !== undefined ? Number(body.open_boxes) : undefined,
+    total_quantity: body.total_quantity !== undefined ? Number(body.total_quantity) : undefined,
     created_by: user._id,
   });
 
-  const orderState = await recalculateOrderShipmentState(body.order, user);
-  await OrderWorkflow.create({
-    order: body.order,
-    action_by: user._id,
-    role: user.department === 'admin' ? 'admin' : 'dispatch',
-    action: orderState?.current_action || 'partially_transported',
-    to_stage: 'dispatch_execution',
-    to_status: orderState?.status || doc.shipment_status,
+  await enqueuePostTransportJobs(body.order, user._id, {
     remarks: body.remarks || `Shipment ${doc.shipment_no} created`,
-    revision_number: orderState?.current_revision || order.current_revision || 1,
+    shipmentNo: doc.shipment_no,
+    shipmentStatus: doc.shipment_status,
+    metadata: {
+      transport_shipment_id: String(doc._id),
+      event: 'created',
+    },
   });
 
   await activityService.create({
@@ -267,7 +340,7 @@ async function create(body, user) {
 }
 
 async function patch(id, patchBody, user) {
-  const { TransportShipment, OrderWorkflow, OrderFlag } = getModels();
+  const { TransportShipment, OrderFlag } = getModels();
   const doc = await TransportShipment.findById(id);
   if (!doc) throw new ApiError(404, TR_NF);
 
@@ -294,6 +367,9 @@ async function patch(id, patchBody, user) {
     'delivery_proof_url',
     'weight',
     'weight_unit',
+    'packed_boxes',
+    'open_boxes',
+    'total_quantity',
   ]) {
     if (patch[field] !== undefined) doc[field] = patch[field] || undefined;
   }
@@ -335,16 +411,13 @@ async function patch(id, patchBody, user) {
     await recomputeOrderFlagAggregates(String(doc.order));
   }
 
-  const orderState = await recalculateOrderShipmentState(doc.order, user);
-  await OrderWorkflow.create({
-    order: doc.order,
-    action_by: user._id,
-    role: user.department === 'admin' ? 'admin' : 'dispatch',
-    action: orderState?.current_action || workflowActionForShipmentStatus(doc.shipment_status),
-    to_stage: orderState?.workflow_stage || 'dispatch_execution',
-    to_status: orderState?.status || doc.shipment_status,
+  await enqueuePostTransportJobs(doc.order, user._id, {
     remarks: patch.remarks || '',
-    revision_number: orderState?.current_revision || 1,
+    shipmentStatus: doc.shipment_status,
+    metadata: {
+      transport_shipment_id: String(doc._id),
+      event: 'updated',
+    },
   });
 
   return toPlain(doc.toObject());
@@ -367,7 +440,13 @@ async function softDelete(id, user) {
     action: 'deleted',
     message: `Transport shipment ${plain.shipment_no} soft-deleted`,
   });
-  await recalculateOrderShipmentState(plain.order, user);
+  await enqueuePostTransportJobs(plain.order, user._id, {
+    remarks: `Shipment ${plain.shipment_no} soft-deleted`,
+    metadata: {
+      transport_shipment_id: String(plain._id),
+      event: 'deleted',
+    },
+  });
   return plain;
 }
 
@@ -381,8 +460,56 @@ async function restore(id, user) {
     action: 'restored',
     message: `Transport shipment ${plain.shipment_no} restored`,
   });
-  await recalculateOrderShipmentState(plain.order, user);
+  await enqueuePostTransportJobs(plain.order, user._id, {
+    remarks: `Shipment ${plain.shipment_no} restored`,
+    metadata: {
+      transport_shipment_id: String(plain._id),
+      event: 'restored',
+    },
+  });
   return plain;
 }
 
-module.exports = { list, get, create, patch, listDeleted, softDelete, restore, recalculateOrderShipmentState };
+async function applyTransportDeliveryOutcome(transportId, { status, remarks }, user) {
+  const { TransportShipment } = getModels();
+  const doc = await TransportShipment.findById(transportId);
+  if (!doc) throw new ApiError(404, TR_NF);
+
+  const prevStatus = doc.shipment_status;
+  const nextStatus = normalizeShipmentStatus(status, doc.shipment_status);
+  doc.shipment_status = nextStatus;
+
+  if (nextStatus !== prevStatus) {
+    const statusLabel = nextStatus.replace(/_/g, ' ').toUpperCase();
+    const formattedTimestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const remarkText = (remarks && remarks.trim()) || `Status updated to ${statusLabel.toLowerCase()}`;
+    const newRemarkLine = `[${formattedTimestamp}] [${statusLabel}]: ${remarkText}`;
+    doc.remarks = doc.remarks ? `${doc.remarks}\n${newRemarkLine}` : newRemarkLine;
+  } else if (remarks !== undefined && remarks.trim()) {
+    const formattedTimestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const newRemarkLine = `[${formattedTimestamp}] [NOTE]: ${remarks.trim()}`;
+    doc.remarks = doc.remarks ? `${doc.remarks}\n${newRemarkLine}` : newRemarkLine;
+  }
+
+  if (doc.shipment_status === 'delivered' && !doc.actual_delivery_date) {
+    doc.actual_delivery_date = new Date();
+  }
+
+  await doc.save();
+  return toPlain(doc.toObject());
+}
+
+module.exports = {
+  list,
+  get,
+  create,
+  patch,
+  listDeleted,
+  softDelete,
+  restore,
+  recalculateOrderShipmentState,
+  processPostTransportShipmentJob,
+  applyTransportDeliveryOutcome,
+  workflowActionForShipmentStatus,
+  workflowRoleForUser: workflowRoleForUser,
+};

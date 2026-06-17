@@ -31,9 +31,9 @@ export function RoleBasedMenu({
   const navLeaves = PORTAL_NAV[portal as keyof typeof PORTAL_NAV] ?? [];
 
   const linkBase =
-    "flex min-w-0 items-center gap-3 rounded-md px-3 py-2 text-sm transition";
+    "flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-[13px] transition";
   const linkCollapsedDesktop =
-    "lg:justify-center lg:gap-0 lg:px-2 lg:py-2.5";
+    "lg:justify-center lg:gap-0 lg:px-1.5 lg:py-2";
   const linkActivePortal =
     "bg-blue-600/12 font-medium text-blue-950 ring-1 ring-blue-600/30 dark:bg-blue-500/15 dark:text-blue-50";
 
@@ -49,7 +49,7 @@ export function RoleBasedMenu({
     "mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500";
 
   return (
-    <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-1.5 py-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <p
         className={`${sectionLbl} ${desktopCollapsed ? "hidden lg:hidden" : ""}`}
       >
@@ -98,9 +98,9 @@ export function RoleBasedMenu({
           const active =
             pathname === slot.href || pathname.startsWith(`${slot.href}/`);
           const row = [
-            "flex rounded-md px-3 py-1.5 transition",
+            "flex rounded-md px-2 py-1.5 transition",
             desktopCollapsed
-              ? "lg:justify-center lg:px-2 lg:py-2.5 lg:aspect-square lg:mx-auto lg:w-auto lg:min-w-[2.75rem]"
+              ? "lg:justify-center lg:px-1.5 lg:py-2 lg:aspect-square lg:mx-auto lg:w-auto lg:min-w-[2.5rem]"
               : "",
             active ? shortcutActivePortal : shortcutPassive,
           ].join(" ");

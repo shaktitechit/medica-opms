@@ -154,6 +154,34 @@ export const ordersApi = medicaApi.injectEndpoints({
         { type: "Order", id: "RETURN_LIST" },
       ],
     }),
+    settleAndCloseOrder: build.mutation<
+      unknown,
+      {
+        id: string;
+        body: {
+          return_id?: string;
+          extra_charges?: number;
+          penalty_amount?: number;
+          damage_charge?: number;
+          remarks?: string;
+          amendment_notes?: string;
+        };
+      }
+    >({
+      query: ({ id, body }) => ({
+        url: `orders/${id}/settle-and-close`,
+        method: "POST",
+        body,
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: (_r, _e, arg) => [
+        ...orderEntityTags(arg.id),
+        "Approvals",
+        "OrderApprovals",
+        "Dispatch",
+        { type: "Order", id: "RETURN_LIST" },
+      ],
+    }),
   }),
 });
 
@@ -178,4 +206,5 @@ export const {
   useRestoreOrderMutation,
   useTransitionOrderMutation,
   useCloseOrderWithReturnsMutation,
+  useSettleAndCloseOrderMutation,
 } = ordersApi;

@@ -200,20 +200,28 @@ export function ApprovalRecordCard({
     (approvalStatus === "fully_approved" ||
       approvalStatus === "partially_approved" ||
       approvalStatus === "approved");
+  const isAdminApproved = Boolean(approval.is_admin_approved);
+  const isFinanceApproved = Boolean(approval.is_finance_approved);
+  const canFinanceApprove =
+    isFinancePortal && isAdminApproved && !isFinanceApproved && !isAmendBlocked;
+  const canFinanceAmend =
+    isFinancePortal && isFinanceApproved && !isAmendBlocked;
+  const isAccountApproved = Boolean(approval.is_account_approved);
+  const canAccountApprove =
+    isAccountPortal &&
+    isAdminApproved &&
+    isFinanceApproved &&
+    !isAccountApproved &&
+    !isAmendBlocked;
+  const canAccountAmend =
+    isAccountPortal && isAccountApproved && !isAmendBlocked;
   const canAmend = isAmendBlocked
     ? false
-    : isAccountPortal
-      ? Boolean(approval.is_finance_approved) &&
-        Boolean(approval.assigned_account_user)
-      : isFinancePortal
-        ? approvalStatus === "sent_to_finance" ||
-          approvalStatus === "approved" ||
-          approvalStatus === "fully_approved" ||
-          approvalStatus === "partially_approved" ||
-          Boolean(approval.is_finance_approved)
-        : approvalStatus === "approved" ||
-          approvalStatus === "sent_to_finance" ||
-          Boolean(approval.is_admin_approved);
+    : isFinancePortal || isAccountPortal
+      ? false
+      : approvalStatus === "approved" ||
+        approvalStatus === "sent_to_finance" ||
+        Boolean(approval.is_admin_approved);
   const isAmendingThis = amendBusy && amendingApprovalId === approvalId;
 
   const pdfLines = useMemo((): OrderItemsPdfLine[] => {
@@ -487,6 +495,50 @@ export function ApprovalRecordCard({
               <Download className="h-3.5 w-3.5" />
               {isDownloadingPdf ? "Generating PDF…" : "Download PDF"}
             </button>
+            {canFinanceApprove && onAmend ? (
+              <button
+                type="button"
+                onClick={() => onAmend(approvalId)}
+                disabled={isAmendingThis}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {isAmendingThis ? "Opening…" : "Approve"}
+              </button>
+            ) : null}
+            {canFinanceAmend && onAmend ? (
+              <button
+                type="button"
+                onClick={() => onAmend(approvalId)}
+                disabled={isAmendingThis}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-300"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                {isAmendingThis ? "Opening…" : "Amend"}
+              </button>
+            ) : null}
+            {canAccountApprove && onAmend ? (
+              <button
+                type="button"
+                onClick={() => onAmend(approvalId)}
+                disabled={isAmendingThis}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {isAmendingThis ? "Opening…" : "Approve"}
+              </button>
+            ) : null}
+            {canAccountAmend && onAmend ? (
+              <button
+                type="button"
+                onClick={() => onAmend(approvalId)}
+                disabled={isAmendingThis}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-300"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                {isAmendingThis ? "Opening…" : "Amend"}
+              </button>
+            ) : null}
             {canAmend && onAmend ? (
               <button
                 type="button"
@@ -495,13 +547,7 @@ export function ApprovalRecordCard({
                 className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-300"
               >
                 <Pencil className="h-3.5 w-3.5" />
-                {isAmendingThis
-                  ? "Opening…"
-                  : isFinancePortal || isAccountPortal
-                    ? isAccountPortal && Boolean(approval.is_account_approved)
-                      ? "Amend"
-                      : "Amend and Approve"
-                    : "Amend"}
+                {isAmendingThis ? "Opening…" : "Amend"}
               </button>
             ) : null}
             {canSendToFinance && onSendToFinance ? (

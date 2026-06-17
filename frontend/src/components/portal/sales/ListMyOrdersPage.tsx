@@ -16,6 +16,8 @@ import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifec
 import {
   getOrderTabCategory,
   isSalesOrderTabCategory,
+  pendingApprovalStageLabel,
+  resolveApprovalPending,
   SALES_ORDER_TABS,
   type SalesOrderTabCategory,
 } from "@/components/portal/sales/orderUtils";
@@ -24,8 +26,10 @@ import {
   dimensionToneClass,
   type OrderStatusDimension,
 } from "@/components/portal/shared/orderStatusDimensions";
-import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
-import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
+import {
+  OrderFulfillmentPipelineStrip,
+  buildListOrderFulfillmentPipeline,
+} from "@/components/portal/shared/FulfillmentCircleStep";
 import {
   mutationRejectedMessage,
   mutationSuccessCopy,
@@ -52,10 +56,7 @@ import { Search,
   Eye,
   Plus,
   Trash2,
-  UserCheck,
-  DollarSign,
-  Package,
-  Truck, Wallet } from "lucide-react";
+} from "lucide-react";
 
 type OrderRow = {
   _id?: string;
@@ -179,6 +180,10 @@ function renderWorkflowStatusBadge(status: string) {
       label = "Draft";
       bgClass = "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
       break;
+    case "pending_approval":
+      label = "Pending Approval";
+      bgClass = "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
+      break;
     case "open":
       label = "Open";
       bgClass = "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
@@ -211,6 +216,30 @@ function renderWorkflowStatusBadge(status: string) {
   );
 }
 
+function renderPendingApprovalBadge(order: OrderRow) {
+  const pending = resolveApprovalPending(order);
+  if (!pending.admin && !pending.finance && !pending.account) return null;
+
+  const parts: string[] = [];
+  if (pending.admin) parts.push("Admin");
+  if (pending.finance) parts.push("Finance");
+  if (pending.account) parts.push("Account");
+
+  const title = parts.length > 0 ? `Pending: ${parts.join(", ")}` : "Pending approval";
+  const label = pending.stage
+    ? `${pendingApprovalStageLabel(pending.stage)} pending`
+    : "Pending approval";
+
+  return (
+    <span
+      className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-purple-700 ring-1 ring-inset ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25"
+      title={title}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function ListMyOrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -238,6 +267,9 @@ export default function ListMyOrdersPage() {
       switch (activeTab) {
         case "draft":
           base.status = "draft";
+          break;
+        case "pending_approval":
+          base.status = "pending_approval";
           break;
         case "on_hold":
           base.status = "on_hold";
@@ -576,26 +608,6 @@ export default function ListMyOrdersPage() {
                 const pri = typeof o.priority === "string" ? o.priority : "normal";
                  const statusRaw = deriveOrderWorkflowStatus(o) || "draft";
                  const isDraftRow = statusRaw === "draft";
-                 const deptBoxes = computeDepartmentStageBoxes(
-                   o as Record<string, unknown>,
-                   null,
-                 );
-                 const adminBox = deptBoxes.find((b) => b.id === "admin");
-                 const financeBox = deptBoxes.find((b) => b.id === "finance");
-                 const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-                 const accountBox = deptBoxes.find((b) => b.id === "account");
-  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
-
-                 const adminStatusDim = adminBox?.status;
-                 const financeStatusDim = financeBox?.status;
-                 const dispatchStatusDim = dispatchBox?.status;
-                 const accountStatusDim = accountBox?.status;
-  const deliveryStatusDim = deliveryBox?.status;
-                 
-                 const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
-                 const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {
-                   return acc + (Number(item.ordered_quantity ?? item.quantity) || 0);
-                 }, 0));
 
                  const partyLabel = resolveOrderCounterparty(
                    o as Record<string, unknown>,
@@ -632,7 +644,9 @@ export default function ListMyOrdersPage() {
                             {ref}
                           </span>
                           {renderPriorityBadge(pri)}
-                          {renderWorkflowStatusBadge(getOrderTabCategory(o))}
+                          {activeTab === "pending_approval"
+                            ? renderPendingApprovalBadge(o)
+                            : renderWorkflowStatusBadge(getOrderTabCategory(o))}
                         </div>
 
                         {/* Mobile Actions (hidden on lg and up) */}
@@ -702,15 +716,15 @@ export default function ListMyOrdersPage() {
                     </div>
 
                     {/* Bottom Row: Pipeline */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5">
-                      <span className="text-slate-400 dark:text-slate-500 font-bold text-[9px] uppercase tracking-wider">
-                        Fulfillment Pipeline
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between bg-slate-50/30 px-2 py-1.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5">
+                      <span className="shrink-0 text-slate-400 dark:text-slate-500 font-bold text-[8px] uppercase tracking-wider">
+                        Pipeline
                       </span>
-                      <div className="flex items-center gap-4 sm:gap-6">
-                        <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderedQty} icon={UserCheck} />
-                        <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderedQty} icon={DollarSign} />
-                        <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderedQty} icon={Package} />
-                        <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderedQty} icon={Truck} />
+                      <div className="min-w-0 overflow-x-auto">
+                        <OrderFulfillmentPipelineStrip
+                          steps={buildListOrderFulfillmentPipeline(o as Record<string, unknown>)}
+                          size="xs"
+                        />
                       </div>
                     </div>
                   </div>

@@ -60,10 +60,15 @@ function renderWorkflowStatusBadge(status: string) {
   let label = "";
   let bgClass = "";
   switch (status) {
-    case "pending_review":
-      label = "Pending Review";
+    case "pending_admin_approval":
+      label = "Pending Admin";
       bgClass =
         "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
+      break;
+    case "pending_approvals":
+      label = "Pending Approvals";
+      bgClass =
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
       break;
     case "open":
       label = "Open";
@@ -112,7 +117,11 @@ function renderWorkflowStatusBadge(status: string) {
 
 function adminStatusLabel(order: unknown): string {
   const cat = getAdminOrderTabCategory(order);
-  if (cat) return cat;
+  if (cat) {
+    if (cat === "pending_admin_approval") return "pending_admin_approval";
+    if (cat === "pending_approvals") return "pending_approvals";
+    return cat;
+  }
   if (deriveOrderWorkflowStatus(order) === "draft") return "draft";
   return "open";
 }

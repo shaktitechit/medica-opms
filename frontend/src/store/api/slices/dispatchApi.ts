@@ -47,14 +47,23 @@ export const dispatchApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       providesTags: (_r, _e, id) => [{ type: "Dispatch", id }],
     }),
-    createDispatch: build.mutation<unknown, LooseRecord>({
-      query: (body) => ({
-        url: "dispatch",
-        method: "POST",
-        body: normalizeDispatchBody(body),
-      }),
+    createDispatch: build.mutation<unknown, LooseRecord | FormData>({
+      query: (body) => {
+        if (body instanceof FormData) {
+          return {
+            url: "dispatch",
+            method: "POST",
+            body,
+          };
+        }
+        return {
+          url: "dispatch",
+          method: "POST",
+          body: normalizeDispatchBody(body),
+        };
+      },
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: ["Dispatch", "Order", "Orders"],
+      invalidatesTags: ["Dispatch", "Order", "Orders", "Attachments"],
     }),
     patchDispatch: build.mutation<
       unknown,

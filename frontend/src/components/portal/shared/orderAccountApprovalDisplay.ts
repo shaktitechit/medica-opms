@@ -2,6 +2,10 @@ export function isAccountAmended(approval: Record<string, unknown>): boolean {
   return Boolean(approval.account_amended);
 }
 
+export function isDispatchReleaseResolved(approval: Record<string, unknown>): boolean {
+  return Boolean(approval.dispatch_release_resolved);
+}
+
 /** Lines stamped by account amend flow in `approval_notes`. */
 export function accountAmendmentNotes(
   approval: Record<string, unknown>,

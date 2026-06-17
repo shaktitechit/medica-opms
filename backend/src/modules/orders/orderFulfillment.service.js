@@ -6,93 +6,143 @@
 const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
-
-function salesApprovedOnLine(line) {
-  return Number(line.sales_approved_quantity ?? 0);
-}
+const { lineAtWarehouseQty, computeLineDispatchAvailability, aggregateReceivedReturnsByOrderLine, aggregateReportedReturnsByOrderLine } = require('../../utils/returnSettlement');
+const {
+  ORDER_LINE_STATUS,
+  ORDER_WORKFLOW_STAGE,
+  ORDER_LIFECYCLE_STATUS,
+  ORDER_STATUS,
+  APPROVAL_STATUS,
+  FULFILLMENT_STATUS,
+  normalizeFinanceApprovalStatus,
+  normalizeWorkflowStage,
+  normalizeOrderWorkflowFields,
+} = require('./order.constants');
 
 function lineQuantities(line) {
   const ordered = Number(line.ordered_quantity ?? line.quantity ?? 0);
-  const salesApproved = salesApprovedOnLine(line);
-  const financeApproved = Number(line.approved_quantity ?? 0);
-  const allocated = Number(line.allocated_quantity ?? 0);
+  const approved = Number(line.approved_quantity ?? 0);
   const dispatched = Number(line.dispatched_quantity ?? 0);
   const delivered = Number(line.delivered_quantity ?? 0);
-  const cancelled = Number(line.cancelled_quantity ?? 0);
-  const dispatchCap = financeApproved > 0
-    ? financeApproved
-    : salesApproved > 0
-      ? salesApproved
-      : ordered;
+  const returned = Number(line.returned_quantity ?? 0);
+  const dispatchCap = approved > 0 ? approved : ordered;
+  const netBillable = Math.max(0, dispatchCap - returned);
 
   return {
     ordered,
-    salesApproved,
-    approved: financeApproved,
-    financeApproved,
-    allocated,
+    approved,
     dispatched,
     delivered,
-    cancelled,
+    returned,
     dispatchCap,
-    pendingAdmin: Math.max(0, ordered - salesApproved),
-    pendingFinance: Math.max(0, salesApproved - financeApproved),
-    pendingDispatch: Math.max(0, financeApproved - dispatched),
+    netBillable,
+    pendingFinance: Math.max(0, ordered - approved),
+    pendingDispatch: Math.max(0, approved - dispatched),
     pendingDelivery: Math.max(0, dispatched - delivered),
+    // Snapshot compatibility for existing API consumers
+    salesApproved: approved > 0 ? approved : ordered,
+    allocated: 0,
+    cancelled: 0,
+    financeApproved: approved,
   };
 }
 
 function deriveFinanceApprovalStatus(items) {
   const lines = items || [];
-  if (lines.length === 0) return 'pending';
+  if (lines.length === 0) return APPROVAL_STATUS.PENDING;
 
-  let hasSalesPool = false;
-  let hasFinanceApproved = false;
-  let allFinanceComplete = true;
+  let hasApproved = false;
+  let allComplete = true;
 
   for (const line of lines) {
     const q = lineQuantities(line);
-    if (q.salesApproved > 0) {
-      hasSalesPool = true;
-      if (q.financeApproved > 0) hasFinanceApproved = true;
-      if (q.financeApproved < q.salesApproved) allFinanceComplete = false;
-    }
+    if (q.ordered <= 0) continue;
+    if (q.approved > 0) hasApproved = true;
+    if (q.approved < q.ordered) allComplete = false;
   }
 
-  if (!hasSalesPool || !hasFinanceApproved) return 'pending';
-  if (allFinanceComplete) return 'full';
-  return 'partial';
+  if (!hasApproved) return APPROVAL_STATUS.PENDING;
+  if (allComplete) return APPROVAL_STATUS.APPROVED;
+  return APPROVAL_STATUS.PARTIAL;
 }
 
 function financeWorkflowAction(orderDoc) {
-  const fas = orderDoc.finance_approval_status || deriveFinanceApprovalStatus(orderDoc.order_items);
-  if (fas === 'full') return 'fully_finance_approved';
-  if (fas === 'partial') return 'partially_finance_approved';
-  if (fas === 'rejected') return 'rejected';
-  return 'review_requested';
+  const fas = normalizeFinanceApprovalStatus(orderDoc.finance_approval_status)
+    || deriveFinanceApprovalStatus(orderDoc.order_items);
+  if (fas === APPROVAL_STATUS.APPROVED) return ORDER_STATUS.FINANCE_APPROVED;
+  if (fas === APPROVAL_STATUS.PARTIAL) return ORDER_STATUS.FINANCE_APPROVED;
+  if (fas === APPROVAL_STATUS.REJECTED) return ORDER_STATUS.FINANCE_REJECTED;
+  return ORDER_STATUS.FINANCE_REVIEW;
 }
 
-/** Keep finance partial/full visible on order even after dispatch queue handoff. */
-function applyFinanceWorkflowAction(orderDoc) {
-  // Preserve explicit finance → dispatch queue handoff (do not revert to finance-approved action).
+function normalizeAccountApprovalStatus(status) {
+  const s = String(status || APPROVAL_STATUS.PENDING);
+  if (s === 'full') return APPROVAL_STATUS.APPROVED;
+  return s;
+}
+
+function accountClearedQty(line, accountApprovalStatus) {
+  const approved = Number(line.approved_quantity ?? 0);
+  const aas = normalizeAccountApprovalStatus(accountApprovalStatus);
+  if (aas === APPROVAL_STATUS.REJECTED) return 0;
+  if ([APPROVAL_STATUS.APPROVED, APPROVAL_STATUS.PARTIAL].includes(aas)) return approved;
+  return 0;
+}
+
+/** Keep account clearance visible on order even after dispatch handoff. */
+function applyAccountWorkflowAction(orderDoc) {
   if (
     orderDoc.current_action === 'sent_to_dispatch' ||
-    orderDoc.status === 'dispatch_pending'
+    orderDoc.status === ORDER_STATUS.DISPATCH
+  ) {
+    return 'sent_to_dispatch';
+  }
+
+  const aas = normalizeAccountApprovalStatus(orderDoc.account_approval_status);
+  if ([APPROVAL_STATUS.APPROVED, APPROVAL_STATUS.PARTIAL].includes(aas)) {
+    orderDoc.current_action = aas === APPROVAL_STATUS.APPROVED
+      ? 'fully_account_approved'
+      : 'account_partial';
+    if (
+      orderDoc.workflow_stage === ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW ||
+      orderDoc.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW
+    ) {
+      orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
+    }
+    orderDoc.status = ORDER_STATUS.ACCOUNT_APPROVED;
+    normalizeOrderWorkflowFields(orderDoc);
+    return orderDoc.current_action;
+  }
+
+  const result = applyFinanceWorkflowAction(orderDoc);
+  normalizeOrderWorkflowFields(orderDoc);
+  return result;
+}
+
+/** Keep finance approval visible on order even after dispatch handoff. */
+function applyFinanceWorkflowAction(orderDoc) {
+  if (
+    orderDoc.current_action === 'sent_to_dispatch' ||
+    orderDoc.status === ORDER_STATUS.DISPATCH
   ) {
     return 'sent_to_dispatch';
   }
 
   const action = financeWorkflowAction(orderDoc);
-  if (['fully_finance_approved', 'partially_finance_approved'].includes(action)) {
-    orderDoc.current_action = action;
-    if (orderDoc.workflow_stage === 'finance_review') {
-      orderDoc.workflow_stage = 'dispatch_review';
+  const fas = normalizeFinanceApprovalStatus(orderDoc.finance_approval_status)
+    || deriveFinanceApprovalStatus(orderDoc.order_items);
+
+  if ([APPROVAL_STATUS.APPROVED, APPROVAL_STATUS.PARTIAL].includes(fas)) {
+    orderDoc.current_action = fas === APPROVAL_STATUS.APPROVED ? 'finance_approved' : 'finance_partial';
+    if (orderDoc.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW) {
+      orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
     }
-    orderDoc.status = action;
-  } else if (action === 'rejected') {
+    orderDoc.status = ORDER_STATUS.FINANCE_APPROVED;
+  } else if (fas === APPROVAL_STATUS.REJECTED) {
     orderDoc.current_action = 'rejected';
-    orderDoc.status = 'finance_rejected';
+    orderDoc.status = ORDER_STATUS.FINANCE_REJECTED;
   }
+  normalizeOrderWorkflowFields(orderDoc);
   return action;
 }
 
@@ -100,11 +150,11 @@ const DEPARTMENT_LABELS = {
   sales: 'Sales',
   admin_review: 'Admin Review',
   finance_review: 'Finance Review',
-  dispatch_review: 'Dispatch Review',
-  dispatch_execution: 'Dispatch Execution',
+  account_review: 'Account Review',
+  dispatch: 'Dispatch',
   completed: 'Completed',
   cancelled: 'Cancelled',
-  hold: 'On Hold',
+  on_hold: 'On Hold',
 };
 
 const ACTION_LABELS = {
@@ -140,24 +190,25 @@ function titleCaseToken(value) {
 
 function buildStatusDimensions(orderPlain, totals) {
   const lifecycle = orderPlain.lifecycle_status || '';
-  const stage = orderPlain.workflow_stage || '';
+  const stage = normalizeWorkflowStage(orderPlain.workflow_stage);
   const pendingRole = orderPlain.pending_with_role || orderPlain.current_department || '';
   const action = orderPlain.current_action || '';
-  const fas = orderPlain.finance_approval_status || deriveFinanceApprovalStatus(orderPlain.order_items);
-  const dispatchStatus = orderPlain.dispatch_status || 'pending';
-  const deliveryStatus = orderPlain.delivery_status || 'pending';
+  const fas = normalizeFinanceApprovalStatus(orderPlain.finance_approval_status)
+    || deriveFinanceApprovalStatus(orderPlain.order_items);
+  const dispatchStatus = orderPlain.dispatch_status || FULFILLMENT_STATUS.PENDING;
+  const deliveryStatus = orderPlain.delivery_status || FULFILLMENT_STATUS.PENDING;
 
   let departmental = { key: stage || 'unknown', label: DEPARTMENT_LABELS[stage] || titleCaseToken(stage), tone: 'info' };
-  if (lifecycle === 'cancelled' || stage === 'cancelled') {
+  if (lifecycle === ORDER_LIFECYCLE_STATUS.CANCELLED || stage === ORDER_WORKFLOW_STAGE.CANCELLED) {
     departmental = { key: 'cancelled', label: 'Cancelled', tone: 'danger' };
-  } else if (lifecycle === 'on_hold' || stage === 'hold') {
+  } else if (lifecycle === ORDER_LIFECYCLE_STATUS.ON_HOLD || stage === ORDER_WORKFLOW_STAGE.ON_HOLD) {
     departmental = {
       key: 'on_hold',
       label: 'On Hold',
       detail: pendingRole ? `With ${titleCaseToken(pendingRole)}` : undefined,
       tone: 'warning',
     };
-  } else if (stage === 'completed' || lifecycle === 'fulfilled') {
+  } else if (stage === ORDER_WORKFLOW_STAGE.COMPLETED || lifecycle === ORDER_LIFECYCLE_STATUS.FULFILLED) {
     departmental = { key: 'completed', label: 'Completed', tone: 'success' };
   } else if (pendingRole && !DEPARTMENT_LABELS[stage]) {
     departmental.detail = `Owner: ${titleCaseToken(pendingRole)}`;
@@ -172,49 +223,49 @@ function buildStatusDimensions(orderPlain, totals) {
   const pendingDelivery = Number(totals.pendingDelivery || 0);
 
   let fulfillment = { key: 'finance_pending', label: 'Awaiting finance approval', tone: 'neutral' };
-  if (deliveryStatus === 'completed' || (delivered > 0 && pendingDelivery === 0 && dispatched > 0)) {
+  if (deliveryStatus === FULFILLMENT_STATUS.COMPLETED || (delivered > 0 && pendingDelivery === 0 && dispatched > 0)) {
     fulfillment = {
       key: 'fulfilled',
       label: 'Fully delivered',
       detail: `${delivered} / ${approved || ordered} qty delivered`,
       tone: 'success',
     };
-  } else if (deliveryStatus === 'partial' || delivered > 0) {
+  } else if (deliveryStatus === FULFILLMENT_STATUS.PARTIAL || delivered > 0) {
     fulfillment = {
       key: 'partial_delivery',
       label: 'Partially delivered',
       detail: `${delivered} delivered · ${pendingDelivery} pending delivery`,
       tone: 'info',
     };
-  } else if (dispatchStatus === 'completed' || (dispatched > 0 && pendingDispatch === 0 && approved > 0)) {
+  } else if (dispatchStatus === FULFILLMENT_STATUS.COMPLETED || (dispatched > 0 && pendingDispatch === 0 && approved > 0)) {
     fulfillment = {
       key: 'full_dispatch',
       label: 'Fully dispatched',
       detail: `${dispatched} / ${approved} approved qty dispatched`,
       tone: 'success',
     };
-  } else if (dispatchStatus === 'partial' || dispatched > 0) {
+  } else if (dispatchStatus === FULFILLMENT_STATUS.PARTIAL || dispatched > 0) {
     fulfillment = {
       key: 'partial_dispatch',
       label: 'Partially dispatched',
       detail: `${dispatched} dispatched · ${pendingDispatch} pending dispatch`,
       tone: 'info',
     };
-  } else if (fas === 'full') {
+  } else if (fas === APPROVAL_STATUS.APPROVED) {
     fulfillment = {
       key: 'finance_full',
       label: 'Fully finance approved',
       detail: `${approved} / ${ordered} qty approved`,
       tone: 'success',
     };
-  } else if (fas === 'partial' || approved > 0) {
+  } else if (fas === APPROVAL_STATUS.PARTIAL || approved > 0) {
     fulfillment = {
       key: 'finance_partial',
       label: 'Partially finance approved',
       detail: `${approved} approved · ${pendingFinance} pending finance`,
       tone: 'warning',
     };
-  } else if (fas === 'rejected') {
+  } else if (fas === APPROVAL_STATUS.REJECTED) {
     fulfillment = { key: 'finance_rejected', label: 'Finance rejected', tone: 'danger' };
   } else if (ordered > 0) {
     fulfillment.detail = `${ordered} qty ordered`;
@@ -239,45 +290,46 @@ function buildStatusDimensions(orderPlain, totals) {
 }
 
 function buildFinanceCapabilities(orderPlain, totals) {
-  const fas = orderPlain.finance_approval_status || deriveFinanceApprovalStatus(orderPlain.order_items);
+  const fas = normalizeFinanceApprovalStatus(orderPlain.finance_approval_status)
+    || deriveFinanceApprovalStatus(orderPlain.order_items);
   const pendingFinance = Number(totals.pendingFinance || 0);
   const approved = Number(totals.approved || 0);
-  const stage = orderPlain.workflow_stage || '';
+  const stage = normalizeWorkflowStage(orderPlain.workflow_stage);
 
   return {
     finance_approval_status: fas,
     display_status:
-      fas === 'full'
-        ? 'fully_finance_approved'
-        : fas === 'partial'
-          ? 'partially_finance_approved'
-          : fas === 'rejected'
-            ? 'finance_rejected'
-            : 'finance_review',
+      fas === APPROVAL_STATUS.APPROVED
+        ? ORDER_STATUS.FINANCE_APPROVED
+        : fas === APPROVAL_STATUS.PARTIAL
+          ? ORDER_STATUS.FINANCE_APPROVED
+          : fas === APPROVAL_STATUS.REJECTED
+            ? ORDER_STATUS.FINANCE_REJECTED
+            : ORDER_STATUS.FINANCE_REVIEW,
     pending_finance_qty: pendingFinance,
     approved_qty: approved,
     ordered_qty: Number(totals.ordered || 0),
-    can_approve_remaining: fas === 'partial' && pendingFinance > 0,
+    can_approve_remaining: fas === APPROVAL_STATUS.PARTIAL && pendingFinance > 0,
     can_send_to_dispatch:
       approved > 0 &&
-      fas !== 'rejected' &&
+      fas !== APPROVAL_STATUS.REJECTED &&
       orderPlain.current_action !== 'sent_to_dispatch' &&
-      orderPlain.status !== 'dispatch_pending' &&
-      !['dispatch_execution', 'completed'].includes(stage),
-    is_partially_finance_approved: fas === 'partial',
-    is_fully_finance_approved: fas === 'full',
+      orderPlain.status !== ORDER_STATUS.DISPATCH &&
+      ![ORDER_WORKFLOW_STAGE.DISPATCH, ORDER_WORKFLOW_STAGE.COMPLETED].includes(stage),
+    is_partially_finance_approved: fas === APPROVAL_STATUS.PARTIAL,
+    is_fully_finance_approved: fas === APPROVAL_STATUS.APPROVED,
   };
 }
 
 function deriveLineStatus(q) {
-  if (q.cancelled >= q.ordered && q.ordered > 0) return 'cancelled';
-  if (q.delivered >= q.ordered && q.ordered > 0) return 'fully_delivered';
-  if (q.delivered > 0) return 'partially_delivered';
-  if (q.dispatched >= q.dispatchCap && q.dispatchCap > 0) return 'fully_dispatched';
-  if (q.dispatched > 0) return 'partially_dispatched';
-  if (q.allocated >= q.dispatchCap && q.dispatchCap > 0) return 'fully_allocated';
-  if (q.allocated > 0) return 'partially_allocated';
-  return 'active';
+  const cap = q.dispatchCap > 0 ? q.dispatchCap : q.ordered;
+  const returned = Number(q.returned || 0);
+  const netTarget = Math.max(0, cap - returned);
+
+  if (returned > 0 && netTarget <= 0) return ORDER_LINE_STATUS.CANCELLED;
+  if (netTarget > 0 && q.delivered >= netTarget) return ORDER_LINE_STATUS.FULFILLED;
+  if (q.delivered > 0 || q.dispatched > 0 || returned > 0) return ORDER_LINE_STATUS.PARTIAL;
+  return ORDER_LINE_STATUS.ACTIVE;
 }
 
 function aggregateDispatchedByLine(dispatches, excludeDispatchId = null) {
@@ -287,6 +339,76 @@ function aggregateDispatchedByLine(dispatches, excludeDispatchId = null) {
     if (excludeDispatchId && String(dispatch._id) === String(excludeDispatchId)) continue;
     for (const item of dispatch.dispatch_items || []) {
       const key = String(item.order_item_id);
+      byLine[key] = (byLine[key] || 0) + Number(item.dispatched_quantity || 0);
+    }
+  }
+  return byLine;
+}
+
+function findApprovalItemForOrderLine(approval, line) {
+  if (!approval) return null;
+  const lineId = String(line._id);
+  const productId = String(line.product?._id || line.product || '');
+
+  for (const item of approval.approval_items || []) {
+    if (String(item.order_item_id) === lineId) return item;
+  }
+  if (productId) {
+    for (const item of approval.approval_items || []) {
+      const itemProductId = String(item.product?._id || item.product || '');
+      if (itemProductId === productId) return item;
+    }
+  }
+  return null;
+}
+
+function resolveStoredOrderLineId(order, storedLineId, productId, approval) {
+  if (storedLineId) {
+    const byId = (order.order_items || []).find((item) => String(item._id) === storedLineId);
+    if (byId) return String(byId._id);
+  }
+  if (productId) {
+    const byProduct = (order.order_items || []).find(
+      (item) => String(item.product?._id || item.product) === productId,
+    );
+    if (byProduct) return String(byProduct._id);
+  }
+  if (approval && storedLineId) {
+    const approvalItem = (approval.approval_items || []).find(
+      (item) => String(item.order_item_id) === storedLineId,
+    );
+    const approvalProductId = String(approvalItem?.product?._id || approvalItem?.product || '');
+    if (approvalProductId) {
+      const byApprovalProduct = (order.order_items || []).find(
+        (item) => String(item.product?._id || item.product) === approvalProductId,
+      );
+      if (byApprovalProduct) return String(byApprovalProduct._id);
+    }
+  }
+  return storedLineId;
+}
+
+function aggregateDispatchedByLineForRelease(dispatches, approvalId, excludeDispatchId = null, order = null, approval = null) {
+  const byLine = {};
+  if (!approvalId) return byLine;
+
+  for (const dispatch of dispatches || []) {
+    if (dispatch.dispatch_status === 'cancelled') continue;
+    if (excludeDispatchId && String(dispatch._id) === String(excludeDispatchId)) continue;
+
+    const approvalRef = dispatch.finance_approval;
+    const dispatchApprovalId =
+      approvalRef && typeof approvalRef === 'object'
+        ? String(approvalRef._id ?? approvalRef.id ?? '')
+        : String(approvalRef ?? '');
+    if (dispatchApprovalId !== String(approvalId)) continue;
+
+    for (const item of dispatch.dispatch_items || []) {
+      const storedId = String(item.order_item_id);
+      const productId = String(item.product?._id || item.product || '');
+      const key = order
+        ? resolveStoredOrderLineId(order, storedId, productId, approval)
+        : storedId;
       byLine[key] = (byLine[key] || 0) + Number(item.dispatched_quantity || 0);
     }
   }
@@ -305,29 +427,42 @@ function aggregateDeliveredByLine(dispatches) {
   return byLine;
 }
 
-function buildLineSnapshot(line) {
+function buildLineSnapshot(line, accountApprovalStatus) {
   const q = lineQuantities(line);
+  const accountCleared = accountClearedQty(line, accountApprovalStatus);
+  const pendingAccount = Math.max(0, q.approved - accountCleared);
+  const dispatchCap = accountCleared > 0 ? accountCleared : q.dispatchCap;
+  const pendingDispatch = Math.max(0, dispatchCap - q.dispatched);
   return {
     order_item_id: String(line._id),
     product: line.product,
     product_name: line.product_name,
     sku: line.sku,
     ...q,
-    line_status: deriveLineStatus(q),
+    accountCleared,
+    account_cleared: accountCleared,
+    pendingAccount,
+    pending_account: pendingAccount,
+    pendingDispatch: accountCleared > 0 ? pendingDispatch : q.pendingDispatch,
+    line_status: deriveLineStatus({ ...q, dispatchCap }),
   };
 }
 
 function buildOrderSnapshot(orderPlain, dispatches, shipments) {
-  const lines = (orderPlain.order_items || []).map((line) => buildLineSnapshot(line));
+  const accountApprovalStatus = normalizeAccountApprovalStatus(orderPlain.account_approval_status);
+  const lines = (orderPlain.order_items || []).map((line) => buildLineSnapshot(line, accountApprovalStatus));
   const totals = lines.reduce(
     (acc, line) => {
       acc.ordered += line.ordered;
       acc.salesApproved += line.salesApproved;
       acc.approved += line.approved;
+      acc.accountCleared += line.accountCleared;
       acc.dispatched += line.dispatched;
       acc.delivered += line.delivered;
-      acc.pendingAdmin += line.pendingAdmin;
+      acc.returned += line.returned;
+      acc.pendingAdmin += line.pendingFinance;
       acc.pendingFinance += line.pendingFinance;
+      acc.pendingAccount += line.pendingAccount;
       acc.pendingDispatch += line.pendingDispatch;
       acc.pendingDelivery += line.pendingDelivery;
       return acc;
@@ -336,10 +471,13 @@ function buildOrderSnapshot(orderPlain, dispatches, shipments) {
       ordered: 0,
       salesApproved: 0,
       approved: 0,
+      accountCleared: 0,
       dispatched: 0,
       delivered: 0,
+      returned: 0,
       pendingAdmin: 0,
       pendingFinance: 0,
+      pendingAccount: 0,
       pendingDispatch: 0,
       pendingDelivery: 0,
     },
@@ -357,6 +495,7 @@ function buildOrderSnapshot(orderPlain, dispatches, shipments) {
     order_id: orderPlain._id,
     order_no: orderPlain.order_no,
     finance_approval_status: finance.finance_approval_status,
+    account_approval_status: accountApprovalStatus,
     finance,
     status_dimensions,
     dispatch_status: orderPlain.dispatch_status,
@@ -519,8 +658,7 @@ async function recomputeApprovedQuantitiesFromFinance(orderId) {
   for (const line of orderDoc.order_items || []) {
     const key = String(line._id);
     const ordered = Number(line.ordered_quantity ?? line.quantity ?? 0);
-    const salesCap = salesApprovedOnLine(line);
-    const cap = salesCap > 0 ? salesCap : ordered;
+    const cap = ordered;
     line.approved_quantity = Math.min(cap, approvedByLine[key] || 0);
     if (priceByLine[key] != null && line.approved_quantity > 0) {
       line.unit_price = priceByLine[key];
@@ -532,11 +670,14 @@ async function recomputeApprovedQuantitiesFromFinance(orderId) {
   }
   orderDoc.finance_approval_status = deriveFinanceApprovalStatus(orderDoc.order_items);
   orderDoc.markModified('order_items');
+  normalizeOrderWorkflowFields(orderDoc);
   await orderDoc.save();
   return toPlain(orderDoc.toObject());
 }
 
-function assertDispatchItemQuantities(order, dispatchItems, alreadyDispatchedByLine = {}) {
+function assertDispatchItemQuantities(order, dispatchItems, alreadyDispatchedByLine = {}, options = {}) {
+  const { approval, returnsByLine = {}, approvalOnly = false } = options;
+
   for (const raw of dispatchItems || []) {
     const orderItemId = String(raw.order_item_id);
     const line = (order.order_items || []).find((item) => String(item._id) === orderItemId);
@@ -549,11 +690,32 @@ function assertDispatchItemQuantities(order, dispatchItems, alreadyDispatchedByL
     if (requested < 0) throw new ApiError(400, 'Dispatch quantities cannot be negative');
     if (requested === 0) throw new ApiError(400, 'Dispatch quantity must be greater than zero');
 
-    const maxAllowed = q.approved > 0 ? q.approved : q.ordered;
-    if (already + requested > maxAllowed) {
+    if (approval) {
+      const approvalItem = findApprovalItemForOrderLine(approval, line);
+      const approvedOnRelease = Number(approvalItem?.approved_quantity || 0);
+      const atWarehouse = approvalOnly
+        ? 0
+        : lineAtWarehouseQty(orderItemId, approvalItem, line, returnsByLine);
+      const { available } = computeLineDispatchAvailability(approvedOnRelease, already, atWarehouse);
+
+      if (requested > available) {
+        throw new ApiError(
+          400,
+          `Dispatch quantity exceeds available quantity (${available} available) for line ${line.sku || orderItemId}`,
+        );
+      }
+      continue;
+    }
+
+    let maxAllowed = q.approved > 0 ? q.approved : q.ordered;
+    const returnHeadroom = lineAtWarehouseQty(orderItemId, null, line, returnsByLine);
+    maxAllowed += returnHeadroom;
+    const available = Math.max(0, maxAllowed - already);
+
+    if (requested > available) {
       throw new ApiError(
         400,
-        `Dispatch quantity exceeds available approved quantity (${Math.max(0, maxAllowed - already)} remaining) for line ${line.sku || orderItemId}`,
+        `Dispatch quantity exceeds available quantity (${available} available) for line ${line.sku || orderItemId}`,
       );
     }
   }
@@ -564,7 +726,7 @@ async function recalculateFromExecutions(orderId, user) {
 
   await syncDispatchDeliveredQuantities(orderId);
 
-  const [orderDoc, dispatches, shipments] = await Promise.all([
+  const [orderDoc, dispatches, shipments, returns] = await Promise.all([
     Order.findById(orderId),
     OrderDispatch.find({ order: orderId, deletedAt: null, dispatch_status: { $ne: 'cancelled' } }).lean(),
     TransportShipment.find({
@@ -572,12 +734,14 @@ async function recalculateFromExecutions(orderId, user) {
       deletedAt: null,
       shipment_status: { $nin: ['delivery_failed', 'returned'] },
     }).lean(),
+    getModels().OrderReturn.find({ order: orderId, deletedAt: null }).lean(),
   ]);
 
   if (!orderDoc) throw new ApiError(404, 'Order not found');
 
   const dispatchedByLine = aggregateDispatchedByLine(dispatches);
   const deliveredByLine = aggregateDeliveredByLine(dispatches);
+  const returnedByLine = aggregateReceivedReturnsByOrderLine(returns, dispatches);
 
   const nextItems = (orderDoc.order_items || []).map((line) => {
     const item = line.toObject ? line.toObject() : { ...line };
@@ -586,13 +750,21 @@ async function recalculateFromExecutions(orderId, user) {
     item.delivered_quantity = deliveredByLine[key] || 0;
 
     const q = lineQuantities(item);
-    if (item.dispatched_quantity > q.dispatchCap && q.dispatchCap > 0) {
+    const returnAtWarehouse = Number(returnedByLine[key] || 0) || Number(item.returned_quantity ?? 0);
+    const returnPoolUsed = Math.max(0, item.dispatched_quantity - (q.dispatchCap > 0 ? q.dispatchCap : q.ordered));
+    const dispatchCap = (q.dispatchCap > 0 ? q.dispatchCap : q.ordered) + returnAtWarehouse + returnPoolUsed;
+    if (item.dispatched_quantity > dispatchCap && dispatchCap > 0) {
       throw new ApiError(
         400,
-        `Dispatched quantity exceeds approved quantity (${q.dispatchCap}) for line ${item.sku || key}`,
+        `Dispatched quantity exceeds available quantity (${dispatchCap}) for line ${item.sku || key}`,
       );
     }
-    item.line_status = deriveLineStatus({ ...q, dispatched: item.dispatched_quantity, delivered: item.delivered_quantity });
+    item.line_status = deriveLineStatus({
+      ...q,
+      dispatched: item.dispatched_quantity,
+      delivered: item.delivered_quantity,
+      returned: item.returned_quantity,
+    });
     return item;
   });
 
@@ -615,22 +787,49 @@ async function recalculateFromExecutions(orderId, user) {
     });
 
   orderDoc.order_items = nextItems;
-  orderDoc.dispatch_status = totalDispatched === 0 ? 'pending' : fullyDispatched ? 'completed' : 'partial';
-  orderDoc.delivery_status = totalDelivered === 0 ? 'pending' : fullyDelivered ? 'completed' : 'partial';
+  orderDoc.dispatch_status = totalDispatched === 0
+    ? FULFILLMENT_STATUS.PENDING
+    : fullyDispatched
+      ? FULFILLMENT_STATUS.COMPLETED
+      : FULFILLMENT_STATUS.PARTIAL;
+  orderDoc.delivery_status = totalDelivered === 0
+    ? FULFILLMENT_STATUS.PENDING
+    : fullyDelivered
+      ? FULFILLMENT_STATUS.COMPLETED
+      : FULFILLMENT_STATUS.PARTIAL;
   orderDoc.finance_approval_status = deriveFinanceApprovalStatus(nextItems);
 
-  if (totalDispatched > 0) {
-    orderDoc.workflow_stage = orderDoc.workflow_stage === 'completed' ? 'completed' : 'dispatch_execution';
-    orderDoc.current_action = fullyDispatched ? 'full_dispatch' : 'partial_dispatch';
-    if (fullyDelivered) {
-      orderDoc.lifecycle_status = 'fulfilled';
-      orderDoc.workflow_stage = 'completed';
-      orderDoc.current_action = 'delivered';
-    } else if (orderDoc.lifecycle_status !== 'cancelled' && orderDoc.lifecycle_status !== 'on_hold') {
-      orderDoc.lifecycle_status = totalDelivered > 0 || totalDispatched > 0 ? 'partially_fulfilled' : orderDoc.lifecycle_status;
+  const isOrderClosed =
+    orderDoc.status === ORDER_STATUS.CLOSED || Boolean(orderDoc.closed_at);
+
+  if (!isOrderClosed) {
+    if (totalDispatched > 0) {
+      orderDoc.workflow_stage = orderDoc.workflow_stage === ORDER_WORKFLOW_STAGE.COMPLETED
+        ? ORDER_WORKFLOW_STAGE.COMPLETED
+        : ORDER_WORKFLOW_STAGE.DISPATCH;
+      orderDoc.status = ORDER_STATUS.DISPATCH;
+      orderDoc.current_action = fullyDispatched ? 'full_dispatch' : 'partial_dispatch';
+      if (fullyDelivered) {
+        orderDoc.lifecycle_status = ORDER_LIFECYCLE_STATUS.FULFILLED;
+        orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.COMPLETED;
+        orderDoc.status = ORDER_STATUS.DELIVERED;
+        orderDoc.current_action = 'delivered';
+      } else if (
+        orderDoc.lifecycle_status !== ORDER_LIFECYCLE_STATUS.CANCELLED &&
+        orderDoc.lifecycle_status !== ORDER_LIFECYCLE_STATUS.ON_HOLD
+      ) {
+        orderDoc.lifecycle_status = totalDelivered > 0 || totalDispatched > 0
+          ? ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED
+          : orderDoc.lifecycle_status;
+      }
+    } else if (totalApproved > 0) {
+      const aas = normalizeAccountApprovalStatus(orderDoc.account_approval_status);
+      if ([APPROVAL_STATUS.APPROVED, APPROVAL_STATUS.PARTIAL].includes(aas)) {
+        applyAccountWorkflowAction(orderDoc);
+      } else {
+        applyFinanceWorkflowAction(orderDoc);
+      }
     }
-  } else if (totalApproved > 0) {
-    applyFinanceWorkflowAction(orderDoc);
   }
 
   if (user?._id) orderDoc.updated_by = user._id;
@@ -659,6 +858,40 @@ async function getSnapshot(orderId) {
   return buildOrderSnapshot(toPlain(order), dispatches.map(toPlain), shipments.map(toPlain));
 }
 
+async function syncOrderLineReturnedQuantitiesFromReturns(orderId) {
+  const { Order, OrderReturn, OrderDispatch } = getModels();
+  const orderDoc = await Order.findById(orderId);
+  if (!orderDoc) return false;
+
+  const [returns, dispatches] = await Promise.all([
+    OrderReturn.find({ order: orderId, deletedAt: null }).lean(),
+    OrderDispatch.find({
+      order: orderId,
+      deletedAt: null,
+      dispatch_status: { $ne: 'cancelled' },
+    }).lean(),
+  ]);
+
+  const byLine = aggregateReportedReturnsByOrderLine(returns, dispatches);
+  let changed = false;
+
+  for (const line of orderDoc.order_items || []) {
+    const key = String(line._id);
+    const next = Number(byLine[key] || 0);
+    if (Number(line.returned_quantity || 0) !== next) {
+      line.returned_quantity = next;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    orderDoc.markModified('order_items');
+    await orderDoc.save();
+  }
+
+  return changed;
+}
+
 async function getRemainingFinanceQuantities(orderId) {
   const order = await getModels().Order.findById(orderId).lean();
   if (!order) throw new ApiError(404, 'Order not found');
@@ -681,13 +914,17 @@ module.exports = {
   deriveFinanceApprovalStatus,
   financeWorkflowAction,
   applyFinanceWorkflowAction,
+  applyAccountWorkflowAction,
+  normalizeAccountApprovalStatus,
   deriveLineStatus,
   aggregateDispatchedByLine,
+  aggregateDispatchedByLineForRelease,
   buildOrderSnapshot,
   buildStatusDimensions,
   recomputeApprovedQuantitiesFromFinance,
   assertDispatchItemQuantities,
   recalculateFromExecutions,
+  syncOrderLineReturnedQuantitiesFromReturns,
   syncDispatchDeliveredQuantities,
   syncDispatchDeliveredFromShipments,
   getSnapshot,

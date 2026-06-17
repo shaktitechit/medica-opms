@@ -39,7 +39,6 @@ import {
   useListPartiesQuery,
   useListProductsQuery,
   useListUsersQuery,
-  useTransitionOrderMutation,
 } from "@/store/api";
 import type { CheckOrderRatesItem } from "@/store/api/slices/partyOrderProductsRateApi";
 import { useAppSelector } from "@/store";
@@ -87,7 +86,6 @@ type LineRow = {
   discount_amount: number;
   gst_percent: number;
   applied_rate_type: string;
-  line_status: string;
   remarks: string;
 };
 
@@ -112,7 +110,6 @@ function newLine(): LineRow {
     discount_amount: 0,
     gst_percent: 18,
     applied_rate_type: "SR",
-    line_status: "draft",
     remarks: "",
   };
 }
@@ -541,10 +538,9 @@ export default function AdminCreateOrderPage() {
   const [mapModalOpen, setMapModalOpen] = useState(false);
 
   const [createOrder, { isLoading: isCreating }] = useCreateOrderMutation();
-  const [transitionOrder, { isLoading: isTransitioning }] = useTransitionOrderMutation();
   const [triggerListOrders] = useLazyListOrdersQuery();
 
-  const isLoading = isCreating || isTransitioning;
+  const isLoading = isCreating;
   const canMapPrice = Boolean(partyId);
 
   const lineRateCheckInput = useMemo(() => {
@@ -791,7 +787,6 @@ export default function AdminCreateOrderPage() {
       discount_amount: Number(item.discount_amount ?? 0),
       gst_percent: Number(item.gst_percent ?? 18),
       applied_rate_type: String(item.applied_rate_type || "SR"),
-      line_status: "draft",
       remarks: String(item.remarks ?? ""),
     }));
 
@@ -826,6 +821,10 @@ export default function AdminCreateOrderPage() {
         toast.error("Select a party.");
         return;
       }
+      if (!assignedSales) {
+        toast.error("Select a sales representative.");
+        return;
+      }
       if (!allItemsNegotiated) {
         toast.error("Please negotiate all items before submitting the order.");
         return;
@@ -855,7 +854,6 @@ export default function AdminCreateOrderPage() {
           taxable_amount: lineTaxable(l),
           gst_amount: lineGst(l),
           total_amount: lineTotal(l),
-          line_status: l.line_status || "draft",
           remarks: l.remarks.trim() || "",
         }));
       if (!prepared.length) {
@@ -892,32 +890,20 @@ export default function AdminCreateOrderPage() {
         discount_amount: Number(headerDiscount || 0),
         priority,
         remarks: remarks.trim() || "",
+        submit_on_create: true,
+        submit_remarks: "Initial submission upon creation",
         ...(expectedDate ? { expected_delivery_date: expectedDate } : {}),
         assigned_admin_user: (user?._id || user?.id) ? String(user?._id || user?.id) : undefined,
-        assigned_sales_user: assignedSales || undefined,
+        assigned_sales_user: assignedSales,
       };
       try {
         const data = (await createOrder(body).unwrap()) as any;
-        const orderId = String(data?._id ?? data?.id ?? "");
         const orderNo = String(data?.order_no ?? "");
-
-        if (!orderId) {
-          throw new Error("Invalid order ID returned from server.");
-        }
-
-        // Transition the order immediately from Draft to Submitted stage
-        await transitionOrder({
-          id: orderId,
-          body: {
-            next_status: "submitted",
-            remarks: "Initial submission upon creation",
-          },
-        }).unwrap();
 
         toast.success(
           orderNo
-            ? `Order ${orderNo} created and submitted successfully`
-            : "Order created and submitted successfully"
+            ? `Order ${orderNo} created — submission is processing`
+            : "Order created — submission is processing",
         );
         router.push("/admin/orders");
       } catch (rejected) {
@@ -927,7 +913,6 @@ export default function AdminCreateOrderPage() {
     [
       partyId,
       createOrder,
-      transitionOrder,
       expectedDate,
       lines,
       priority,
@@ -940,7 +925,7 @@ export default function AdminCreateOrderPage() {
   );
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="mx-auto w-full max-w-[min(100rem,calc(100vw-2rem))] space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/60 pb-4 dark:border-white/10">
         <div className="flex items-center gap-3">
@@ -965,11 +950,11 @@ export default function AdminCreateOrderPage() {
         </Link>
       </div>
 
-      <form onSubmit={onSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <form onSubmit={onSubmit} className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
         {/* Left Column: Form Details & Line Items */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="min-w-0 space-y-6">
           {/* Party & Terms */}
-          <section className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900">
+          <section className="rounded-xl border border-slate-200/90 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-900">
             <header className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-3 dark:border-white/5">
               <User className="h-4 w-4 text-blue-500" />
               <div>
@@ -982,8 +967,8 @@ export default function AdminCreateOrderPage() {
               </div>
             </header>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-1 sm:col-span-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-1 sm:col-span-2 lg:col-span-4">
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Party <span className="text-rose-500">*</span>
                 </label>
@@ -1000,7 +985,7 @@ export default function AdminCreateOrderPage() {
                 )}
               </div>
 
-              <div className="space-y-1 sm:col-span-1">
+              <div className="space-y-1 sm:col-span-1 lg:col-span-1">
                 <label htmlFor="co-priority" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Priority
                 </label>
@@ -1017,7 +1002,7 @@ export default function AdminCreateOrderPage() {
                 </select>
               </div>
 
-              <div className="space-y-1 sm:col-span-2">
+              <div className="space-y-1 sm:col-span-1 lg:col-span-3">
                 <label htmlFor="co-eta" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Expected delivery
                 </label>
@@ -1030,7 +1015,7 @@ export default function AdminCreateOrderPage() {
                 />
               </div>
 
-              <div className="space-y-1 sm:col-span-3">
+              <div className="space-y-1 sm:col-span-2 lg:col-span-4">
                 <label htmlFor="co-remarks" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Remarks
                 </label>
@@ -1047,7 +1032,7 @@ export default function AdminCreateOrderPage() {
           </section>
 
           {/* Line Items */}
-          <section className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900">
+          <section className="rounded-xl border border-slate-200/90 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-900">
             <header className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
               <div className="flex items-center gap-2">
                 <Tag className="h-4 w-4 text-blue-500" />
@@ -1111,7 +1096,7 @@ export default function AdminCreateOrderPage() {
                   {/* Tier 1 Grid */}
                   <div className="grid gap-3 grid-cols-1 lg:grid-cols-12">
                     {/* Product */}
-                    <div className="space-y-1 lg:col-span-3">
+                    <div className="space-y-1 lg:col-span-4">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-550">
                         Product
                       </span>
@@ -1276,7 +1261,7 @@ export default function AdminCreateOrderPage() {
                   {/* Tier 2 Grid */}
                   <div className="grid gap-3 grid-cols-1 lg:grid-cols-12 pt-2 border-t border-slate-100/50 dark:border-white/5">
                     {/* Line Remarks */}
-                    <div className="space-y-1 lg:col-span-6">
+                    <div className="space-y-1 lg:col-span-7">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         Line Remarks
                       </span>
@@ -1389,14 +1374,14 @@ export default function AdminCreateOrderPage() {
                     Assignment
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Assign sales rep for order tracking.
+                    Required — assign sales rep for order tracking.
                   </p>
                 </div>
               </header>
 
               <div className="space-y-1">
                 <label htmlFor="co-sales" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Sales Representative
+                  Sales Representative <span className="text-rose-500">*</span>
                 </label>
                 <SalesAutocomplete
                   salesUsers={salesUsers}
@@ -1444,6 +1429,11 @@ export default function AdminCreateOrderPage() {
               </div>
 
               <div className="mt-5 pt-3 border-t border-blue-100/50 dark:border-blue-900/20 space-y-2">
+                {!assignedSales && (
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    Select a sales representative to submit.
+                  </p>
+                )}
                 {!allItemsNegotiated && lines.some((l) => l.productId) && (
                   <p className="text-xs text-rose-600 dark:text-rose-455 font-medium text-center font-sans">
                     All items must be negotiated to submit order
@@ -1451,9 +1441,15 @@ export default function AdminCreateOrderPage() {
                 )}
                 <button
                   type="submit"
-                  disabled={isLoading || !allItemsNegotiated}
+                  disabled={isLoading || !allItemsNegotiated || !assignedSales}
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/25 transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:shadow-none dark:hover:bg-blue-400"
-                  title={!allItemsNegotiated ? "All items must be negotiated before submitting" : undefined}
+                  title={
+                    !assignedSales
+                      ? "Select a sales representative before submitting"
+                      : !allItemsNegotiated
+                        ? "All items must be negotiated before submitting"
+                        : undefined
+                  }
                 >
                   {isLoading ? (
                     <>

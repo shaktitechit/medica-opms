@@ -13,16 +13,43 @@ const { softDeleteActiveById, restoreSoftDeletedById, listDeletedLean } = requir
 const workflowService = require('../workflow/workflow.service');
 const policy = require('./order.policy');
 const activityService = require('../activity/activity.service');
-const { ORDER_STATUS } = require('../../constants/domain');
 const { ORDER_STATUS_VALUES } = require('../../constants/orderStatus');
+const {
+  ORDER_RETURN_STATUS,
+  isReturnPending,
+  isReturnReceivedAtWarehouse,
+} = require('../../constants/orderReturnStatus');
 const { syncPartyProductLastRatesFromOrder } = require('../../services/opms/partyProductLastRateSync');
 const partyProductService = require('../partyProducts/partyProduct.service');
 const partyOrderProductsRateService = require('../partyOrderProductsRate/partyOrderProductsRate.service');
 const fulfillmentService = require('./orderFulfillment.service');
+const orderQueue = require('../../queues/order.queue');
 const assigneeService = require('./orderAssignee.service');
+const {
+  normalizePendingStage,
+  findOrderIdsWithPendingApproval,
+  findOrderIdsWithAnyPendingApproval,
+  isAnyPendingApprovalStatus,
+  enrichOrdersWithApprovalPending,
+} = require('./orderApprovalPending.util');
+const {
+  ORDER_LINE_STATUS,
+  ORDER_LINE_STATUS_VALUES,
+  ORDER_WORKFLOW_STAGE,
+  ORDER_LIFECYCLE_STATUS,
+  ORDER_STATUS,
+  APPROVAL_STATUS,
+  FULFILLMENT_STATUS,
+  ORDER_JOB_TYPES,
+  normalizeFinanceApprovalStatus,
+  normalizeWorkflowStage,
+} = require('./order.constants');
 const {
   ASSIGNED_USER_ORDER_FIELDS,
   resolveWorkflowAssigneeUserId,
+  applyOrderVisibilityFilter,
+  applyOrderAccessFilter,
+  appendOrderVisibilityAnd,
 } = require('./orderAssignee.util');
 
 /**
@@ -42,10 +69,6 @@ const ORDER_PATCH_KEYS = new Set([
   'expected_delivery_date',
   'remarks',
   'assigned_sales_user',
-  'assigned_finance_user',
-  'assigned_dispatch_user',
-  'assigned_admin_user',
-  'assigned_account_user',
 ]);
 
 function assertSafePlainPatch(patch) {
@@ -106,7 +129,9 @@ function applyWhitelistedPatchToMongooseDoc(doc, patch) {
 function recalcCommercials(order) {
   let subtotal = 0;
   let gstAmount = 0;
-  const isPostFinance = ['dispatch_review', 'dispatch_execution', 'completed'].includes(order.workflow_stage);
+  const isPostFinance = [ORDER_WORKFLOW_STAGE.DISPATCH, ORDER_WORKFLOW_STAGE.COMPLETED].includes(
+    normalizeWorkflowStage(order.workflow_stage),
+  );
 
   for (const item of order.order_items || []) {
     const q = isPostFinance ? Number(item.approved_quantity ?? 0) : Number(item.ordered_quantity ?? item.quantity ?? 0);
@@ -168,6 +193,96 @@ function recalcCommercialsForClosure(order) {
   return order;
 }
 
+function isOrderSettlementClosed(doc) {
+  if (!doc) return false;
+  return String(doc.status || '') === ORDER_STATUS.CLOSED || Boolean(doc.closed_at);
+}
+
+/** Account settlement close: fulfilled lifecycle, completed stage, closed queue status. */
+function applyOrderSettlementClosedState(doc, user, options = {}) {
+  doc.status = ORDER_STATUS.CLOSED;
+  doc.lifecycle_status = ORDER_LIFECYCLE_STATUS.FULFILLED;
+  doc.workflow_stage = ORDER_WORKFLOW_STAGE.COMPLETED;
+  doc.current_action = 'closed';
+  doc.dispatch_status = options.dispatch_status || FULFILLMENT_STATUS.COMPLETED;
+  doc.delivery_status = options.delivery_status || FULFILLMENT_STATUS.COMPLETED;
+  doc.is_locked = true;
+  doc.closed_at = new Date();
+  doc.closed_by = user._id;
+  doc.updated_by = user._id;
+  doc.current_revision = Number(doc.current_revision || 1) + 1;
+}
+
+/** Persist closed settlement state with audit trail. Idempotent when already closed. */
+async function persistOrderSettlementClose(orderId, doc, user, options = {}) {
+  if (!doc || isOrderSettlementClosed(doc)) {
+    return doc;
+  }
+
+  const {
+    remarks = 'Account settle & close',
+    activityMessage,
+    activityExtra = {},
+  } = options;
+  const { OrderWorkflow, OrderStatusHistory } = getModels();
+  const fromStatus = doc.status || ORDER_STATUS.DELIVERED;
+  const fromLifecycle = doc.lifecycle_status || ORDER_LIFECYCLE_STATUS.FULFILLED;
+  const fromStage = normalizeWorkflowStage(doc.workflow_stage) || ORDER_WORKFLOW_STAGE.DISPATCH;
+  const totalNetDelivered = (doc.order_items || []).reduce(
+    (sum, line) => sum + Number(line.delivered_quantity || 0),
+    0,
+  );
+  const dept = String(user.department || '');
+
+  applyOrderSettlementClosedState(doc, user, {
+    dispatch_status: FULFILLMENT_STATUS.COMPLETED,
+    delivery_status: totalNetDelivered > 0
+      ? FULFILLMENT_STATUS.COMPLETED
+      : FULFILLMENT_STATUS.PARTIAL,
+  });
+  if (options.closure_remarks) {
+    doc.closure_remarks = String(options.closure_remarks).trim();
+  }
+  await doc.save();
+
+  await OrderStatusHistory.create({
+    order: orderId,
+    from_status: fromStatus,
+    to_status: ORDER_STATUS.CLOSED,
+    changed_by: user._id,
+    remarks,
+  });
+
+  await OrderWorkflow.create({
+    order: orderId,
+    action_by: user._id,
+    role: dept === 'super_admin' ? 'admin' : dept || 'account',
+    action: 'closed',
+    from_stage: fromStage,
+    to_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
+    to_status: ORDER_STATUS.CLOSED,
+    remarks: options.workflow_remarks || '',
+    revision_number: doc.current_revision,
+  });
+
+  await activityService.create({
+    actor: user._id,
+    entity_type: 'order',
+    entity_id: String(doc._id),
+    action: 'status_changed',
+    message: activityMessage || `Order ${doc.order_no} closed after account settlement`,
+    old_value: { lifecycle_status: fromLifecycle, status: fromStatus },
+    new_value: {
+      lifecycle_status: ORDER_LIFECYCLE_STATUS.FULFILLED,
+      status: doc.status,
+      grand_total: doc.grand_total,
+      ...activityExtra,
+    },
+  });
+
+  return doc;
+}
+
 function refId(value) {
   if (value == null) return '';
   if (typeof value === 'object') return String(value._id ?? value.id ?? '');
@@ -177,7 +292,7 @@ function refId(value) {
 function aggregateReceivedReturnsByProduct(returns) {
   const map = {};
   for (const ret of returns) {
-    if (String(ret.return_status || '') !== 'received') continue;
+    if (!isReturnReceivedAtWarehouse(ret.return_status)) continue;
     for (const item of ret.return_items || []) {
       const pid = refId(item.product);
       if (!pid) continue;
@@ -192,12 +307,12 @@ function aggregateReceivedReturnsByOrderLine(returns, dispatches) {
   const byLine = {};
   const dispatchById = {};
   for (const dispatch of dispatches || []) {
-    dispatchById[String(dispatch._id)] = dispatch;
+    dispatchById[refId(dispatch._id ?? dispatch)] = dispatch;
   }
 
   for (const ret of returns) {
-    if (String(ret.return_status || '') !== 'received') continue;
-    const dispatch = dispatchById[String(ret.dispatch)];
+    if (!isReturnReceivedAtWarehouse(ret.return_status)) continue;
+    const dispatch = dispatchById[refId(ret.dispatch)];
     if (!dispatch) continue;
 
     for (const retItem of ret.return_items || []) {
@@ -250,6 +365,73 @@ function grossAcceptedQty(line) {
   return approved;
 }
 
+function orderLineId(line) {
+  return String(line._id ?? line.id ?? '');
+}
+
+function allocateProductReturnsAcrossLines(orderItems, qtyByProduct) {
+  const byLine = {};
+  const linesByProduct = {};
+
+  for (const line of orderItems || []) {
+    const pid = refId(line.product);
+    const lineId = orderLineId(line);
+    if (!pid || !lineId) continue;
+    if (!linesByProduct[pid]) linesByProduct[pid] = [];
+    linesByProduct[pid].push({ lineId, gross: grossAcceptedQty(line) });
+  }
+
+  for (const [pid, totalReturned] of Object.entries(qtyByProduct || {})) {
+    const lines = linesByProduct[pid] || [];
+    if (lines.length === 0 || totalReturned <= 0) continue;
+
+    if (lines.length === 1) {
+      byLine[lines[0].lineId] = (byLine[lines[0].lineId] || 0) + totalReturned;
+      continue;
+    }
+
+    const totalGross = lines.reduce((sum, row) => sum + row.gross, 0);
+    let allocated = 0;
+    lines.forEach((row, idx) => {
+      let share;
+      if (idx === lines.length - 1) {
+        share = totalReturned - allocated;
+      } else if (totalGross > 0) {
+        share = Math.round((row.gross / totalGross) * totalReturned);
+      } else {
+        share = Math.floor(totalReturned / lines.length);
+      }
+      allocated += share;
+      byLine[row.lineId] = (byLine[row.lineId] || 0) + share;
+    });
+  }
+
+  return byLine;
+}
+
+function mergeReturnAllocationsToLines(orderItems, returns, dispatches) {
+  const fromDispatch = aggregateReceivedReturnsByOrderLine(returns, dispatches);
+  const byProduct = aggregateReceivedReturnsByProduct(returns);
+  const remainingByProduct = {};
+
+  for (const [pid, total] of Object.entries(byProduct)) {
+    let allocated = 0;
+    for (const line of orderItems || []) {
+      if (refId(line.product) !== pid) continue;
+      allocated += fromDispatch[orderLineId(line)] || 0;
+    }
+    const remaining = total - allocated;
+    if (remaining > 0) remainingByProduct[pid] = remaining;
+  }
+
+  const fromRemainder = allocateProductReturnsAcrossLines(orderItems, remainingByProduct);
+  const merged = { ...fromDispatch };
+  for (const [lineId, qty] of Object.entries(fromRemainder)) {
+    merged[lineId] = (merged[lineId] || 0) + qty;
+  }
+  return merged;
+}
+
 /** Apply warehouse returns to a line: persist returned qty and settle delivered to net billable. */
 function applyReturnSettlementToLine(line, returnedQty) {
   const gross = grossAcceptedQty(line);
@@ -260,11 +442,13 @@ function applyReturnSettlementToLine(line, returnedQty) {
   line.delivered_quantity = netQty;
 
   if (returned > 0 && netQty === 0) {
-    line.line_status = 'cancelled';
-  } else if (returned > 0) {
-    line.line_status = 'fully_delivered';
+    line.line_status = ORDER_LINE_STATUS.CANCELLED;
+  } else if (netQty > 0 && netQty >= gross) {
+    line.line_status = ORDER_LINE_STATUS.FULFILLED;
+  } else if (returned > 0 || netQty < gross) {
+    line.line_status = ORDER_LINE_STATUS.PARTIAL;
   } else {
-    line.line_status = 'fully_delivered';
+    line.line_status = ORDER_LINE_STATUS.FULFILLED;
   }
 
   return line;
@@ -314,7 +498,11 @@ async function closeAfterFullDelivery(id, body, user) {
   let doc = await Order.findById(id);
   if (!doc) throw new ApiError(404, 'Order not found');
 
-  if (['closed', 'cancelled'].includes(String(doc.lifecycle_status || ''))) {
+  if (isOrderSettlementClosed(doc)) {
+    return toPlain(doc.toObject());
+  }
+
+  if (String(doc.lifecycle_status || '') === ORDER_LIFECYCLE_STATUS.CANCELLED) {
     return toPlain(doc.toObject());
   }
 
@@ -357,7 +545,7 @@ async function closeAfterFullDelivery(id, body, user) {
   const nextItems = (doc.order_items || []).map((line) => {
     const item = line.toObject ? line.toObject() : { ...line };
     item.returned_quantity = 0;
-    item.line_status = 'fully_delivered';
+    item.line_status = ORDER_LINE_STATUS.FULFILLED;
     return item;
   });
 
@@ -372,21 +560,14 @@ async function closeAfterFullDelivery(id, body, user) {
 
   await syncDispatchDeliveredAfterSettlement(id, nextItems);
 
-  const fromStatus = doc.status || 'delivered';
-  const fromLifecycle = doc.lifecycle_status || 'fulfilled';
-  const fromStage = doc.workflow_stage || 'dispatch_execution';
+  const fromStatus = doc.status || ORDER_STATUS.DELIVERED;
+  const fromLifecycle = doc.lifecycle_status || ORDER_LIFECYCLE_STATUS.FULFILLED;
+  const fromStage = normalizeWorkflowStage(doc.workflow_stage) || ORDER_WORKFLOW_STAGE.DISPATCH;
 
-  doc.status = 'delivered';
-  doc.lifecycle_status = 'closed';
-  doc.workflow_stage = 'completed';
-  doc.current_action = 'closed';
-  doc.dispatch_status = 'completed';
-  doc.delivery_status = 'completed';
-  doc.is_locked = true;
-  doc.closed_at = new Date();
-  doc.closed_by = user._id;
-  doc.updated_by = user._id;
-  doc.current_revision = Number(doc.current_revision || 1) + 1;
+  applyOrderSettlementClosedState(doc, user, {
+    dispatch_status: FULFILLMENT_STATUS.COMPLETED,
+    delivery_status: FULFILLMENT_STATUS.COMPLETED,
+  });
   if (remarks) {
     doc.closure_remarks = String(remarks).trim();
   }
@@ -396,7 +577,7 @@ async function closeAfterFullDelivery(id, body, user) {
   await OrderStatusHistory.create({
     order: id,
     from_status: fromStatus,
-    to_status: 'closed',
+    to_status: ORDER_STATUS.CLOSED,
     changed_by: user._id,
     remarks: remarks || 'Order closed after full delivery',
   });
@@ -407,8 +588,8 @@ async function closeAfterFullDelivery(id, body, user) {
     role: dept === 'super_admin' ? 'admin' : dept,
     action: 'closed',
     from_stage: fromStage,
-    to_stage: 'completed',
-    to_status: 'closed',
+    to_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
+    to_status: ORDER_STATUS.CLOSED,
     remarks: remarks || '',
     revision_number: doc.current_revision,
   });
@@ -421,13 +602,108 @@ async function closeAfterFullDelivery(id, body, user) {
     message: `Order ${doc.order_no} closed after full delivery`,
     old_value: { lifecycle_status: fromLifecycle, status: fromStatus },
     new_value: {
-      lifecycle_status: 'closed',
+      lifecycle_status: ORDER_LIFECYCLE_STATUS.FULFILLED,
       status: doc.status,
       grand_total: doc.grand_total,
     },
   });
 
   return toPlain(doc.toObject());
+}
+
+/**
+ * Shared validation for account order closure after warehouse returns.
+ */
+async function assertCloseWithReturnsPreconditions(id, body = {}) {
+  const { return_id: returnId } = body || {};
+  const { Order, OrderReturn } = getModels();
+
+  const doc = await Order.findById(id);
+  if (!doc) throw new ApiError(404, 'Order not found');
+
+  if (isOrderSettlementClosed(doc)) {
+    throw new ApiError(400, 'Order is already closed or cancelled');
+  }
+
+  if (String(doc.lifecycle_status || '') === ORDER_LIFECYCLE_STATUS.CANCELLED) {
+    throw new ApiError(400, 'Order is already closed or cancelled');
+  }
+
+  const allReturns = await OrderReturn.find({
+    order: id,
+    deletedAt: null,
+  }).lean();
+
+  const pendingReturns = allReturns.filter((r) => isReturnPending(r.return_status));
+  if (pendingReturns.length > 0) {
+    throw new ApiError(
+      400,
+      'All return records must be received at warehouse before closing the order',
+    );
+  }
+
+  const returns = allReturns.filter((r) => isReturnReceivedAtWarehouse(r.return_status));
+
+  if (returnId) {
+    const trigger = returns.find((r) => String(r._id) === String(returnId));
+    if (!trigger) {
+      throw new ApiError(400, 'Return must be received at warehouse before closing the order');
+    }
+  }
+
+  return { doc, returns };
+}
+
+/**
+ * Apply return settlement and recalculate order commercial totals without changing workflow status.
+ */
+async function settleOrderCommercials(id, body, user) {
+  const {
+    extra_charges: extraCharges = 0,
+    penalty_amount: penaltyAmount = 0,
+    damage_charge: damageCharge = 0,
+    remarks,
+  } = body || {};
+
+  const { doc, returns } = await assertCloseWithReturnsPreconditions(id, body);
+  const { OrderDispatch } = getModels();
+
+  const dispatches = await OrderDispatch.find({
+    order: id,
+    deletedAt: null,
+    dispatch_status: { $ne: 'cancelled' },
+  }).lean();
+
+  const returnedByLine = mergeReturnAllocationsToLines(doc.order_items || [], returns, dispatches);
+
+  const nextItems = (doc.order_items || []).map((line) => {
+    const item = line.toObject ? line.toObject() : { ...line };
+    const lineId = orderLineId(item);
+    const returnedQty = returnedByLine[lineId] ?? 0;
+    return applyReturnSettlementToLine(item, returnedQty);
+  });
+
+  doc.order_items = nextItems;
+  doc.extra_charges = Math.max(0, Number(extraCharges) || 0);
+  doc.penalty_amount = Math.max(0, Number(penaltyAmount) || 0);
+  doc.damage_charge = Math.max(0, Number(damageCharge) || 0);
+  if (remarks) {
+    doc.closure_remarks = String(remarks).trim();
+  }
+  doc.updated_by = user._id;
+
+  const plainForRecalc = doc.toObject();
+  recalcCommercialsForClosure(plainForRecalc);
+  doc.order_items = plainForRecalc.order_items;
+  doc.subtotal = plainForRecalc.subtotal;
+  doc.gst_amount = plainForRecalc.gst_amount;
+  doc.grand_total = plainForRecalc.grand_total;
+  doc.markModified('order_items');
+
+  await syncDispatchDeliveredAfterSettlement(id, nextItems);
+  await doc.save();
+
+  return { doc, returns, nextItems };
 }
 
 /**
@@ -440,81 +716,9 @@ async function closeWithReturns(id, body, user) {
     throw new ApiError(403, 'Only account can close orders after returns');
   }
 
-  const {
-    return_id: returnId,
-    extra_charges: extraCharges = 0,
-    penalty_amount: penaltyAmount = 0,
-    damage_charge: damageCharge = 0,
-    remarks,
-  } = body || {};
-
-  const { Order, OrderReturn, OrderDispatch, OrderWorkflow, OrderStatusHistory } = getModels();
-
-  const doc = await Order.findById(id);
-  if (!doc) throw new ApiError(404, 'Order not found');
-
-  if (['closed', 'cancelled'].includes(String(doc.lifecycle_status || ''))) {
-    throw new ApiError(400, 'Order is already closed or cancelled');
-  }
-
-  const allReturns = await OrderReturn.find({
-    order: id,
-    deletedAt: null,
-  }).lean();
-
-  const pendingReturns = allReturns.filter((r) => String(r.return_status || '') === 'pending');
-  if (pendingReturns.length > 0) {
-    throw new ApiError(
-      400,
-      'All return records must be received at warehouse before closing the order',
-    );
-  }
-
-  const returns = allReturns.filter((r) => String(r.return_status || '') === 'received');
-
-  if (returns.length === 0) {
-    throw new ApiError(400, 'No received returns exist for this order');
-  }
-
-  if (returnId) {
-    const trigger = returns.find((r) => String(r._id) === String(returnId));
-    if (!trigger) {
-      throw new ApiError(400, 'Return must be received at warehouse before closing the order');
-    }
-  }
-
-  const dispatches = await OrderDispatch.find({
-    order: id,
-    deletedAt: null,
-    dispatch_status: { $ne: 'cancelled' },
-  }).lean();
-
-  const returnedByLine = aggregateReceivedReturnsByOrderLine(returns, dispatches);
-  const returnedByProduct = aggregateReceivedReturnsByProduct(returns);
-
-  const nextItems = (doc.order_items || []).map((line) => {
-    const item = line.toObject ? line.toObject() : { ...line };
-    const lineId = String(item._id);
-    const pid = refId(item.product);
-    const returnedQty = returnedByLine[lineId] ?? returnedByProduct[pid] ?? 0;
-    return applyReturnSettlementToLine(item, returnedQty);
-  });
-
-  doc.order_items = nextItems;
-  doc.extra_charges = Math.max(0, Number(extraCharges) || 0);
-  doc.penalty_amount = Math.max(0, Number(penaltyAmount) || 0);
-  doc.damage_charge = Math.max(0, Number(damageCharge) || 0);
-  doc.closure_remarks = remarks ? String(remarks).trim() : doc.closure_remarks || '';
-
-  const plainForRecalc = doc.toObject();
-  recalcCommercialsForClosure(plainForRecalc);
-  doc.order_items = plainForRecalc.order_items;
-  doc.subtotal = plainForRecalc.subtotal;
-  doc.gst_amount = plainForRecalc.gst_amount;
-  doc.grand_total = plainForRecalc.grand_total;
-  doc.markModified('order_items');
-
-  await syncDispatchDeliveredAfterSettlement(id, nextItems);
+  const { remarks } = body || {};
+  const { OrderReturn, OrderWorkflow, OrderStatusHistory } = getModels();
+  const { doc, nextItems } = await settleOrderCommercials(id, body, user);
 
   const totalReturned = nextItems.reduce(
     (sum, line) => sum + Number(line.returned_quantity || 0),
@@ -525,33 +729,31 @@ async function closeWithReturns(id, body, user) {
     0,
   );
 
-  const fromStatus = doc.status || 'delivered';
-  const fromLifecycle = doc.lifecycle_status || 'fulfilled';
-  const fromStage = doc.workflow_stage || 'dispatch_execution';
-  doc.status = 'delivered';
-  doc.lifecycle_status = 'closed';
-  doc.workflow_stage = 'completed';
-  doc.current_action = 'closed';
-  doc.dispatch_status = 'completed';
-  doc.delivery_status = totalNetDelivered > 0 ? 'completed' : 'partial';
-  doc.is_locked = true;
-  doc.closed_at = new Date();
-  doc.closed_by = user._id;
-  doc.updated_by = user._id;
-  doc.current_revision = Number(doc.current_revision || 1) + 1;
+  const fromStatus = doc.status || ORDER_STATUS.DELIVERED;
+  const fromLifecycle = doc.lifecycle_status || ORDER_LIFECYCLE_STATUS.FULFILLED;
+  const fromStage = normalizeWorkflowStage(doc.workflow_stage) || ORDER_WORKFLOW_STAGE.DISPATCH;
+
+  applyOrderSettlementClosedState(doc, user, {
+    dispatch_status: FULFILLMENT_STATUS.COMPLETED,
+    delivery_status: totalNetDelivered > 0 ? FULFILLMENT_STATUS.COMPLETED : FULFILLMENT_STATUS.PARTIAL,
+  });
 
   await doc.save();
 
   const closedAt = doc.closed_at;
   await OrderReturn.updateMany(
-    { order: id, return_status: 'received', order_closed_at: null },
+    {
+      order: id,
+      return_status: { $in: [ORDER_RETURN_STATUS.RECEIVED_AT_WAREHOUSE, 'received'] },
+      order_closed_at: null,
+    },
     { $set: { order_closed_at: closedAt } },
   );
 
   await OrderStatusHistory.create({
     order: id,
     from_status: fromStatus,
-    to_status: 'closed',
+    to_status: ORDER_STATUS.CLOSED,
     changed_by: user._id,
     remarks: remarks || 'Order closed after warehouse return receipt',
   });
@@ -562,8 +764,8 @@ async function closeWithReturns(id, body, user) {
     role: dept === 'super_admin' ? 'admin' : dept,
     action: 'closed',
     from_stage: fromStage,
-    to_stage: 'completed',
-    to_status: 'closed',
+    to_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
+    to_status: ORDER_STATUS.CLOSED,
     remarks: remarks || '',
     revision_number: doc.current_revision,
   });
@@ -576,7 +778,7 @@ async function closeWithReturns(id, body, user) {
     message: `Order ${doc.order_no} closed after returns with adjusted totals`,
     old_value: { lifecycle_status: fromLifecycle, status: fromStatus },
     new_value: {
-      lifecycle_status: 'closed',
+      lifecycle_status: ORDER_LIFECYCLE_STATUS.FULFILLED,
       status: doc.status,
       grand_total: doc.grand_total,
       extra_charges: doc.extra_charges,
@@ -591,12 +793,107 @@ async function closeWithReturns(id, body, user) {
 }
 
 /**
+ * Account settle & close: resolve release approvals, settle commercials, lock order closed.
+ * Runs synchronously so status updates are visible immediately in the API response.
+ */
+async function settleAndCloseOrder(id, body, user) {
+  const dept = String(user.department || '');
+  if (!['account', 'admin', 'super_admin'].includes(dept)) {
+    throw new ApiError(403, 'Only account can settle and close orders after returns');
+  }
+
+  await assertCloseWithReturnsPreconditions(id, body);
+
+  const result = await processSettleAndCloseJob({
+    orderId: String(id),
+    userId: String(user._id),
+    body: body || {},
+  });
+
+  const { Order } = getModels();
+  const doc = await Order.findById(id).lean();
+  return {
+    ...result,
+    queued: false,
+    order: doc ? toPlain(doc) : null,
+  };
+}
+
+async function processSettleAndCloseJob(payload = {}) {
+  const orderId = payload.orderId;
+  const userId = payload.userId;
+  const body = payload.body || {};
+  if (!orderId) throw new Error('settle_and_close requires orderId');
+  if (!userId) throw new Error('settle_and_close requires userId');
+
+  const { User, OrderReturn } = getModels();
+  const actor = await User.findById(userId).lean();
+  if (!actor) throw new Error(`User not found for settle_and_close: ${userId}`);
+  const user = toPlain(actor);
+
+  const approvalService = require('../orderApproval/orderApproval.service');
+  const releaseResult = await approvalService.resolvePendingReleaseApprovalsForOrder(
+    orderId,
+    user,
+    {
+      amendment_notes: body.amendment_notes || body.remarks,
+      remarks: body.remarks,
+      skipAsyncJobs: true,
+    },
+  );
+
+  await approvalService.finalizeDispatchReleasesOnOrderClose(orderId, user);
+
+  const { Order } = getModels();
+  let doc;
+  try {
+    ({ doc } = await settleOrderCommercials(orderId, body, user));
+  } catch (err) {
+    doc = await Order.findById(orderId);
+    if (!doc || isOrderSettlementClosed(doc)) {
+      throw err;
+    }
+  }
+
+  const remarks = body.remarks || 'Account settle & close';
+  const closedDoc = await persistOrderSettlementClose(orderId, doc, user, {
+    remarks,
+    closure_remarks: body.remarks,
+    workflow_remarks: body.remarks || '',
+    activityMessage: `Order ${doc.order_no} closed after account settle & close`,
+  });
+
+  const closedAt = closedDoc.closed_at ? new Date(closedDoc.closed_at) : new Date();
+  await OrderReturn.updateMany(
+    {
+      order: orderId,
+      return_status: { $in: [ORDER_RETURN_STATUS.RECEIVED_AT_WAREHOUSE, 'received'] },
+      order_closed_at: null,
+    },
+    { $set: { order_closed_at: closedAt } },
+  );
+
+  const flagService = require('../flags/flag.service');
+  await flagService.recomputeOrderFlagAggregates(orderId);
+
+  return {
+    orderId,
+    releasesResolved: releaseResult.resolved,
+    releasesSkipped: releaseResult.skipped,
+    closed: true,
+    lifecycle_status: closedDoc.lifecycle_status || ORDER_LIFECYCLE_STATUS.FULFILLED,
+    workflow_stage: closedDoc.workflow_stage || ORDER_WORKFLOW_STAGE.COMPLETED,
+    status: closedDoc.status || ORDER_STATUS.CLOSED,
+  };
+}
+
+/**
  * Map API line payloads into mongoose subdocuments with normalized numbers.
  * Preserves `_id` when patching existing lines so updates do not blindly replace embedded doc ids.
  */
 function normalizeItems(items) {
   return (items || []).map((line) => {
-    const orderedQuantity = Number(line.ordered_quantity ?? line.quantity);
+    const orderedQuantity = Number(line.ordered_quantity ?? line.quantity ?? 0);
     const o = {
       product: line.product,
       product_name: line.product_name,
@@ -610,12 +907,10 @@ function normalizeItems(items) {
       gst_percent: Number(line.gst_percent ?? 0),
       ordered_quantity: orderedQuantity,
       approved_quantity: Number(line.approved_quantity || 0),
-      free_quantity: Number(line.free_quantity ?? line.free_qty ?? 0),
-      allocated_quantity: Number(line.allocated_quantity || 0),
       dispatched_quantity: Number(line.dispatched_quantity || 0),
       delivered_quantity: Number(line.delivered_quantity || 0),
-      cancelled_quantity: Number(line.cancelled_quantity || 0),
       returned_quantity: Number(line.returned_quantity || 0),
+      free_quantity: Number(line.free_quantity ?? line.free_qty ?? 0),
       unit_price: Number(line.unit_price),
       applied_rate_type: line.applied_rate_type || 'MANUAL',
       pricing_reference: line.pricing_reference || undefined,
@@ -631,7 +926,9 @@ function normalizeItems(items) {
       taxable_amount: 0,
       gst_amount: 0,
       total_amount: 0,
-      line_status: line.line_status || 'draft',
+      line_status: ORDER_LINE_STATUS_VALUES.includes(String(line.line_status || '').toLowerCase())
+        ? String(line.line_status).toLowerCase()
+        : ORDER_LINE_STATUS.ACTIVE,
       remarks: line.remarks || '',
     };
     if (line._id && mongoose.Types.ObjectId.isValid(String(line._id))) {
@@ -657,9 +954,13 @@ function parseExcludeStatuses(raw) {
   return out;
 }
 
-/** Restrict visibility to assigned users or the creator. */
-async function applyVisibilityFilter(q, user) {
-  await assigneeService.applyAssigneeVisibilityFilter(q, user);
+/** Sales: own/assigned orders. Other depts: all submitted+ orders. Super admin: all. */
+function applyVisibilityFilter(q, user) {
+  applyOrderVisibilityFilter(q, user);
+}
+
+function applyAccessFilter(q, user) {
+  applyOrderAccessFilter(q, user);
 }
 
 /** Active orders only (no trash filter here). Optional filters: status, exclude_status ($nin), customer, or party ObjectId. */
@@ -669,41 +970,68 @@ async function list(query = {}, user) {
 
   if (status) {
     const s = String(status).toLowerCase();
-    if (s === 'pending_review') {
-      q.$or = [{ workflow_stage: 'admin_review' }, { status: 'submitted' }];
+    const pendingStage = normalizePendingStage(s);
+    if (isAnyPendingApprovalStatus(s)) {
+      const pendingOrderIds = await findOrderIdsWithAnyPendingApproval(getModels());
+      q._id = { $in: pendingOrderIds };
+    } else if (pendingStage) {
+      const pendingOrderIds = await findOrderIdsWithPendingApproval(pendingStage, getModels());
+      q._id = { $in: pendingOrderIds };
     } else if (s === 'rejected') {
       q.$or = [{ finance_approval_status: 'rejected' }, { status: 'finance_rejected' }];
     } else if (s === 'closed') {
       q.$or = [
-        { lifecycle_status: 'closed' },
+        { status: ORDER_STATUS.CLOSED },
         { closed_at: { $exists: true, $ne: null } },
       ];
     } else if (s === 'open') {
-      q.status = { $nin: ['draft', 'cancelled', 'finance_rejected', 'submitted', 'on_hold', 'delivered'] };
-      q.workflow_stage = { $nin: ['admin_review', 'completed'] };
-      q.delivery_status = { $ne: 'completed' };
-      q.lifecycle_status = { $ne: 'fulfilled' };
-      q.finance_approval_status = { $ne: 'rejected' };
-    } else if (s === 'draft' || s === 'submitted' || s === 'sales_approved' || s === 'finance_review' || s === 'cancelled' || s === 'on_hold') {
+      q.status = {
+        $nin: [
+          ORDER_STATUS.DRAFT,
+          ORDER_STATUS.CANCELLED,
+          ORDER_STATUS.FINANCE_REJECTED,
+          ORDER_STATUS.SUBMITTED,
+          ORDER_STATUS.ON_HOLD,
+          ORDER_STATUS.DELIVERED,
+          ORDER_STATUS.CLOSED,
+        ],
+      };
+      q.closed_at = null;
+      q.workflow_stage = { $nin: [ORDER_WORKFLOW_STAGE.ADMIN_REVIEW, ORDER_WORKFLOW_STAGE.COMPLETED] };
+      q.delivery_status = { $ne: FULFILLMENT_STATUS.COMPLETED };
+      q.lifecycle_status = { $ne: ORDER_LIFECYCLE_STATUS.FULFILLED };
+      q.finance_approval_status = { $ne: APPROVAL_STATUS.REJECTED };
+    } else if (
+      s === ORDER_STATUS.DRAFT ||
+      s === ORDER_STATUS.SUBMITTED ||
+      s === ORDER_STATUS.SALES_APPROVED ||
+      s === ORDER_STATUS.FINANCE_REVIEW ||
+      s === ORDER_STATUS.CANCELLED ||
+      s === ORDER_STATUS.ON_HOLD ||
+      s === ORDER_STATUS.DISPATCH ||
+      s === ORDER_STATUS.IN_TRANSIT ||
+      s === ORDER_STATUS.DELIVERED ||
+      s === ORDER_STATUS.CLOSED
+    ) {
       q.status = status;
-    } else if (s === 'dispatch_review') {
-      q.workflow_stage = 'dispatch_review';
-    } else if (s === 'partially_finance_approved') {
-      q.finance_approval_status = 'partial';
-    } else if (s === 'fully_finance_approved') {
-      q.finance_approval_status = 'full';
-    } else if (s === 'finance_rejected') {
-      q.finance_approval_status = 'rejected';
+    } else if (s === 'dispatch_review' || s === 'dispatch_execution' || s === ORDER_STATUS.DISPATCH) {
+      q.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
+    } else if (s === 'partially_finance_approved' || s === 'finance_partial') {
+      q.finance_approval_status = { $in: [APPROVAL_STATUS.PARTIAL, 'partial'] };
+    } else if (s === 'fully_finance_approved' || s === ORDER_STATUS.FINANCE_APPROVED) {
+      q.finance_approval_status = { $in: [APPROVAL_STATUS.APPROVED, 'full'] };
+    } else if (s === ORDER_STATUS.FINANCE_REJECTED) {
+      q.finance_approval_status = APPROVAL_STATUS.REJECTED;
     } else if (s === 'dispatch_pending') {
-      q.dispatch_status = 'pending';
+      q.dispatch_status = FULFILLMENT_STATUS.PENDING;
     } else if (s === 'partial_dispatch_created' || s === 'partially_dispatched') {
-      q.dispatch_status = 'partial';
+      q.dispatch_status = FULFILLMENT_STATUS.PARTIAL;
     } else if (s === 'full_dispatch_created' || s === 'fully_dispatched') {
-      q.dispatch_status = 'completed';
+      q.dispatch_status = FULFILLMENT_STATUS.COMPLETED;
     } else if (s === 'partially_transported' || s === 'partially_delivered') {
-      q.delivery_status = 'partial';
-    } else if (s === 'fully_transported' || s === 'fully_delivered' || s === 'delivered') {
-      q.delivery_status = 'completed';
+      q.delivery_status = FULFILLMENT_STATUS.PARTIAL;
+    } else if (s === 'fully_transported' || s === 'fully_delivered' || s === ORDER_STATUS.DELIVERED) {
+      q.delivery_status = FULFILLMENT_STATUS.COMPLETED;
     } else {
       q.status = status;
     }
@@ -719,7 +1047,7 @@ async function list(query = {}, user) {
   }
 
   const andConditions = [];
-  await assigneeService.appendAssigneeVisibilityAnd(andConditions, user);
+  appendOrderVisibilityAnd(andConditions, user);
 
   if (search && String(search).trim()) {
     const searchRegex = new RegExp(String(search).trim(), 'i');
@@ -747,6 +1075,11 @@ async function list(query = {}, user) {
   const limit = Math.max(Number(query.limit) || 10, 1);
   const skip = (page - 1) * limit;
 
+  const mapListedOrders = async (rows) => {
+    const plainRows = rows.map((r) => toPlain(r));
+    return enrichOrdersWithApprovalPending(plainRows, getModels());
+  };
+
   if (paginate) {
     const [total, rows] = await Promise.all([
       getModels().Order.countDocuments(q),
@@ -762,17 +1095,17 @@ async function list(query = {}, user) {
       page,
       limit,
       pages: Math.ceil(total / limit),
-      data: rows.map((r) => toPlain(r)),
+      data: await mapListedOrders(rows),
     };
   }
 
   const rows = await getModels().Order.find(q).sort({ createdAt: -1 }).lean();
-  return rows.map((r) => toPlain(r));
+  return mapListedOrders(rows);
 }
 
 async function getById(id, user) {
   const q = { _id: id };
-  await applyVisibilityFilter(q, user);
+  applyAccessFilter(q, user);
   const row = await getModels().Order.findOne(q).lean();
   if (!row) throw new ApiError(404, 'Order not found');
   return toPlain(row);
@@ -836,9 +1169,6 @@ async function create(body, user) {
     priority: body.priority || 'normal',
     expected_delivery_date: body.expected_delivery_date ? new Date(body.expected_delivery_date) : null,
     assigned_sales_user: body.assigned_sales_user || user._id,
-    assigned_admin_user: body.assigned_admin_user || undefined,
-    assigned_finance_user: body.assigned_finance_user || undefined,
-    assigned_dispatch_user: body.assigned_dispatch_user || undefined,
     current_assignee: body.assigned_sales_user || user._id,
     current_department: 'sales',
     pending_with_role: 'sales',
@@ -865,8 +1195,10 @@ async function create(body, user) {
   const doc = await getModels().Order.create(payload);
   const plain = toPlain(doc.toObject());
 
-  await assigneeService.seedFromOrderCreate(doc, user._id);
-  await syncPartyProductLastRatesFromOrder(getModels, plain);
+  await orderQueue.enqueue({
+    type: 'sync_party_rates',
+    payload: { orderId: plain._id },
+  });
   await activityService.create({
     actor: user._id,
     entity_type: 'order',
@@ -875,6 +1207,20 @@ async function create(body, user) {
     message: `Order ${plain.order_no} drafted`,
     new_value: { order_no: plain.order_no },
   });
+
+  const submitOnCreate = body.submit_on_create === true || body.submit_on_create === 'true';
+  if (submitOnCreate) {
+    await orderQueue.enqueue({
+      type: ORDER_JOB_TYPES.SUBMIT_ORDER,
+      payload: {
+        orderId: plain._id,
+        userId: user._id,
+        remarks: body.submit_remarks || 'Initial submission upon creation',
+      },
+    });
+    plain.submit_queued = true;
+  }
+
   return plain;
 }
 
@@ -893,7 +1239,7 @@ async function update(id, patch, user) {
   assertSafePlainPatch(p);
 
   const q = { _id: id };
-  await applyVisibilityFilter(q, user);
+  applyAccessFilter(q, user);
   const doc = await getModels().Order.findOne(q);
   if (!doc) throw new ApiError(404, 'Order not found');
 
@@ -965,10 +1311,12 @@ async function update(id, patch, user) {
 
   doc.set('updated_by', user._id);
   await doc.save();
-  await assigneeService.syncFromOrderPatch(id, p, user._id);
   const out = toPlain(doc.toObject());
 
-  await syncPartyProductLastRatesFromOrder(getModels, out);
+  await orderQueue.enqueue({
+    type: 'sync_party_rates',
+    payload: { orderId: out._id },
+  });
   return out;
 }
 
@@ -986,6 +1334,58 @@ async function transition(id, body, user, reqMeta) {
     ip_address: reqMeta.ip,
     user_agent: reqMeta.ua,
   });
+}
+
+async function processOrderJob({ type, payload = {} }) {
+  switch (type) {
+    case 'sync_party_rates': {
+      const orderId = payload.orderId;
+      if (!orderId) throw new Error('sync_party_rates requires orderId');
+      const doc = await getModels().Order.findById(orderId).lean();
+      if (!doc) return { orderId, skipped: true };
+      await syncPartyProductLastRatesFromOrder(getModels, toPlain(doc));
+      return { orderId };
+    }
+    case 'recalculate_fulfillment': {
+      const orderId = payload.orderId;
+      if (!orderId) throw new Error('recalculate_fulfillment requires orderId');
+      const actor = payload.userId
+        ? await getModels().User.findById(payload.userId).lean()
+        : null;
+      const user = actor ? toPlain(actor) : null;
+      await fulfillmentService.recalculateFromExecutions(orderId, user);
+      return { orderId };
+    }
+    case 'post_transport_shipment': {
+      const transportService = require('../transport/transport.service');
+      return transportService.processPostTransportShipmentJob(payload);
+    }
+    case 'post_shipment_delivery': {
+      const orderDeliveryService = require('../orderDelivery/orderDelivery.service');
+      return orderDeliveryService.processPostShipmentDeliveryJob(payload);
+    }
+    case ORDER_JOB_TYPES.SETTLE_AND_CLOSE:
+    case 'settle_and_close':
+      return processSettleAndCloseJob(payload);
+    case ORDER_JOB_TYPES.SUBMIT_ORDER:
+    case 'submit_order': {
+      const orderId = payload.orderId;
+      const userId = payload.userId;
+      if (!orderId) throw new Error('submit_order requires orderId');
+      if (!userId) throw new Error('submit_order requires userId');
+      const order = await workflowService.transitionOrderStatus({
+        orderId,
+        nextStatus: ORDER_STATUS.SUBMITTED,
+        userId,
+        remarks: payload.remarks || 'Initial submission upon creation',
+        ip_address: payload.ip_address,
+        user_agent: payload.user_agent,
+      });
+      return { orderId, status: order?.status || ORDER_STATUS.SUBMITTED };
+    }
+    default:
+      throw new Error(`Unknown order job type: ${type}`);
+  }
 }
 
 /** Chronological audit of status changes (OrderStatusHistory), after verifying the order exists. */
@@ -1035,7 +1435,7 @@ async function softDelete(id, user) {
 /** Restore from trash; activity log for compliance trail. */
 async function restore(id, user) {
   const q = { _id: id };
-  await applyVisibilityFilter(q, user);
+  applyAccessFilter(q, user);
   const checkAccess = await getModels().Order.findOne(q).withDeleted().lean();
   if (!checkAccess) throw new ApiError(404, ORDER_NF);
 
@@ -1058,7 +1458,7 @@ async function fulfillment(id, user) {
 
 async function assignees(id, user) {
   const q = { _id: id };
-  await applyVisibilityFilter(q, user);
+  applyAccessFilter(q, user);
   const exists = await getModels().Order.exists(q);
   if (!exists) throw new ApiError(404, 'Order not found');
   return assigneeService.listByOrder(id);
@@ -1074,6 +1474,9 @@ module.exports = {
   fulfillment,
   assignees,
   closeWithReturns,
+  settleAndCloseOrder,
+  settleOrderCommercials,
+  processSettleAndCloseJob,
   closeAfterFullDelivery,
   recalcCommercials,
   normalizeItems,
@@ -1081,4 +1484,8 @@ module.exports = {
   softDelete,
   restore,
   resolveWorkflowAssigneeUserId,
+  applyReturnSettlementToLine,
+  grossAcceptedQty,
+  syncDispatchDeliveredAfterSettlement,
+  processOrderJob,
 };

@@ -1,35 +1,12 @@
 /**
- * @fileoverview Pure helpers for order department assignee fields (no I/O).
+ * @fileoverview Order list/detail visibility by department.
  * @module modules/orders/orderAssignee.util
  */
 
-const DEPARTMENTS = Object.freeze(['sales', 'admin', 'finance', 'account', 'dispatch']);
+const { ORDER_STATUS } = require('./order.constants');
 
-const DEPARTMENT_TO_ORDER_FIELD = Object.freeze({
-  sales: 'assigned_sales_user',
-  admin: 'assigned_admin_user',
-  finance: 'assigned_finance_user',
-  account: 'assigned_account_user',
-  dispatch: 'assigned_dispatch_user',
-});
-
-const PATCH_KEY_TO_DEPARTMENT = Object.freeze({
-  assigned_sales_user: 'sales',
-  assigned_admin_user: 'admin',
-  assigned_finance_user: 'finance',
-  assigned_account_user: 'account',
-  assigned_dispatch_user: 'dispatch',
-});
-
-const ASSIGNED_USER_ORDER_FIELDS = Object.freeze(Object.keys(PATCH_KEY_TO_DEPARTMENT));
-
-const ASSIGNEE_USER_SELECT = 'name email department';
-const ASSIGNEE_BY_SELECT = 'name email';
-
-function normalizeDepartment(value) {
-  const s = String(value || '').trim().toLowerCase();
-  return DEPARTMENTS.includes(s) ? s : null;
-}
+const SALES_ASSIGNEE_FIELD = 'assigned_sales_user';
+const ASSIGNED_USER_ORDER_FIELDS = [SALES_ASSIGNEE_FIELD];
 
 function normalizeUserId(value) {
   if (value == null || value === '') return null;
@@ -41,150 +18,114 @@ function normalizeUserId(value) {
   return String(value);
 }
 
-/** Read denormalized assignee id from an order-like object. */
-function getAssignedUserIdFromOrder(order, department) {
-  const dept = normalizeDepartment(department);
-  if (!dept || !order) return null;
-  const field = DEPARTMENT_TO_ORDER_FIELD[dept];
-  return field ? normalizeUserId(order[field]) : null;
+function departmentOf(user) {
+  return String(user?.department || '').toLowerCase();
 }
 
-/** Map department → user id from denormalized order fields. */
-function getAssigneeMapFromOrder(order) {
-  const map = {};
-  for (const dept of DEPARTMENTS) {
-    const id = getAssignedUserIdFromOrder(order, dept);
-    if (id) map[dept] = id;
+function isSalesUser(user) {
+  return departmentOf(user) === 'sales';
+}
+
+function isSuperAdminUser(user) {
+  return departmentOf(user) === 'super_admin';
+}
+
+/** Non-sales (except super_admin) only see orders that have left draft / been submitted. */
+function shouldExcludeDraftOrders(user) {
+  return !isSalesUser(user) && !isSuperAdminUser(user);
+}
+
+function shouldFilterOrdersBySalesAssignee(user) {
+  return isSalesUser(user);
+}
+
+/** Sales: own or assigned orders (including drafts). */
+function buildSalesVisibilityOr(userId) {
+  const id = normalizeUserId(userId);
+  if (!id) return null;
+  return {
+    $or: [
+      { created_by: id },
+      { [SALES_ASSIGNEE_FIELD]: id },
+    ],
+  };
+}
+
+function buildExcludeDraftClause() {
+  return { status: { $ne: ORDER_STATUS.DRAFT } };
+}
+
+function applyOrderVisibilityFilter(query, user) {
+  if (shouldFilterOrdersBySalesAssignee(user)) {
+    const clause = buildSalesVisibilityOr(user?._id);
+    if (clause) query.$or = clause.$or;
+    return;
   }
-  return map;
+  if (shouldExcludeDraftOrders(user)) {
+    Object.assign(query, buildExcludeDraftClause());
+  }
 }
 
 /**
- * Resolve the user currently responsible for the order.
- * Prefers `current_assignee`, then department role fields.
+ * Visibility for fetch/mutate by id — sales assignee scope only.
+ * Draft exclusion applies to list queries, not direct access (admin create→submit, etc.).
  */
+function applyOrderAccessFilter(query, user) {
+  if (!shouldFilterOrdersBySalesAssignee(user)) return;
+  const clause = buildSalesVisibilityOr(user?._id);
+  if (!clause) return;
+
+  if (query._id != null) {
+    const idClause = { _id: query._id };
+    delete query._id;
+    query.$and = [idClause, clause];
+    return;
+  }
+  query.$or = clause.$or;
+}
+
+function appendOrderVisibilityAnd(andConditions, user) {
+  if (shouldFilterOrdersBySalesAssignee(user)) {
+    const clause = buildSalesVisibilityOr(user?._id);
+    if (clause) andConditions.push(clause);
+    return;
+  }
+  if (shouldExcludeDraftOrders(user)) {
+    andConditions.push(buildExcludeDraftClause());
+  }
+}
+
 function resolveWorkflowAssigneeUserId(order) {
   if (!order) return null;
   const current = normalizeUserId(order.current_assignee);
   if (current) return current;
-  const dept = normalizeDepartment(order.pending_with_role || order.current_department);
-  if (!dept) return null;
-  return getAssignedUserIdFromOrder(order, dept);
+  return normalizeUserId(order[SALES_ASSIGNEE_FIELD]);
 }
 
-/** Mongo `$or` clause: user can see orders they created or are assigned to. */
-function buildAssignedUserVisibilityOr(userId) {
-  const id = normalizeUserId(userId);
-  if (!id) return [];
-  return [
-    { created_by: id },
-    ...ASSIGNED_USER_ORDER_FIELDS.map((field) => ({ [field]: id })),
-  ];
+/** @deprecated Use applyOrderVisibilityFilter */
+function applySalesVisibilityFilter(query, user) {
+  applyOrderVisibilityFilter(query, user);
 }
 
-function canUserBypassAssigneeVisibility(user) {
-  return Boolean(user && user.department === 'super_admin');
-}
-
-/** Restrict findOne queries (getById, soft-delete checks). */
-function applyAssignedUserVisibilityFilter(query, user) {
-  if (canUserBypassAssigneeVisibility(user)) return;
-  const visibility = buildAssignedUserVisibilityOr(user?._id);
-  if (visibility.length) query.$or = visibility;
-}
-
-/** Append visibility to list queries that may already use `$and` / status `$or`. */
-function appendAssignedUserVisibilityAnd(query, user) {
-  if (canUserBypassAssigneeVisibility(user)) return;
-  const visibility = buildAssignedUserVisibilityOr(user?._id);
-  if (!visibility.length) return;
-  if (!query.$and) query.$and = [];
-  query.$and.push({ $or: visibility });
-}
-
-/** Assignee keys present on an order PATCH body. */
-function pickAssigneePatch(patch) {
-  const out = {};
-  if (!patch || typeof patch !== 'object') return out;
-  for (const key of ASSIGNED_USER_ORDER_FIELDS) {
-    if (patch[key] !== undefined) out[key] = patch[key];
-  }
-  return out;
-}
-
-function hasAssigneePatch(patch) {
-  return Object.keys(pickAssigneePatch(patch)).length > 0;
-}
-
-function assigneePopulate(query) {
-  return query
-    .populate('assignee', ASSIGNEE_USER_SELECT)
-    .populate('assigned_by', ASSIGNEE_BY_SELECT);
-}
-
-/** Dedupe department/user pairs (last entry wins). */
-function dedupeAssigneeEntries(entries) {
-  const byKey = new Map();
-  for (const entry of entries || []) {
-    const dept = normalizeDepartment(entry.department);
-    const userId = normalizeUserId(entry.assigneeId ?? entry.assignee);
-    if (!dept || !userId) continue;
-    byKey.set(`${dept}\0${userId}`, { department: dept, assigneeId: userId, remarks: entry.remarks });
-  }
-  return [...byKey.values()];
-}
-
-/** Dedupe rows by order + department + assignee (keeps first / newest sort order). */
-function dedupeAssigneeRows(rows) {
-  const seen = new Set();
-  const out = [];
-  for (const row of rows || []) {
-    const orderId = String(row.order?._id ?? row.order ?? '');
-    const dept = row.department;
-    const userId = normalizeUserId(row.assignee);
-    if (!orderId || !dept || !userId) {
-      out.push(row);
-      continue;
-    }
-    const key = `${orderId}\0${dept}\0${userId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(row);
-  }
-  return out;
-}
-
-/** First assignee per department from rows sorted by assigned_at desc. */
-function primaryAssigneeIdByDepartment(rows) {
-  const map = {};
-  for (const row of rows || []) {
-    const dept = row.department;
-    const id = normalizeUserId(row.assignee);
-    if (dept && id && !map[dept]) map[dept] = id;
-  }
-  return map;
+/** @deprecated Use appendOrderVisibilityAnd */
+function appendSalesVisibilityAnd(andConditions, user) {
+  appendOrderVisibilityAnd(andConditions, user);
 }
 
 module.exports = {
-  DEPARTMENTS,
-  DEPARTMENT_TO_ORDER_FIELD,
-  PATCH_KEY_TO_DEPARTMENT,
+  SALES_ASSIGNEE_FIELD,
   ASSIGNED_USER_ORDER_FIELDS,
-  ASSIGNEE_USER_SELECT,
-  ASSIGNEE_BY_SELECT,
-  normalizeDepartment,
   normalizeUserId,
-  getAssignedUserIdFromOrder,
-  getAssigneeMapFromOrder,
+  isSalesUser,
+  isSuperAdminUser,
+  shouldExcludeDraftOrders,
+  shouldFilterOrdersBySalesAssignee,
+  buildSalesVisibilityOr,
+  buildExcludeDraftClause,
+  applyOrderVisibilityFilter,
+  applyOrderAccessFilter,
+  appendOrderVisibilityAnd,
+  applySalesVisibilityFilter,
+  appendSalesVisibilityAnd,
   resolveWorkflowAssigneeUserId,
-  buildAssignedUserVisibilityOr,
-  canUserBypassAssigneeVisibility,
-  applyAssignedUserVisibilityFilter,
-  appendAssignedUserVisibilityAnd,
-  pickAssigneePatch,
-  hasAssigneePatch,
-  assigneePopulate,
-  dedupeAssigneeEntries,
-  dedupeAssigneeRows,
-  primaryAssigneeIdByDepartment,
 };

@@ -43,6 +43,13 @@ const WIDGET_META: Record<
     Icon: LucideIcon;
   }
 > = {
+  pending_approvals: {
+    accent: "bg-violet-500",
+    labelTone: "text-violet-500 dark:text-violet-400",
+    iconWrap: "bg-violet-50 dark:bg-violet-950/30 border border-violet-100/45 dark:border-violet-500/10",
+    iconTone: "text-violet-600 dark:text-violet-400",
+    Icon: Layers,
+  },
   pending_transport: {
     accent: "bg-amber-500",
     labelTone: "text-amber-500 dark:text-amber-400",

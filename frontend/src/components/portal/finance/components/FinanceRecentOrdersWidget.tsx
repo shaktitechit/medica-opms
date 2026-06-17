@@ -81,9 +81,13 @@ function renderWorkflowStatusBadge(category: FinanceOrderTabCategory) {
   const label = FINANCE_ORDER_TAB_LABELS[category];
 
   switch (category) {
-    case "pending_finance_review":
+    case "pending_finance_approval":
       bgClass =
         "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
+      break;
+    case "pending_approvals":
+      bgClass =
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
       break;
     case "open":
       bgClass =
@@ -336,7 +340,7 @@ export default function FinanceRecentOrdersWidget({
                         {ref.slice(0, 12)}
                       </span>
                       {renderPriorityBadge(pri)}
-                      {renderWorkflowStatusBadge(statusCategory)}
+                      {renderWorkflowStatusBadge(statusCategory ?? "open")}
                     </div>
 
                     {/* Party Title */}

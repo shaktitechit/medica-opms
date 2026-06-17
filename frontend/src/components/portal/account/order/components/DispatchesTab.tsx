@@ -3,13 +3,11 @@
 import { useCallback, useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import { CreateAccountDispatchModal } from "./CreateAccountDispatchModal";
-import { ResolveAccountDispatchReleaseModal } from "./ResolveAccountDispatchReleaseModal";
-import { SendAccountOrderToDispatchModal } from "./SendAccountOrderToDispatchModal";
 import {
   filterAccountApprovalsForUser,
   groupAccountDispatchesByRelease,
   idFromRef,
-  isDispatchBatchSentToDispatch,
+  isFullyClearedApproval,
   listDispatchableAccountApprovals,
   summarizeReleaseDispatchState,
 } from "./accountDispatchAvailability";
@@ -18,6 +16,7 @@ import { resolveUserDisplay } from "@/components/portal/shared/userDisplay";
 import {
   useListDispatchesQuery,
   useListOrderApprovalsQuery,
+  useListOrderReturnsQuery,
   useListTransportsQuery,
   useListUsersQuery,
   useListTransportAgentsQuery,
@@ -99,28 +98,20 @@ export function DispatchesTab({
   );
 
   const dispatchesQ = useListDispatchesQuery({ order: orderId });
+  const returnsQ = useListOrderReturnsQuery({ order: orderId });
   const transportsQ = useListTransportsQuery({ order: orderId });
   const usersQ = useListUsersQuery({});
-  const dispatchUsersQ = useListUsersQuery({ department: "dispatch" });
   const transportAgentsQ = useListTransportAgentsQuery({});
   const approvalsQ = useListOrderApprovalsQuery(
-    { order: orderId, assigned_account_user: currentUserId },
-    { skip: !orderId || !currentUserId },
+    { order: orderId },
+    { skip: !orderId },
   );
 
   const [isCreateDispatchModalOpen, setIsCreateDispatchModalOpen] = useState(false);
   const [createDispatchApprovalId, setCreateDispatchApprovalId] = useState("");
-  const [resolveModalContext, setResolveModalContext] = useState<{
-    approval: Record<string, unknown>;
-    releaseNo: string;
-  } | null>(null);
-  const [sendModalContext, setSendModalContext] = useState<{
-    dispatch: Record<string, unknown>;
-    approval: Record<string, unknown> | null;
-    releaseNo: string;
-  } | null>(null);
 
   const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
+  const orderReturns = useMemo(() => pickList(returnsQ.data), [returnsQ.data]);
   const transports = useMemo(() => pickList(transportsQ.data), [transportsQ.data]);
   const users = useMemo(() => pickList(usersQ.data), [usersQ.data]);
   const transportAgents = useMemo(() => pickList(transportAgentsQ.data), [transportAgentsQ.data]);
@@ -140,16 +131,18 @@ export function DispatchesTab({
   }, [detail]);
 
   const accountApprovals = useMemo(() => {
-    return filterAccountApprovalsForUser(pickList(approvalsQ.data), currentUserId);
-  }, [approvalsQ.data, currentUserId]);
+    return filterAccountApprovalsForUser(pickList(approvalsQ.data));
+  }, [approvalsQ.data]);
 
   const dispatchableApprovals = useMemo(() => {
-    return listDispatchableAccountApprovals(accountApprovals, dispatches);
-  }, [accountApprovals, dispatches]);
+    return listDispatchableAccountApprovals(
+      accountApprovals,
+      dispatches,
+      orderItems,
+    );
+  }, [accountApprovals, dispatches, orderItems]);
 
   const orderStatus = deriveOrderWorkflowStatus(detail);
-
-  const dispatchUsers = useMemo(() => pickList(dispatchUsersQ.data), [dispatchUsersQ.data]);
 
   const releaseGroups = useMemo(
     () => groupAccountDispatchesByRelease(dispatches, accountApprovals),
@@ -157,15 +150,18 @@ export function DispatchesTab({
   );
 
   const canCreateDispatch =
-    isAssignedToMe &&
     !["cancelled", "on_hold"].includes(orderStatus) &&
     dispatchableApprovals.length > 0;
 
   const hasPartialDispatchRemaining =
-    isAssignedToMe &&
     !["cancelled", "on_hold"].includes(orderStatus) &&
     accountApprovals.some((approval) => {
-      const summary = summarizeReleaseDispatchState(approval, dispatches);
+      if (!isFullyClearedApproval(approval)) return false;
+      const summary = summarizeReleaseDispatchState(
+        approval,
+        dispatches,
+        orderItems,
+      );
       return summary.canContinueDispatch;
     });
 
@@ -174,27 +170,13 @@ export function DispatchesTab({
     setIsCreateDispatchModalOpen(true);
   }, []);
 
-  const openResolveRelease = useCallback(
-    (approval: Record<string, unknown>, releaseNo: string) => {
-      setIsCreateDispatchModalOpen(false);
-      setResolveModalContext({ approval, releaseNo });
-    },
-    [],
-  );
-
-  const defaultDispatchUserId = useMemo(
-    () => idFromRef(detail?.assigned_dispatch_user),
-    [detail],
-  );
-
-  const orderNo = String(detail?.order_no ?? detail?.order_number ?? "—");
-
   const handleRefetch = useCallback(() => {
     refetchOrder?.();
     if (!dispatchesQ.isUninitialized) void dispatchesQ.refetch();
+    if (!returnsQ.isUninitialized) void returnsQ.refetch();
     if (!approvalsQ.isUninitialized) void approvalsQ.refetch();
     if (!transportsQ.isUninitialized) void transportsQ.refetch();
-  }, [refetchOrder, dispatchesQ, approvalsQ, transportsQ]);
+  }, [refetchOrder, dispatchesQ, returnsQ, approvalsQ, transportsQ]);
 
   const handleViewBillDocument = useCallback(
     async (fileUrl: string) => {
@@ -245,7 +227,7 @@ export function DispatchesTab({
               Dispatch control
             </h3>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Record billing and warehouse dispatch batches, then send each batch to the dispatch team when ready.
+              Record billing and warehouse dispatch batches from account-cleared approval releases.
             </p>
             <p className="mt-2 text-[11px] font-medium text-slate-600 dark:text-slate-300">
               {dispatches.length} batch{dispatches.length === 1 ? "" : "es"} recorded
@@ -289,6 +271,14 @@ export function DispatchesTab({
               const releaseSummary = summarizeReleaseDispatchState(
                 group.approval,
                 dispatches,
+                orderItems,
+                orderReturns,
+                { includeWarehouseReturns: true },
+              );
+              const dispatchSummary = summarizeReleaseDispatchState(
+                group.approval,
+                dispatches,
+                orderItems,
               );
               const releaseApprovalId = group.approval
                 ? idFromRef(group.approval._id ?? group.approval.id)
@@ -304,32 +294,27 @@ export function DispatchesTab({
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                         {activeReleaseDispatches.length} dispatch batch
                         {activeReleaseDispatches.length === 1 ? "" : "es"} recorded
-                        {releaseSummary.remainingTotal > 0
-                          ? ` · ${releaseSummary.remainingTotal} unit${releaseSummary.remainingTotal === 1 ? "" : "s"} remaining`
-                          : ""}
+                        {releaseSummary.isReleaseResolved ? (
+                          <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                            {" "}
+                            · Release resolved
+                          </span>
+                        ) : releaseSummary.remainingTotal > 0 ? (
+                          ` · ${releaseSummary.remainingTotal} unit${releaseSummary.remainingTotal === 1 ? "" : "s"} remaining`
+                        ) : null}
                       </p>
                     </div>
                     {isAssignedToMe &&
-                    !["cancelled", "on_hold"].includes(orderStatus) ? (
+                    !["cancelled", "on_hold"].includes(orderStatus) &&
+                    !releaseSummary.isReleaseResolved ? (
                       <div className="flex flex-wrap items-center gap-2">
-                        {releaseSummary.canContinueDispatch ? (
+                        {dispatchSummary.canContinueDispatch ? (
                           <button
                             type="button"
                             onClick={() => openCreateDispatch(releaseApprovalId)}
                             className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
                           >
                             Continue dispatch
-                          </button>
-                        ) : null}
-                        {releaseSummary.canResolveRelease && group.approval ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openResolveRelease(group.approval!, group.releaseNo)
-                            }
-                            className="shrink-0 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/50"
-                          >
-                            Resolve release
                           </button>
                         ) : null}
                       </div>
@@ -375,14 +360,6 @@ export function DispatchesTab({
 
               const transport = activeTransport || dispatchTransports[dispatchTransports.length - 1];
 
-              const dispatchAssigneeName = resolveUserDisplay(
-                disp.dispatch_assignee_user,
-                userNameById,
-              );
-              const isDispatchSent = isDispatchBatchSentToDispatch(disp);
-              const showSendToDispatch =
-                !isDispatchSent && dispatchStatus !== "cancelled";
-
               return (
                 <div
                   key={dispId}
@@ -414,34 +391,7 @@ export function DispatchesTab({
                       <p className="mt-1 text-xs text-slate-500">
                         Dispatch Date: {formatDate(disp.dispatched_at ?? disp.dispatch_date)}
                       </p>
-                      {isDispatchSent ? (
-                        <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-                          Assigned dispatch user:{" "}
-                          <span className="font-semibold text-slate-800 dark:text-slate-100">
-                            {dispatchAssigneeName}
-                          </span>
-                        </p>
-                      ) : null}
                     </div>
-                    {isDispatchSent ? (
-                      <span className="inline-flex shrink-0 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
-                        Dispatch sent
-                      </span>
-                    ) : showSendToDispatch ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSendModalContext({
-                            dispatch: disp,
-                            approval: group.approval,
-                            releaseNo: group.releaseNo,
-                          })
-                        }
-                        className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
-                      >
-                        Send to dispatch
-                      </button>
-                    ) : null}
                   </div>
 
                   <div className="grid gap-6 mt-4 sm:grid-cols-3">
@@ -531,14 +481,6 @@ export function DispatchesTab({
                         ) : (
                           <span className="text-slate-500 dark:text-slate-400">—</span>
                         )}
-                      </div>
-                      <div>
-                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
-                          Assigned Dispatch User
-                        </span>
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          {dispatchAssigneeName}
-                        </span>
                       </div>
                       <div>
                         <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
@@ -718,46 +660,6 @@ export function DispatchesTab({
         approvals={dispatchableApprovals}
         initialApprovalId={createDispatchApprovalId || undefined}
         onCreated={handleRefetch}
-        onResolveRelease={(approval) => {
-          const releaseNo = String(approval.approval_no ?? "—");
-          openResolveRelease(approval, releaseNo);
-        }}
-      />
-
-      <ResolveAccountDispatchReleaseModal
-        open={resolveModalContext !== null}
-        onClose={() => setResolveModalContext(null)}
-        approval={resolveModalContext?.approval ?? null}
-        dispatches={dispatches}
-        orderItems={orderItems}
-        releaseNo={resolveModalContext?.releaseNo}
-        onResolved={handleRefetch}
-      />
-
-      <SendAccountOrderToDispatchModal
-        open={sendModalContext !== null}
-        onClose={() => setSendModalContext(null)}
-        orderId={orderId}
-        orderNo={orderNo}
-        partyLabel={partyLabel}
-        releaseLabel={sendModalContext?.releaseNo}
-        dispatchBatchNo={
-          sendModalContext
-            ? String(sendModalContext.dispatch.dispatch_no ?? "")
-            : undefined
-        }
-        detail={detail}
-        dispatches={sendModalContext ? [sendModalContext.dispatch] : []}
-        accountApprovals={
-          sendModalContext?.approval ? [sendModalContext.approval] : accountApprovals
-        }
-        dispatchUsers={dispatchUsers}
-        userNameById={userNameById}
-        defaultDispatchUser={defaultDispatchUserId}
-        onSuccess={() => {
-          setSendModalContext(null);
-          handleRefetch();
-        }}
       />
     </div>
   );

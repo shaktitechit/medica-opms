@@ -161,7 +161,10 @@ export default function AdminOverview() {
     isKpiFetching || isOrdersFetching || isFlagsFetching || isRefreshing;
 
   // Compute stats for visualization (e.g. order mix)
-  const pendingReviewPercent = totalOrdersCount > 0 ? (orderStats.pending_review.count / totalOrdersCount) * 100 : 0;
+  const pendingAdminPercent =
+    totalOrdersCount > 0 ? (orderStats.pending_admin_approval.count / totalOrdersCount) * 100 : 0;
+  const pendingApprovalsPercent =
+    totalOrdersCount > 0 ? (orderStats.pending_approvals.count / totalOrdersCount) * 100 : 0;
   const openPercent = totalOrdersCount > 0 ? (orderStats.open.count / totalOrdersCount) * 100 : 0;
   const closedPercent = totalOrdersCount > 0 ? (orderStats.closed.count / totalOrdersCount) * 100 : 0;
   const onHoldPercent = totalOrdersCount > 0 ? (orderStats.on_hold.count / totalOrdersCount) * 100 : 0;
@@ -337,8 +340,13 @@ export default function AdminOverview() {
                   <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                     <div
                       className="bg-purple-500 transition-all duration-500"
-                      style={{ width: `${pendingReviewPercent}%` }}
-                      title={`Pending Review: ${orderStats.pending_review.count}`}
+                      style={{ width: `${pendingAdminPercent}%` }}
+                      title={`Pending Admin Approval: ${orderStats.pending_admin_approval.count}`}
+                    />
+                    <div
+                      className="bg-violet-500 transition-all duration-500"
+                      style={{ width: `${pendingApprovalsPercent}%` }}
+                      title={`Pending Approvals (all depts): ${orderStats.pending_approvals.count}`}
                     />
                     <div
                       className="bg-blue-500 transition-all duration-500"
@@ -371,9 +379,17 @@ export default function AdminOverview() {
                   <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] font-medium pt-1">
                     <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
                       <span className="h-2 w-2 rounded-full bg-purple-500 shrink-0" />
-                      <span>Pending Review:</span>
+                      <span>Pending Admin:</span>
                       <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {orderStats.pending_review.count} ({pendingReviewPercent.toFixed(0)}%)
+                        {orderStats.pending_admin_approval.count} ({pendingAdminPercent.toFixed(0)}%)
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
+                      <span className="h-2 w-2 rounded-full bg-violet-500 shrink-0" />
+                      <span>Pending Approvals:</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
+                        {orderStats.pending_approvals.count} ({pendingApprovalsPercent.toFixed(0)}%)
                       </span>
                     </div>
 

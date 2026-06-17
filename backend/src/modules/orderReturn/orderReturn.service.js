@@ -7,8 +7,24 @@ const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
 const { softDeleteActiveById, restoreSoftDeletedById, listDeletedLean } = require('../../utils/mongoSoftDelete');
 const activityService = require('../activity/activity.service');
+const {
+  ORDER_RETURN_STATUS,
+  ORDER_RETURN_STATUS_VALUES,
+  normalizeReturnStatus,
+} = require('../../constants/orderReturnStatus');
 
 const RET_NF = 'Order return not found';
+
+function assertValidReturnStatus(status) {
+  const normalized = normalizeReturnStatus(status);
+  if (!ORDER_RETURN_STATUS_VALUES.includes(normalized)) {
+    throw new ApiError(
+      400,
+      `Invalid return_status. Allowed: ${ORDER_RETURN_STATUS_VALUES.join(', ')}`,
+    );
+  }
+  return normalized;
+}
 
 function generateReturnNo() {
   const ts = Date.now().toString(36).toUpperCase();
@@ -52,6 +68,7 @@ async function create(body, user) {
   if (!orderExists) throw new ApiError(404, 'Order not found');
 
   const items = Array.isArray(body.return_items) ? body.return_items : [];
+  const returnStatus = assertValidReturnStatus(body.return_status || ORDER_RETURN_STATUS.PENDING);
 
   const doc = await OrderReturn.create({
     return_no: body.return_no || generateReturnNo(),
@@ -59,7 +76,7 @@ async function create(body, user) {
     dispatch: body.dispatch || undefined,
     transport: body.transport || undefined,
     delivery: body.delivery || undefined,
-    return_status: body.return_status || 'pending',
+    return_status: returnStatus,
     return_items: items.map(item => ({
       product: item.product,
       returned_quantity: item.returned_quantity,
@@ -94,12 +111,15 @@ async function patch(id, patchBody, user) {
     'dispatch',
     'transport',
     'delivery',
-    'return_status',
     'returned_by',
     'received_by',
     'remarks',
   ]) {
     if (patch[field] !== undefined) doc[field] = patch[field] || undefined;
+  }
+
+  if (patch.return_status !== undefined) {
+    doc.return_status = assertValidReturnStatus(patch.return_status);
   }
 
   if (patch.received_at !== undefined) {

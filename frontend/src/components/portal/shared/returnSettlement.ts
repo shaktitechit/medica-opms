@@ -1,6 +1,8 @@
 /** Helpers for account order closure — map warehouse returns to order lines. */
 
-function refId(value: unknown): string {
+import { isReturnPending, isReturnReceivedAtWarehouse } from "@/constants/orderReturnStatus";
+
+export function refId(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "object") {
     const o = value as Record<string, unknown>;
@@ -21,7 +23,7 @@ function grossAcceptedQty(line: Record<string, unknown>): number {
 export function aggregateReceivedReturnsByProduct(returns: Record<string, unknown>[]) {
   const map: Record<string, number> = {};
   for (const ret of returns) {
-    if (String(ret.return_status || "") !== "received") continue;
+    if (!isReturnReceivedAtWarehouse(ret.return_status)) continue;
     const items = Array.isArray(ret.return_items) ? ret.return_items : [];
     for (const item of items) {
       const pid = refId((item as Record<string, unknown>).product);
@@ -44,7 +46,7 @@ export function aggregateReceivedReturnsByOrderLine(
   }
 
   for (const ret of returns) {
-    if (String(ret.return_status || "") !== "received") continue;
+    if (!isReturnReceivedAtWarehouse(ret.return_status)) continue;
     const dispatch = dispatchById[refId(ret.dispatch)];
     if (!dispatch) continue;
 
@@ -61,7 +63,8 @@ export function aggregateReceivedReturnsByOrderLine(
       );
 
       if (matching.length === 1) {
-        const key = String((matching[0] as Record<string, unknown>).order_item_id ?? "");
+        const key = refId((matching[0] as Record<string, unknown>).order_item_id);
+        if (!key) continue;
         byLine[key] = (byLine[key] || 0) + qty;
         continue;
       }
@@ -74,7 +77,8 @@ export function aggregateReceivedReturnsByOrderLine(
         let allocated = 0;
         matching.forEach((di, idx) => {
           const row = di as Record<string, unknown>;
-          const key = String(row.order_item_id ?? "");
+          const key = refId(row.order_item_id);
+          if (!key) return;
           let share: number;
           if (idx === matching.length - 1) {
             share = qty - allocated;
@@ -153,5 +157,45 @@ export function buildSettlementPreviewLines(
 }
 
 export function hasPendingReturns(returns: Record<string, unknown>[]): boolean {
-  return returns.some((r) => String(r.return_status || "") === "pending");
+  return returns.some((r) => isReturnPending(r.return_status));
+}
+
+export function totalPendingReturnQty(returns: Record<string, unknown>[]): number {
+  return returns.reduce((sum, ret) => {
+    if (!isReturnPending(ret.return_status)) return sum;
+    const items = Array.isArray(ret.return_items) ? ret.return_items : [];
+    return (
+      sum +
+      items.reduce(
+        (itemSum, item) =>
+          itemSum + Number((item as Record<string, unknown>).returned_quantity || 0),
+        0,
+      )
+    );
+  }, 0);
+}
+
+/** Pending return qty keyed by order line (via dispatch items when available). */
+export function aggregatePendingReturnsByOrderLine(
+  returns: Record<string, unknown>[],
+  dispatches: Record<string, unknown>[],
+): Record<string, number> {
+  const pending = returns.filter((r) => isReturnPending(r.return_status));
+  return aggregateReceivedReturnsByOrderLine(pending, dispatches);
+}
+
+export function filterReturnsReceivedAtWarehouse(
+  returns: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return returns.filter((r) => isReturnReceivedAtWarehouse(r.return_status));
+}
+
+export function canSettleAccountOrder(
+  detail: Record<string, unknown> | null,
+  returns: Record<string, unknown>[],
+): boolean {
+  if (!detail) return false;
+  const lifecycle = String(detail.lifecycle_status ?? "").toLowerCase();
+  if (lifecycle === "cancelled" || String(detail.status ?? "").toLowerCase() === "closed" || Boolean(detail.closed_at)) return false;
+  return !hasPendingReturns(returns);
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   computeDepartmentStageBoxes,
   computeOrderStatusDimensions,
@@ -16,6 +17,8 @@ type Props = {
   order: Record<string, unknown> | null;
   fulfillmentSnapshot?: Record<string, unknown> | null;
   dimensions?: OrderStatusDimensions | null;
+  returns?: Record<string, unknown>[];
+  dispatches?: Record<string, unknown>[];
   className?: string;
   /** Hide per-line table when space is tight */
   showItemsTable?: boolean;
@@ -114,7 +117,7 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
 
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-white/10">
-      <table className="w-full min-w-[900px] text-left text-[11px]">
+      <table className="w-full min-w-[980px] text-left text-[11px]">
         <thead className="bg-slate-50/90 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-950/50 dark:text-slate-400">
           <tr>
             <th className="px-3 py-2">Item</th>
@@ -130,6 +133,7 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
             </th>
             <th className="px-3 py-2 text-right">Dispatched</th>
             <th className="px-3 py-2 text-right">Delivered</th>
+            <th className="px-3 py-2 text-right text-rose-700 dark:text-rose-400">Returned</th>
             <th className="px-3 py-2 text-right text-amber-700 dark:text-amber-400">
               Pending sales approval
             </th>
@@ -141,6 +145,7 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
             </th>
             <th className="px-3 py-2 text-right text-blue-700 dark:text-blue-400">Pending dispatch</th>
             <th className="px-3 py-2 text-right text-violet-700 dark:text-violet-400">Pending delivery</th>
+            <th className="px-3 py-2 text-right text-orange-700 dark:text-orange-400">Pending return</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-white/5">
@@ -168,6 +173,9 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
               </td>
               <td className="px-3 py-2 text-right tabular-nums">{line.dispatched}</td>
               <td className="px-3 py-2 text-right tabular-nums">{line.delivered}</td>
+              <td className="px-3 py-2 text-right tabular-nums font-medium text-rose-700 dark:text-rose-400">
+                {line.returned}
+              </td>
               <td className="px-3 py-2 text-right tabular-nums font-medium text-amber-700 dark:text-amber-400">
                 {line.pendingAdmin}
               </td>
@@ -183,6 +191,9 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
               <td className="px-3 py-2 text-right tabular-nums font-medium text-violet-700 dark:text-violet-400">
                 {line.pendingDelivery}
               </td>
+              <td className="px-3 py-2 text-right tabular-nums font-medium text-orange-700 dark:text-orange-400">
+                {line.pendingReturn}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -196,27 +207,32 @@ export function OrderDepartmentFulfillmentPanel({
   order,
   fulfillmentSnapshot,
   dimensions: dimensionsProp,
+  returns,
+  dispatches,
   className = "",
   showItemsTable = true,
   showDepartmentBoxes = true,
 }: Props) {
+  const fulfillmentOptions = useMemo(
+    () => ({ returns, dispatches }),
+    [returns, dispatches],
+  );
+
   const dimensions =
     dimensionsProp ?? computeOrderStatusDimensions(order, fulfillmentSnapshot);
-  const departmentBoxes = computeDepartmentStageBoxes(order, fulfillmentSnapshot);
-  const lines = fulfillmentLinesFromSnapshot(order, fulfillmentSnapshot);
+  const departmentBoxes = computeDepartmentStageBoxes(
+    order,
+    fulfillmentSnapshot,
+    fulfillmentOptions,
+  );
+  const lines = fulfillmentLinesFromSnapshot(order, fulfillmentSnapshot, fulfillmentOptions);
 
   if (!dimensions) return null;
 
   return (
     <div className={`space-y-3 ${className}`} aria-label="Order workflow and fulfillment">
-      {/* <div className="grid gap-2 sm:grid-cols-3">
-        <SummaryPill title="Department" dimension={dimensions.departmental} />
-        <SummaryPill title="Fulfillment" dimension={dimensions.fulfillment} />
-        <SummaryPill title="Action" dimension={dimensions.action} />
-      </div> */}
-
       {showDepartmentBoxes ? (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
           {departmentBoxes.map((box) => (
             <DepartmentBox key={box.id} box={box} />
           ))}

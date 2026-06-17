@@ -41,12 +41,19 @@ const WIDGET_META: Record<
     Icon: LucideIcon;
   }
 > = {
-  pending_finance_review: {
+  pending_finance_approval: {
     accent: "bg-purple-500",
     labelTone: "text-purple-500 dark:text-purple-400",
     iconWrap: "bg-purple-50 dark:bg-purple-950/30 border border-purple-100/45 dark:border-purple-500/10",
     iconTone: "text-purple-600 dark:text-purple-400",
     Icon: Clock,
+  },
+  pending_approvals: {
+    accent: "bg-violet-500",
+    labelTone: "text-violet-500 dark:text-violet-400",
+    iconWrap: "bg-violet-50 dark:bg-violet-950/30 border border-violet-100/45 dark:border-violet-500/10",
+    iconTone: "text-violet-600 dark:text-violet-400",
+    Icon: Layers,
   },
   open: {
     accent: "bg-teal-500",

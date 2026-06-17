@@ -1,5 +1,9 @@
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
-import { isOrderClosed } from "@/components/portal/sales/orderUtils";
+import {
+  isOrderClosed,
+  resolveApprovalPending,
+  type ApprovalPendingStage,
+} from "@/components/portal/sales/orderUtils";
 import { hasPendingReturns } from "@/components/portal/shared/returnSettlement";
 import {
   buildPendingReturnOrderIds,
@@ -7,6 +11,7 @@ import {
 } from "@/components/portal/account/accountOrderUtils";
 
 export type DispatchOrderTabCategory =
+  | "pending_approvals"
   | "pending_transport"
   | "pending_delivery"
   | "returns_pending"
@@ -18,6 +23,7 @@ export const DISPATCH_ORDER_TABS: ReadonlyArray<{
   id: DispatchOrderTabCategory;
   label: string;
 }> = [
+  { id: "pending_approvals", label: "Pending Approvals" },
   { id: "pending_transport", label: "Pending Transport" },
   { id: "pending_delivery", label: "Pending Delivery" },
   { id: "returns_pending", label: "Pending Returns" },
@@ -27,6 +33,7 @@ export const DISPATCH_ORDER_TABS: ReadonlyArray<{
 ];
 
 export const DISPATCH_ORDER_TAB_LABELS: Record<DispatchOrderTabCategory, string> = {
+  pending_approvals: "Pending Approvals",
   pending_transport: "Pending Transport",
   pending_delivery: "Pending Delivery",
   returns_pending: "Pending Returns",
@@ -81,12 +88,15 @@ function fulfillmentQuantities(order: Record<string, unknown>): {
   return { dispatched, delivered };
 }
 
-export function getDispatchOrderTabCategory(
-  order: unknown,
+function hasAnyPendingApproval(order: unknown): boolean {
+  const pending = resolveApprovalPending(order);
+  return pending.admin || pending.finance || pending.account;
+}
+
+function getDispatchFulfillmentTabCategory(
+  row: Record<string, unknown>,
   options?: DispatchOrderCategoryOptions,
 ): DispatchOrderTabCategory {
-  if (!order || typeof order !== "object") return "pending_transport";
-  const row = order as Record<string, unknown>;
   const status = deriveOrderWorkflowStatus(row);
 
   if (status === "on_hold") return "on_hold";
@@ -112,6 +122,46 @@ export function getDispatchOrderTabCategory(
   }
 
   return "pending_transport";
+}
+
+export function getDispatchOrderTabCategory(
+  order: unknown,
+  options?: DispatchOrderCategoryOptions,
+): DispatchOrderTabCategory {
+  if (!order || typeof order !== "object") return "pending_transport";
+  const row = order as Record<string, unknown>;
+
+  if (hasAnyPendingApproval(row)) return "pending_approvals";
+
+  return getDispatchFulfillmentTabCategory(row, options);
+}
+
+/** Whether an order belongs on the given dispatch list tab. */
+export function orderMatchesDispatchTab(
+  order: unknown,
+  tab: DispatchOrderTabCategory,
+  options?: DispatchOrderCategoryOptions,
+): boolean {
+  if (!order || typeof order !== "object") return false;
+  if (deriveOrderWorkflowStatus(order as Record<string, unknown>) === "draft") return false;
+
+  if (tab === "pending_approvals") return hasAnyPendingApproval(order);
+
+  const cat = getDispatchOrderTabCategory(order, options);
+  return cat === tab;
+}
+
+export function pendingApprovalStageLabel(stage: ApprovalPendingStage): string {
+  switch (stage) {
+    case "admin":
+      return "Admin";
+    case "finance":
+      return "Finance";
+    case "account":
+      return "Account";
+    default:
+      return "Approval";
+  }
 }
 
 export function isDispatchOrderTabCategory(value: string): value is DispatchOrderTabCategory {
@@ -166,6 +216,12 @@ export const DISPATCH_STATUS_COLORS: Record<
   DispatchOrderTabCategory,
   { fill: string; hover: string; dot: string; label: string }
 > = {
+  pending_approvals: {
+    fill: "fill-violet-500/85 dark:fill-violet-500/60",
+    hover: "fill-violet-600 dark:fill-violet-400",
+    dot: "bg-violet-500 dark:bg-violet-400",
+    label: "Pending Approvals",
+  },
   pending_transport: {
     fill: "fill-amber-500/85 dark:fill-amber-500/60",
     hover: "fill-amber-600 dark:fill-amber-400",

@@ -13,6 +13,7 @@ export type OrderDetailTabsNavProps = {
   activeId: string;
   onChange: (id: string) => void;
   ariaLabel?: string;
+  className?: string;
 };
 
 export function OrderDetailTabsNav({
@@ -20,9 +21,10 @@ export function OrderDetailTabsNav({
   activeId,
   onChange,
   ariaLabel = "Order sections",
+  className = "",
 }: OrderDetailTabsNavProps) {
   return (
-    <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 p-1.5 dark:border-white/10 dark:bg-white/[0.04]">
+    <div className={`rounded-xl border border-slate-200/90 bg-slate-50/80 p-1.5 dark:border-white/10 dark:bg-white/[0.04] ${className}`.trim()}>
       <nav className="-mx-0.5 flex gap-1 overflow-x-auto scrollbar-none pb-0.5" aria-label={ariaLabel}>
         {tabs.map((t) => {
           const selected = activeId === t.id;

@@ -7,6 +7,7 @@ import {
   Ban,
   Clock,
   FileText,
+  ListChecks,
   Package,
   TrendingUp,
   type LucideIcon,
@@ -39,6 +40,13 @@ const WIDGET_META: Record<
     iconWrap: "bg-slate-50 dark:bg-slate-800",
     iconTone: "text-slate-500 dark:text-slate-400",
     Icon: FileText,
+  },
+  pending_approval: {
+    accent: "bg-purple-500",
+    labelTone: "text-purple-500 dark:text-purple-400",
+    iconWrap: "bg-purple-50 dark:bg-purple-950/30",
+    iconTone: "text-purple-600 dark:text-purple-400",
+    Icon: ListChecks,
   },
   open: {
     accent: "bg-blue-500",

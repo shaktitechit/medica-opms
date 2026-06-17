@@ -9,16 +9,14 @@ import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifec
 import {
   ACCOUNT_ORDER_TABS,
   ACCOUNT_STATUS_COLORS,
-  buildPendingReturnOrderIds,
   computeAccountOrderStats,
   type AccountOrderTabCategory,
 } from "./accountOrderUtils";
 
 const PIPELINE_SEGMENT_COLORS: Record<AccountOrderTabCategory, string> = {
-  dispatch_pending: "bg-amber-500",
-  dispatched: "bg-blue-500",
-  pending_delivery: "bg-indigo-500",
-  returns_pending: "bg-rose-500",
+  pending_account_approval: "bg-purple-500",
+  pending_approvals: "bg-violet-500",
+  open: "bg-teal-500",
   closed: "bg-emerald-500",
   on_hold: "bg-orange-500",
   cancelled: "bg-slate-500",
@@ -26,7 +24,6 @@ const PIPELINE_SEGMENT_COLORS: Record<AccountOrderTabCategory, string> = {
 import {
   useGetDashboardAccountQuery,
   useListOrdersQuery,
-  useListOrderReturnsQuery,
   useListPartiesQuery,
   useListFlagsQuery,
 } from "@/store/api";
@@ -81,9 +78,6 @@ export default function AccountOverview() {
   const user = useAppSelector((state) => state.auth.user);
   const userName =
     typeof user?.name === "string" ? user.name : "Account Specialist";
-  const currentUserId = useMemo(() => {
-    return String(user?._id ?? user?.id ?? "");
-  }, [user]);
 
   const {
     isFetching: isKpiFetching,
@@ -97,8 +91,6 @@ export default function AccountOverview() {
     refetch: refetchOrders,
   } = useListOrdersQuery({});
 
-  const { data: returnsData, refetch: refetchReturns } = useListOrderReturnsQuery({});
-
   const { data: partiesData } = useListPartiesQuery({});
 
   const {
@@ -108,24 +100,14 @@ export default function AccountOverview() {
     refetch: refetchFlags,
   } = useListFlagsQuery({});
 
-  const pendingReturnOrderIds = useMemo(
-    () => buildPendingReturnOrderIds(pickList(returnsData)),
-    [returnsData],
+  const orders = useMemo(
+    () => pickOrders(ordersData) as Record<string, unknown>[],
+    [ordersData],
   );
-
-  const categoryOptions = useMemo(
-    () => ({ pendingReturnOrderIds }),
-    [pendingReturnOrderIds],
-  );
-
-  const orders = useMemo(() => {
-    const raw = pickOrders(ordersData) as Record<string, unknown>[];
-    return raw.filter((o) => String(o.assigned_account_user ?? "") === currentUserId);
-  }, [ordersData, currentUserId]);
 
   const orderStats = useMemo(
-    () => computeAccountOrderStats(orders, categoryOptions),
-    [orders, categoryOptions],
+    () => computeAccountOrderStats(orders),
+    [orders],
   );
 
   const totalOrdersCount = useMemo(() => {
@@ -165,7 +147,6 @@ export default function AccountOverview() {
       await Promise.all([
         refetchKpi().unwrap(),
         refetchOrders().unwrap(),
-        refetchReturns().unwrap(),
         refetchFlags().unwrap(),
       ]);
     } catch {
@@ -226,13 +207,11 @@ export default function AccountOverview() {
       <AccountOverviewWidgets
         orders={orders}
         isOrdersFetching={isOrdersFetching}
-        categoryOptions={categoryOptions}
       />
 
       <AccountOrderVolumeChart
         orders={orders}
         isOrdersFetching={isOrdersFetching}
-        categoryOptions={categoryOptions}
       />
 
       <div className="space-y-3">
@@ -249,10 +228,10 @@ export default function AccountOverview() {
                 <ClipboardCheck className="h-5 w-5" />
               </div>
               <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-150">
-                Assigned Orders
+                Orders
               </h4>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
-                Review finance-cleared orders and track dispatch, delivery, and returns.
+                Review finance-cleared orders and track dispatch and delivery progress.
               </p>
             </div>
             <div className="mt-4 flex items-center text-xs font-semibold text-blue-650 dark:text-blue-400">
@@ -311,7 +290,6 @@ export default function AccountOverview() {
           isOrdersFetching={isOrdersFetching}
           isOrdersError={isOrdersError}
           partyNameById={partyNameById}
-          categoryOptions={categoryOptions}
         />
 
         <div className="space-y-6">
@@ -320,7 +298,7 @@ export default function AccountOverview() {
               Billing Pipeline Share
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-sans">
-              Breakdown of statuses for orders assigned to you
+              Breakdown of order statuses in the account queue
             </p>
 
             <div className="mt-4 font-sans">

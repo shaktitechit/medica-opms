@@ -80,14 +80,17 @@ function orderKey(row: unknown): string {
   return "";
 }
 
-type PartyOrderTabCategory = Exclude<AdminOrderTabCategory, "pending_review">;
+type PartyOrderTabCategory = Exclude<
+  AdminOrderTabCategory,
+  "pending_admin_approval" | "pending_approvals"
+>;
 type PartyOrderStageTab = "all" | PartyOrderTabCategory;
 
 const PARTY_ORDER_TABS: ReadonlyArray<{ id: PartyOrderStageTab; label: string }> = [
   { id: "all", label: "All Orders" },
   ...ADMIN_ORDER_TABS.filter(
     (tab): tab is { id: PartyOrderTabCategory; label: string } =>
-      tab.id !== "pending_review",
+      tab.id !== "pending_admin_approval" && tab.id !== "pending_approvals",
   ).map(({ id, label }) => ({
     id,
     label:
@@ -120,7 +123,9 @@ function getPartyOrderTabCategory(order: unknown, portal: string): PartyOrderTab
 
   const cat = getAdminOrderTabCategory(order);
   if (!cat) return null;
-  if (cat === "pending_review") return "open";
+  if (cat === "pending_admin_approval" || cat === "pending_approvals") {
+    return "open";
+  }
   return cat;
 }
 

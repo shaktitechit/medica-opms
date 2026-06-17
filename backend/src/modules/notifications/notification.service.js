@@ -49,7 +49,7 @@ async function processOrderTransition({ order, fromStatus, nextStatus, actorId }
   const title = `Order ${order.order_no} updated`;
   const message = `Status changed: ${fromStatus} → ${nextStatus}`;
   const targets = new Set(
-    [order.created_by, order.assigned_sales_user, order.assigned_finance_user, actorId].filter(Boolean)
+    [order.created_by, order.assigned_sales_user, actorId].filter(Boolean)
   );
   for (const uid of targets) {
     // createForUser already emits the SSE event internally

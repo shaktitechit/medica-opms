@@ -54,7 +54,7 @@ router.get(
   '/account',
   requireDepartmentOnly('account'),
   asyncHandler(async (req, res) => {
-    res.json({ success: true, data: await accountDash.summary(req.user._id) });
+    res.json({ success: true, data: await accountDash.summary() });
   })
 );
 

@@ -4,16 +4,11 @@ import { useCallback, useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import { ApprovalRecordCard } from "@/components/portal/admin/order/components/orderApproval/ApprovalRecordCard";
 import { FinanceAmendSalesApprovalModal } from "./FinanceAmendSalesApprovalModal";
-import { SendFinanceApprovalToAccountModal } from "./SendFinanceApprovalToAccountModal";
-import { mutationRejectedMessage } from "@/lib/mutationMessages";
-import { toast } from "@/lib/toast";
 import {
   useListOrderApprovalsQuery,
   useListUsersQuery,
-  useSendOrderApprovalToAccountMutation,
   useListDispatchesQuery,
 } from "@/store/api";
-import { useAppSelector } from "@/store/hooks";
 
 type ApprovalTabProps = {
   orderId: string;
@@ -33,17 +28,6 @@ function pickList(raw: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function idFromRef(ref: unknown): string {
-  if (typeof ref === "string") return ref.trim();
-  if (ref && typeof ref === "object" && "_id" in ref) {
-    return String((ref as { _id: unknown })._id ?? "").trim();
-  }
-  if (ref && typeof ref === "object" && "id" in ref) {
-    return String((ref as { id: unknown }).id ?? "").trim();
-  }
-  return "";
-}
-
 export function ApprovalTab({
   orderId,
   detail,
@@ -51,14 +35,9 @@ export function ApprovalTab({
   refetchOrder,
   partyLabel = "—",
 }: ApprovalTabProps) {
-  const currentUser = useAppSelector((state) => state.auth.user);
-  const currentUserId = useMemo(() => {
-    return String(currentUser?._id ?? currentUser?.id ?? "");
-  }, [currentUser]);
-
   const approvalsQ = useListOrderApprovalsQuery(
-    { order: orderId, assigned_finance_user: currentUserId },
-    { skip: !orderId || !currentUserId },
+    { order: orderId },
+    { skip: !orderId },
   );
   const usersQ = useListUsersQuery({});
   const dispatchesQ = useListDispatchesQuery(
@@ -75,23 +54,14 @@ export function ApprovalTab({
 
   const [amendApprovalId, setAmendApprovalId] = useState<string | null>(null);
   const [isAmendModalOpen, setIsAmendModalOpen] = useState(false);
-  const [sendingApprovalId, setSendingApprovalId] = useState<string | null>(null);
-  const [isSendModalOpen, setIsSendModalOpen] = useState(false);
-  const [activeSendApproval, setActiveSendApproval] = useState<Record<string, unknown> | null>(null);
-  const [sendToAccount, { isLoading: isSendingToAccount }] =
-    useSendOrderApprovalToAccountMutation();
 
   const approvals = useMemo(() => {
     const rows = pickList(approvalsQ.data);
-    const filtered = rows.filter((app) => {
-      const assigneeId = idFromRef(app.assigned_finance_user);
-      return assigneeId && assigneeId === currentUserId;
-    });
-    return [...filtered].sort(
+    return [...rows].sort(
       (a, b) =>
         Number(b.revision_number ?? 0) - Number(a.revision_number ?? 0),
     );
-  }, [approvalsQ.data, currentUserId]);
+  }, [approvalsQ.data]);
 
   const userNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -100,14 +70,6 @@ export function ApprovalTab({
       if (id) map[id] = String(u.name || u.username || id);
     }
     return map;
-  }, [usersQ.data]);
-
-  const accountUsers = useMemo(() => {
-    return pickList(usersQ.data).filter(
-      (u) =>
-        String(u.department).toLowerCase() === "account" ||
-        String(u.role).toLowerCase() === "account",
-    );
   }, [usersQ.data]);
 
   const selectedApproval = useMemo(
@@ -120,31 +82,9 @@ export function ApprovalTab({
     [approvals, amendApprovalId],
   );
 
-  const isFirstTimeSending = !idFromRef(detail?.assigned_account_user);
-  const defaultAccountUser = isFirstTimeSending
-    ? idFromRef(activeSendApproval?.assigned_account_user)
-    : idFromRef(detail?.assigned_account_user);
-
-  const openAmendModal = useCallback((approvalId: string) => {
+  const openFinanceActionModal = useCallback((approvalId: string) => {
     setAmendApprovalId(approvalId);
     setIsAmendModalOpen(true);
-  }, []);
-
-  const openSendToAccountModal = useCallback(
-    (approvalId: string) => {
-      const app = approvals.find((row) => String(row._id ?? row.id) === approvalId);
-      if (!app) return;
-      setActiveSendApproval(app);
-      setSendingApprovalId(approvalId);
-      setIsSendModalOpen(true);
-    },
-    [approvals],
-  );
-
-  const closeSendModal = useCallback(() => {
-    setIsSendModalOpen(false);
-    setActiveSendApproval(null);
-    setSendingApprovalId(null);
   }, []);
 
   const handleAmended = useCallback(async () => {
@@ -161,50 +101,13 @@ export function ApprovalTab({
     }
   }, [refetchOrder, approvalsQ]);
 
-  const handleSendToAccount = useCallback(
-    async ({
-      assignedAccountUser,
-      remarks,
-    }: {
-      assignedAccountUser: string;
-      remarks: string;
-    }) => {
-      if (!activeSendApproval || !assignedAccountUser) return;
-
-      const approvalId = String(activeSendApproval._id ?? activeSendApproval.id ?? "");
-      if (!approvalId) return;
-
-      try {
-        await sendToAccount({
-          id: approvalId,
-          body: {
-            assigned_account_user: assignedAccountUser,
-            approval_notes: remarks.trim() || undefined,
-            remarks: remarks.trim() || undefined,
-          },
-        }).unwrap();
-
-        toast.success("Finance approval sent to account successfully.");
-        closeSendModal();
-        if (!approvalsQ.isUninitialized) {
-          await approvalsQ.refetch();
-        }
-        refetchOrder?.();
-      } catch (err) {
-        toast.error(mutationRejectedMessage(err));
-      }
-    },
-    [activeSendApproval, sendToAccount, closeSendModal, approvalsQ, refetchOrder],
-  );
-
-  const sendBusy = isSendingToAccount;
   const orderNo = String(detail?.order_no ?? orderId);
 
   return (
     <div className="space-y-4">
       <DashboardCard
         title="Order Approvals"
-        description="Sales approval batches assigned to you — amend and approve quantities and rates, then send to account."
+        description="Sales approval batches for this order — approve or amend quantities and rates once admin has cleared the batch."
       >
         {hasActiveDispatch && (
           <div className="mb-4 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-955/30 dark:text-amber-300 dark:ring-amber-500/30 font-sans">
@@ -236,7 +139,7 @@ export function ApprovalTab({
               No order approvals
             </h3>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Approvals will appear here once admin has reviewed items and assigned them to you.
+              Approvals will appear here once admin has reviewed items on this order.
             </p>
           </div>
         ) : (
@@ -251,11 +154,8 @@ export function ApprovalTab({
                 orderDate={detail?.order_date}
                 expectedDeliveryDate={detail?.expected_delivery_date}
                 userNameById={userNameById}
-                onAmend={openAmendModal}
-                onSendToAccount={openSendToAccountModal}
+                onAmend={openFinanceActionModal}
                 amendingApprovalId={amendApprovalId}
-                sendingApprovalId={sendingApprovalId}
-                sendToAccountBusy={sendBusy}
                 isAmendBlocked={hasActiveDispatch}
               />
             ))}
@@ -276,19 +176,6 @@ export function ApprovalTab({
           setIsAmendModalOpen(false);
           setAmendApprovalId(null);
         }}
-      />
-
-      <SendFinanceApprovalToAccountModal
-        open={isSendModalOpen}
-        approval={activeSendApproval}
-        detail={detail}
-        userNameById={userNameById}
-        accountUsers={accountUsers}
-        defaultAccountUser={defaultAccountUser}
-        isFirstTimeSending={isFirstTimeSending}
-        isSubmitting={sendBusy}
-        onClose={closeSendModal}
-        onSubmit={(payload) => void handleSendToAccount(payload)}
       />
     </div>
   );

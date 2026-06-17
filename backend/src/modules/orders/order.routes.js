@@ -27,6 +27,7 @@ router.get('/:id', requirePermissions('orders:read', '*'), controller.get);
 router.patch('/:id', controller.update);
 
 router.post('/:id/close-with-returns', controller.closeWithReturns);
+router.post('/:id/settle-and-close', controller.settleAndCloseOrder);
 router.post('/:id/close-after-full-delivery', controller.closeAfterFullDelivery);
 
 router.post('/:id/transition', controller.transition);

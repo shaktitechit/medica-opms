@@ -1,5 +1,6 @@
 /**
  * @fileoverview Order workflow engine backed by OrderWorkflow history.
+ * @module modules/workflow/workflow.service
  */
 const mongoose = require('mongoose');
 const { getModels } = require('../../data/mongoRegistry');
@@ -9,88 +10,27 @@ const rules = require('./workflow.rules');
 const activityService = require('../activity/activity.service');
 const notificationService = require('../notifications/notification.service');
 const flagService = require('../flags/flag.service');
-const fulfillmentService = require('../orders/orderFulfillment.service');
-
-const LEGACY_STATUS_TO_WORKFLOW = Object.freeze({
-  draft: { lifecycle_status: 'draft', workflow_stage: 'sales', current_action: 'drafted' },
-  submitted: { lifecycle_status: 'active', workflow_stage: 'admin_review', current_action: 'submitted' },
-  sales_approved: { lifecycle_status: 'active', workflow_stage: 'finance_review', current_action: 'approved' },
-  finance_review: { lifecycle_status: 'active', workflow_stage: 'finance_review', current_action: 'review_requested' },
-  finance_approved: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'fully_approved' },
-  partially_finance_approved: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'partially_finance_approved' },
-  fully_finance_approved: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'fully_finance_approved' },
-  finance_rejected: { lifecycle_status: 'active', workflow_stage: 'sales', current_action: 'rejected' },
-  account_review: { lifecycle_status: 'active', workflow_stage: 'account_review', current_action: 'sent_to_account' },
-  partially_account_approved: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'partially_account_approved' },
-  fully_account_approved: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'fully_account_approved' },
-  account_rejected: { lifecycle_status: 'active', workflow_stage: 'account_review', current_action: 'rejected' },
-  dispatch_pending: { lifecycle_status: 'active', workflow_stage: 'dispatch_review', current_action: 'sent_to_dispatch' },
-  partial_dispatch_created: {
-    lifecycle_status: 'partially_fulfilled',
-    workflow_stage: 'dispatch_execution',
-    current_action: 'partial_dispatch',
-    dispatch_status: 'partial',
-  },
-  full_dispatch_created: {
-    lifecycle_status: 'partially_fulfilled',
-    workflow_stage: 'dispatch_execution',
-    current_action: 'full_dispatch',
-    dispatch_status: 'completed',
-  },
-  transport_pending: { lifecycle_status: 'partially_fulfilled', workflow_stage: 'dispatch_execution', current_action: 'partially_transported' },
-  transport_assigned: { lifecycle_status: 'partially_fulfilled', workflow_stage: 'dispatch_execution', current_action: 'partially_transported' },
-  partially_transported: { lifecycle_status: 'partially_fulfilled', workflow_stage: 'dispatch_execution', current_action: 'partially_transported' },
-  fully_transported: { lifecycle_status: 'partially_fulfilled', workflow_stage: 'dispatch_execution', current_action: 'fully_transported' },
-  in_transit: { lifecycle_status: 'partially_fulfilled', workflow_stage: 'dispatch_execution', current_action: 'in_transit' },
-  delivered: {
-    lifecycle_status: 'fulfilled',
-    workflow_stage: 'completed',
-    current_action: 'delivered',
-    delivery_status: 'completed',
-  },
-  cancelled: { lifecycle_status: 'cancelled', workflow_stage: 'cancelled', current_action: 'cancelled' },
-  on_hold: { lifecycle_status: 'on_hold', workflow_stage: 'hold', current_action: 'hold' },
-});
-
-const ACTION_TO_LEGACY_STATUS = Object.freeze({
-  drafted: 'draft',
-  submitted: 'submitted',
-  approved: 'sales_approved',
-  review_requested: 'finance_review',
-  fully_approved: 'finance_approved',
-  partially_finance_approved: 'partially_finance_approved',
-  fully_finance_approved: 'fully_finance_approved',
-  sent_to_account: 'account_review',
-  partially_account_approved: 'partially_account_approved',
-  fully_account_approved: 'fully_account_approved',
-  rejected: 'finance_rejected',
-  sent_to_dispatch: 'dispatch_pending',
-  partial_dispatch: 'partial_dispatch_created',
-  full_dispatch: 'full_dispatch_created',
-  partially_transported: 'partially_transported',
-  fully_transported: 'fully_transported',
-  transporter_assigned: 'transport_assigned',
-  vehicle_assigned: 'transport_assigned',
-  picked_up: 'in_transit',
-  in_transit: 'in_transit',
-  out_for_delivery: 'in_transit',
-  delivered: 'delivered',
-  cancelled: 'cancelled',
-  hold: 'on_hold',
-});
-
-function currentLegacyStatus(order) {
-  return order.status || ACTION_TO_LEGACY_STATUS[order.current_action] || order.lifecycle_status || 'draft';
-}
-
-function transitionSpec(nextStatus) {
-  const spec = LEGACY_STATUS_TO_WORKFLOW[nextStatus] || null;
-  if (!spec) throw new ApiError(400, `Unknown workflow status "${nextStatus}"`);
-  return spec;
-}
+const workflowQueue = require('../../queues/workflow.queue');
+const {
+  WORKFLOW_JOB_TYPES,
+  ORDER_STATUS,
+  transitionSpec,
+  workflowActionLabel,
+  deriveOrderPatches,
+  currentOrderStatus,
+  normalizeOrderStatus,
+  normalizeWorkflowStageValue,
+} = require('./workflow.constants');
+const { ORDER_LIFECYCLE_STATUS, ORDER_WORKFLOW_STAGE, normalizeOrderWorkflowFields } = require('../orders/order.constants');
 
 function workflowRole(department) {
-  return ['sales', 'admin', 'super_admin', 'finance', 'account', 'dispatch'].includes(department) ? (department === 'super_admin' ? 'admin' : department) : 'admin';
+  return ['sales', 'admin', 'super_admin', 'finance', 'account', 'dispatch'].includes(department)
+    ? (department === 'super_admin' ? 'admin' : department)
+    : 'admin';
+}
+
+function currentLegacyStatus(order) {
+  return currentOrderStatus(order);
 }
 
 async function transitionOrderStatus(params) {
@@ -133,29 +73,55 @@ async function transitionOrderStatus(params) {
       const doc = await Order.findById(orderId).session(session);
       if (!doc) throw new ApiError(404, 'Order not found');
 
-      const fromStatus = currentLegacyStatus(doc);
-      if (fromStatus === nextStatus) {
-        if (_systemCall) {
-          finalOrder = toPlain(doc.toObject());
-          return;
+      const requestedStatus = String(nextStatus);
+      const canonicalStatus = normalizeOrderStatus(requestedStatus);
+      const fromStatus = currentOrderStatus(doc);
+      const fromCanonical = normalizeOrderStatus(fromStatus);
+
+      if (fromCanonical === canonicalStatus) {
+        const isLegacyRefinement = (
+          requestedStatus !== String(doc.status || '')
+          && ['fully_finance_approved', 'partially_finance_approved', 'fully_account_approved', 'partially_account_approved'].includes(requestedStatus)
+        );
+        const needsSettlementClose =
+          canonicalStatus === ORDER_STATUS.CLOSED
+          && (
+            !doc.closed_at
+            || String(doc.status || '') !== ORDER_STATUS.CLOSED
+            || doc.lifecycle_status !== ORDER_LIFECYCLE_STATUS.FULFILLED
+            || doc.workflow_stage !== ORDER_WORKFLOW_STAGE.COMPLETED
+          );
+        if (!isLegacyRefinement && !( _systemCall && needsSettlementClose)) {
+          if (_systemCall) {
+            normalizeOrderWorkflowFields(doc);
+            if (doc.isModified()) {
+              await doc.save({ session });
+            }
+            finalOrder = toPlain(doc.toObject());
+            return;
+          }
+          if (normalizeOrderStatus(doc.status) === canonicalStatus && requestedStatus === String(doc.status || '')) {
+            throw new ApiError(400, 'Order is already in this status');
+          }
         }
-        throw new ApiError(400, 'Order is already in this status');
       }
 
-      if (!_systemCall && !rules.isTransitionAllowed(fromStatus, nextStatus)) {
-        throw new ApiError(400, `Transition from "${fromStatus}" to "${nextStatus}" is not allowed`);
+      if (!_systemCall && !rules.isTransitionAllowed(fromCanonical, canonicalStatus)) {
+        throw new ApiError(400, `Transition from "${fromStatus}" to "${requestedStatus}" is not allowed`);
       }
-      if (!_systemCall && !rules.departmentAllowsTransition(actorDept, fromStatus, nextStatus)) {
+      if (!_systemCall && !rules.departmentAllowsTransition(actorDept, fromCanonical, canonicalStatus)) {
         throw new ApiError(403, 'Your department cannot perform this transition', {
           department: actorDept,
           order_status: fromStatus,
-          next_status: nextStatus,
+          next_status: requestedStatus,
         });
       }
 
-      if (nextStatus === 'finance_rejected') {
+      if (canonicalStatus === ORDER_STATUS.FINANCE_REJECTED) {
         const reason = rejectionReason ?? remarks;
-        if (!reason || !String(reason).trim()) throw new ApiError(400, 'Finance rejection must include rejection_reason');
+        if (!reason || !String(reason).trim()) {
+          throw new ApiError(400, 'Finance rejection must include rejection_reason');
+        }
       }
 
       const blockingFlags = await OrderFlag.find({
@@ -165,68 +131,60 @@ async function transitionOrderStatus(params) {
       }).session(session).lean();
 
       for (const flag of blockingFlags) {
-        if (rules.flagBlocksTransition(flag.flag_type, nextStatus)) {
+        if (rules.flagBlocksTransition(flag.flag_type, canonicalStatus)) {
           throw new ApiError(409, `Open blocking flag "${flag.flag_type}" prevents this transition`);
         }
       }
 
-      const spec = transitionSpec(nextStatus);
-      const previousStage = doc.workflow_stage;
-      doc.status = nextStatus;
+      const spec = transitionSpec(requestedStatus);
+      const previousStage = normalizeWorkflowStageValue(doc.workflow_stage);
+      const patches = deriveOrderPatches(requestedStatus, spec.canonicalStatus);
+
+      doc.status = spec.canonicalStatus;
       doc.lifecycle_status = spec.lifecycle_status;
       doc.workflow_stage = spec.workflow_stage;
-      doc.current_action = spec.current_action;
+      doc.current_action = patches.current_action || spec.current_action;
       doc.current_revision = Number(doc.current_revision || 1) + 1;
       doc.updated_by = userId;
       if (spec.dispatch_status) doc.dispatch_status = spec.dispatch_status;
       if (spec.delivery_status) doc.delivery_status = spec.delivery_status;
+      if (patches.dispatch_status) doc.dispatch_status = patches.dispatch_status;
+      if (patches.finance_approval_status) doc.finance_approval_status = patches.finance_approval_status;
+      if (patches.account_approval_status) doc.account_approval_status = patches.account_approval_status;
+      if (patches.pending_with_role) doc.pending_with_role = patches.pending_with_role;
+      if (patches.current_department) doc.current_department = patches.current_department;
       if (remarks !== undefined) doc.remarks = remarks;
 
-      if (nextStatus === 'partially_finance_approved' || nextStatus === 'fully_finance_approved') {
-        doc.finance_approval_status = nextStatus === 'fully_finance_approved' ? 'full' : 'partial';
-        doc.workflow_stage = 'dispatch_review';
-        doc.current_action = nextStatus === 'fully_finance_approved' ? 'fully_finance_approved' : 'partially_finance_approved';
+      if (canonicalStatus === ORDER_STATUS.CLOSED) {
+        if (!doc.closed_at) doc.closed_at = new Date();
+        doc.closed_by = userId;
+        doc.is_locked = true;
+        if (remarks) {
+          doc.closure_remarks = String(remarks).trim();
+        }
       }
-      if (nextStatus === 'finance_rejected') {
-        doc.finance_approval_status = 'rejected';
-      }
-      if (nextStatus === 'partially_account_approved' || nextStatus === 'fully_account_approved') {
-        doc.account_approval_status = nextStatus === 'fully_account_approved' ? 'full' : 'partial';
-        doc.workflow_stage = 'dispatch_review';
-        doc.current_action = nextStatus === 'fully_account_approved'
-          ? 'fully_account_approved'
-          : 'partially_account_approved';
-      }
-      if (nextStatus === 'account_rejected') {
-        doc.account_approval_status = 'rejected';
-      }
-      if (nextStatus === 'account_review') {
-        doc.workflow_stage = 'account_review';
-        doc.current_action = 'sent_to_account';
-        doc.pending_with_role = 'account';
-        doc.current_department = 'account';
-      }
+
       await doc.save({ session });
 
-      if (nextStatus === 'cancelled') {
+      if (canonicalStatus === ORDER_STATUS.CANCELLED) {
         await OrderDispatch.updateMany(
           { order: orderId, dispatch_status: { $ne: 'cancelled' }, deletedAt: null },
           { $set: { dispatch_status: 'cancelled' } },
-          { session }
+          { session },
         );
       }
 
-      if (nextStatus === 'delivered') {
+      if (canonicalStatus === ORDER_STATUS.DELIVERED) {
         await TransportShipment.updateMany(
           { order: orderId, shipment_status: { $nin: ['delivered', 'delivery_failed', 'returned'] }, deletedAt: null },
           { $set: { shipment_status: 'delivered', actual_delivery_date: new Date() } },
-          { session }
+          { session },
         );
-      } else if (nextStatus === 'in_transit') {
+      } else if (canonicalStatus === ORDER_STATUS.IN_TRANSIT) {
         await TransportShipment.updateMany(
           { order: orderId, shipment_status: { $nin: ['delivered', 'delivery_failed', 'returned', 'in_transit'] }, deletedAt: null },
           { $set: { shipment_status: 'in_transit' } },
-          { session }
+          { session },
         );
       }
 
@@ -236,19 +194,23 @@ async function transitionOrderStatus(params) {
             order: orderId,
             action_by: userId,
             role: workflowRole(actorDept),
-            action: spec.current_action,
+            action: workflowActionLabel(requestedStatus, spec),
             from_stage: previousStage,
             to_stage: spec.workflow_stage,
             from_status: fromStatus,
-            to_status: nextStatus,
+            to_status: spec.canonicalStatus,
             reason_code: rejectionReason ? 'rejection' : undefined,
             remarks: remarks || '',
             revision_number: doc.current_revision,
             ip_address: ipAddress,
             user_agent: userAgent,
+            metadata: {
+              requested_status: requestedStatus,
+              canonical_status: spec.canonicalStatus,
+            },
           },
         ],
-        { session }
+        { session },
       );
 
       await OrderStatusHistory.create(
@@ -256,12 +218,12 @@ async function transitionOrderStatus(params) {
           {
             order: orderId,
             from_status: fromStatus,
-            to_status: nextStatus,
+            to_status: spec.canonicalStatus,
             changed_by: userId,
             remarks: remarks || '',
           },
         ],
-        { session }
+        { session },
       );
 
       await activityService.create(
@@ -270,17 +232,18 @@ async function transitionOrderStatus(params) {
           entity_type: 'order',
           entity_id: orderId,
           action: 'status_changed',
-          message: `Order moved ${fromStatus} -> ${nextStatus}`,
+          message: `Order moved ${fromStatus} -> ${spec.canonicalStatus}`,
           old_value: { status: fromStatus },
           new_value: {
-            status: nextStatus,
+            status: spec.canonicalStatus,
+            requested_status: requestedStatus,
             workflow_stage: spec.workflow_stage,
             lifecycle_status: spec.lifecycle_status,
           },
           ip_address: ipAddress,
           user_agent: userAgent,
         },
-        { session }
+        { session },
       );
 
       const latestOrder = await Order.findById(orderId).session(session).lean();
@@ -288,7 +251,7 @@ async function transitionOrderStatus(params) {
       notificationPayload = {
         order: finalOrder,
         fromStatus,
-        nextStatus,
+        nextStatus: spec.canonicalStatus,
         actorId: userId,
       };
     });
@@ -296,7 +259,13 @@ async function transitionOrderStatus(params) {
     if (notificationPayload) {
       await notificationService.notifyOrderTransition(notificationPayload);
     }
-    await flagService.recomputeOrderFlagAggregates(params.orderId);
+
+    await workflowQueue.enqueuePostTransition({
+      orderId: params.orderId,
+      fromStatus: notificationPayload?.fromStatus,
+      nextStatus: notificationPayload?.nextStatus,
+      actorId: params.userId,
+    });
 
     return finalOrder;
   } finally {
@@ -304,7 +273,51 @@ async function transitionOrderStatus(params) {
   }
 }
 
+async function processWorkflowJob({ type, payload = {} }) {
+  switch (type) {
+    case WORKFLOW_JOB_TYPES.RECOMPUTE_FLAG_AGGREGATES: {
+      const orderId = payload.orderId;
+      if (!orderId) throw new Error('recompute_flag_aggregates requires orderId');
+      await flagService.recomputeOrderFlagAggregates(orderId);
+      return { orderId };
+    }
+    case WORKFLOW_JOB_TYPES.POST_TRANSITION: {
+      const orderId = payload.orderId;
+      if (!orderId) throw new Error('post_transition requires orderId');
+      const nextStatus = payload.nextStatus ? String(payload.nextStatus) : '';
+
+      if (nextStatus === ORDER_STATUS.CLOSED || nextStatus === 'closed') {
+        const { Order } = getModels();
+        const existing = await Order.findById(orderId).lean();
+        const alreadyClosed =
+          String(existing?.status || '') === ORDER_STATUS.CLOSED || Boolean(existing?.closed_at);
+        if (!alreadyClosed) {
+          await transitionOrderStatus({
+            orderId,
+            nextStatus: ORDER_STATUS.CLOSED,
+            userId: payload.actorId,
+            remarks: payload.remarks || '',
+            _systemCall: true,
+          });
+        }
+      }
+
+      await flagService.recomputeOrderFlagAggregates(orderId);
+      return {
+        orderId,
+        fromStatus: payload.fromStatus,
+        nextStatus: payload.nextStatus,
+        actorId: payload.actorId,
+      };
+    }
+    default:
+      throw new Error(`Unknown workflow job type: ${type}`);
+  }
+}
+
 module.exports = {
   transitionOrderStatus,
   currentLegacyStatus,
+  currentOrderStatus,
+  processWorkflowJob,
 };

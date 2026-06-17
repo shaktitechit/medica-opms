@@ -80,6 +80,7 @@ export function deriveOrderWorkflowStatus(order: unknown): string {
 
   if (lifecycle === "cancelled" || stage === "cancelled") return "cancelled";
   if (lifecycle === "on_hold" || stage === "hold") return "on_hold";
+  if (String(row.status || "") === "closed" || row.closed_at) return "closed";
   if (deliveryStatus === "completed" || lifecycle === "fulfilled") return "delivered";
 
   if (action && CURRENT_ACTION_TO_STATUS[action]) {
@@ -96,7 +97,7 @@ export function deriveOrderWorkflowStatus(order: unknown): string {
     if (action === "fully_account_approved") return "fully_account_approved";
     const aas = typeof row.account_approval_status === "string" ? row.account_approval_status : "";
     if (aas === "partial") return "partially_account_approved";
-    if (aas === "full") return "fully_account_approved";
+    if (aas === "full" || aas === "approved") return "fully_account_approved";
     const fas = typeof row.finance_approval_status === "string" ? row.finance_approval_status : "";
     if (fas === "partial") return "partially_finance_approved";
     if (fas === "full") return "fully_finance_approved";

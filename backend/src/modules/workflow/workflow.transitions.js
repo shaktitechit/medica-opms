@@ -1,140 +1,74 @@
+/**
+ * Allowed transitions on canonical ORDER_STATUS values.
+ * Legacy statuses are normalized before lookup (see workflow.constants.js).
+ * @module modules/workflow/workflow.transitions
+ */
+
+const { ORDER_STATUS: S } = require('../orders/order.constants');
+
 module.exports = {
-  draft: ['submitted', 'cancelled'],
+  [S.DRAFT]: [S.SUBMITTED, S.CANCELLED],
 
-  submitted: ['sales_approved', 'finance_review', 'on_hold', 'cancelled'],
+  [S.SUBMITTED]: [S.SALES_APPROVED, S.FINANCE_REVIEW, S.ON_HOLD, S.CANCELLED],
 
-  sales_approved: ['finance_review', 'on_hold', 'cancelled'],
+  [S.SALES_APPROVED]: [S.FINANCE_REVIEW, S.ON_HOLD, S.CANCELLED],
 
-  finance_review: ['partially_finance_approved', 'fully_finance_approved', 'finance_rejected', 'on_hold', 'dispatch_pending', 'cancelled'],
-
-  finance_rejected: ['submitted', 'cancelled'],
-
-  finance_approved: ['dispatch_pending', 'on_hold', 'finance_rejected'],
-
-  partially_finance_approved: ['account_review', 'dispatch_pending', 'on_hold', 'finance_rejected', 'finance_review', 'partially_finance_approved', 'fully_finance_approved', 'cancelled'],
-
-  fully_finance_approved: ['account_review', 'dispatch_pending', 'on_hold', 'finance_rejected', 'finance_review', 'cancelled'],
-
-  account_review: ['partially_account_approved', 'fully_account_approved', 'account_rejected', 'on_hold', 'cancelled'],
-
-  partially_account_approved: ['dispatch_pending', 'account_review', 'account_rejected', 'on_hold', 'cancelled'],
-
-  fully_account_approved: ['dispatch_pending', 'account_review', 'account_rejected', 'on_hold', 'cancelled'],
-
-  account_rejected: ['account_review', 'fully_finance_approved', 'partially_finance_approved', 'cancelled'],
-
-  dispatch_pending: ['partial_dispatch_created', 'full_dispatch_created', 'on_hold', 'cancelled'],
-
-  partial_dispatch_created: [
-    'partial_dispatch_created',
-    'full_dispatch_created',
-    'transport_pending',
-    'partially_transported',
-    'fully_transported',
-    'on_hold',
-    'dispatch_pending',
-    'cancelled'
+  [S.FINANCE_REVIEW]: [
+    S.FINANCE_APPROVED,
+    S.FINANCE_REJECTED,
+    S.ON_HOLD,
+    S.DISPATCH,
+    S.CANCELLED,
   ],
 
-  full_dispatch_created: [
-    'transport_pending',
-    'partially_transported',
-    'fully_transported',
-    'on_hold',
-    'partial_dispatch_created',
-    'dispatch_pending',
-    'cancelled'
+  [S.FINANCE_REJECTED]: [S.SUBMITTED, S.CANCELLED],
+
+  [S.ACCOUNT_REVIEW]: [
+    S.ACCOUNT_APPROVED,
+    S.ACCOUNT_REJECTED,
+    S.ON_HOLD,
+    S.CLOSED,
+    S.CANCELLED,
   ],
 
-  transport_pending: [
-    'transport_assigned',
-    'partially_transported',
-    'fully_transported',
-    'on_hold',
-    'full_dispatch_created',
-    'partial_dispatch_created',
-    'dispatch_pending',
-    'cancelled'
+  [S.ACCOUNT_REJECTED]: [S.ACCOUNT_REVIEW, S.FINANCE_APPROVED, S.CANCELLED],
+
+  [S.DELIVERED]: [S.IN_TRANSIT, S.CLOSED, S.CANCELLED],
+
+  [S.DISPATCH]: [S.IN_TRANSIT, S.ON_HOLD, S.CLOSED, S.CANCELLED],
+
+  [S.IN_TRANSIT]: [S.DELIVERED, S.ON_HOLD, S.CLOSED, S.CANCELLED],
+
+  [S.ACCOUNT_APPROVED]: [
+    S.DISPATCH,
+    S.ACCOUNT_REVIEW,
+    S.ON_HOLD,
+    S.CLOSED,
+    S.CANCELLED,
   ],
 
-  transport_assigned: [
-    'in_transit',
-    'on_hold',
-    'transport_pending',
-    'partially_transported',
-    'fully_transported',
-    'full_dispatch_created',
-    'partial_dispatch_created',
-    'dispatch_pending',
-    'cancelled'
+  [S.FINANCE_APPROVED]: [
+    S.ACCOUNT_REVIEW,
+    S.DISPATCH,
+    S.ON_HOLD,
+    S.FINANCE_REJECTED,
+    S.CLOSED,
+    S.CANCELLED,
   ],
 
-  partially_transported: [
-    'transport_assigned',
-    'transport_pending',
-    'in_transit',
-    'on_hold',
-    'full_dispatch_created',
-    'partial_dispatch_created',
-    'dispatch_pending',
-    'cancelled',
-    'fully_transported'
+  [S.ON_HOLD]: [
+    S.SUBMITTED,
+    S.SALES_APPROVED,
+    S.FINANCE_REVIEW,
+    S.FINANCE_APPROVED,
+    S.ACCOUNT_REVIEW,
+    S.ACCOUNT_APPROVED,
+    S.DISPATCH,
+    S.IN_TRANSIT,
+    S.CANCELLED,
   ],
 
-  fully_transported: [
-    'transport_assigned',
-    'transport_pending',
-    'in_transit',
-    'on_hold',
-    'full_dispatch_created',
-    'partial_dispatch_created',
-    'dispatch_pending',
-    'cancelled',
-    'partially_transported'
-  ],
+  [S.CANCELLED]: [],
 
-  in_transit: [
-    'delivered',
-    'on_hold',
-    'transport_assigned',
-    'partially_transported',
-    'fully_transported',
-    'full_dispatch_created',
-    'partial_dispatch_created',
-    'dispatch_pending',
-    'cancelled'
-  ],
-
-  delivered: [
-    'in_transit',
-    'transport_assigned',
-    'partially_transported',
-    'fully_transported',
-    'full_dispatch_created',
-    'partial_dispatch_created',
-    'dispatch_pending',
-    'cancelled'
-  ],
-
-  /**
-   * Basic resume paths.
-   * Better long-term: store hold_from_status on order and resume only to that status.
-   */
-  on_hold: [
-    'submitted',
-    'sales_approved',
-    'finance_review',
-    'partially_finance_approved',
-    'fully_finance_approved',
-    'account_review',
-    'partially_account_approved',
-    'fully_account_approved',
-    'dispatch_pending',
-    'transport_pending',
-    'transport_assigned',
-    'partially_transported',
-    'fully_transported',
-    'in_transit',
-    'cancelled',
-  ],
+  [S.CLOSED]: [],
 };

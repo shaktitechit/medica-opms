@@ -44,6 +44,9 @@ type TransportMutationBody = LooseRecord & {
   remarks?: string;
   weight?: number;
   weight_unit?: string;
+  packed_boxes?: number;
+  open_boxes?: number;
+  total_quantity?: number;
 };
 
 const LEGACY_STATUS_TO_SHIPMENT_STATUS: Record<string, string> = {

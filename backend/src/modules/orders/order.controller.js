@@ -37,6 +37,16 @@ exports.closeWithReturns = asyncHandler(async (req, res) => {
   });
 });
 
+exports.settleAndCloseOrder = asyncHandler(async (req, res) => {
+  if (!['account', 'admin', 'super_admin'].includes(req.user.department)) {
+    throw new ApiError(403, 'Only account can settle and close orders after returns');
+  }
+  res.json({
+    success: true,
+    data: await service.settleAndCloseOrder(req.params.id, req.body || {}, req.user),
+  });
+});
+
 exports.closeAfterFullDelivery = asyncHandler(async (req, res) => {
   if (!['dispatch', 'account', 'admin', 'super_admin'].includes(req.user.department)) {
     throw new ApiError(403, 'Not authorized to close order after delivery');

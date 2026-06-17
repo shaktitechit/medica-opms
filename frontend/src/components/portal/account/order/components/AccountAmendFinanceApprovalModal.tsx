@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Search, Trash2, X, CheckCircle2 } from "lucide-react";
 
 import {
   MapOrderLinePriceModal,
@@ -432,6 +432,7 @@ export function AccountAmendFinanceApprovalModal({
     if (!approval) return;
     const approvalId = String(approval._id ?? approval.id ?? "");
     if (!approvalId) return;
+    const isAccountApproved = Boolean(approval.is_account_approved);
 
     for (const line of formLines) {
       if (!line.product) {
@@ -476,7 +477,7 @@ export function AccountAmendFinanceApprovalModal({
     });
     if (unmapped.length > 0) {
       toast.error(
-        `${unmapped.length} active line(s) need negotiated mapped rates before amending.`,
+        `${unmapped.length} active line(s) need negotiated mapped rates before ${isAccountApproved ? "amending" : "approving"}.`,
       );
       return;
     }
@@ -486,6 +487,7 @@ export function AccountAmendFinanceApprovalModal({
         id: approvalId,
         body: {
           amendment_notes: amendmentNotes.trim() || undefined,
+          approval_notes: amendmentNotes.trim() || undefined,
           approval_items: existingLines.map((line) => {
             const gross = line.approved_quantity * line.approved_unit_price;
             const disc = line.discount_percent > 0 ? (gross * line.discount_percent) / 100 : line.discount_amount;
@@ -494,6 +496,7 @@ export function AccountAmendFinanceApprovalModal({
 
             return {
               order_item_id: line.order_item_id,
+              product: line.product,
               ordered_quantity: line.approved_quantity,
               approved_quantity: line.approved_quantity,
               approved_unit_price: line.approved_unit_price,
@@ -534,7 +537,11 @@ export function AccountAmendFinanceApprovalModal({
         },
       }).unwrap();
 
-      toast.success("Order and approvals updated — batch account-cleared and synced.");
+      toast.success(
+        isAccountApproved
+          ? "Account clearance amended successfully."
+          : "Order account-approved successfully.",
+      );
       onClose();
       onAmended?.();
       
@@ -569,7 +576,17 @@ export function AccountAmendFinanceApprovalModal({
   if (!open || !approval) return null;
 
   const approvalNo = String(approval.approval_no ?? "—");
-  const isAlreadyAccountApproved = Boolean(approval.is_account_approved);
+  const isAccountApproved = Boolean(approval.is_account_approved);
+  const modalTitle = isAccountApproved ? "Amend account clearance" : "Approve order";
+  const modalDescription = isAccountApproved
+    ? `${approvalNo} — update quantities, rates, or items. Changes sync to the approval batch and order.`
+    : `${approvalNo} — review finance-cleared items, then approve. Order and workflow update after submission.`;
+  const notesLabel = isAccountApproved ? "Amendment notes" : "Approval notes";
+  const notesPlaceholder = isAccountApproved
+    ? "Reason for account amendment…"
+    : "Optional notes for this account approval…";
+  const submitLabel = isAccountApproved ? "Amend" : "Approve";
+  const SubmitIcon = isAccountApproved ? Pencil : CheckCircle2;
 
   return (
     <>
@@ -578,14 +595,10 @@ export function AccountAmendFinanceApprovalModal({
           <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4 dark:border-white/5">
             <div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-                {isAlreadyAccountApproved ? "Amend clearance" : "Amend and Approve"}
+                {modalTitle}
               </h3>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                {approvalNo} — account sets the order: qty changes, adds, and removals sync to the
-                approval batch, original order, and admin/sales approval
-                {isAlreadyAccountApproved
-                  ? " while keeping the batch account-cleared."
-                  : " as account-cleared."}
+                {modalDescription}
               </p>
             </div>
             <button
@@ -886,13 +899,14 @@ export function AccountAmendFinanceApprovalModal({
 
               <div className="grid gap-4 sm:grid-cols-1">
                 <div className="space-y-1">
-                  <label htmlFor="amendmentNotes" className={labelClass}>Amendment / Remarks Notes</label>
+                  <label htmlFor="amendmentNotes" className={labelClass}>{notesLabel}</label>
                   <textarea
                     id="amendmentNotes"
                     rows={3}
-                    placeholder="Enter notes for this account clearance amendment..."
+                    placeholder={notesPlaceholder}
                     value={amendmentNotes}
                     onChange={(e) => setAmendmentNotes(e.target.value)}
+                    disabled={busy}
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
                   />
                 </div>
@@ -910,10 +924,14 @@ export function AccountAmendFinanceApprovalModal({
               </button>
               <button
                 type="submit"
-                disabled={busy || formLines.length === 0}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500"
+                disabled={
+                  busy ||
+                  formLines.filter((l) => l.product && l.approved_quantity > 0).length === 0
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
               >
-                {busy ? "Saving…" : isAlreadyAccountApproved ? "Save amendment" : "Amend and Approve"}
+                <SubmitIcon className="h-4 w-4" />
+                {busy ? "Saving…" : submitLabel}
               </button>
             </div>
           </form>

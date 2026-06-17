@@ -2,15 +2,23 @@
 
 import { useMemo, useState } from "react";
 import { Info } from "lucide-react";
-import { getOrderTabCategory } from "./orderUtils";
+import {
+  createEmptySalesOrderStats,
+  getOrderTabCategory,
+  SALES_ORDER_TABS,
+  type SalesOrderTabCategory,
+  type SalesOrderStats,
+} from "./orderUtils";
 
 interface OrderVolumeChartProps {
   orders: any[];
   isOrdersFetching: boolean;
 }
 
+const CHART_CATEGORY_KEYS = SALES_ORDER_TABS.map((tab) => tab.id);
+
 const STATUS_COLORS: Record<
-  "draft" | "open" | "closed" | "on_hold" | "rejected" | "cancelled",
+  SalesOrderTabCategory,
   { fill: string; hover: string; dot: string; label: string }
 > = {
   draft: {
@@ -18,6 +26,12 @@ const STATUS_COLORS: Record<
     hover: "fill-slate-500 dark:fill-slate-400",
     dot: "bg-slate-400 dark:bg-slate-500",
     label: "Draft",
+  },
+  pending_approval: {
+    fill: "fill-purple-500/85 dark:fill-purple-500/60",
+    hover: "fill-purple-600 dark:fill-purple-400",
+    dot: "bg-purple-500 dark:bg-purple-400",
+    label: "Pending Approval",
   },
   open: {
     fill: "fill-blue-500/85 dark:fill-blue-500/60",
@@ -64,10 +78,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
       label: string;
       ordersCount: number;
       totalQty: number;
-      breakdown: Record<
-        "draft" | "open" | "closed" | "on_hold" | "rejected" | "cancelled",
-        { count: number; quantity: number }
-      >;
+      breakdown: SalesOrderStats;
     };
     const months: ChartBucket[] = [];
     const now = new Date();
@@ -79,14 +90,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
         label: d.toLocaleDateString("en-US", { month: "short" }),
         ordersCount: 0,
         totalQty: 0,
-        breakdown: {
-          draft: { count: 0, quantity: 0 },
-          open: { count: 0, quantity: 0 },
-          closed: { count: 0, quantity: 0 },
-          on_hold: { count: 0, quantity: 0 },
-          rejected: { count: 0, quantity: 0 },
-          cancelled: { count: 0, quantity: 0 },
-        },
+        breakdown: createEmptySalesOrderStats(),
       });
     }
 
@@ -120,10 +124,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
       label: string;
       ordersCount: number;
       totalQty: number;
-      breakdown: Record<
-        "draft" | "open" | "closed" | "on_hold" | "rejected" | "cancelled",
-        { count: number; quantity: number }
-      >;
+      breakdown: SalesOrderStats;
     };
     const days: ChartBucket[] = [];
     const now = new Date();
@@ -135,14 +136,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
         label: `${d.getDate()} ${d.toLocaleDateString("en-US", { month: "short" })}`,
         ordersCount: 0,
         totalQty: 0,
-        breakdown: {
-          draft: { count: 0, quantity: 0 },
-          open: { count: 0, quantity: 0 },
-          closed: { count: 0, quantity: 0 },
-          on_hold: { count: 0, quantity: 0 },
-          rejected: { count: 0, quantity: 0 },
-          cancelled: { count: 0, quantity: 0 },
-        },
+        breakdown: createEmptySalesOrderStats(),
       });
     }
 
@@ -255,7 +249,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
 
       {/* Legend */}
       <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-100/50 pb-3 dark:border-white/5">
-        {(["draft", "open", "closed", "on_hold", "rejected", "cancelled"] as const).map((key) => {
+        {CHART_CATEGORY_KEYS.map((key) => {
           const colorInfo = STATUS_COLORS[key];
           return (
             <div key={key} className="flex items-center gap-1.5">
@@ -324,7 +318,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
               const barX = x - barWidth / 2;
               const isHovered = hoveredBarIndex === i;
 
-              const statusKeys = ["draft", "open", "closed", "on_hold", "rejected", "cancelled"] as const;
+              const statusKeys = CHART_CATEGORY_KEYS;
 
               let currentY = 170;
 
@@ -387,7 +381,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
                 const slotWidth = 440 / activeData.length;
                 const x = 45 + hoveredBarIndex * slotWidth + slotWidth / 2;
 
-                const activeBreakdowns = (["draft", "open", "closed", "on_hold", "rejected", "cancelled"] as const)
+                const activeBreakdowns = CHART_CATEGORY_KEYS
                   .map((key) => {
                     const stats = item.breakdown[key];
                     const segmentVal = showMetric === "orders" ? stats.count : stats.quantity;

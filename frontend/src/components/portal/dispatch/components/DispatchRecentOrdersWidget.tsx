@@ -84,6 +84,10 @@ function renderWorkflowStatusBadge(category: DispatchOrderTabCategory) {
   const label = DISPATCH_ORDER_TAB_LABELS[category];
 
   switch (category) {
+    case "pending_approvals":
+      bgClass =
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
+      break;
     case "pending_transport":
       bgClass =
         "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";

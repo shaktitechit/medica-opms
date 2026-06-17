@@ -11,7 +11,6 @@ import {
   useTransitionOrderMutation,
   useListAttachmentsQuery,
   useListUsersQuery,
-  usePatchOrderMutation,
   useListPartiesQuery,
   useGetPartyQuery,
   useGetOrderFulfillmentQuery,
@@ -26,11 +25,14 @@ import {
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
-import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
+import {
+  OrderFulfillmentPipelineStrip,
+  buildOrderFulfillmentPipelineSteps,
+  DEFAULT_ORDER_PIPELINE_ICONS,
+} from "@/components/portal/shared/FulfillmentCircleStep";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
 import { type OrderStatusDimension } from "@/components/portal/shared/orderStatusDimensions";
-import { UserCheck, DollarSign, Package, Truck, Wallet } from "lucide-react";
 import OrderTab from "./components/OrderTab";
 import EditOrderModal from "./components/EditOrderModal";
 import FlagsTab from "./components/FlagsTab";
@@ -38,6 +40,7 @@ import AttachmentsTab from "./components/AttachmentsTab";
 import DispatchesTab from "./components/DispatchesTab";
 import TransportsTab from "./components/TransportsTab";
 import ApprovalTab from "./components/ApprovalTab";
+import SubmitOrderPreviewModal from "./components/SubmitOrderPreviewModal";
 
 const btnSecondaryClass =
   "rounded-lg border border-slate-200/95 px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5";
@@ -154,18 +157,15 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
   >("dispatches");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
-  const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
+  const [isSubmitPreviewOpen, setIsSubmitPreviewOpen] = useState(false);
   const [isFulfillmentModalOpen, setIsFulfillmentModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isOrderItemsModalOpen, setIsOrderItemsModalOpen] = useState(false);
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
   const [isPartyDetailsModalOpen, setIsPartyDetailsModalOpen] = useState(false);
   const [submitRemarks, setSubmitRemarks] = useState("");
-  const [submitAssignee, setSubmitAssignee] = useState("");
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
 
-  const adminUsersQ = useListUsersQuery({ department: "admin" });
-  const adminUsers = useMemo(() => pickList(adminUsersQ.data), [adminUsersQ.data]);
   const usersQ = useListUsersQuery({});
   const users = useMemo(() => pickList(usersQ.data), [usersQ.data]);
 
@@ -199,10 +199,6 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
     () => buildPartyNameById(partiesQ.data),
     [partiesQ.data],
   );
-
-  const [patchOrder] = usePatchOrderMutation();
-
-
 
   const attachmentsQ = useListAttachmentsQuery({
     entity_type: "order",
@@ -251,17 +247,6 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
     return computeDepartmentStageBoxes(detail, fulfillmentSnapshot);
   }, [detail, fulfillmentSnapshot]);
 
-  const adminBox = useMemo(() => deptBoxes.find((b) => b.id === "admin"), [deptBoxes]);
-  const financeBox = useMemo(() => deptBoxes.find((b) => b.id === "finance"), [deptBoxes]);
-  const accountBox = useMemo(() => deptBoxes.find((b) => b.id === "account"), [deptBoxes]);
-  const dispatchBox = useMemo(() => deptBoxes.find((b) => b.id === "dispatch"), [deptBoxes]);
-  const deliveryBox = useMemo(() => deptBoxes.find((b) => b.id === "delivery"), [deptBoxes]);
-
-  const adminStatusDim = adminBox?.status;
-  const financeStatusDim = financeBox?.status;
-  const dispatchStatusDim = dispatchBox?.status;
-  const accountStatusDim = accountBox?.status;
-  const deliveryStatusDim = deliveryBox?.status;
   const currentPartyId = detail ? detailRefId(detail.party) : "";
   const partyDetailQ = useGetPartyQuery(currentPartyId, {
     skip: !currentPartyId,
@@ -284,16 +269,6 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
   }, []);
 
 
-
-  const allDepartmentsAssigned = useMemo(() => {
-    if (!detail) return false;
-    return Boolean(
-      resolveUserId(detail.assigned_sales_user) &&
-      resolveUserId(detail.assigned_finance_user) &&
-      resolveUserId(detail.assigned_dispatch_user) &&
-      resolveUserId(detail.assigned_admin_user)
-    );
-  }, [detail, resolveUserId]);
 
   const readOnlyItems = useMemo(() => {
     if (!detail || !Array.isArray(detail.order_items)) return [];
@@ -339,11 +314,16 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
       pendingQty,
       financeApprovedQty,
       openFlags: openFlagsCount,
-      allDepartmentsAssigned,
     };
-  }, [allDepartmentsAssigned, fulfillmentQ.data, openFlagsCount, readOnlyItems]);
+  }, [fulfillmentQ.data, openFlagsCount, readOnlyItems]);
 
-
+  const pipelineSteps = useMemo(
+    () =>
+      buildOrderFulfillmentPipelineSteps(deptBoxes, DEFAULT_ORDER_PIPELINE_ICONS, {
+        defaultTotal: orderKpis.totalQty,
+      }),
+    [deptBoxes, orderKpis.totalQty],
+  );
 
   const handleRefetch = useCallback(() => {
     refetch();
@@ -355,44 +335,32 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
 
 
 
-  const handleSubmitOrder = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!orderId) return;
-      if (!submitAssignee) {
-        toast.error("Please select an admin operator.");
-        return;
-      }
-      setIsSubmittingOrder(true);
-      try {
-        await patchOrder({
-          id: orderId,
-          patch: {
-            assigned_admin_user: submitAssignee,
-          },
-        }).unwrap();
+  const handleSubmitOrder = useCallback(async () => {
+    if (!orderId) return;
+    if (!readOnlyItems.length) {
+      toast.error("Add at least one line item before submitting.");
+      return;
+    }
+    setIsSubmittingOrder(true);
+    try {
+      await transitionOrder({
+        id: orderId,
+        body: {
+          next_status: "submitted",
+          remarks: submitRemarks.trim() || undefined,
+        },
+      }).unwrap();
 
-        await transitionOrder({
-          id: orderId,
-          body: {
-            next_status: "submitted",
-            remarks: submitRemarks.trim() || undefined,
-          },
-        }).unwrap();
-
-        toast.success("Order submitted successfully.");
-        setIsSubmitModalOpen(false);
-        setSubmitRemarks("");
-        setSubmitAssignee("");
-        handleRefetch();
-      } catch (rejected) {
-        toast.error(mutationRejectedMessage(rejected));
-      } finally {
-        setIsSubmittingOrder(false);
-      }
-    },
-    [orderId, submitAssignee, submitRemarks, patchOrder, transitionOrder, handleRefetch]
-  );
+      toast.success("Order submitted successfully.");
+      setIsSubmitPreviewOpen(false);
+      setSubmitRemarks("");
+      handleRefetch();
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    } finally {
+      setIsSubmittingOrder(false);
+    }
+  }, [orderId, submitRemarks, readOnlyItems.length, transitionOrder, handleRefetch]);
 
   if (isError || (!isLoading && !detail)) {
     return (
@@ -412,7 +380,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
   }
 
   return (
-    <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden space-y-4 pb-20 md:pb-0">
+    <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden space-y-0 pb-20 md:pb-0">
       <EditOrderModal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
@@ -422,90 +390,20 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
         refetchOrder={handleRefetch}
       />
 
-      {isSubmitModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-          <form
-            onSubmit={handleSubmitOrder}
-            className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900"
-          >
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-              Submit Order
-            </h3>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              Assign an admin operator and add remarks to submit this order.
-            </p>
-
-            <div className="mt-4 space-y-4 font-sans text-sm">
-              <div>
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                  Assign Admin Operator *
-                </label>
-                <select
-                  required
-                  value={submitAssignee}
-                  onChange={(e) => setSubmitAssignee(e.target.value)}
-                  className="w-full mt-1.5 rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 font-medium"
-                >
-                  <option value="">-- Select Admin Operator --</option>
-                  {adminUsers.map((u) => {
-                    const userRow = u as Record<string, unknown>;
-                    const id = String(userRow._id ?? userRow.id ?? "");
-                    return (
-                      <option key={id} value={id}>
-                        {displayText(userRow.name)} ({displayText(userRow.email)})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                  Remarks (Optional)
-                </label>
-                <textarea
-                  value={submitRemarks}
-                  onChange={(e) => setSubmitRemarks(e.target.value)}
-                  rows={3}
-                  className="w-full mt-1.5 rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
-                  placeholder="Type remarks..."
-                />
-              </div>
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3 font-sans font-medium">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsSubmitModalOpen(false);
-                  setSubmitRemarks("");
-                  setSubmitAssignee("");
-                }}
-                className="rounded-lg border border-slate-200/95 px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmittingOrder}
-                className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
-              >
-                {isSubmittingOrder ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Submitting...
-                  </>
-                ) : (
-                  "Confirm Submit"
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <SubmitOrderPreviewModal
+        isOpen={isSubmitPreviewOpen}
+        onClose={() => {
+          if (isSubmittingOrder) return;
+          setIsSubmitPreviewOpen(false);
+          setSubmitRemarks("");
+        }}
+        detail={detail}
+        partyLabel={custLabel}
+        submitRemarks={submitRemarks}
+        onSubmitRemarksChange={setSubmitRemarks}
+        onSubmit={() => void handleSubmitOrder()}
+        isSubmitting={isSubmittingOrder}
+      />
 
       {isFulfillmentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
@@ -812,83 +710,68 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
       )}
 
       {detail && (
-        <>
-          <div className="flex-shrink-0 space-y-3">
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-shrink-0 space-y-1">
+            <div className="rounded-lg border border-slate-200/80 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-slate-900">
 
-              {/* ── Top row: breadcrumb + title + meta ── */}
-              <div className="flex items-start justify-between gap-3">
+              {/* ── Top row: order details + inline fulfillment pipeline ── */}
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  <div className="mb-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                     <button type="button" onClick={() => router.back()} className="font-medium text-blue-600 hover:underline dark:text-blue-400">Orders</button>
                     <span>/</span>
                     <span className="font-semibold text-slate-700 dark:text-slate-200">Order Details</span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="truncate text-lg sm:text-xl font-bold tracking-tight text-slate-950 dark:text-slate-50">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <h1 className="truncate text-base sm:text-lg font-bold tracking-tight text-slate-950 dark:text-slate-50">
                       {detail.order_no ? String(detail.order_no) : "Order"}
                     </h1>
                     <span className="shrink-0">{renderPriorityBadge(typeof detail.priority === "string" ? detail.priority : "normal")}</span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
                     <span>Party: <b className="font-semibold text-slate-700 dark:text-slate-200">{custLabel}</b></span>
                     <span>Date: {formatDateShort(detail.order_date)}</span>
                     <span>EDD: {formatDateShort(detail.expected_delivery_date)}</span>
                   </div>
                 </div>
-                <button type="button" onClick={handleRefetch} className="shrink-0 rounded-lg border border-slate-200/95 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5" title="Refresh">
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                </button>
+
+                <div className="flex min-w-0 items-center gap-1.5 lg:shrink-0">
+                  <div className="min-w-0 flex-1 overflow-x-auto lg:flex-none lg:min-w-[420px]">
+                    <OrderFulfillmentPipelineStrip steps={pipelineSteps} size="sm" />
+                  </div>
+                  <button type="button" onClick={() => setIsFulfillmentModalOpen(true)} className="shrink-0 rounded-md border border-amber-200/80 bg-white px-1.5 py-0.5 text-[9px] font-bold text-amber-600 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-950 dark:text-amber-400 dark:hover:bg-white/5" title="Fulfillment details">Details</button>
+                  <button type="button" onClick={handleRefetch} className="shrink-0 rounded-md border border-slate-200/95 p-1 text-slate-500 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5" title="Refresh">
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  </button>
+                </div>
               </div>
 
               {/* ── Info buttons: 3-col on mobile, inline on sm+ ── */}
-              <div className="mt-3 grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 font-sans font-medium">
-                <button type="button" onClick={() => setIsOrderDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
-                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              <div className="mt-1 grid grid-cols-3 gap-1 sm:flex sm:flex-wrap sm:gap-1.5 font-sans font-medium">
+                <button type="button" onClick={() => setIsOrderDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                  <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                   <span>Order Info</span>
                 </button>
-                <button type="button" onClick={() => setIsPartyDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
-                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                <button type="button" onClick={() => setIsPartyDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                  <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                   <span>Party Info</span>
                 </button>
-                <button type="button" onClick={() => setIsOrderItemsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
-                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                <button type="button" onClick={() => setIsOrderItemsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                  <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
                   <span>Items List</span>
                 </button>
                 {isDraft && (
-                  <button type="button" onClick={() => setIsEditModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-white shadow-sm transition active:scale-[0.97] cursor-pointer dark:bg-blue-500 dark:hover:bg-blue-400">
-                    <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                  <button type="button" onClick={() => setIsEditModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md bg-blue-600 hover:bg-blue-700 px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-white shadow-sm transition active:scale-[0.97] cursor-pointer dark:bg-blue-500 dark:hover:bg-blue-400">
+                    <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                     <span>Edit Draft</span>
                   </button>
                 )}
               </div>
 
-              {/* ── Fulfillment pipeline ── */}
-              <div className="mt-4 border-t border-slate-100 pt-4 dark:border-white/10 flex flex-col w-full bg-slate-50/50 p-3 sm:p-4 rounded-2xl dark:bg-slate-950/20">
-                <div className="flex items-center justify-between mb-3 w-full gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-tight">Fulfillment Pipeline<span className="hidden sm:inline"> (vs {orderKpis.totalQty} ordered)</span></span>
-                  <button type="button" onClick={() => setIsFulfillmentModalOpen(true)} className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-blue-200/80 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[10px] sm:text-xs font-bold text-blue-600 shadow-sm transition dark:border-white/10 dark:bg-slate-950 dark:text-blue-400 dark:hover:bg-white/5 cursor-pointer active:scale-[0.98]">Details</button>
-                </div>
-                <div className="overflow-x-auto -mx-1 px-1 pb-1">
-                  <div className="grid grid-cols-9 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
-                    <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderKpis.totalQty} icon={UserCheck} />
-                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderKpis.totalQty} icon={DollarSign} />
-                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    
-                        <FulfillmentCircleStep label="Account" status={accountStatusDim} completed={accountBox?.completedQty} total={orderKpis.totalQty} icon={Wallet} />
-                        <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                        <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderKpis.totalQty} icon={Package} />
-                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderKpis.totalQty} icon={Truck} />
-                  </div>
-                </div>
-              </div>
-
               {/* ── Action buttons ── */}
-              <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/10">
-                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 font-sans font-medium">
-                  <button type="button" disabled={status !== "draft"} onClick={() => { setSubmitAssignee(resolveUserId(detail?.assigned_admin_user) || ""); setSubmitRemarks(""); setIsSubmitModalOpen(true); }} className="rounded-lg bg-emerald-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400">Submit Order</button>
+              <div className="mt-2 border-t border-slate-100 pt-2 dark:border-white/10">
+                <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 font-sans font-medium">
+                  <button type="button" disabled={status !== "draft"} onClick={() => { setSubmitRemarks(""); setIsSubmitPreviewOpen(true); }} className="rounded-md bg-emerald-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400 active:scale-[0.98]">Submit Order</button>
                 </div>
               </div>
 
@@ -905,8 +788,8 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
           </div>
 
           {/* ── DESKTOP: Footer Tab Nav ── */}
-          <div className="hidden md:block flex-shrink-0 pt-2 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 p-2 rounded-xl">
-            <OrderDetailTabsNav
+          <div className="hidden md:block mb-0 flex-shrink-0 border-t border-slate-100 dark:border-white/5 bg-slate-50/95 dark:bg-slate-955/90 backdrop-blur-md px-2 pt-1.5 pb-0 [&_nav]:pb-0">
+            <OrderDetailTabsNav className="!mb-0 !rounded-none !border-0 !bg-transparent !p-0"
               tabs={[
                 { id: "approvals", name: "Order Approval" },
                 { id: "dispatches", name: "Dispatches" },
@@ -939,7 +822,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
               </div>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* ── MOBILE: Bottom Tab Nav ── */}

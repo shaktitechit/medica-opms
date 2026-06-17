@@ -775,21 +775,6 @@ function registerModels() {
         default: 0,
         min: 0,
       },
-      sales_approved_quantity: {
-        type: Number,
-        default: 0,
-        min: 0,
-      },
-      free_quantity: {
-        type: Number,
-        default: 0,
-        min: 0,
-      },
-      allocated_quantity: {
-        type: Number,
-        default: 0,
-        min: 0,
-      },
       dispatched_quantity: {
         type: Number,
         default: 0,
@@ -800,12 +785,18 @@ function registerModels() {
         default: 0,
         min: 0,
       },
-      cancelled_quantity: {
+      returned_quantity: {
         type: Number,
         default: 0,
         min: 0,
       },
-      returned_quantity: {
+      line_status: {
+        type: String,
+        enum: ["active", "partial", "fulfilled", "cancelled"],
+        default: "active",
+        index: true,
+      },
+      free_quantity: {
         type: Number,
         default: 0,
         min: 0,
@@ -860,22 +851,6 @@ function registerModels() {
         type: Number,
         default: 0,
       },
-      line_status: {
-        type: String,
-        enum: [
-          "draft",
-          "active",
-          "partially_allocated",
-          "fully_allocated",
-          "partially_dispatched",
-          "fully_dispatched",
-          "partially_delivered",
-          "fully_delivered",
-          "cancelled",
-        ],
-        default: "draft",
-        index: true,
-      },
       remarks: String,
     },
     { _id: true, timestamps: true }
@@ -902,22 +877,14 @@ function registerModels() {
           "sales_approved",
           "finance_review",
           "finance_approved",
-          "partially_finance_approved",
-          "fully_finance_approved",
           "finance_rejected",
           "account_review",
-          "partially_account_approved",
-          "fully_account_approved",
+          "account_approved",
           "account_rejected",
-          "dispatch_pending",
-          "partial_dispatch_created",
-          "full_dispatch_created",
-          "transport_pending",
-          "transport_assigned",
-          "partially_transported",
-          "fully_transported",
+          "dispatch",
           "in_transit",
           "delivered",
+          "closed",
           "cancelled",
           "on_hold",
         ],
@@ -945,11 +912,10 @@ function registerModels() {
           "admin_review",
           "finance_review",
           "account_review",
-          "dispatch_review",
-          "dispatch_execution",
+          "dispatch",
           "completed",
           "cancelled",
-          "hold",
+          "on_hold",
         ],
         default: "sales",
         index: true,
@@ -959,10 +925,6 @@ function registerModels() {
       is_locked: { type: Boolean, default: false },
       current_assignee: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
       assigned_sales_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-      assigned_admin_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-      assigned_finance_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-      assigned_account_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-      assigned_dispatch_user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
       current_department: {
         type: String,
         enum: ["super_admin", "sales", "admin", "finance", "account", "dispatch"],
@@ -986,7 +948,7 @@ function registerModels() {
       },
       finance_approval_status: {
         type: String,
-        enum: ["pending", "partial", "full", "rejected"],
+        enum: ["pending", "partial", "approved", "rejected", "full"],
         default: "pending",
         index: true,
       },
@@ -997,7 +959,7 @@ function registerModels() {
       },
       admin_approval_status: {
         type: String,
-        enum: ["pending", "approved", "rejected", "sent_to_finance"],
+        enum: ["pending", "partial", "approved", "rejected", "sent_to_finance"],
         default: "pending",
         index: true,
       },
@@ -1008,7 +970,7 @@ function registerModels() {
       },
       account_approval_status: {
         type: String,
-        enum: ["pending", "partial", "full", "rejected"],
+        enum: ["pending", "partial", "approved", "rejected"],
         default: "pending",
         index: true,
       },
@@ -1064,33 +1026,16 @@ function registerModels() {
   orderSchema.index({ customer: 1, order_date: -1 });
   orderSchema.index({ workflow_stage: 1, lifecycle_status: 1 });
   orderSchema.index({ current_assignee: 1, workflow_stage: 1 });
+  orderSchema.index({ status: 1, closed_at: -1 });
 
   orderSchema.plugin(softDeletePlugin);
   mongoose.model("Order", orderSchema);
 
-  // --- Schemas from OrderAssignee.js ---
-  const orderAssigneeSchema = new mongoose.Schema(
-    {
-      order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
-      department: {
-        type: String,
-        enum: ["sales", "admin", "finance", "account", "dispatch"],
-        required: true,
-        index: true,
-      },
-      assignee: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
-      assigned_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-      assigned_at: { type: Date, default: Date.now, index: true },
-      remarks: String,
-    },
-    { timestamps: true }
-  );
-  orderAssigneeSchema.index({ order: 1, department: 1, assignee: 1 }, { unique: true });
-  orderAssigneeSchema.index({ assignee: 1, department: 1 });
-  orderAssigneeSchema.index({ order: 1, assigned_at: -1 });
-  mongoose.model("OrderAssignee", orderAssigneeSchema);
-
   // --- Schemas from OrderWorkflow.js ---
+  /**
+   * Immutable workflow event log — current state lives on Order; this is append-only history.
+   * @see models/OrderWorkflow.js
+   */
   const orderWorkflowSchema = new mongoose.Schema(
     {
       order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
@@ -1101,53 +1046,11 @@ function registerModels() {
         required: true,
         index: true,
       },
-      action: {
-        type: String,
-        enum: [
-          "drafted",
-          "submitted",
-          "approved",
-          "partially_approved",
-          "fully_approved",
-          "partially_finance_approved",
-          "fully_finance_approved",
-          "partially_account_approved",
-          "fully_account_approved",
-          "review_requested",
-          "sent_to_sales",
-          "sent_to_admin",
-          "sent_to_finance",
-          "sent_to_account",
-          "sent_to_dispatch",
-          "hold",
-          "released",
-          "rejected",
-          "cancelled",
-          "allocation_started",
-          "allocation_completed",
-          "partial_dispatch",
-          "full_dispatch",
-          "partially_transported",
-          "fully_transported",
-          "transporter_assigned",
-          "vehicle_assigned",
-          "picked_up",
-          "in_transit",
-          "out_for_delivery",
-          "delivered",
-          "delivery_failed",
-          "returned",
-          "reopened",
-          "completed",
-          "closed",
-        ],
-        required: true,
-        index: true,
-      },
-      from_stage: String,
-      to_stage: String,
-      from_status: String,
-      to_status: String,
+      action: { type: String, required: true, index: true },
+      from_stage: { type: String, index: true },
+      to_stage: { type: String, index: true },
+      from_status: { type: String, index: true },
+      to_status: { type: String, index: true },
       reason_code: String,
       remarks: String,
       internal_notes: String,
@@ -1244,6 +1147,9 @@ function registerModels() {
       account_amended: { type: Boolean, default: false },
       account_amended_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       account_amended_at: Date,
+      dispatch_release_resolved: { type: Boolean, default: false, index: true },
+      dispatch_release_resolved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      dispatch_release_resolved_at: Date,
 
       // Detailed line items being approved
       approval_items: [
@@ -1257,7 +1163,7 @@ function registerModels() {
           approved_unit_price: { type: Number, default: 0 },
           approved_total_amount: { type: Number, default: 0 },
 
-          applied_rate_type: { type: String, default: "MANUAL" },
+          applied_rate_type: { type: String, default: "SR" },
           pricing_reference: { type: mongoose.Schema.Types.ObjectId, ref: "PartyProductRate" },
           manual_price_override: { type: Boolean, default: false },
           rate_mapped: { type: Boolean, default: false },
@@ -1542,6 +1448,9 @@ function registerModels() {
       remarks: String,
       weight: Number,
       weight_unit: { type: String, default: "Kg" },
+      packed_boxes: Number,
+      open_boxes: Number,
+      total_quantity: Number,
       created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     },
     { timestamps: true }
@@ -1606,7 +1515,7 @@ function registerModels() {
       delivery: { type: mongoose.Schema.Types.ObjectId, ref: "OrderDelivery", index: true },
       return_status: {
         type: String,
-        enum: ["pending", "received", "cancelled"],
+        enum: ["pending", "received_at_warehouse"],
         default: "pending",
         index: true,
       },
@@ -1782,7 +1691,6 @@ function registerModels() {
     Vehicle: mongoose.models.Vehicle || mongoose.model('Vehicle', vehicleSchema),
     Driver: mongoose.models.Driver || mongoose.model('Driver', driverSchema),
     Order: mongoose.models.Order || mongoose.model('Order', orderSchema),
-    OrderAssignee: mongoose.models.OrderAssignee || mongoose.model('OrderAssignee', orderAssigneeSchema),
     OrderWorkflow: mongoose.models.OrderWorkflow || mongoose.model('OrderWorkflow', orderWorkflowSchema),
     OrderStatusHistory:
       mongoose.models.OrderStatusHistory || mongoose.model('OrderStatusHistory', orderStatusHistorySchema),

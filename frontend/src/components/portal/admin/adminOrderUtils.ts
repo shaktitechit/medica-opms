@@ -1,8 +1,14 @@
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
-import { isOrderClosed } from "@/components/portal/sales/orderUtils";
+import {
+  hasAnyPendingApproval,
+  isOrderClosed,
+  resolveApprovalPending,
+  type ApprovalPendingStage,
+} from "@/components/portal/sales/orderUtils";
 
 export type AdminOrderTabCategory =
-  | "pending_review"
+  | "pending_admin_approval"
+  | "pending_approvals"
   | "open"
   | "closed"
   | "on_hold"
@@ -13,7 +19,8 @@ export const ADMIN_ORDER_TABS: ReadonlyArray<{
   id: AdminOrderTabCategory;
   label: string;
 }> = [
-  { id: "pending_review", label: "Pending Review" },
+  { id: "pending_admin_approval", label: "Pending Admin Approval" },
+  { id: "pending_approvals", label: "Pending Approvals" },
   { id: "open", label: "Open" },
   { id: "closed", label: "Closed" },
   { id: "on_hold", label: "On Hold" },
@@ -23,6 +30,7 @@ export const ADMIN_ORDER_TABS: ReadonlyArray<{
 
 /**
  * Admin list tab bucket. Draft orders are excluded (return null).
+ * Admin-pending orders bucket to pending_admin_approval; finance/account-only to pending_approvals.
  */
 export function getAdminOrderTabCategory(order: unknown): AdminOrderTabCategory | null {
   if (!order || typeof order !== "object") return null;
@@ -33,10 +41,44 @@ export function getAdminOrderTabCategory(order: unknown): AdminOrderTabCategory 
   if (status === "on_hold") return "on_hold";
   if (status === "cancelled") return "cancelled";
   if (status === "finance_rejected") return "rejected";
-  if (status === "submitted") return "pending_review";
   if (isOrderClosed(row)) return "closed";
 
+  const pending = resolveApprovalPending(row);
+  if (pending.admin) return "pending_admin_approval";
+  if (pending.finance || pending.account) return "pending_approvals";
+
   return "open";
+}
+
+/** Whether an order belongs on the given admin list tab. */
+export function orderMatchesAdminTab(
+  order: unknown,
+  tab: AdminOrderTabCategory,
+): boolean {
+  if (!order || typeof order !== "object") return false;
+
+  const pending = resolveApprovalPending(order);
+
+  if (tab === "pending_admin_approval") return pending.admin;
+  if (tab === "pending_approvals") {
+    return pending.admin || pending.finance || pending.account;
+  }
+
+  const cat = getAdminOrderTabCategory(order);
+  return cat === tab;
+}
+
+export function pendingApprovalStageLabel(stage: ApprovalPendingStage): string {
+  switch (stage) {
+    case "admin":
+      return "Admin";
+    case "finance":
+      return "Finance";
+    case "account":
+      return "Account";
+    default:
+      return "Approval";
+  }
 }
 
 export function isAdminOrderTabCategory(value: string): value is AdminOrderTabCategory {
@@ -73,12 +115,30 @@ export function computeAdminOrderStats(orders: unknown[]): AdminOrderStats {
   const stats = createEmptyAdminOrderStats();
 
   for (const order of orders) {
+    if (!order || typeof order !== "object") continue;
+    if (deriveOrderWorkflowStatus(order as Record<string, unknown>) === "draft") continue;
+
+    const pending = resolveApprovalPending(order);
+    const qty = orderLineQuantity(order);
+    const amount = orderAmount(order);
+
+    if (pending.admin) {
+      stats.pending_admin_approval.count += 1;
+      stats.pending_admin_approval.quantity += qty;
+      stats.pending_admin_approval.amount += amount;
+    }
+    if (pending.admin || pending.finance || pending.account) {
+      stats.pending_approvals.count += 1;
+      stats.pending_approvals.quantity += qty;
+      stats.pending_approvals.amount += amount;
+    }
+
     const cat = getAdminOrderTabCategory(order);
-    if (!cat) continue;
+    if (!cat || cat === "pending_admin_approval" || cat === "pending_approvals") continue;
 
     stats[cat].count += 1;
-    stats[cat].quantity += orderLineQuantity(order);
-    stats[cat].amount += orderAmount(order);
+    stats[cat].quantity += qty;
+    stats[cat].amount += amount;
   }
 
   return stats;
@@ -88,11 +148,17 @@ export const ADMIN_STATUS_COLORS: Record<
   AdminOrderTabCategory,
   { fill: string; hover: string; dot: string; label: string }
 > = {
-  pending_review: {
+  pending_admin_approval: {
     fill: "fill-purple-500/85 dark:fill-purple-500/60",
     hover: "fill-purple-600 dark:fill-purple-400",
     dot: "bg-purple-500 dark:bg-purple-400",
-    label: "Pending Review",
+    label: "Pending Admin Approval",
+  },
+  pending_approvals: {
+    fill: "fill-violet-500/85 dark:fill-violet-500/60",
+    hover: "fill-violet-600 dark:fill-violet-400",
+    dot: "bg-violet-500 dark:bg-violet-400",
+    label: "Pending Approvals",
   },
   open: {
     fill: "fill-blue-500/85 dark:fill-blue-500/60",

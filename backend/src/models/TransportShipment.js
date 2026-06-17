@@ -107,6 +107,12 @@ const transportShipmentSchema = new mongoose.Schema(
       default: "Kg",
     },
 
+    packed_boxes: Number,
+
+    open_boxes: Number,
+
+    total_quantity: Number,
+
     created_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

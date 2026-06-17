@@ -9,7 +9,6 @@ import {
   useListUsersQuery,
   useListDispatchesQuery,
 } from "@/store/api";
-import { useAppSelector } from "@/store/hooks";
 
 type ApprovalTabProps = {
   orderId: string;
@@ -29,17 +28,6 @@ function pickList(raw: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function idFromRef(ref: unknown): string {
-  if (typeof ref === "string") return ref.trim();
-  if (ref && typeof ref === "object" && "_id" in ref) {
-    return String((ref as { _id: unknown })._id ?? "").trim();
-  }
-  if (ref && typeof ref === "object" && "id" in ref) {
-    return String((ref as { id: unknown }).id ?? "").trim();
-  }
-  return "";
-}
-
 export function ApprovalTab({
   orderId,
   detail,
@@ -47,14 +35,9 @@ export function ApprovalTab({
   refetchOrder,
   partyLabel = "—",
 }: ApprovalTabProps) {
-  const currentUser = useAppSelector((state) => state.auth.user);
-  const currentUserId = useMemo(() => {
-    return String(currentUser?._id ?? currentUser?.id ?? "");
-  }, [currentUser]);
-
   const approvalsQ = useListOrderApprovalsQuery(
-    { order: orderId, assigned_account_user: currentUserId },
-    { skip: !orderId || !currentUserId },
+    { order: orderId },
+    { skip: !orderId },
   );
   const usersQ = useListUsersQuery({});
   const dispatchesQ = useListDispatchesQuery(
@@ -74,18 +57,10 @@ export function ApprovalTab({
 
   const approvals = useMemo(() => {
     const rows = pickList(approvalsQ.data);
-    const filtered = rows.filter((app) => {
-      const assigneeId = idFromRef(app.assigned_account_user);
-      return (
-        assigneeId &&
-        assigneeId === currentUserId &&
-        Boolean(app.is_finance_approved)
-      );
-    });
-    return [...filtered].sort(
+    return [...rows].sort(
       (a, b) => Number(b.revision_number ?? 0) - Number(a.revision_number ?? 0),
     );
-  }, [approvalsQ.data, currentUserId]);
+  }, [approvalsQ.data]);
 
   const userNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -129,7 +104,7 @@ export function ApprovalTab({
     <div className="space-y-4">
       <DashboardCard
         title="Order Approvals"
-        description="Finance-approved batches assigned to you — review items, amend to approve, or amend again after account clearance."
+        description="Sales approval batches for this order — approve or amend account clearance once admin and finance have cleared the batch."
       >
         {hasActiveDispatch && (
           <div className="mb-4 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-500/30">
@@ -161,7 +136,7 @@ export function ApprovalTab({
               No order approvals
             </h3>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Batches will appear here once finance has approved and sent them to you.
+              Approvals will appear here once admin and finance have reviewed items on this order.
             </p>
           </div>
         ) : (
@@ -199,7 +174,6 @@ export function ApprovalTab({
           setAmendApprovalId(null);
         }}
       />
-
     </div>
   );
 }

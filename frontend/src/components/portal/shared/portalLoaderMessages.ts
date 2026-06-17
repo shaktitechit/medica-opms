@@ -3,6 +3,7 @@ const ENDPOINT_MESSAGES: Record<string, string> = {
   createOrder: "Creating order…",
   transitionOrder: "Updating order status…",
   closeOrderWithReturns: "Closing order…",
+  settleAndCloseOrder: "Settling & closing order…",
   closeAfterFullDelivery: "Closing order after delivery…",
   deleteOrder: "Deleting order…",
   restoreOrder: "Restoring order…",

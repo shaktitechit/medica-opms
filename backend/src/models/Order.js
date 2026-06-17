@@ -1,10 +1,60 @@
 
 /**
- * @fileoverview Core commercial order document
- * ONLY stores current commercial state.
+ * @fileoverview Core commercial order document.
+ * Stores current commercial state and per-line fulfillment quantities.
  */
 
 import mongoose from "mongoose";
+
+/* =========================================================
+ * ENUMS (canonical values for this model)
+ * ======================================================= */
+
+const ORDER_LINE_STATUS = ["active", "partial", "fulfilled", "cancelled"];
+
+const ORDER_LIFECYCLE_STATUS = [
+  "draft",
+  "active",
+  "partially_fulfilled",
+  "fulfilled",
+  "closed", // legacy only — new settlement close uses fulfilled + status closed
+  "cancelled",
+  "on_hold",
+];
+
+const ORDER_WORKFLOW_STAGE = [
+  "sales",
+  "admin_review",
+  "finance_review",
+  "account_review",
+  "dispatch",
+  "completed",
+  "cancelled",
+  "on_hold",
+];
+
+/** High-level workflow queue (replaces granular transport/dispatch sub-states). */
+const ORDER_STATUS = [
+  "draft",
+  "submitted",
+  "sales_approved",
+  "finance_review",
+  "finance_approved",
+  "finance_rejected",
+  "account_review",
+  "account_approved",
+  "account_rejected",
+  "dispatch",
+  "in_transit",
+  "delivered",
+  "closed",
+  "cancelled",
+  "on_hold",
+];
+
+const APPROVAL_STATUS = ["pending", "partial", "approved", "rejected"];
+
+const FULFILLMENT_STATUS = ["pending", "partial", "completed"];
 
 /* =========================================================
  * ORDER ITEM
@@ -12,9 +62,7 @@ import mongoose from "mongoose";
 
 const orderItemSchema = new mongoose.Schema(
   {
-    /* -----------------------------------------------------
-     * PRODUCT SNAPSHOT
-     * --------------------------------------------------- */
+    /* ----- Product snapshot ----- */
 
     product: {
       type: mongoose.Schema.Types.ObjectId,
@@ -30,17 +78,11 @@ const orderItemSchema = new mongoose.Schema(
     },
 
     sku: String,
-
     brand: String,
-
     manufacturer: String,
-
     product_group: String,
-
     product_subgroup: String,
-
     unit: String,
-
     hsn_code: String,
 
     gst_percent: {
@@ -50,9 +92,7 @@ const orderItemSchema = new mongoose.Schema(
       max: 100,
     },
 
-    /* -----------------------------------------------------
-     * QUANTITY
-     * --------------------------------------------------- */
+    /* ----- Fulfillment quantities (single source per line) ----- */
 
     ordered_quantity: {
       type: Number,
@@ -60,27 +100,7 @@ const orderItemSchema = new mongoose.Schema(
       min: 1,
     },
 
-    /** Finance-approved quantity (dispatch cap after finance review). */
     approved_quantity: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
-    /** Admin / sales-review approved quantity (finance approval pool). */
-    sales_approved_quantity: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
-    free_quantity: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
-    allocated_quantity: {
       type: Number,
       default: 0,
       min: 0,
@@ -98,21 +118,27 @@ const orderItemSchema = new mongoose.Schema(
       min: 0,
     },
 
-    cancelled_quantity: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
     returned_quantity: {
       type: Number,
       default: 0,
       min: 0,
     },
 
-    /* -----------------------------------------------------
-     * PRICING
-     * --------------------------------------------------- */
+    /** Derived line state from quantities above. */
+    line_status: {
+      type: String,
+      enum: ORDER_LINE_STATUS,
+      default: "active",
+      index: true,
+    },
+
+    free_quantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    /* ----- Pricing ----- */
 
     unit_price: {
       type: Number,
@@ -132,7 +158,6 @@ const orderItemSchema = new mongoose.Schema(
     },
 
     pricing_validity_start: Date,
-
     pricing_validity_end: Date,
 
     manual_price_override: {
@@ -140,9 +165,7 @@ const orderItemSchema = new mongoose.Schema(
       default: false,
     },
 
-    /* -----------------------------------------------------
-     * APPROVAL
-     * --------------------------------------------------- */
+    /* ----- Line approval metadata ----- */
 
     approval_required: {
       type: Boolean,
@@ -158,9 +181,7 @@ const orderItemSchema = new mongoose.Schema(
 
     approved_at: Date,
 
-    /* -----------------------------------------------------
-     * DISCOUNT
-     * --------------------------------------------------- */
+    /* ----- Discount & tax ----- */
 
     discount_percent: {
       type: Number,
@@ -171,10 +192,6 @@ const orderItemSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-
-    /* -----------------------------------------------------
-     * TAXATION
-     * --------------------------------------------------- */
 
     taxable_amount: {
       type: Number,
@@ -191,27 +208,6 @@ const orderItemSchema = new mongoose.Schema(
       default: 0,
     },
 
-    /* -----------------------------------------------------
-     * LINE STATUS
-     * --------------------------------------------------- */
-
-    line_status: {
-      type: String,
-      enum: [
-        "draft",
-        "active",
-        "partially_allocated",
-        "fully_allocated",
-        "partially_dispatched",
-        "fully_dispatched",
-        "partially_delivered",
-        "fully_delivered",
-        "cancelled",
-      ],
-      default: "draft",
-      index: true,
-    },
-
     remarks: String,
   },
   {
@@ -226,9 +222,7 @@ const orderItemSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
-    /* -----------------------------------------------------
-     * BASIC
-     * --------------------------------------------------- */
+    /* ----- Basic ----- */
 
     order_no: {
       type: String,
@@ -252,9 +246,7 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
-    /* -----------------------------------------------------
-     * PARTY
-     * --------------------------------------------------- */
+    /* ----- Party ----- */
 
     customer: {
       type: mongoose.Schema.Types.ObjectId,
@@ -268,70 +260,36 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
-    status: {
-      type: String,
-      enum: [
-        "draft",
-        "submitted",
-        "sales_approved",
-        "finance_review",
-        "finance_approved",
-        "partially_finance_approved",
-        "fully_finance_approved",
-        "finance_rejected",
-        "account_review",
-        "partially_account_approved",
-        "fully_account_approved",
-        "account_rejected",
-        "dispatch_pending",
-        "partial_dispatch_created",
-        "full_dispatch_created",
-        "transport_pending",
-        "transport_assigned",
-        "partially_transported",
-        "fully_transported",
-        "in_transit",
-        "delivered",
-        "cancelled",
-        "on_hold",
-      ],
-      default: "draft",
-      index: true,
-    },
+    /* ----- Status (three layers) -----
+     * lifecycle_status — business outcome (draft → active → partially_fulfilled → fulfilled)
+     * workflow_stage   — owning department / pipeline stage
+     * status           — workflow queue position (terminal settlement: closed)
+     *
+     * Account settle & close sets:
+     *   lifecycle_status = fulfilled
+     *   workflow_stage   = completed
+     *   status           = closed
+     *   closed_at        = timestamp
+     * --------------------------------------------------- */
 
     lifecycle_status: {
       type: String,
-      enum: [
-        "draft",
-        "active",
-        "partially_fulfilled",
-        "fulfilled",
-        "cancelled",
-        "closed",
-        "on_hold",
-      ],
+      enum: ORDER_LIFECYCLE_STATUS,
       default: "draft",
       index: true,
     },
 
-    /* -----------------------------------------------------
-     * WORKFLOW ENGINE
-     * --------------------------------------------------- */
-
     workflow_stage: {
       type: String,
-      enum: [
-        "sales",
-        "admin_review",
-        "finance_review",
-        "account_review",
-        "dispatch_review",
-        "dispatch_execution",
-        "completed",
-        "cancelled",
-        "hold",
-      ],
+      enum: ORDER_WORKFLOW_STAGE,
       default: "sales",
+      index: true,
+    },
+
+    status: {
+      type: String,
+      enum: ORDER_STATUS,
+      default: "draft",
       index: true,
     },
 
@@ -351,12 +309,7 @@ const orderSchema = new mongoose.Schema(
       default: false,
     },
 
-    /* -----------------------------------------------------
-     * OWNERSHIP
-     * Canonical per-department assignees live in OrderAssignee
-     * (unique order + department). Fields below are denormalized
-     * for list filters and legacy API compatibility.
-     * --------------------------------------------------- */
+    /* ----- Ownership ----- */
 
     current_assignee: {
       type: mongoose.Schema.Types.ObjectId,
@@ -364,31 +317,8 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
+    /** Sales owner — only department that filters order lists by assignee. */
     assigned_sales_user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      index: true,
-    },
-
-    assigned_admin_user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      index: true,
-    },
-
-    assigned_finance_user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      index: true,
-    },
-
-    assigned_account_user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      index: true,
-    },
-
-    assigned_dispatch_user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       index: true,
@@ -406,9 +336,7 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
-    /* -----------------------------------------------------
-     * FINANCIALS
-     * --------------------------------------------------- */
+    /* ----- Financials ----- */
 
     subtotal: {
       type: Number,
@@ -470,9 +398,11 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
+    /* ----- Department approvals (same enum shape) ----- */
+
     finance_approval_status: {
       type: String,
-      enum: ["pending", "partial", "full", "rejected"],
+      enum: APPROVAL_STATUS,
       default: "pending",
       index: true,
     },
@@ -485,7 +415,7 @@ const orderSchema = new mongoose.Schema(
 
     admin_approval_status: {
       type: String,
-      enum: ["pending", "approved", "rejected", "sent_to_finance"],
+      enum: APPROVAL_STATUS,
       default: "pending",
       index: true,
     },
@@ -498,7 +428,7 @@ const orderSchema = new mongoose.Schema(
 
     account_approval_status: {
       type: String,
-      enum: ["pending", "partial", "full", "rejected"],
+      enum: APPROVAL_STATUS,
       default: "pending",
       index: true,
     },
@@ -509,31 +439,27 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
-    /* -----------------------------------------------------
-     * EXECUTION STATUS
-     * --------------------------------------------------- */
+    /* ----- Execution rollup (same enum shape) ----- */
 
     allocation_status: {
       type: String,
-      enum: ["pending", "partial", "completed"],
+      enum: FULFILLMENT_STATUS,
       default: "pending",
     },
 
     dispatch_status: {
       type: String,
-      enum: ["pending", "partial", "completed"],
+      enum: FULFILLMENT_STATUS,
       default: "pending",
     },
 
     delivery_status: {
       type: String,
-      enum: ["pending", "partial", "completed"],
+      enum: FULFILLMENT_STATUS,
       default: "pending",
     },
 
-    /* -----------------------------------------------------
-     * ITEMS
-     * --------------------------------------------------- */
+    /* ----- Lines ----- */
 
     order_items: {
       type: [orderItemSchema],
@@ -543,9 +469,7 @@ const orderSchema = new mongoose.Schema(
       },
     },
 
-    /* -----------------------------------------------------
-     * FLAGS
-     * --------------------------------------------------- */
+    /* ----- Flags ----- */
 
     has_open_flags: {
       type: Boolean,
@@ -564,17 +488,12 @@ const orderSchema = new mongoose.Schema(
       default: "none",
     },
 
-    /* -----------------------------------------------------
-     * REMARKS
-     * --------------------------------------------------- */
+    /* ----- Remarks ----- */
 
     remarks: String,
-
     internal_notes: String,
 
-    /* -----------------------------------------------------
-     * AUDIT
-     * --------------------------------------------------- */
+    /* ----- Audit ----- */
 
     created_by: {
       type: mongoose.Schema.Types.ObjectId,
@@ -603,19 +522,9 @@ const orderSchema = new mongoose.Schema(
  * INDEXES
  * ======================================================= */
 
-orderSchema.index({
-  customer: 1,
-  order_date: -1,
-});
-
-orderSchema.index({
-  workflow_stage: 1,
-  lifecycle_status: 1,
-});
-
-orderSchema.index({
-  current_assignee: 1,
-  workflow_stage: 1,
-});
+orderSchema.index({ customer: 1, order_date: -1 });
+orderSchema.index({ workflow_stage: 1, lifecycle_status: 1 });
+orderSchema.index({ current_assignee: 1, workflow_stage: 1 });
+orderSchema.index({ status: 1, closed_at: -1 });
 
 export default mongoose.model("Order", orderSchema);

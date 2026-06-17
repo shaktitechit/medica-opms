@@ -4,27 +4,23 @@ import Link from "next/link";
 import { useMemo } from "react";
 import {
   AlertTriangle,
+  ClipboardCheck,
   Clock,
   Coins,
   Layers,
   Package,
-  RotateCcw,
-  Send,
-  Truck,
   type LucideIcon,
 } from "lucide-react";
 
 import {
   ACCOUNT_ORDER_TABS,
   computeAccountOrderStats,
-  type AccountOrderCategoryOptions,
   type AccountOrderTabCategory,
 } from "../accountOrderUtils";
 
 interface AccountOverviewWidgetsProps {
   orders: unknown[];
   isOrdersFetching: boolean;
-  categoryOptions?: AccountOrderCategoryOptions;
 }
 
 function formatMoney(v: number): string {
@@ -44,40 +40,33 @@ const WIDGET_META: Record<
     Icon: LucideIcon;
   }
 > = {
-  dispatch_pending: {
-    accent: "bg-amber-500",
-    labelTone: "text-amber-500 dark:text-amber-400",
-    iconWrap: "bg-amber-50 dark:bg-amber-950/30 border border-amber-100/45 dark:border-amber-500/10",
-    iconTone: "text-amber-600 dark:text-amber-400",
-    Icon: Clock,
+  pending_account_approval: {
+    accent: "bg-purple-500",
+    labelTone: "text-purple-500 dark:text-purple-400",
+    iconWrap: "bg-purple-50 dark:bg-purple-950/30 border border-purple-100/45 dark:border-purple-500/10",
+    iconTone: "text-purple-600 dark:text-purple-400",
+    Icon: ClipboardCheck,
   },
-  dispatched: {
-    accent: "bg-blue-500",
-    labelTone: "text-blue-500 dark:text-blue-400",
-    iconWrap: "bg-blue-50 dark:bg-blue-950/30 border border-blue-100/45 dark:border-blue-500/10",
-    iconTone: "text-blue-600 dark:text-blue-400",
-    Icon: Send,
+  pending_approvals: {
+    accent: "bg-violet-500",
+    labelTone: "text-violet-500 dark:text-violet-400",
+    iconWrap: "bg-violet-50 dark:bg-violet-950/30 border border-violet-100/45 dark:border-violet-500/10",
+    iconTone: "text-violet-600 dark:text-violet-400",
+    Icon: Layers,
   },
-  pending_delivery: {
-    accent: "bg-indigo-500",
-    labelTone: "text-indigo-500 dark:text-indigo-400",
-    iconWrap: "bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100/45 dark:border-indigo-500/10",
-    iconTone: "text-indigo-600 dark:text-indigo-400",
-    Icon: Truck,
-  },
-  returns_pending: {
-    accent: "bg-rose-500",
-    labelTone: "text-rose-500 dark:text-rose-400",
-    iconWrap: "bg-rose-50 dark:bg-rose-950/30 border border-rose-100/45 dark:border-rose-500/10",
-    iconTone: "text-rose-600 dark:text-rose-400",
-    Icon: RotateCcw,
+  open: {
+    accent: "bg-teal-500",
+    labelTone: "text-teal-500 dark:text-teal-400",
+    iconWrap: "bg-teal-50 dark:bg-teal-950/30 border border-teal-100/45 dark:border-teal-500/10",
+    iconTone: "text-teal-600 dark:text-teal-400",
+    Icon: Package,
   },
   closed: {
     accent: "bg-emerald-500",
     labelTone: "text-emerald-500 dark:text-emerald-400",
     iconWrap: "bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100/45 dark:border-emerald-500/10",
     iconTone: "text-emerald-600 dark:text-emerald-400",
-    Icon: Package,
+    Icon: Coins,
   },
   on_hold: {
     accent: "bg-orange-500",
@@ -98,15 +87,14 @@ const WIDGET_META: Record<
 export default function AccountOverviewWidgets({
   orders,
   isOrdersFetching,
-  categoryOptions,
 }: AccountOverviewWidgetsProps) {
   const orderStats = useMemo(
-    () => computeAccountOrderStats(orders, categoryOptions),
-    [orders, categoryOptions],
+    () => computeAccountOrderStats(orders),
+    [orders],
   );
 
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 font-sans">
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 font-sans">
       {ACCOUNT_ORDER_TABS.map((tab) => {
         const meta = WIDGET_META[tab.id];
         const { Icon } = meta;

@@ -6,6 +6,14 @@ import { useAppSelector } from "@/store/hooks";
 import { usePatchOrderReturnMutation } from "@/store/api";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
+import {
+  ORDER_RETURN_STATUS,
+  isReturnPending,
+  isReturnReceivedAtWarehouse,
+  normalizeReturnStatus,
+  returnStatusBadgeClass,
+  returnStatusLabel,
+} from "@/constants/orderReturnStatus";
 
 interface ReturnsTabProps {
   returns: any[];
@@ -49,7 +57,7 @@ export function ReturnsTab({
             {returns.map((ret: any) => {
               const retId = String(ret._id ?? ret.id ?? "");
               const returnNo = ret.return_no || "Return Record";
-              const status = ret.return_status || "pending";
+              const status = normalizeReturnStatus(ret.return_status);
               const items = Array.isArray(ret.return_items) ? ret.return_items : [];
 
               const dispatchNo = ret.dispatch && typeof ret.dispatch === "object"
@@ -73,15 +81,9 @@ export function ReturnsTab({
                           {returnNo}
                         </h4>
                         <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            status === "received"
-                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
-                              : status === "cancelled"
-                                ? "bg-slate-50 text-slate-500 dark:bg-slate-900/20 dark:text-slate-400"
-                                : "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
-                          }`}
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${returnStatusBadgeClass(status)}`}
                         >
-                          {status.replace(/_/g, " ")}
+                          {returnStatusLabel(status)}
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-slate-500">
@@ -89,7 +91,7 @@ export function ReturnsTab({
                       </p>
                     </div>
 
-                    {status === "pending" && (
+                    {isReturnPending(status) && (
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -157,7 +159,7 @@ export function ReturnsTab({
                     </div>
 
                     <div className="space-y-4 rounded-lg bg-slate-50/50 p-4 border border-slate-100 dark:bg-slate-950/10 dark:border-white/5 text-xs">
-                      {status === "received" && (
+                      {isReturnReceivedAtWarehouse(status) && (
                         <div>
                           <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                             Warehouse Receipt Info
@@ -286,7 +288,7 @@ export function ReturnsTab({
                     await patchOrderReturn({
                       id: confirmReturnId,
                       patch: {
-                        return_status: "received",
+                        return_status: ORDER_RETURN_STATUS.RECEIVED_AT_WAREHOUSE,
                         returned_by: returningPerson.trim(),
                         received_at: new Date().toISOString(),
                         received_by: currentUserId,

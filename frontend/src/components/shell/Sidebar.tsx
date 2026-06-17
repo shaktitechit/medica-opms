@@ -23,15 +23,15 @@ export function Sidebar({ portal }: SidebarProps) {
   const userDept = normalizeDepartment(userDeptRaw);
 
   const lgW = desktopCollapsed
-    ? "lg:w-[76px] lg:min-w-[76px]"
-    : "lg:w-[260px] lg:min-w-[260px]";
+    ? "lg:w-[56px] lg:min-w-[56px]"
+    : "lg:w-[11rem] lg:min-w-[11rem]";
 
   return (
     <aside
       id="app-sidebar"
       aria-label="Main navigation"
       className={[
-        "fixed left-0 top-0 z-[40] flex h-[100vh] max-h-[100vh] min-h-0 w-[min(18rem,88vw)] max-w-[20rem] flex-col overflow-hidden border-r border-slate-200/80 bg-white shadow-xl shadow-slate-200/40 transition-[transform,width,min-width] duration-300 ease-out supports-[height:100dvh]:max-h-[100dvh] supports-[height:100dvh]:h-[100dvh] dark:border-white/10 dark:bg-slate-950 dark:shadow-black/30",
+        "fixed left-0 top-0 z-[40] flex h-[100vh] max-h-[100vh] min-h-0 w-[min(12rem,82vw)] max-w-[13rem] flex-col overflow-hidden border-r border-slate-200/80 bg-white shadow-xl shadow-slate-200/40 transition-[transform,width,min-width] duration-300 ease-out supports-[height:100dvh]:max-h-[100dvh] supports-[height:100dvh]:h-[100dvh] dark:border-white/10 dark:bg-slate-950 dark:shadow-black/30",
         "lg:relative lg:z-0 lg:h-full lg:min-h-0 lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:shadow-none dark:lg:bg-slate-950",
         lgW,
         mobileNavOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
@@ -39,10 +39,10 @@ export function Sidebar({ portal }: SidebarProps) {
     >
       <div
         className={[
-          "relative flex shrink-0 flex-col gap-1 border-b border-slate-200/90 px-4 pb-4 pr-14 pt-[max(1rem,env(safe-area-inset-top))] dark:border-white/10",
+          "relative flex shrink-0 flex-col gap-0.5 border-b border-slate-200/90 px-2 pb-2.5 pr-11 pt-[max(0.75rem,env(safe-area-inset-top))] dark:border-white/10",
           desktopCollapsed
-            ? "lg:items-center lg:px-3 lg:pb-3 lg:pr-3 lg:pt-5"
-            : "lg:pr-4",
+            ? "lg:items-center lg:px-1.5 lg:pb-2.5 lg:pr-1.5 lg:pt-4"
+            : "lg:pr-2",
         ].join(" ")}
       >
         <Link
@@ -56,14 +56,14 @@ export function Sidebar({ portal }: SidebarProps) {
             imgClassName={[
               "pr-8 lg:pr-0",
               desktopCollapsed
-                ? "lg:mx-auto lg:h-9 lg:max-h-9 lg:w-auto lg:max-w-[3.25rem] lg:object-contain"
-                : "max-h-10 max-w-[12rem]",
+                ? "lg:mx-auto lg:h-8 lg:max-h-8 lg:w-auto lg:max-w-[2.75rem] lg:object-contain"
+                : "max-h-9 max-w-[7.5rem]",
             ].join(" ")}
           />
         </Link>
         {userDept ? (
           <p
-            className={`truncate text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400 ${desktopCollapsed ? "hidden lg:hidden" : ""}`}
+            className={`truncate text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 ${desktopCollapsed ? "hidden lg:hidden" : ""}`}
           >
             {userDept}
           </p>

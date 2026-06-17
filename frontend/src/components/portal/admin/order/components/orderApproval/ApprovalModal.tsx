@@ -12,16 +12,11 @@ import {
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import {
-  useApproveOrderApprovalMutation,
   useCheckPartyLineRatesQuery,
   useCreateOrderApprovalMutation,
-  useListOrderApprovalsQuery,
-  usePatchOrderMutation,
   useListProductsQuery,
 } from "@/store/api";
 import type { CheckOrderRatesItem } from "@/store/api/slices/partyOrderProductsRateApi";
-import { lineApprovalQuantities } from "@/components/portal/shared/orderLineQuantities";
-import { isAdminApprovalContinuation } from "@/components/portal/shared/orderAdminApprovalDisplay";
 import {
   MapOrderLinePriceModal,
   type MapOrderLinePriceSuccess,
@@ -141,16 +136,8 @@ export function ApprovalModal({
 
   const productsQ = useListProductsQuery({}, { skip: !open });
 
-  const adminApprovalsQ = useListOrderApprovalsQuery(
-    { order: orderId },
-    { skip: !open || !orderId },
-  );
-  
   const [createAdminApproval, { isLoading: isCreating }] =
     useCreateOrderApprovalMutation();
-  const [approveAdminApproval, { isLoading: isApproving }] =
-    useApproveOrderApprovalMutation();
-  const [patchOrder, { isLoading: isPatching }] = usePatchOrderMutation();
 
   // Price mapping states
   const [mapTarget, setMapTarget] = useState<MapOrderLinePriceTarget | null>(
@@ -188,50 +175,33 @@ export function ApprovalModal({
     });
   }, [searchQuery, products]);
 
-  const isContinuation = useMemo(
-    () => isAdminApprovalContinuation(readOnlyItems),
-    [readOnlyItems],
-  );
-
   const initFormLines = useCallback(() => {
     setFormLines(
-      readOnlyItems
-        .map((line) => {
-          const q = lineApprovalQuantities(line);
-          const baselineQty = isContinuation ? q.pendingAdmin : q.ordered;
-
-          if (isContinuation && baselineQty === 0) {
-            return null;
-          }
-
-          const unitPrice = Number(line.unit_price ?? 0);
-          return {
-            order_item_id: String(line._id ?? line.id ?? ""),
-            product: idFromRef(line.product),
-            product_name: String(line.product_name ?? "—"),
-            sku: typeof line.sku === "string" ? line.sku : "",
-            ordered_quantity: baselineQty,
-            ordered_unit_price: unitPrice,
-            approved_quantity: baselineQty,
-            approved_unit_price: unitPrice,
-            free_quantity: Number(line.free_quantity ?? line.free_qty ?? 0),
-            discount_percent: Number(line.discount_percent ?? 0),
-            discount_amount: Number(line.discount_amount ?? 0),
-            gst_percent: Number(line.gst_percent ?? 18),
-            applied_rate_type: String(line.applied_rate_type ?? "MANUAL"),
-            approval_status: "fully_approved" as ApprovalLineStatus,
-            remarks: "",
-          };
-        })
-        .filter((line): line is EditableLine => line != null),
+      readOnlyItems.map((line) => {
+        const unitPrice = Number(line.unit_price ?? 0);
+        const orderedQty = Number(line.ordered_quantity ?? line.quantity ?? 0);
+        return {
+          order_item_id: String(line._id ?? line.id ?? ""),
+          product: idFromRef(line.product),
+          product_name: String(line.product_name ?? "—"),
+          sku: typeof line.sku === "string" ? line.sku : "",
+          ordered_quantity: orderedQty,
+          ordered_unit_price: unitPrice,
+          approved_quantity: orderedQty,
+          approved_unit_price: unitPrice,
+          free_quantity: Number(line.free_quantity ?? line.free_qty ?? 0),
+          discount_percent: Number(line.discount_percent ?? 0),
+          discount_amount: Number(line.discount_amount ?? 0),
+          gst_percent: Number(line.gst_percent ?? 18),
+          applied_rate_type: String(line.applied_rate_type ?? "MANUAL"),
+          approval_status: "fully_approved" as ApprovalLineStatus,
+          remarks: "",
+        };
+      }),
     );
-    setApprovalNotes(
-      isContinuation
-        ? "Continued admin approval for remaining quantities."
-        : "Approved by admin after rate review.",
-    );
+    setApprovalNotes("Approved by admin after rate review.");
     setSearchQuery("");
-  }, [readOnlyItems, isContinuation]);
+  }, [readOnlyItems]);
 
   useEffect(() => {
     if (open) initFormLines();
@@ -391,9 +361,8 @@ export function ApprovalModal({
       return;
     }
 
-    // Build order items payload to patch the original order
     const orderItemsPayload = formLines.map((line) => {
-      const item: Record<string, any> = {
+      const item: Record<string, unknown> = {
         product: line.product,
         product_name: line.product_name,
         sku: line.sku || "",
@@ -412,133 +381,46 @@ export function ApprovalModal({
       return item;
     });
 
-    let updatedItems: Record<string, any>[] = [];
+    const approvalItems = formLines.map((line) => ({
+      product: line.product,
+      ...(line.order_item_id.startsWith("new-line-")
+        ? {}
+        : { order_item_id: line.order_item_id }),
+      ordered_quantity: line.ordered_quantity,
+      approved_quantity: line.ordered_quantity,
+      approved_unit_price: line.approved_unit_price,
+      ordered_unit_price: line.approved_unit_price,
+      free_quantity: line.free_quantity,
+      discount_percent: line.discount_percent,
+      discount_amount: line.discount_amount,
+      gst_percent: line.gst_percent,
+      applied_rate_type: line.applied_rate_type,
+      approved_total_amount: lineTotal(line),
+      approval_status: "fully_approved" as ApprovalLineStatus,
+      remarks: line.remarks.trim() || "",
+    }));
 
     try {
-      // 1. Sync the modifications to the original order
-      const updatedOrder = (await patchOrder({
-        id: orderId,
-        patch: { order_items: orderItemsPayload },
-      }).unwrap()) as Record<string, any>;
-
-      if (Array.isArray(updatedOrder?.order_items)) {
-        updatedItems = updatedOrder.order_items as Record<string, any>[];
-      }
-
-      // 2. Submit/approve admin approval immediately
-      // The backend will generate the OAA document and sync commercial values
-      const approvalItems = formLines.map((line) => {
-        let orderItemId = line.order_item_id;
-        if (orderItemId.startsWith("new-line-")) {
-          const matched = updatedItems.find(
-            (oi) => idFromRef(oi.product) === line.product
-          );
-          if (matched) {
-            orderItemId = String(matched._id ?? matched.id ?? orderItemId);
-          }
-        }
-        return {
-          order_item_id: orderItemId,
-          product: line.product,
-          approved_quantity: line.ordered_quantity,
-          approved_unit_price: line.approved_unit_price,
-          approved_total_amount: lineTotal(line),
-          approval_status: "fully_approved" as ApprovalLineStatus,
-          remarks: line.remarks.trim() || "",
-        };
-      });
-
       await createAdminApproval({
         order: orderId,
         approve_immediately: true,
+        replace_snapshot: true,
+        order_items: orderItemsPayload,
         approval_notes: approvalNotes.trim() || undefined,
         approved_total_amount: approvedTotal,
         approval_items: approvalItems,
       }).unwrap();
 
-      toast.success(
-        isContinuation
-          ? "Remaining quantities approved and order modified."
-          : "Order modified and approved.",
-      );
+      toast.success("Order and approval updated successfully.");
       onClose();
       onApproved?.();
 
-      const tasks: Promise<any>[] = [];
       if (refetchOrder) {
         const res = refetchOrder() as unknown;
-        if (res instanceof Promise) tasks.push(res);
-      }
-      if (!adminApprovalsQ.isUninitialized) {
-        tasks.push(adminApprovalsQ.refetch() as any);
-      }
-      if (tasks.length > 0) {
-        await Promise.all(tasks);
+        if (res instanceof Promise) await res;
       }
     } catch (rejected) {
-      const message = mutationRejectedMessage(rejected);
-      // Fallback/Retry if active approval is pending
-      const rows = pickList(adminApprovalsQ.data);
-      const pending = rows.find((row) =>
-        ["danger", "draft", "pending_review"].includes(String(row.approval_status)),
-      );
-      if (pending && message.toLowerCase().includes("active admin approval")) {
-        try {
-          const approvalItemsRetry = formLines.map((line) => {
-            let orderItemId = line.order_item_id;
-            if (orderItemId.startsWith("new-line-")) {
-              const matched = updatedItems.find(
-                (oi) => idFromRef(oi.product) === line.product
-              );
-              if (matched) {
-                orderItemId = String(matched._id ?? matched.id ?? orderItemId);
-              }
-            }
-            return {
-              order_item_id: orderItemId,
-              product: line.product,
-              approved_quantity: line.ordered_quantity,
-              approved_unit_price: line.approved_unit_price,
-              approved_total_amount: lineTotal(line),
-              approval_status: "fully_approved" as ApprovalLineStatus,
-              remarks: line.remarks.trim() || "",
-            };
-          });
-
-          await approveAdminApproval({
-            id: String(pending._id ?? pending.id),
-            body: {
-              approval_notes: approvalNotes.trim() || undefined,
-              approved_total_amount: approvedTotal,
-              approval_items: approvalItemsRetry,
-            },
-          }).unwrap();
-
-          toast.success(
-            isContinuation
-              ? "Remaining quantities approved and order modified."
-              : "Order modified and approved.",
-          );
-          onClose();
-          onApproved?.();
-          const tasks: Promise<any>[] = [];
-          if (refetchOrder) {
-            const res = refetchOrder() as unknown;
-            if (res instanceof Promise) tasks.push(res);
-          }
-          if (!adminApprovalsQ.isUninitialized) {
-            tasks.push(adminApprovalsQ.refetch() as any);
-          }
-          if (tasks.length > 0) {
-            await Promise.all(tasks);
-          }
-          return;
-        } catch (retryRejected) {
-          toast.error(mutationRejectedMessage(retryRejected));
-          return;
-        }
-      }
-      toast.error(message);
+      toast.error(mutationRejectedMessage(rejected));
     }
   }, [
     orderId,
@@ -546,29 +428,15 @@ export function ApprovalModal({
     unmappedActiveLines.length,
     approvalNotes,
     approvedTotal,
-    isContinuation,
     createAdminApproval,
-    approveAdminApproval,
-    patchOrder,
-    adminApprovalsQ,
     onClose,
     onApproved,
     refetchOrder,
   ]);
 
-  const busy = isCreating || isApproving || isPatching;
+  const busy = isCreating;
 
   if (!open) return null;
-
-  function pickList(raw: unknown): Record<string, unknown>[] {
-    if (Array.isArray(raw)) return raw as Record<string, unknown>[];
-    if (raw && typeof raw === "object") {
-      const o = raw as Record<string, unknown>;
-      if (Array.isArray(o.items)) return o.items as Record<string, unknown>[];
-      if (Array.isArray(o.data)) return o.data as Record<string, unknown>[];
-    }
-    return [];
-  }
 
   return (
     <div className="fixed inset-0 z-55 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
@@ -579,7 +447,7 @@ export function ApprovalModal({
               Create and Modify Approval
             </h3>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Adjust quantities, add/remove items, verify negotiated rates, and submit to modify order & approve.
+              Edit the full order line list, verify negotiated rates, then save order and approval together.
             </p>
           </div>
           <button
@@ -871,7 +739,7 @@ export function ApprovalModal({
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-4 dark:border-white/5">
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Saves modified items directly to the original order, and creates the approved OAA record immediately.
+              One request updates order lines, creates the approval, and queues fulfillment sync.
             </p>
             <div className="flex items-center gap-2">
               <button

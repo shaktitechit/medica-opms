@@ -5,14 +5,16 @@
 const notification = require('./notification.queue');
 const report = require('./report.queue');
 const message = require('./message.queue');
+const order = require('./order.queue');
+const workflow = require('./workflow.queue');
 
-const all = Object.freeze([notification, report, message]);
+const all = Object.freeze([notification, report, message, order, workflow]);
 
 /** Register async job handlers. */
 function registerQueues(logger = console) {
   const names = all.map((q) => q.queueName).join(', ');
   logger.info?.(`[queues] registered: ${names}`);
-  return { notification, report, message };
+  return { notification, report, message, order, workflow };
 }
 
-module.exports = { registerQueues, notification, report, message, all };
+module.exports = { registerQueues, notification, report, message, order, workflow, all };

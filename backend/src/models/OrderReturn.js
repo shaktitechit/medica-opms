@@ -71,7 +71,7 @@ const orderReturnSchema = new mongoose.Schema(
 
     return_status: {
       type: String,
-      enum: ["pending", "received", "cancelled"],
+      enum: ["pending", "received_at_warehouse"],
       default: "pending",
       index: true,
     },

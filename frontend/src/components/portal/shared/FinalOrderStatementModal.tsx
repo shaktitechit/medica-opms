@@ -92,9 +92,6 @@ export default function FinalOrderStatementModal({
     : [];
   const qty = asRecord(statement.quantity_summary);
   const fin = asRecord(statement.financial_summary);
-  const returns = Array.isArray(statement.returns)
-    ? (statement.returns as Record<string, unknown>[])
-    : [];
 
   const totalLineGst = lines.reduce((sum, line) => sum + num(line.gst_amount), 0);
   const canDownloadPdf = !isLoading && !isError && lines.length > 0;
@@ -107,9 +104,7 @@ export default function FinalOrderStatementModal({
       ordered: String(num(line.ordered_quantity)),
       approved: String(num(line.approved_quantity)),
       dispatched: String(num(line.dispatched_quantity)),
-      delivered: String(num(line.gross_delivered_quantity)),
-      returned: String(num(line.returned_quantity)),
-      net: String(num(line.net_delivered_quantity)),
+      delivered: String(num(line.net_delivered_quantity)),
       unitPrice: pdfMoney(num(line.unit_price)),
       rateType: formatRateType(line.applied_rate_type),
       gstPercent: formatGstPercent(line.gst_percent),
@@ -117,16 +112,6 @@ export default function FinalOrderStatementModal({
       lineTotal: pdfMoney(num(line.total_amount)),
     }));
   }, [lines]);
-
-  const pdfReturns = useMemo(
-    () =>
-      returns.map((ret) => ({
-        returnNo: String(ret.return_no || "—"),
-        qty: String(num(ret.total_returned_qty)),
-        receivedAt: formatDate(ret.received_at),
-      })),
-    [returns],
-  );
 
   const orderNo = String(order.order_no || orderId);
   const statementNo = String(statement.statement_no || `FOS-${orderNo}`);
@@ -180,13 +165,10 @@ export default function FinalOrderStatementModal({
                 ordered: String(num(qty.ordered)),
                 approved: String(num(qty.approved)),
                 dispatched: String(num(qty.dispatched)),
-                delivered: String(num(qty.gross_delivered)),
-                returned: String(num(qty.returned)),
-                net: String(num(qty.net_delivered)),
+                delivered: String(num(qty.net_delivered)),
                 gstAmount: pdfMoney(totalLineGst || num(fin.gst_amount)),
                 grandTotal: pdfMoney(num(fin.grand_total)),
               }}
-              returns={pdfReturns}
               financialSummary={{
                 subtotal: pdfMoney(num(fin.subtotal)),
                 lineDiscountTotal: pdfMoney(num(fin.line_discount_total)),
@@ -318,7 +300,7 @@ export default function FinalOrderStatementModal({
               </div>
 
               <div className="overflow-x-auto rounded-lg border border-slate-200/70 dark:border-white/10">
-                <table className="w-full min-w-[1100px] text-left text-xs">
+                <table className="w-full min-w-[960px] text-left text-xs">
                   <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-semibold border-b border-slate-200/60 dark:border-white/5">
                     <tr>
                       <th className="px-3 py-2.5">Product</th>
@@ -326,8 +308,6 @@ export default function FinalOrderStatementModal({
                       <th className="px-3 py-2.5 text-center">Approved</th>
                       <th className="px-3 py-2.5 text-center">Dispatched</th>
                       <th className="px-3 py-2.5 text-center">Delivered</th>
-                      <th className="px-3 py-2.5 text-center text-rose-600 dark:text-rose-400">Returned</th>
-                      <th className="px-3 py-2.5 text-center text-emerald-600 dark:text-emerald-400">Net</th>
                       <th className="px-3 py-2.5 text-right">Rate</th>
                       <th className="px-3 py-2.5 text-center">Rate Type</th>
                       <th className="px-3 py-2.5 text-center">GST %</th>
@@ -352,13 +332,7 @@ export default function FinalOrderStatementModal({
                         <td className="px-3 py-2.5 text-center tabular-nums">{num(line.ordered_quantity)}</td>
                         <td className="px-3 py-2.5 text-center tabular-nums">{num(line.approved_quantity)}</td>
                         <td className="px-3 py-2.5 text-center tabular-nums">{num(line.dispatched_quantity)}</td>
-                        <td className="px-3 py-2.5 text-center tabular-nums">
-                          {num(line.gross_delivered_quantity)}
-                        </td>
-                        <td className="px-3 py-2.5 text-center tabular-nums font-semibold text-rose-600 dark:text-rose-400">
-                          {num(line.returned_quantity)}
-                        </td>
-                        <td className="px-3 py-2.5 text-center tabular-nums font-bold text-emerald-600 dark:text-emerald-400">
+                        <td className="px-3 py-2.5 text-center tabular-nums font-semibold">
                           {num(line.net_delivered_quantity)}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 dark:text-slate-300">
@@ -387,11 +361,7 @@ export default function FinalOrderStatementModal({
                       <td className="px-3 py-2.5 text-center tabular-nums">{num(qty.ordered)}</td>
                       <td className="px-3 py-2.5 text-center tabular-nums">{num(qty.approved)}</td>
                       <td className="px-3 py-2.5 text-center tabular-nums">{num(qty.dispatched)}</td>
-                      <td className="px-3 py-2.5 text-center tabular-nums">{num(qty.gross_delivered)}</td>
-                      <td className="px-3 py-2.5 text-center tabular-nums text-rose-600 dark:text-rose-400">
-                        {num(qty.returned)}
-                      </td>
-                      <td className="px-3 py-2.5 text-center tabular-nums text-emerald-600 dark:text-emerald-400">
+                      <td className="px-3 py-2.5 text-center tabular-nums font-semibold">
                         {num(qty.net_delivered)}
                       </td>
                       <td className="px-3 py-2.5" colSpan={2} />
@@ -406,28 +376,6 @@ export default function FinalOrderStatementModal({
                   </tfoot>
                 </table>
               </div>
-
-              {returns.length > 0 && (
-                <div className="rounded-lg border border-slate-200/70 dark:border-white/10 p-4">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                    Return Records
-                  </h4>
-                  <ul className="space-y-1.5 text-xs">
-                    {returns.map((ret, idx) => (
-                      <li
-                        key={String(ret._id ?? idx)}
-                        className="flex flex-wrap items-center justify-between gap-2 text-slate-700 dark:text-slate-300"
-                      >
-                        <span className="font-mono font-semibold">{String(ret.return_no || "—")}</span>
-                        <span className="text-rose-600 dark:text-rose-400 font-semibold">
-                          {num(ret.total_returned_qty)} units returned
-                        </span>
-                        <span className="text-slate-500">{formatDate(ret.received_at)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
 
               <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 p-4 dark:border-emerald-900/30 dark:bg-emerald-950/20">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">

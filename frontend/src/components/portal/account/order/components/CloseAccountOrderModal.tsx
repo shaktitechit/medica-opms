@@ -1,13 +1,27 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import {
   buildSettlementPreviewLines,
+  filterReturnsReceivedAtWarehouse,
   hasPendingReturns,
 } from "@/components/portal/shared/returnSettlement";
-import { useCloseOrderWithReturnsMutation, useListDispatchesQuery } from "@/store/api";
+import { useSettleAndCloseOrderMutation } from "@/store/api";
+import {
+  buildSettleCloseReleaseSections,
+  type SettleCloseReleaseSection,
+} from "./accountDispatchAvailability";
+import { formatOrderStatusLabel } from "@/components/portal/shared/orderLifecycle";
+
+/** Terminal order state after account settle & close (aligned with Order.js). */
+const SETTLEMENT_CLOSE_OUTCOME = {
+  lifecycle_status: "fulfilled",
+  workflow_stage: "completed",
+  status: "closed",
+} as const;
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
@@ -20,30 +34,168 @@ function formatMoney(v: number): string {
   }).format(Number.isFinite(v) ? v : 0);
 }
 
-function pickList(raw: unknown): Record<string, unknown>[] {
-  if (Array.isArray(raw)) return raw as Record<string, unknown>[];
-  if (raw && typeof raw === "object") {
-    const o = raw as Record<string, unknown>;
-    if (Array.isArray(o.items)) return o.items as Record<string, unknown>[];
-    if (Array.isArray(o.data)) return o.data as Record<string, unknown>[];
-  }
-  return [];
-}
-
 type CloseAccountOrderModalProps = {
   orderId: string;
-  returnRecord: Record<string, unknown>;
+  returnRecord?: Record<string, unknown> | null;
   detail: Record<string, unknown> | null;
   allReturns: Record<string, unknown>[];
+  approvals: Record<string, unknown>[];
+  dispatches: Record<string, unknown>[];
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: () => void | Promise<void>;
 };
+
+function formatStatusField(value: unknown): string {
+  const raw = String(value || "").trim();
+  return raw ? formatOrderStatusLabel(raw) : "—";
+}
+
+function ClosureStatusPreview({ detail }: { detail: Record<string, unknown> | null }) {
+  const current = {
+    lifecycle_status: detail?.lifecycle_status,
+    workflow_stage: detail?.workflow_stage,
+    status: detail?.status,
+  };
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-emerald-200/70 bg-emerald-50/40 dark:border-emerald-900/30 dark:bg-emerald-950/20">
+      <div className="border-b border-emerald-200/60 px-3 py-2 dark:border-emerald-900/30">
+        <p className="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
+          Order status after settle & close
+        </p>
+        <p className="text-[10px] text-emerald-800/80 dark:text-emerald-300/80">
+          Release approvals and order lines update first, then the order is locked closed.
+        </p>
+      </div>
+      <div className="grid gap-3 p-3 sm:grid-cols-2">
+        <div className="rounded-md border border-slate-200/70 bg-white/80 p-2.5 dark:border-white/10 dark:bg-slate-900/60">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Current</p>
+          <dl className="mt-2 space-y-1 text-xs">
+            <div className="flex justify-between gap-2">
+              <dt className="text-slate-500">Lifecycle</dt>
+              <dd className="font-medium text-slate-800 dark:text-slate-200">
+                {formatStatusField(current.lifecycle_status)}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-slate-500">Workflow stage</dt>
+              <dd className="font-medium text-slate-800 dark:text-slate-200">
+                {formatStatusField(current.workflow_stage)}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-slate-500">Status</dt>
+              <dd className="font-medium text-slate-800 dark:text-slate-200">
+                {formatStatusField(current.status)}
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="rounded-md border border-emerald-300/70 bg-white p-2.5 dark:border-emerald-800/40 dark:bg-slate-900">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+            After close
+          </p>
+          <dl className="mt-2 space-y-1 text-xs">
+            <div className="flex justify-between gap-2">
+              <dt className="text-slate-500">Lifecycle</dt>
+              <dd className="font-semibold text-emerald-700 dark:text-emerald-300">
+                {formatStatusField(SETTLEMENT_CLOSE_OUTCOME.lifecycle_status)}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-slate-500">Workflow stage</dt>
+              <dd className="font-semibold text-emerald-700 dark:text-emerald-300">
+                {formatStatusField(SETTLEMENT_CLOSE_OUTCOME.workflow_stage)}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-slate-500">Status</dt>
+              <dd className="font-semibold text-emerald-700 dark:text-emerald-300">
+                {formatStatusField(SETTLEMENT_CLOSE_OUTCOME.status)}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReleasePreviewSection({ section }: { section: SettleCloseReleaseSection }) {
+  if (section.rows.length === 0) return null;
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200/70 dark:border-white/10">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 bg-slate-50/80 px-3 py-2 dark:border-white/5 dark:bg-slate-950/40">
+        <div>
+          <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+            Release {section.approvalNo}
+          </p>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400">
+            Dispatch vs approval clearance
+          </p>
+        </div>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
+            section.isResolved
+              ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/40"
+              : section.needsResolve
+                ? "bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:ring-amber-900/40"
+                : "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-white/10"
+          }`}
+        >
+          {section.isResolved
+            ? "Resolved"
+            : section.needsResolve
+              ? "Will resolve on settle"
+              : "No changes"}
+        </span>
+      </div>
+      <table className="w-full min-w-[760px] text-left text-xs">
+        <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-medium">
+          <tr>
+            <th className="px-3 py-2">Product</th>
+            <th className="px-3 py-2 text-center">Cleared</th>
+            <th className="px-3 py-2 text-center">Dispatched</th>
+            <th className="px-3 py-2 text-center">Returned</th>
+            <th className="px-3 py-2 text-center">Remaining</th>
+            <th className="px-3 py-2 text-center">Net settled</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+          {section.rows.map((row) => (
+            <tr key={row.orderItemId} className="bg-white dark:bg-slate-900">
+              <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                {row.productName}
+              </td>
+              <td className="px-3 py-2 text-center tabular-nums">{row.clearedQty}</td>
+              <td className="px-3 py-2 text-center tabular-nums text-blue-600 dark:text-blue-400">
+                {row.dispatchedQty}
+              </td>
+              <td className="px-3 py-2 text-center tabular-nums font-semibold text-amber-700 dark:text-amber-300">
+                {row.atWarehouseQty}
+              </td>
+              <td className="px-3 py-2 text-center tabular-nums text-slate-600 dark:text-slate-400">
+                {row.remainingClearance}
+              </td>
+              <td className="px-3 py-2 text-center tabular-nums font-semibold text-emerald-700 dark:text-emerald-300">
+                {row.settledQty}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function CloseAccountOrderModal({
   orderId,
   returnRecord,
   detail,
   allReturns,
+  approvals,
+  dispatches,
   onClose,
   onSuccess,
 }: CloseAccountOrderModalProps) {
@@ -51,8 +203,7 @@ export function CloseAccountOrderModal({
   const [penaltyAmount, setPenaltyAmount] = useState("");
   const [damageCharge, setDamageCharge] = useState("");
   const [closureRemarks, setClosureRemarks] = useState("");
-  const [closeOrder, { isLoading }] = useCloseOrderWithReturnsMutation();
-  const dispatchesQ = useListDispatchesQuery({ order: orderId });
+  const [settleAndClose, { isLoading }] = useSettleAndCloseOrderMutation();
 
   const orderItems = useMemo(() => {
     if (!detail || !Array.isArray(detail.order_items)) return [];
@@ -60,11 +211,24 @@ export function CloseAccountOrderModal({
   }, [detail]);
 
   const receivedReturns = useMemo(
-    () => allReturns.filter((r) => String(r.return_status || "") === "received"),
+    () => filterReturnsReceivedAtWarehouse(allReturns),
     [allReturns],
   );
 
-  const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
+  const releaseSections = useMemo(
+    () => buildSettleCloseReleaseSections(approvals, orderItems, dispatches, allReturns),
+    [approvals, orderItems, dispatches, allReturns],
+  );
+
+  const releasesToResolve = useMemo(
+    () => releaseSections.filter((section) => section.needsResolve).length,
+    [releaseSections],
+  );
+
+  const releasesToFinalize = useMemo(
+    () => releaseSections.filter((section) => !section.isResolved).length,
+    [releaseSections],
+  );
 
   const previewLines = useMemo(
     () => buildSettlementPreviewLines(orderItems, receivedReturns, dispatches),
@@ -97,7 +261,7 @@ export function CloseAccountOrderModal({
     };
   }, [previewLines, detail, extraCharges, penaltyAmount, damageCharge]);
 
-  const returnNo = returnRecord.return_no || "Return";
+  const returnNo = returnRecord?.return_no;
   const orderNo = detail?.order_no ? String(detail.order_no) : orderId;
   const pendingReturns = hasPendingReturns(allReturns);
 
@@ -106,24 +270,32 @@ export function CloseAccountOrderModal({
       toast.error("All return records must be received at warehouse before closing.");
       return;
     }
-    if (receivedReturns.length === 0) {
-      toast.error("No received returns to settle against this order.");
-      return;
-    }
+
+    const remarks = closureRemarks.trim();
+    const returnId = returnRecord
+      ? String(returnRecord._id ?? returnRecord.id ?? "")
+      : undefined;
 
     try {
-      await closeOrder({
+      await settleAndClose({
         id: orderId,
         body: {
-          return_id: String(returnRecord._id ?? returnRecord.id ?? ""),
+          ...(returnId ? { return_id: returnId } : {}),
           extra_charges: totals.extra,
           penalty_amount: totals.penalty,
           damage_charge: totals.damage,
-          remarks: closureRemarks.trim() || undefined,
+          remarks: remarks || undefined,
+          amendment_notes:
+            remarks ||
+            "Account settle & close — release approvals amended to net dispatched quantities",
         },
       }).unwrap();
-      toast.success("Order settled and closed with adjusted totals.");
-      onSuccess?.();
+      toast.success(
+        releasesToResolve > 0
+          ? "Order settled and closed — releases resolved and status is now Closed (fulfilled / completed)."
+          : "Order settled and closed — status is now Closed (fulfilled / completed).",
+      );
+      await onSuccess?.();
       onClose();
     } catch (err) {
       toast.error(mutationRejectedMessage(err));
@@ -136,16 +308,25 @@ export function CloseAccountOrderModal({
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-white/5">
           <div>
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 font-sans">
-              Close & Settle Order
+              Settle & Close Order
             </h3>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 font-sans">
               Order <span className="font-mono font-semibold">{orderNo}</span>
-              {" · "}
-              Triggered from <span className="font-mono font-semibold">{String(returnNo)}</span>
+              {returnNo ? (
+                <>
+                  {" · "}
+                  Triggered from{" "}
+                  <span className="font-mono font-semibold">{String(returnNo)}</span>
+                </>
+              ) : null}
             </p>
             <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-              All {receivedReturns.length} received return record(s) will be applied. Order lines
-              settle to net billable qty (accepted − returned) and totals are recalculated.
+              Preview dispatch against each finance release, settle approvals and order totals, then
+              close the order as{" "}
+              <span className="font-medium text-slate-700 dark:text-slate-300">
+                fulfilled · completed · closed
+              </span>
+              .
             </p>
             {pendingReturns && (
               <p className="mt-2 text-[11px] font-semibold text-amber-700 dark:text-amber-400">
@@ -166,7 +347,42 @@ export function CloseAccountOrderModal({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 font-sans">
+          <ClosureStatusPreview detail={detail} />
+
+          {releasesToResolve > 0 ? (
+            <div className="flex gap-3 rounded-lg border border-amber-200/80 bg-amber-50/70 p-3 text-xs text-amber-900 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>
+                {releasesToResolve} release batch{releasesToResolve === 1 ? "" : "es"} will be
+                resolved to net dispatched quantities before the order is closed.
+              </p>
+            </div>
+          ) : releasesToFinalize > 0 ? (
+            <div className="rounded-lg border border-slate-200/70 bg-slate-50/70 p-3 text-xs text-slate-600 dark:border-white/10 dark:bg-slate-950/30 dark:text-slate-300">
+              {releasesToFinalize} release batch{releasesToFinalize === 1 ? "" : "es"} will be
+              marked resolved and finalized on close.
+            </div>
+          ) : null}
+
+          {releaseSections.length > 0 ? (
+            <div className="space-y-3">
+              <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Dispatch vs approval preview
+              </h4>
+              <div className="space-y-3 overflow-x-auto">
+                {releaseSections.map((section) => (
+                  <ReleasePreviewSection key={section.approvalId} section={section} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="overflow-hidden rounded-lg border border-slate-200/70 dark:border-white/10">
+            <div className="border-b border-slate-200/60 bg-slate-50/80 px-3 py-2 dark:border-white/5 dark:bg-slate-950/40">
+              <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                Order settlement preview
+              </p>
+            </div>
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-semibold border-b border-slate-200/60 dark:border-white/5">
                 <tr>
@@ -340,10 +556,10 @@ export function CloseAccountOrderModal({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isLoading || pendingReturns || receivedReturns.length === 0}
+            disabled={isLoading || pendingReturns}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
           >
-            {isLoading ? "Settling Order..." : "Confirm & Settle Order"}
+            {isLoading ? "Queuing settle & close…" : "Confirm Settle & Close"}
           </button>
         </div>
       </div>

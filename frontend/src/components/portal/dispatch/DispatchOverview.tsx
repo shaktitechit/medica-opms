@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 
 const PIPELINE_SEGMENT_COLORS: Record<DispatchOrderTabCategory, string> = {
+  pending_approvals: "bg-violet-500",
   pending_transport: "bg-amber-500",
   pending_delivery: "bg-blue-500",
   returns_pending: "bg-rose-500",

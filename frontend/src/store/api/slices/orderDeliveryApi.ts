@@ -20,10 +20,29 @@ export const orderDeliveryApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<any>) => unwrapEnvelope(raw),
       invalidatesTags: ["Order", "Orders", "Transport"],
     }),
+    logShipmentDelivery: build.mutation<
+      {
+        delivery: Record<string, unknown> | null;
+        order_return: Record<string, unknown> | null;
+        queued: boolean;
+        transport_status: string;
+        delivery_type: string;
+      },
+      Record<string, any>
+    >({
+      query: (body) => ({
+        url: "order-deliveries/log-shipment",
+        method: "POST",
+        body,
+      }),
+      transformResponse: (raw: ApiEnvelope<any>) => unwrapEnvelope(raw),
+      invalidatesTags: ["Order", "Orders", "Transport"],
+    }),
   }),
 });
 
 export const {
   useListOrderDeliveriesQuery,
   useCreateOrderDeliveryMutation,
+  useLogShipmentDeliveryMutation,
 } = orderDeliveryApi;

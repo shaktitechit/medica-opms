@@ -156,8 +156,10 @@ export default function FinanceOverview() {
   const isAnyLoading =
     isKpiFetching || isOrdersFetching || isFlagsFetching || isRefreshing;
 
-  const pendingFinanceReviewPercent =
-    totalOrdersCount > 0 ? (orderStats.pending_finance_review.count / totalOrdersCount) * 100 : 0;
+  const pendingFinanceApprovalPercent =
+    totalOrdersCount > 0 ? (orderStats.pending_finance_approval.count / totalOrdersCount) * 100 : 0;
+  const pendingApprovalsPercent =
+    totalOrdersCount > 0 ? (orderStats.pending_approvals.count / totalOrdersCount) * 100 : 0;
   const openPercent = totalOrdersCount > 0 ? (orderStats.open.count / totalOrdersCount) * 100 : 0;
   const closedPercent = totalOrdersCount > 0 ? (orderStats.closed.count / totalOrdersCount) * 100 : 0;
   const onHoldPercent = totalOrdersCount > 0 ? (orderStats.on_hold.count / totalOrdersCount) * 100 : 0;
@@ -303,8 +305,13 @@ export default function FinanceOverview() {
                   <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                     <div
                       className="bg-purple-500 transition-all duration-500"
-                      style={{ width: `${pendingFinanceReviewPercent}%` }}
-                      title={`Pending Finance Review: ${orderStats.pending_finance_review.count}`}
+                      style={{ width: `${pendingFinanceApprovalPercent}%` }}
+                      title={`Pending Finance Approval: ${orderStats.pending_finance_approval.count}`}
+                    />
+                    <div
+                      className="bg-violet-500 transition-all duration-500"
+                      style={{ width: `${pendingApprovalsPercent}%` }}
+                      title={`Pending Approvals (all depts): ${orderStats.pending_approvals.count}`}
                     />
                     <div
                       className="bg-teal-500 transition-all duration-500"
@@ -337,9 +344,17 @@ export default function FinanceOverview() {
                   <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] font-medium pt-1 font-sans">
                     <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
                       <span className="h-2 w-2 rounded-full bg-purple-500 shrink-0" />
-                      <span>Pending Finance Review:</span>
+                      <span>Pending Finance:</span>
                       <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.pending_finance_review.count} ({pendingFinanceReviewPercent.toFixed(0)}%)
+                        {orderStats.pending_finance_approval.count} ({pendingFinanceApprovalPercent.toFixed(0)}%)
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                      <span className="h-2 w-2 rounded-full bg-violet-500 shrink-0" />
+                      <span>Pending Approvals:</span>
+                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
+                        {orderStats.pending_approvals.count} ({pendingApprovalsPercent.toFixed(0)}%)
                       </span>
                     </div>
 

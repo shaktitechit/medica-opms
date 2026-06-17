@@ -24,19 +24,20 @@ import { Search,
   ChevronsLeft,
   ChevronsRight,
   RefreshCw,
-  LayoutDashboard,
-  UserCheck,
-  DollarSign,
-  Package,
-  Truck, Wallet } from "lucide-react";
-import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
-import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
+  LayoutDashboard } from "lucide-react";
+import {
+  OrderFulfillmentPipelineStrip,
+  buildListOrderFulfillmentPipeline,
+} from "@/components/portal/shared/FulfillmentCircleStep";
 import {
   FINANCE_ORDER_TABS,
   getFinanceOrderTabCategory,
   isFinanceOrderTabCategory,
+  orderMatchesFinanceTab,
+  pendingApprovalStageLabel,
   type FinanceOrderTabCategory,
 } from "../financeOrderUtils";
+import { resolveApprovalPending } from "@/components/portal/sales/orderUtils";
 
 type OrderRow = {
   _id?: string;
@@ -60,6 +61,12 @@ type OrderRow = {
   created_at?: string;
   createdAt?: string;
   order_items?: unknown[];
+  approval_pending?: {
+    admin?: boolean;
+    finance?: boolean;
+    account?: boolean;
+    stage?: string;
+  };
 };
 
 function orderKey(row: unknown): string {
@@ -109,7 +116,85 @@ function formatDateShort(v: unknown): string {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  });
+  }  );
+}
+
+function renderWorkflowStatusBadge(category: FinanceOrderTabCategory) {
+  let label = "";
+  let bgClass = "";
+  switch (category) {
+    case "pending_finance_approval":
+      label = "Pending Finance";
+      bgClass =
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
+      break;
+    case "pending_approvals":
+      label = "Pending Approvals";
+      bgClass =
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
+      break;
+    case "open":
+      label = "Open";
+      bgClass =
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
+      break;
+    case "closed":
+      label = "Closed";
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+      break;
+    case "on_hold":
+      label = "On Hold";
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "rejected":
+      label = "Rejected";
+      bgClass =
+        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-950/30 dark:text-red-400 dark:ring-red-500/25";
+      break;
+    case "cancelled":
+      label = "Cancelled";
+      bgClass =
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
+      break;
+    default:
+      label = category;
+      bgClass =
+        "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function renderPendingApprovalBadge(order: OrderRow) {
+  const pending = resolveApprovalPending(order);
+  if (!pending.admin && !pending.finance && !pending.account) return null;
+
+  const parts: string[] = [];
+  if (pending.admin) parts.push("Admin");
+  if (pending.finance) parts.push("Finance");
+  if (pending.account) parts.push("Account");
+
+  const title = parts.length > 0 ? `Pending: ${parts.join(", ")}` : "Pending approval";
+  const label = pending.stage
+    ? `${pendingApprovalStageLabel(pending.stage)} pending`
+    : "Pending approval";
+
+  return (
+    <span
+      className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700 ring-1 ring-inset ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25"
+      title={title}
+    >
+      {label}
+    </span>
+  );
 }
 
 export default function ListFinanceOrdersPage() {
@@ -119,9 +204,10 @@ export default function ListFinanceOrdersPage() {
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<FinanceOrderTabCategory>(
-    tabFromUrl && isFinanceOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_finance_review",
-  );
+  const [activeTab, setActiveTab] = useState<FinanceOrderTabCategory>(() => {
+    if (tabFromUrl === "pending_finance_review") return "pending_finance_approval";
+    return tabFromUrl && isFinanceOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_finance_approval";
+  });
   const [priorityFilter, setPriorityFilter] = useState("all");
 
   // Pagination State
@@ -129,13 +215,53 @@ export default function ListFinanceOrdersPage() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
   useEffect(() => {
+    if (tabFromUrl === "pending_finance_review") {
+      setActiveTab("pending_finance_approval");
+      setCurrentPage(1);
+      return;
+    }
     if (tabFromUrl && isFinanceOrderTabCategory(tabFromUrl)) {
       setActiveTab(tabFromUrl);
       setCurrentPage(1);
     }
   }, [tabFromUrl]);
 
-  const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery({});
+  const queryParams = useMemo(() => {
+    const base: Record<string, string | undefined> = {};
+
+    if (!searchQuery.trim()) {
+      switch (activeTab) {
+        case "pending_finance_approval":
+          base.status = "pending_finance_review";
+          break;
+        case "pending_approvals":
+          base.status = "pending_approval";
+          break;
+        case "on_hold":
+          base.status = "on_hold";
+          break;
+        case "cancelled":
+          base.status = "cancelled";
+          break;
+        case "rejected":
+          base.status = "finance_rejected";
+          break;
+        case "open":
+          base.exclude_status = "draft,submitted,on_hold,cancelled,finance_rejected";
+          break;
+        case "closed":
+          base.status = "closed";
+          break;
+      }
+    }
+
+    if (searchQuery.trim()) {
+      base.search = searchQuery.trim();
+    }
+    return base;
+  }, [activeTab, searchQuery]);
+
+  const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery(queryParams);
   const partiesQ = useListPartiesQuery({});
   const usersQ = useListUsersQuery({});
 
@@ -157,7 +283,7 @@ export default function ListFinanceOrdersPage() {
   // Dynamic filter reset
   const handleResetFilters = useCallback(() => {
     setSearchQuery("");
-    setActiveTab("pending_finance_review");
+    setActiveTab("pending_finance_approval");
     setPriorityFilter("all");
     setCurrentPage(1);
   }, []);
@@ -176,8 +302,11 @@ export default function ListFinanceOrdersPage() {
   // Filtered Orders memo
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
-      // 1. Universal Search (checks order # or party name across all tabs)
-      if (searchQuery.trim()) {
+      if (!searchQuery.trim()) {
+        if (!orderMatchesFinanceTab(o, activeTab)) {
+          return false;
+        }
+      } else {
         const query = searchQuery.toLowerCase();
         const id = orderKey(o);
         const ref = (
@@ -196,15 +325,8 @@ export default function ListFinanceOrdersPage() {
         if (!ref.includes(query) && !partyLabel.includes(query)) {
           return false;
         }
-      } else {
-        // 2. Tab filter (only if search query is empty)
-        const category = getFinanceOrderTabCategory(o);
-        if (category !== activeTab) {
-          return false;
-        }
       }
 
-      // 3. Priority filter
       if (priorityFilter !== "all") {
         if ((o.priority || "").toLowerCase() !== priorityFilter.toLowerCase()) {
           return false;
@@ -363,7 +485,7 @@ export default function ListFinanceOrdersPage() {
                 </option>
               ))}
             </select>
-            {(searchQuery || activeTab !== "pending_finance_review" || priorityFilter !== "all") && (
+            {(searchQuery || activeTab !== "pending_finance_approval" || priorityFilter !== "all") && (
               <button
                 type="button"
                 onClick={handleResetFilters}
@@ -419,26 +541,6 @@ export default function ListFinanceOrdersPage() {
                       : id || "—";
                 const total = Number(o.grand_total ?? o.total ?? 0);
                 const pri = typeof o.priority === "string" ? o.priority : "normal";
-                const deptBoxes = computeDepartmentStageBoxes(
-                  o as Record<string, unknown>,
-                  null,
-                );
-                const adminBox = deptBoxes.find((b) => b.id === "admin");
-                const financeBox = deptBoxes.find((b) => b.id === "finance");
-                const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-                const accountBox = deptBoxes.find((b) => b.id === "account");
-  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
-
-                const adminStatusDim = adminBox?.status;
-                const financeStatusDim = financeBox?.status;
-                const dispatchStatusDim = dispatchBox?.status;
-                const accountStatusDim = accountBox?.status;
-  const deliveryStatusDim = deliveryBox?.status;
-
-                const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
-                const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {
-                  return acc + (Number(item.ordered_quantity ?? item.quantity) || 0);
-                }, 0));
 
                 const partyLabel = resolveOrderCounterparty(
                   o as Record<string, unknown>,
@@ -475,6 +577,9 @@ export default function ListFinanceOrdersPage() {
                             {ref}
                           </span>
                           {renderPriorityBadge(pri)}
+                          {activeTab === "pending_finance_approval" || activeTab === "pending_approvals"
+                            ? renderPendingApprovalBadge(o)
+                            : renderWorkflowStatusBadge(getFinanceOrderTabCategory(o) ?? "open")}
                         </div>
                       </div>
 
@@ -516,15 +621,15 @@ export default function ListFinanceOrdersPage() {
                     </div>
 
                     {/* Bottom Row: Pipeline */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-950/5 border border-slate-100/50 dark:border-white/5">
-                      <span className="text-slate-400 dark:text-slate-500 font-bold text-[9px] uppercase tracking-wider">
-                        Fulfillment Pipeline
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between bg-slate-50/30 px-2 py-1.5 rounded-lg dark:bg-slate-950/5 border border-slate-100/50 dark:border-white/5">
+                      <span className="shrink-0 text-slate-400 dark:text-slate-500 font-bold text-[8px] uppercase tracking-wider">
+                        Pipeline
                       </span>
-                      <div className="flex items-center gap-4 sm:gap-6">
-                        <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderedQty} icon={UserCheck} />
-                        <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderedQty} icon={DollarSign} />
-                        <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderedQty} icon={Package} />
-                        <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderedQty} icon={Truck} />
+                      <div className="min-w-0 overflow-x-auto">
+                        <OrderFulfillmentPipelineStrip
+                          steps={buildListOrderFulfillmentPipeline(o as Record<string, unknown>)}
+                          size="xs"
+                        />
                       </div>
                     </div>
                   </div>

@@ -8,10 +8,16 @@ import {
   type OrderStatusDimension,
 } from "./orderStatusDimensions";
 import {
+  aggregatePendingReturnsByOrderLine,
+  aggregateReceivedReturnsByOrderLine,
+  totalPendingReturnQty,
+} from "./returnSettlement";
+import {
   financeApprovedOnLine,
   lineApprovalQuantities,
   num,
   resolveAccountApprovalStatus,
+  resolveSalesApprovedTotals,
   salesApprovedOnLine,
 } from "./orderLineQuantities";
 
@@ -25,6 +31,8 @@ export type FulfillmentLine = {
   accountCleared: number;
   dispatched: number;
   delivered: number;
+  returned: number;
+  pendingReturn: number;
   pendingAdmin: number;
   pendingFinance: number;
   pendingAccount: number;
@@ -79,8 +87,8 @@ const DEPT_ACTION_KEYS: Record<string, string[]> = {
     "out_for_delivery",
     "delivered",
     "delivery_failed",
-    "returned",
   ],
+  return: ["returned"],
 };
 
 type FulfillmentTotals = {
@@ -90,6 +98,8 @@ type FulfillmentTotals = {
   accountCleared: number;
   dispatched: number;
   delivered: number;
+  returned: number;
+  pendingReturn: number;
   pendingAdmin: number;
   pendingFinance: number;
   pendingAccount: number;
@@ -104,6 +114,8 @@ const EMPTY_TOTALS: FulfillmentTotals = {
   accountCleared: 0,
   dispatched: 0,
   delivered: 0,
+  returned: 0,
+  pendingReturn: 0,
   pendingAdmin: 0,
   pendingFinance: 0,
   pendingAccount: 0,
@@ -111,15 +123,28 @@ const EMPTY_TOTALS: FulfillmentTotals = {
   pendingDelivery: 0,
 };
 
+function sumReturnedFromLines(
+  lines: Record<string, unknown>[],
+): number {
+  return lines.reduce((sum, line) => sum + num(line.returned_quantity ?? line.returned), 0);
+}
+
 function totalsFromSources(
   order: Record<string, unknown>,
   fulfillmentSnapshot?: Record<string, unknown> | null,
+  options?: {
+    returns?: Record<string, unknown>[];
+    dispatches?: Record<string, unknown>[];
+  },
 ): FulfillmentTotals {
   const accountApprovalStatus = resolveAccountApprovalStatus(order, fulfillmentSnapshot);
   const snap =
     fulfillmentSnapshot?.totals && typeof fulfillmentSnapshot.totals === "object"
       ? (fulfillmentSnapshot.totals as Record<string, unknown>)
       : null;
+  const items = Array.isArray(order.order_items)
+    ? (order.order_items as Record<string, unknown>[])
+    : [];
 
   if (snap) {
     const approved = num(snap.approved);
@@ -132,6 +157,16 @@ function totalsFromSources(
       accountCleared: accountCleared || (accountApprovalStatus !== "pending" ? approved : 0),
       dispatched: num(snap.dispatched),
       delivered: num(snap.delivered),
+      returned:
+        num(snap.returned) ||
+        sumReturnedFromLines(
+          Array.isArray(fulfillmentSnapshot?.lines)
+            ? (fulfillmentSnapshot.lines as Record<string, unknown>[])
+            : items,
+        ),
+      pendingReturn:
+        num(snap.pendingReturn ?? snap.pending_return) ||
+        (options?.returns?.length ? totalPendingReturnQty(options.returns) : 0),
       pendingAdmin: num(snap.pendingAdmin),
       pendingFinance: num(snap.pendingFinance),
       pendingAccount:
@@ -142,10 +177,7 @@ function totalsFromSources(
     };
   }
 
-  const items = Array.isArray(order.order_items)
-    ? (order.order_items as Record<string, unknown>[])
-    : [];
-  return items.reduce<FulfillmentTotals>((acc, line) => {
+  const base = items.reduce<FulfillmentTotals>((acc, line) => {
     const q = lineApprovalQuantities(line, { accountApprovalStatus });
     acc.ordered += q.ordered;
     acc.salesApproved += q.salesApproved;
@@ -153,6 +185,7 @@ function totalsFromSources(
     acc.accountCleared += q.accountCleared;
     acc.dispatched += q.dispatched;
     acc.delivered += q.delivered;
+    acc.returned += num(line.returned_quantity ?? line.returned);
     acc.pendingAdmin += q.pendingAdmin;
     acc.pendingFinance += q.pendingFinance;
     acc.pendingAccount += q.pendingAccount;
@@ -160,19 +193,47 @@ function totalsFromSources(
     acc.pendingDelivery += q.pendingDelivery;
     return acc;
   }, { ...EMPTY_TOTALS });
+
+  if (options?.returns?.length) {
+    base.pendingReturn = totalPendingReturnQty(options.returns);
+    if (!base.returned && options.dispatches?.length) {
+      const byLine = aggregateReceivedReturnsByOrderLine(options.returns, options.dispatches);
+      base.returned = Object.values(byLine).reduce((sum, qty) => sum + qty, 0);
+    }
+  }
+
+  const salesResolved = resolveSalesApprovedTotals(order, base);
+  base.salesApproved = salesResolved.salesApproved;
+  base.pendingAdmin = salesResolved.pendingAdmin;
+
+  return base;
 }
 
 export function fulfillmentLinesFromSnapshot(
   order: Record<string, unknown> | null,
   fulfillmentSnapshot?: Record<string, unknown> | null,
+  options?: {
+    returns?: Record<string, unknown>[];
+    dispatches?: Record<string, unknown>[];
+  },
 ): FulfillmentLine[] {
   if (!order) return [];
 
   const accountApprovalStatus = resolveAccountApprovalStatus(order, fulfillmentSnapshot);
+  const returnedByLine =
+    options?.returns?.length && options?.dispatches?.length
+      ? aggregateReceivedReturnsByOrderLine(options.returns, options.dispatches)
+      : null;
+  const pendingByLine =
+    options?.returns?.length && options?.dispatches?.length
+      ? aggregatePendingReturnsByOrderLine(options.returns, options.dispatches)
+      : null;
+
   const snapLines = fulfillmentSnapshot?.lines;
   if (Array.isArray(snapLines) && snapLines.length > 0) {
     return snapLines.map((raw) => {
       const line = raw as Record<string, unknown>;
+      const orderItemId = String(line.order_item_id ?? "");
       const ordered = num(line.ordered);
       const salesApproved = num(line.salesApproved ?? line.sales_approved);
       const financeApproved = num(line.approved ?? line.financeApproved);
@@ -186,8 +247,14 @@ export function fulfillmentLinesFromSnapshot(
           line.pending_account ??
           Math.max(0, financeApproved - accountCleared),
       );
+      const returned =
+        num(line.returned ?? line.returned_quantity) ||
+        (returnedByLine && orderItemId ? returnedByLine[orderItemId] ?? 0 : 0);
+      const pendingReturn =
+        num(line.pendingReturn ?? line.pending_return) ||
+        (pendingByLine && orderItemId ? pendingByLine[orderItemId] ?? 0 : 0);
       return {
-        order_item_id: String(line.order_item_id ?? ""),
+        order_item_id: orderItemId,
         product_name: String(line.product_name || "—"),
         sku: String(line.sku || ""),
         ordered,
@@ -196,6 +263,8 @@ export function fulfillmentLinesFromSnapshot(
         accountCleared,
         dispatched: num(line.dispatched),
         delivered: num(line.delivered),
+        returned,
+        pendingReturn,
         pendingAdmin: num(line.pendingAdmin ?? Math.max(0, ordered - salesApproved)),
         pendingFinance: num(
           line.pendingFinance ?? Math.max(0, salesApproved - financeApproved),
@@ -214,8 +283,13 @@ export function fulfillmentLinesFromSnapshot(
     : [];
   return items.map((line) => {
     const q = lineApprovalQuantities(line, { accountApprovalStatus });
+    const orderItemId = String(line._id ?? line.id ?? "");
+    const returned =
+      num(line.returned_quantity ?? line.returned) ||
+      (returnedByLine ? returnedByLine[orderItemId] ?? 0 : 0);
+    const pendingReturn = pendingByLine ? pendingByLine[orderItemId] ?? 0 : 0;
     return {
-      order_item_id: String(line._id ?? line.id ?? ""),
+      order_item_id: orderItemId,
       product_name: String(line.product_name || "—"),
       sku: String(line.sku || ""),
       ordered: q.ordered,
@@ -224,6 +298,8 @@ export function fulfillmentLinesFromSnapshot(
       accountCleared: q.accountCleared,
       dispatched: q.dispatched,
       delivered: q.delivered,
+      returned,
+      pendingReturn,
       pendingAdmin: q.pendingAdmin,
       pendingFinance: q.pendingFinance,
       pendingAccount: q.pendingAccount,
@@ -264,28 +340,29 @@ function deriveSalesApprovalStatus(
 ): OrderStatusDimension {
   const salesApprovalStatus = String(order.admin_approval_status ?? "pending");
   const stage = String(order.workflow_stage || "");
+  const { salesApproved, pendingAdmin } = resolveSalesApprovedTotals(order, totals);
 
   if (salesApprovalStatus === "rejected") {
     return { key: "rejected", label: "Sales approval rejected", tone: "danger" };
   }
-  if (totals.salesApproved <= 0) {
+  if (salesApproved <= 0) {
     if (stage === "admin_review") {
       return { key: "pending", label: "Pending sales approval", tone: "warning" };
     }
     return { key: "waiting", label: "Awaiting submission", tone: "neutral" };
   }
-  if (totals.pendingAdmin <= 0) {
+  if (pendingAdmin <= 0) {
     return {
       key: "full",
       label: "Fully sales approved",
-      detail: `${totals.salesApproved} / ${totals.ordered} qty`,
+      detail: `${salesApproved} / ${totals.ordered} qty`,
       tone: "success",
     };
   }
   return {
     key: "partial",
     label: "Partially sales approved",
-    detail: `${totals.pendingAdmin} qty pending sales approval`,
+    detail: `${pendingAdmin} qty pending sales approval`,
     tone: "warning",
   };
 }
@@ -293,10 +370,16 @@ function deriveSalesApprovalStatus(
 export function computeDepartmentStageBoxes(
   order: Record<string, unknown> | null,
   fulfillmentSnapshot?: Record<string, unknown> | null,
+  options?: {
+    returns?: Record<string, unknown>[];
+    dispatches?: Record<string, unknown>[];
+  },
 ): DepartmentStageBox[] {
   if (!order) return [];
 
-  const totals = totalsFromSources(order, fulfillmentSnapshot);
+  let totals = totalsFromSources(order, fulfillmentSnapshot, options);
+  const salesResolved = resolveSalesApprovedTotals(order, totals);
+  totals = { ...totals, ...salesResolved };
   const stage = String(order.workflow_stage || "");
   const lifecycle = String(order.lifecycle_status || "");
   const fas = String(
@@ -344,6 +427,7 @@ export function computeDepartmentStageBoxes(
       mk("account", "Account", cancelledStatus, 0, 0, totals.approved, "—"),
       mk("dispatch", "Dispatch", cancelledStatus, 0, 0, totals.approved, "—"),
       mk("delivery", "Delivery", cancelledStatus, 0, 0, totals.dispatched, "—"),
+      mk("return", "Return", cancelledStatus, 0, 0, totals.delivered, "—"),
     ];
   }
 
@@ -516,6 +600,53 @@ export function computeDepartmentStageBoxes(
     deliveryStatusDim = { key: "waiting", label: "Not started", tone: "neutral" };
   }
 
+  const returnCap = totals.delivered > 0 ? totals.delivered : totals.dispatched;
+  const returnedQty = totals.returned;
+  const pendingReturnQty = totals.pendingReturn;
+
+  let returnStatusDim: OrderStatusDimension;
+  if (returnCap <= 0) {
+    returnStatusDim = { key: "waiting", label: "Not started", tone: "neutral" };
+  } else if (pendingReturnQty > 0 && returnedQty === 0) {
+    returnStatusDim = {
+      key: "pending",
+      label: "Pending warehouse receipt",
+      detail: `${pendingReturnQty} qty logged`,
+      tone: "warning",
+    };
+  } else if (returnedQty >= returnCap && returnCap > 0) {
+    returnStatusDim = {
+      key: "full",
+      label: "Fully returned",
+      detail: `${returnedQty} qty at warehouse`,
+      tone: "danger",
+    };
+  } else if (returnedQty > 0) {
+    returnStatusDim = {
+      key: "partial",
+      label: "Partially returned",
+      detail:
+        pendingReturnQty > 0
+          ? `${returnedQty} received · ${pendingReturnQty} pending`
+          : `${returnedQty} / ${returnCap} qty`,
+      tone: "warning",
+    };
+  } else if (pendingReturnQty > 0) {
+    returnStatusDim = {
+      key: "pending",
+      label: "Return logged",
+      detail: `${pendingReturnQty} qty pending receipt`,
+      tone: "info",
+    };
+  } else {
+    returnStatusDim = {
+      key: "none",
+      label: "No returns",
+      detail: `${returnCap} qty deliverable`,
+      tone: "success",
+    };
+  }
+
   return [
     mk(
       "sales",
@@ -570,6 +701,15 @@ export function computeDepartmentStageBoxes(
       totals.pendingDelivery,
       totals.dispatched || totals.approved,
       "Delivered qty",
+    ),
+    mk(
+      "return",
+      "Return",
+      returnStatusDim,
+      returnedQty,
+      Math.max(0, returnCap - returnedQty),
+      returnCap,
+      "Returned qty",
     ),
   ];
 }

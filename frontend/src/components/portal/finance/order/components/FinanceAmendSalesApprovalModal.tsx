@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { CheckCircle2, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 
 import {
   MapOrderLinePriceModal,
@@ -430,6 +430,7 @@ export function FinanceAmendSalesApprovalModal({
     if (!approval) return;
     const approvalId = String(approval._id ?? approval.id ?? "");
     if (!approvalId) return;
+    const isFinanceApproved = Boolean(approval.is_finance_approved);
 
     for (const line of formLines) {
       if (!line.product) {
@@ -474,7 +475,7 @@ export function FinanceAmendSalesApprovalModal({
     });
     if (unmapped.length > 0) {
       toast.error(
-        `${unmapped.length} active line(s) need negotiated mapped rates before amending.`,
+        `${unmapped.length} active line(s) need negotiated mapped rates before ${isFinanceApproved ? "amending" : "approving"}.`,
       );
       return;
     }
@@ -484,6 +485,7 @@ export function FinanceAmendSalesApprovalModal({
         id: approvalId,
         body: {
           amendment_notes: amendmentNotes.trim() || undefined,
+          approval_notes: amendmentNotes.trim() || undefined,
           approval_items: existingLines.map((line) => {
             const gross = line.approved_quantity * line.approved_unit_price;
             const disc = line.discount_percent > 0 ? (gross * line.discount_percent) / 100 : line.discount_amount;
@@ -492,6 +494,7 @@ export function FinanceAmendSalesApprovalModal({
 
             return {
               order_item_id: line.order_item_id,
+              product: line.product,
               ordered_quantity: line.approved_quantity,
               approved_quantity: line.approved_quantity,
               approved_unit_price: line.approved_unit_price,
@@ -531,7 +534,11 @@ export function FinanceAmendSalesApprovalModal({
           }),
         },
       }).unwrap();
-      toast.success("Order and approval updated — fully admin & finance approved.");
+      toast.success(
+        isFinanceApproved
+          ? "Finance approval amended successfully."
+          : "Order finance-approved successfully.",
+      );
       onClose();
       onAmended?.();
       const tasks: Promise<any>[] = [];
@@ -565,6 +572,17 @@ export function FinanceAmendSalesApprovalModal({
   if (!open || !approval) return null;
 
   const approvalNo = String(approval.approval_no ?? "—");
+  const isFinanceApproved = Boolean(approval.is_finance_approved);
+  const modalTitle = isFinanceApproved ? "Amend finance approval" : "Approve order";
+  const modalDescription = isFinanceApproved
+    ? `${approvalNo} — update quantities, rates, or items. Changes sync to the approval batch and order.`
+    : `${approvalNo} — review quantities and rates, then approve. Order and workflow update after submission.`;
+  const notesLabel = isFinanceApproved ? "Amendment notes" : "Approval notes";
+  const notesPlaceholder = isFinanceApproved
+    ? "Reason for finance amendment…"
+    : "Optional notes for this finance approval…";
+  const submitLabel = isFinanceApproved ? "Amend" : "Approve";
+  const SubmitIcon = isFinanceApproved ? Pencil : CheckCircle2;
 
   return (
     <>
@@ -573,11 +591,10 @@ export function FinanceAmendSalesApprovalModal({
           <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4 dark:border-white/5">
             <div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-                Amend and Approve
+                {modalTitle}
               </h3>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                {approvalNo} — finance sets the order: qty changes, adds, and removals sync to the
-                approval batch and original order as 100% admin & finance approved.
+                {modalDescription}
               </p>
             </div>
             <button
@@ -879,14 +896,14 @@ export function FinanceAmendSalesApprovalModal({
               ) : null}
 
               <div className="space-y-1.5">
-                <label className={labelClass}>Amendment notes</label>
+                <label className={labelClass}>{notesLabel}</label>
                 <textarea
                   value={amendmentNotes}
                   onChange={(e) => setAmendmentNotes(e.target.value)}
                   rows={2}
                   disabled={busy}
                   className={inputClass}
-                  placeholder="Reason for finance amendment…"
+                  placeholder={notesPlaceholder}
                 />
               </div>
             </div>
@@ -908,8 +925,8 @@ export function FinanceAmendSalesApprovalModal({
                 }
                 className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                <Pencil className="h-4 w-4" />
-                {busy ? "Saving…" : "Amend and Approve"}
+                <SubmitIcon className="h-4 w-4" />
+                {busy ? "Saving…" : submitLabel}
               </button>
             </div>
           </form>

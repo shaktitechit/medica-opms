@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import {
-  useCreateAttachmentMutation,
   useCreateDispatchMutation,
-  usePatchDispatchMutation,
 } from "@/store/api";
 import {
+  buildAccountDispatchPreviewRows,
+  computeReleaseDispatchedByLine,
+  isFullyClearedApproval,
   summarizeReleaseDispatchState,
 } from "./accountDispatchAvailability";
 
@@ -23,7 +24,6 @@ type CreateAccountDispatchModalProps = {
   approvals: Record<string, unknown>[];
   initialApprovalId?: string;
   onCreated?: () => void;
-  onResolveRelease?: (approval: Record<string, unknown>) => void;
 };
 
 const inputClass =
@@ -34,26 +34,6 @@ const btnSecondaryClass =
 
 function approvalId(app: Record<string, unknown>): string {
   return String(app._id ?? app.id ?? "");
-}
-
-function normalizeOrderItemId(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    return String(o._id ?? o.id ?? "");
-  }
-  return String(value);
-}
-
-function isAccountClearedRelease(app: Record<string, unknown>): boolean {
-  return Boolean(app.is_account_approved) && Boolean(app.is_finance_approved);
-}
-
-function recordId(rec: unknown): string {
-  if (!rec || typeof rec !== "object") return "";
-  const o = rec as Record<string, unknown>;
-  return String(o._id ?? o.id ?? "");
 }
 
 export function CreateAccountDispatchModal({
@@ -67,11 +47,8 @@ export function CreateAccountDispatchModal({
   approvals,
   initialApprovalId,
   onCreated,
-  onResolveRelease,
 }: CreateAccountDispatchModalProps) {
   const [createDispatch, { isLoading: isCreating }] = useCreateDispatchMutation();
-  const [createAttachment] = useCreateAttachmentMutation();
-  const [patchDispatch] = usePatchDispatchMutation();
   const [dispatchDate, setDispatchDate] = useState("");
   const [billNumber, setBillNumber] = useState("");
   const [billingDate, setBillingDate] = useState("");
@@ -81,67 +58,10 @@ export function CreateAccountDispatchModal({
   const [dispatchItemsQuantities, setDispatchItemsQuantities] = useState<Record<string, number>>({});
   const [activeApprovalId, setActiveApprovalId] = useState("");
 
-  const getReleaseDispatches = useCallback(
-    (appId: string) => {
-      return dispatches.filter((disp) => {
-        const statusValue = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
-        if (statusValue === "cancelled") return false;
-
-        const dispApproval = disp.finance_approval;
-        const dispApprovalId =
-          typeof dispApproval === "object" && dispApproval !== null
-            ? String(
-                (dispApproval as Record<string, unknown>)._id ??
-                  (dispApproval as Record<string, unknown>).id ??
-                  "",
-              )
-            : String(dispApproval ?? "");
-
-        return dispApprovalId === appId;
-      });
-    },
-    [dispatches],
+  const dispatchableApprovals = useMemo(
+    () => approvals.filter(isFullyClearedApproval),
+    [approvals],
   );
-
-  const isReleaseFullyDispatched = useCallback(
-    (app: Record<string, unknown>) => {
-      const items = Array.isArray(app.approval_items)
-        ? (app.approval_items as Record<string, unknown>[])
-        : [];
-      if (items.length === 0) return false;
-
-      const appId = approvalId(app);
-      const releaseDispatches = getReleaseDispatches(appId);
-      const dispatchedMap: Record<string, number> = {};
-
-      releaseDispatches.forEach((disp) => {
-        const rawItems = Array.isArray(disp.dispatch_items)
-          ? disp.dispatch_items
-          : (disp.items as unknown[]) || [];
-        (rawItems as Record<string, unknown>[]).forEach((item) => {
-          const lineId = normalizeOrderItemId(item.order_item_id);
-          const qty = Number(item.dispatched_quantity ?? item.dispatch_quantity ?? 0);
-          dispatchedMap[lineId] = (dispatchedMap[lineId] || 0) + qty;
-        });
-      });
-
-      const linesWithApproval = items.filter((ai) => Number(ai.approved_quantity || 0) > 0);
-      if (linesWithApproval.length === 0) return false;
-
-      return linesWithApproval.every((ai) => {
-        const approvedQty = Number(ai.approved_quantity || 0);
-        const lineId = normalizeOrderItemId(ai.order_item_id);
-        return (dispatchedMap[lineId] || 0) >= approvedQty;
-      });
-    },
-    [getReleaseDispatches],
-  );
-
-  const dispatchableApprovals = useMemo(() => {
-    return approvals.filter(
-      (app) => isAccountClearedRelease(app) && !isReleaseFullyDispatched(app),
-    );
-  }, [approvals, isReleaseFullyDispatched]);
 
   const activeApproval = useMemo(() => {
     if (!activeApprovalId) return dispatchableApprovals[0] ?? null;
@@ -152,68 +72,35 @@ export function CreateAccountDispatchModal({
     );
   }, [activeApprovalId, dispatchableApprovals]);
 
-  const dispatchedQtyByItemForActiveApproval = useMemo(() => {
-    if (!activeApproval) return {};
-    const map: Record<string, number> = {};
-    const appId = approvalId(activeApproval);
+  const activeApprovalRefId = activeApproval ? approvalId(activeApproval) : "";
 
-    getReleaseDispatches(appId).forEach((disp) => {
-      const items = Array.isArray(disp.dispatch_items)
-        ? disp.dispatch_items
-        : (disp.items as unknown[]) || [];
-      (items as Record<string, unknown>[]).forEach((item) => {
-        const lineId = normalizeOrderItemId(item.order_item_id);
-        const qty = Number(item.dispatched_quantity ?? item.dispatch_quantity ?? 0);
-        map[lineId] = (map[lineId] || 0) + qty;
-      });
-    });
+  const dispatchedByLine = useMemo(
+    () => computeReleaseDispatchedByLine(dispatches, activeApprovalRefId, orderItems, activeApproval),
+    [dispatches, activeApprovalRefId, orderItems, activeApproval],
+  );
 
-    return map;
-  }, [activeApproval, getReleaseDispatches]);
+  const previewRows = useMemo(
+    () =>
+      buildAccountDispatchPreviewRows(
+        activeApproval,
+        orderItems,
+        dispatchedByLine,
+      ),
+    [activeApproval, orderItems, dispatchedByLine],
+  );
 
   const buildInitialDispatchQuantities = useCallback(
     (app: Record<string, unknown> | null) => {
+      const appRefId = app ? approvalId(app) : "";
+      const dispatchedMap = computeReleaseDispatchedByLine(dispatches, appRefId, orderItems, app);
+      const rows = buildAccountDispatchPreviewRows(app, orderItems, dispatchedMap);
       const init: Record<string, number> = {};
-      const appId = app ? approvalId(app) : "";
-      const releaseDispatches = appId ? getReleaseDispatches(appId) : [];
-
-      orderItems.forEach((line) => {
-        const lineId = String(line._id ?? line.id ?? "");
-        const appItem = app?.approval_items
-          ? (app.approval_items as Record<string, unknown>[]).find(
-              (ai) => normalizeOrderItemId(ai.order_item_id) === lineId,
-            )
-          : undefined;
-
-        const approved = appItem
-          ? Number(appItem.approved_quantity || 0)
-          : Number(line.approved_quantity ?? line.ordered_quantity ?? line.quantity ?? 0);
-
-        let alreadyDispatched = 0;
-        if (app) {
-          releaseDispatches.forEach((disp) => {
-            const items = Array.isArray(disp.dispatch_items)
-              ? disp.dispatch_items
-              : (disp.items as unknown[]) || [];
-            (items as Record<string, unknown>[]).forEach((item) => {
-              if (normalizeOrderItemId(item.order_item_id) === lineId) {
-                alreadyDispatched += Number(
-                  item.dispatched_quantity ?? item.dispatch_quantity ?? 0,
-                );
-              }
-            });
-          });
-        } else {
-          alreadyDispatched = Number(line.dispatched_quantity || 0);
-        }
-
-        const remaining = Math.max(0, approved - alreadyDispatched);
-        if (remaining > 0) init[lineId] = remaining;
-      });
-
+      for (const row of rows) {
+        if (row.dispatchable > 0) init[row.orderItemId] = row.dispatchable;
+      }
       return init;
     },
-    [orderItems, getReleaseDispatches],
+    [orderItems, dispatches],
   );
 
   useEffect(() => {
@@ -238,29 +125,10 @@ export function CreateAccountDispatchModal({
     setDispatchItemsQuantities(buildInitialDispatchQuantities(activeApproval));
   }, [open, activeApproval, buildInitialDispatchQuantities]);
 
-  const modalRemainingTotal = useMemo(() => {
-    if (!open) return 0;
-    let total = 0;
-    orderItems.forEach((line) => {
-      const orderItemId = String(line._id ?? line.id ?? "");
-      const appItem = activeApproval?.approval_items
-        ? (activeApproval.approval_items as Record<string, unknown>[]).find(
-            (ai) => normalizeOrderItemId(ai.order_item_id) === orderItemId,
-          )
-        : undefined;
-
-      const approved = appItem
-        ? Number(appItem.approved_quantity || 0)
-        : Number(line.approved_quantity ?? line.ordered_quantity ?? line.quantity ?? 0);
-
-      const alreadyDispatched = activeApproval
-        ? (dispatchedQtyByItemForActiveApproval[orderItemId] ?? 0)
-        : Number(line.dispatched_quantity || 0);
-
-      total += Math.max(0, approved - alreadyDispatched);
-    });
-    return total;
-  }, [open, orderItems, activeApproval, dispatchedQtyByItemForActiveApproval]);
+  const modalDispatchableTotal = useMemo(
+    () => previewRows.reduce((sum, row) => sum + row.dispatchable, 0),
+    [previewRows],
+  );
 
   const previewDispatchTotal = useMemo(() => {
     return Object.values(dispatchItemsQuantities).reduce((sum, qty) => sum + qty, 0);
@@ -272,7 +140,7 @@ export function CreateAccountDispatchModal({
   );
 
   const canSubmit =
-    modalRemainingTotal > 0 &&
+    modalDispatchableTotal > 0 &&
     hasDispatchQtyEntered &&
     !isCreating &&
     Boolean(activeApproval) &&
@@ -281,8 +149,8 @@ export function CreateAccountDispatchModal({
     Boolean(billDocumentFile);
 
   const releaseSummary = useMemo(
-    () => summarizeReleaseDispatchState(activeApproval, dispatches),
-    [activeApproval, dispatches],
+    () => summarizeReleaseDispatchState(activeApproval, dispatches, orderItems),
+    [activeApproval, dispatches, orderItems],
   );
 
   const isContinueMode = releaseSummary.hasDispatches && releaseSummary.canContinueDispatch;
@@ -296,11 +164,22 @@ export function CreateAccountDispatchModal({
       e.preventDefault();
       if (!orderId || !activeApproval) return;
 
+      if (!isFullyClearedApproval(activeApproval)) {
+        toast.error("Dispatch requires admin, finance, and account clearance on the linked approval.");
+        return;
+      }
+
       const items = Object.entries(dispatchItemsQuantities)
-        .map(([order_item_id, qty]) => ({
-          order_item_id,
-          dispatch_quantity: qty,
-        }))
+        .map(([order_item_id, qty]) => {
+          const orderLine = orderItems.find(
+            (line) => String(line._id ?? line.id) === order_item_id,
+          );
+          return {
+            order_item_id,
+            product: orderLine?.product,
+            dispatch_quantity: qty,
+          };
+        })
         .filter((item) => item.dispatch_quantity > 0);
 
       if (items.length === 0) {
@@ -324,38 +203,27 @@ export function CreateAccountDispatchModal({
       }
 
       try {
-        const created = await createDispatch({
-          order: orderId,
-          finance_approval: approvalId(activeApproval),
-          dispatch_date: dispatchDate
+        const formData = new FormData();
+        formData.append("order", orderId);
+        formData.append("finance_approval", approvalId(activeApproval));
+        formData.append(
+          "dispatch_date",
+          dispatchDate
             ? new Date(dispatchDate).toISOString()
             : new Date().toISOString(),
-          bill_number: billNumber.trim(),
-          billing_date: new Date(billingDate).toISOString(),
-          warehouse_location: warehouseLocation.trim() || undefined,
-          remarks: dispatchRemarks.trim() || undefined,
-          items,
-        }).unwrap();
-
-        const dispatchId = recordId(created);
-        if (!dispatchId) {
-          throw new Error("Dispatch was created but no id was returned.");
+        );
+        formData.append("bill_number", billNumber.trim());
+        formData.append("billing_date", new Date(billingDate).toISOString());
+        formData.append("items", JSON.stringify(items));
+        if (warehouseLocation.trim()) {
+          formData.append("warehouse_location", warehouseLocation.trim());
         }
-
-        const formData = new FormData();
-        formData.append("file", billDocumentFile);
-        formData.append("entity_type", "dispatch");
-        formData.append("entity_id", dispatchId);
-        formData.append("remarks", `Bill ${billNumber.trim()}`);
-
-        const attachment = await createAttachment(formData).unwrap();
-        const attachmentId = recordId(attachment);
-        if (attachmentId) {
-          await patchDispatch({
-            id: dispatchId,
-            patch: { bill_document: attachmentId },
-          }).unwrap();
+        if (dispatchRemarks.trim()) {
+          formData.append("remarks", dispatchRemarks.trim());
         }
+        formData.append("bill_document", billDocumentFile);
+
+        await createDispatch(formData).unwrap();
 
         toast.success("Dispatch batch created successfully.");
         handleClose();
@@ -368,6 +236,7 @@ export function CreateAccountDispatchModal({
       orderId,
       activeApproval,
       dispatchItemsQuantities,
+      orderItems,
       dispatchDate,
       billNumber,
       billingDate,
@@ -375,8 +244,6 @@ export function CreateAccountDispatchModal({
       warehouseLocation,
       dispatchRemarks,
       createDispatch,
-      createAttachment,
-      patchDispatch,
       handleClose,
       onCreated,
     ],
@@ -396,8 +263,8 @@ export function CreateAccountDispatchModal({
             </h3>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               {isContinueMode
-                ? "Record another dispatch batch for remaining cleared quantities on this release."
-                : "Preview and confirm dispatch quantities for account-cleared items."}
+                ? "Record another dispatch batch from remaining account-cleared quantities on this approval."
+                : "Dispatch quantities come from the linked approval batch after admin, finance, and account clearance."}
             </p>
           </div>
           <button
@@ -431,20 +298,37 @@ export function CreateAccountDispatchModal({
                 </div>
               </div>
               {activeApproval ? (
-                <p className="mt-3 text-[11px] text-slate-600 dark:text-slate-300">
-                  Linked clearance batch{" "}
-                  <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-300">
-                    {String(activeApproval.approval_no ?? "—")}
-                  </span>
-                  {" "}
-                  · Rev #{String(activeApproval.revision_number ?? 1)}
-                </p>
+                <div className="mt-3 space-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+                  <p>
+                    Linked approval batch{" "}
+                    <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-300">
+                      {String(activeApproval.approval_no ?? "—")}
+                    </span>
+                    {" "}
+                    · Rev #{String(activeApproval.revision_number ?? 1)}
+                  </p>
+                  <p className="flex flex-wrap gap-x-4 gap-y-1">
+                    <span>
+                      Remaining clearance:{" "}
+                      <span className="font-semibold tabular-nums text-blue-700 dark:text-blue-300">
+                        {releaseSummary.remainingTotal}
+                      </span>
+                    </span>
+                    <span>
+                      Available to dispatch:{" "}
+                      <span className="font-semibold tabular-nums text-indigo-700 dark:text-indigo-300">
+                        {releaseSummary.dispatchableTotal}
+                      </span>
+                    </span>
+                  </p>
+                </div>
               ) : null}
             </div>
 
             {dispatchableApprovals.length === 0 ? (
               <p className="rounded-lg border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-xs text-amber-800 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-300">
-                No account-cleared approval batches remain available for dispatch.
+                No approval batches are fully cleared (admin, finance, and account) with remaining
+                quantities to dispatch.
               </p>
             ) : (
               <>
@@ -584,101 +468,107 @@ export function CreateAccountDispatchModal({
                       Dispatch preview
                     </h4>
                     <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
-                      Total units this batch: {previewDispatchTotal}
+                      This batch: {previewDispatchTotal}
                     </span>
                   </div>
                   <div className="overflow-x-auto rounded-lg border border-slate-200/60 dark:border-white/5">
-                    <table className="w-full min-w-[640px] text-left text-xs">
+                    <table className="w-full min-w-[700px] text-left text-xs">
                       <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-medium">
                         <tr>
                           <th className="px-4 py-2.5">Product</th>
                           <th className="px-4 py-2.5 text-center">Cleared</th>
-                          <th className="px-4 py-2.5 text-center">Already dispatched</th>
+                          <th className="px-4 py-2.5 text-center">Dispatched</th>
                           <th className="px-4 py-2.5 text-center">Remaining</th>
+                          <th className="px-4 py-2.5 text-center">Available</th>
                           <th className="px-4 py-2.5 text-right w-32">Dispatch qty</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                        {modalRemainingTotal === 0 ? (
+                        {previewRows.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={5}
+                              colSpan={6}
                               className="px-4 py-6 text-center text-xs text-slate-500 dark:text-slate-400"
                             >
-                              All cleared quantities for this batch have been dispatched.
+                              No remaining account-cleared quantities are available on this approval.
                             </td>
                           </tr>
-                        ) : null}
-                        {orderItems.map((line) => {
-                          const orderItemId = String(line._id ?? line.id ?? "");
-                          const appItem = activeApproval?.approval_items
-                            ? (activeApproval.approval_items as Record<string, unknown>[]).find(
-                                (ai) =>
-                                  normalizeOrderItemId(ai.order_item_id) === orderItemId,
-                              )
-                            : undefined;
+                        ) : (
+                          previewRows.map((row) => {
+                            const currentVal = dispatchItemsQuantities[row.orderItemId] ?? 0;
 
-                          const approved = appItem
-                            ? Number(appItem.approved_quantity || 0)
-                            : Number(
-                                line.approved_quantity ??
-                                  line.ordered_quantity ??
-                                  line.quantity ??
-                                  0,
-                              );
-
-                          const alreadyDispatched = activeApproval
-                            ? (dispatchedQtyByItemForActiveApproval[orderItemId] ?? 0)
-                            : Number(line.dispatched_quantity || 0);
-                          const remaining = Math.max(0, approved - alreadyDispatched);
-                          if (remaining <= 0) return null;
-
-                          const currentVal = dispatchItemsQuantities[orderItemId] ?? 0;
-
-                          return (
-                            <tr key={orderItemId} className="bg-white dark:bg-slate-900">
-                              <td className="px-4 py-3">
-                                <span className="font-semibold text-slate-800 dark:text-slate-200 block">
-                                  {String(line.product_name || "—")}
-                                </span>
-                                {line.sku ? (
-                                  <span className="text-[10px] text-slate-400">
-                                    SKU {String(line.sku)}
+                            return (
+                              <tr key={row.orderItemId} className="bg-white dark:bg-slate-900">
+                                <td className="px-4 py-3">
+                                  <span className="font-semibold text-slate-800 dark:text-slate-200 block">
+                                    {row.productName}
                                   </span>
-                                ) : null}
-                              </td>
-                              <td className="px-4 py-3 text-center text-slate-500">{approved}</td>
-                              <td className="px-4 py-3 text-center text-slate-500">
-                                {alreadyDispatched}
-                              </td>
-                              <td className="px-4 py-3 text-center font-semibold text-blue-600 dark:text-blue-400">
-                                {remaining}
-                              </td>
-                              <td className="px-4 py-3 text-right">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={remaining}
-                                  value={currentVal || ""}
-                                  onChange={(e) => {
-                                    const val = Math.min(
-                                      remaining,
-                                      Math.max(0, parseInt(e.target.value, 10) || 0),
-                                    );
-                                    setDispatchItemsQuantities((prev) => ({
-                                      ...prev,
-                                      [orderItemId]: val,
-                                    }));
-                                  }}
-                                  className="w-20 text-right rounded border border-slate-200 px-2 py-1 text-xs dark:border-white/10 dark:bg-slate-950 text-slate-900 dark:text-slate-50 focus:border-blue-600 focus:outline-none"
-                                  placeholder="0"
-                                  disabled={isCreating}
-                                />
-                              </td>
-                            </tr>
-                          );
-                        })}
+                                  {row.sku ? (
+                                    <span className="text-[10px] text-slate-400">
+                                      SKU {row.sku}
+                                    </span>
+                                  ) : null}
+                                </td>
+                                <td className="px-4 py-3 text-center tabular-nums text-slate-500">
+                                  {row.clearedQty}
+                                </td>
+                                <td className="px-4 py-3 text-center tabular-nums text-slate-500">
+                                  {row.alreadyDispatched}
+                                </td>
+                                <td className="px-4 py-3 text-center tabular-nums text-blue-600 dark:text-blue-400">
+                                  {row.remaining}
+                                </td>
+                                <td className="px-4 py-3 text-center tabular-nums font-semibold text-indigo-700 dark:text-indigo-300">
+                                  {row.dispatchable}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={row.dispatchable}
+                                    value={currentVal || ""}
+                                    onChange={(e) => {
+                                      const val = Math.min(
+                                        row.dispatchable,
+                                        Math.max(0, parseInt(e.target.value, 10) || 0),
+                                      );
+                                      setDispatchItemsQuantities((prev) => ({
+                                        ...prev,
+                                        [row.orderItemId]: val,
+                                      }));
+                                    }}
+                                    className="w-20 text-right rounded border border-slate-200 px-2 py-1 text-xs dark:border-white/10 dark:bg-slate-950 text-slate-900 dark:text-slate-50 focus:border-blue-600 focus:outline-none"
+                                    placeholder="0"
+                                    disabled={isCreating}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
                       </tbody>
+                      {previewRows.length > 0 ? (
+                        <tfoot className="border-t border-slate-200/80 bg-slate-50/80 text-[11px] font-semibold dark:border-white/10 dark:bg-slate-950/40">
+                          <tr>
+                            <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300">Total</td>
+                            <td className="px-4 py-2.5 text-center tabular-nums text-slate-600 dark:text-slate-400">
+                              {previewRows.reduce((s, r) => s + r.clearedQty, 0)}
+                            </td>
+                            <td className="px-4 py-2.5 text-center tabular-nums text-slate-600 dark:text-slate-400">
+                              {previewRows.reduce((s, r) => s + r.alreadyDispatched, 0)}
+                            </td>
+                            <td className="px-4 py-2.5 text-center tabular-nums text-blue-600 dark:text-blue-400">
+                              {previewRows.reduce((s, r) => s + r.remaining, 0)}
+                            </td>
+                            <td className="px-4 py-2.5 text-center tabular-nums text-indigo-700 dark:text-indigo-300">
+                              {modalDispatchableTotal}
+                            </td>
+                            <td className="px-4 py-2.5 text-right tabular-nums text-blue-700 dark:text-blue-300">
+                              {previewDispatchTotal}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      ) : null}
                     </table>
                   </div>
                 </div>
@@ -687,16 +577,6 @@ export function CreateAccountDispatchModal({
           </div>
 
           <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4 dark:border-white/5 dark:bg-slate-950/40">
-            {releaseSummary.canResolveRelease && activeApproval && onResolveRelease ? (
-              <button
-                type="button"
-                onClick={() => onResolveRelease(activeApproval)}
-                disabled={isCreating}
-                className="mr-auto rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/50"
-              >
-                Resolve release
-              </button>
-            ) : null}
             <button
               type="button"
               onClick={handleClose}

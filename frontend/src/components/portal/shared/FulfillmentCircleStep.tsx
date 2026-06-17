@@ -1,7 +1,10 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { Fragment, useMemo } from "react";
+import { UserCheck, IndianRupee, Package, Truck, Wallet, RotateCcw } from "lucide-react";
 import { type OrderStatusDimension } from "./orderStatusDimensions";
+import type { DepartmentStageBox } from "./orderDepartmentStages";
+import { computeDepartmentStageBoxes } from "./orderDepartmentStages";
 
 export function FulfillmentCircleStep({
   label,
@@ -9,17 +12,21 @@ export function FulfillmentCircleStep({
   completed = 0,
   total = 0,
   icon: Icon,
+  size = "default",
 }: {
   label: string;
   status: OrderStatusDimension | undefined;
   completed?: number;
   total?: number;
   icon: React.ComponentType<{ className?: string }>;
+  size?: "default" | "sm" | "xs";
 }) {
   if (!status) return null;
 
-  const radius = 15;
-  const strokeWidth = 2.5;
+  const extraSmall = size === "xs";
+  const compact = size === "sm" || extraSmall;
+  const radius = extraSmall ? 9 : compact ? 11 : 15;
+  const strokeWidth = extraSmall ? 1.5 : compact ? 2 : 2.5;
   const circumference = 2 * Math.PI * radius;
   const safeTotal = Math.max(total, 1);
   const progressRatio = Math.min(1, Math.max(0, completed / safeTotal));
@@ -64,9 +71,16 @@ export function FulfillmentCircleStep({
   );
 
   return (
-    <div className="flex flex-col items-center min-w-[70px] group cursor-help" title={tooltipText}>
+    <div
+      className={`flex flex-col items-center group cursor-help ${
+        extraSmall ? "min-w-[34px]" : compact ? "min-w-[44px]" : "min-w-[70px]"
+      }`}
+      title={tooltipText}
+    >
       <div
-        className={`relative flex items-center justify-center h-9 w-9 rounded-full ring-1 ${ringColor} ${bgColor} ${textColor}`}
+        className={`relative flex items-center justify-center rounded-full ring-1 ${ringColor} ${bgColor} ${textColor} ${
+          extraSmall ? "h-6 w-6" : compact ? "h-7 w-7" : "h-9 w-9"
+        }`}
       >
         <svg
           className="absolute inset-0 h-full w-full transform -rotate-90 pointer-events-none"
@@ -92,14 +106,167 @@ export function FulfillmentCircleStep({
             strokeDashoffset={dashOffset}
           />
         </svg>
-        <Icon className="h-3.5 w-3.5 z-10" />
+        <Icon
+          className={`z-10 ${extraSmall ? "h-2 w-2" : compact ? "h-2.5 w-2.5" : "h-3.5 w-3.5"}`}
+        />
       </div>
-      <span className="mt-1 text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 text-center">
+      <span
+        className={`font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 text-center ${
+          extraSmall
+            ? "mt-0.5 text-[6px] leading-none"
+            : compact
+              ? "mt-0.5 text-[7px] leading-none"
+              : "mt-1 text-[9px]"
+        }`}
+      >
         {label}
       </span>
-      <span className={`text-[10px] font-bold tracking-tight ${quantityColor}`}>
-        {completed} / {total}
+      <span
+        className={`font-bold tracking-tight ${quantityColor} ${
+          extraSmall
+            ? "text-[7px] leading-none"
+            : compact
+              ? "text-[8px] leading-none"
+              : "text-[10px]"
+        }`}
+      >
+        {completed}/{total}
       </span>
+    </div>
+  );
+}
+
+export type FulfillmentPipelineStepConfig = {
+  id: string;
+  label: string;
+  status: OrderStatusDimension | undefined;
+  completed?: number;
+  total?: number;
+  icon: React.ComponentType<{ className?: string }>;
+};
+
+export const ORDER_FULFILLMENT_PIPELINE_IDS = [
+  "admin",
+  "finance",
+  "account",
+  "dispatch",
+  "delivery",
+  "return",
+] as const;
+
+export type OrderFulfillmentPipelineId = (typeof ORDER_FULFILLMENT_PIPELINE_IDS)[number];
+
+export const DEFAULT_ORDER_PIPELINE_ICONS: Record<
+  OrderFulfillmentPipelineId,
+  React.ComponentType<{ className?: string }>
+> = {
+  admin: UserCheck,
+  finance: IndianRupee,
+  account: Wallet,
+  dispatch: Package,
+  delivery: Truck,
+  return: RotateCcw,
+};
+
+const DEFAULT_PIPELINE_LABELS: Record<OrderFulfillmentPipelineId, string> = {
+  admin: "Admin",
+  finance: "Finance",
+  account: "Account",
+  dispatch: "Dispatch",
+  delivery: "Delivery",
+  return: "Return",
+};
+
+/** Build inline header pipeline steps from department stage boxes. */
+export function buildOrderFulfillmentPipelineSteps(
+  boxes: DepartmentStageBox[],
+  icons: Record<OrderFulfillmentPipelineId, React.ComponentType<{ className?: string }>>,
+  options?: {
+    labels?: Partial<Record<OrderFulfillmentPipelineId, string>>;
+    defaultTotal?: number;
+    totalByStep?: Partial<Record<OrderFulfillmentPipelineId, number>>;
+  },
+): FulfillmentPipelineStepConfig[] {
+  const defaultTotal = options?.defaultTotal ?? 0;
+
+  return ORDER_FULFILLMENT_PIPELINE_IDS.map((id) => {
+    const box = boxes.find((b) => b.id === id);
+    return {
+      id,
+      label: options?.labels?.[id] ?? DEFAULT_PIPELINE_LABELS[id],
+      status: box?.status,
+      completed: box?.completedQty,
+      total: options?.totalByStep?.[id] ?? box?.totalQty ?? defaultTotal,
+      icon: icons[id],
+    };
+  });
+}
+
+function orderedQtyFromOrder(order: Record<string, unknown>): number {
+  const orderItems = Array.isArray(order.order_items) ? order.order_items : [];
+  return Math.max(
+    1,
+    orderItems.reduce((acc: number, item) => {
+      const line = item as { ordered_quantity?: unknown; quantity?: unknown };
+      return acc + (Number(line.ordered_quantity ?? line.quantity) || 0);
+    }, 0),
+  );
+}
+
+/** Pipeline steps for order list rows (no fulfillment snapshot / returns). */
+export function buildListOrderFulfillmentPipeline(
+  order: Record<string, unknown>,
+  options?: {
+    defaultTotal?: number;
+    totalByStep?: Partial<Record<OrderFulfillmentPipelineId, number>>;
+  },
+): FulfillmentPipelineStepConfig[] {
+  const deptBoxes = computeDepartmentStageBoxes(order, null);
+  const defaultTotal = options?.defaultTotal ?? orderedQtyFromOrder(order);
+  return buildOrderFulfillmentPipelineSteps(deptBoxes, DEFAULT_ORDER_PIPELINE_ICONS, {
+    defaultTotal,
+    totalByStep: options?.totalByStep,
+  });
+}
+
+/** Compact horizontal fulfillment pipeline (Admin → Return) for order detail headers. */
+export function OrderFulfillmentPipelineStrip({
+  steps,
+  size = "sm",
+  className = "",
+}: {
+  steps: FulfillmentPipelineStepConfig[];
+  size?: "default" | "sm" | "xs";
+  className?: string;
+}) {
+  const visible = steps.filter((step) => step.status);
+  const arrowClass =
+    size === "xs"
+      ? "px-0 text-[7px] font-semibold text-slate-300 dark:text-slate-600"
+      : "px-0.5 text-[9px] font-semibold text-slate-300 dark:text-slate-600";
+
+  if (visible.length === 0) return null;
+
+  return (
+    <div
+      className={`flex w-max min-w-full items-center justify-center gap-0 ${
+        size === "xs" ? "py-0" : "py-0.5"
+      } ${className}`}
+      aria-label="Order fulfillment pipeline"
+    >
+      {visible.map((step, index) => (
+        <Fragment key={step.id}>
+          {index > 0 ? <span className={arrowClass}>→</span> : null}
+          <FulfillmentCircleStep
+            size={size}
+            label={step.label}
+            status={step.status}
+            completed={step.completed}
+            total={step.total}
+            icon={step.icon}
+          />
+        </Fragment>
+      ))}
     </div>
   );
 }

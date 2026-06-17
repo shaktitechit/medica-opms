@@ -42,9 +42,12 @@ import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifec
 import { withAdminApprovalQuantities } from "@/components/portal/shared/orderAdminApprovalDisplay";
 import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
-import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
+import {
+  OrderFulfillmentPipelineStrip,
+  buildOrderFulfillmentPipelineSteps,
+  DEFAULT_ORDER_PIPELINE_ICONS,
+} from "@/components/portal/shared/FulfillmentCircleStep";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
-import { UserCheck, DollarSign, Package, Truck, Wallet } from "lucide-react";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
@@ -500,17 +503,22 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     return computeDepartmentStageBoxes(detail, fulfillmentSnapshot);
   }, [detail, fulfillmentSnapshot]);
 
-  const adminBox = useMemo(() => deptBoxes.find((b) => b.id === "admin"), [deptBoxes]);
-  const financeBox = useMemo(() => deptBoxes.find((b) => b.id === "finance"), [deptBoxes]);
-  const accountBox = useMemo(() => deptBoxes.find((b) => b.id === "account"), [deptBoxes]);
-  const dispatchBox = useMemo(() => deptBoxes.find((b) => b.id === "dispatch"), [deptBoxes]);
   const deliveryBox = useMemo(() => deptBoxes.find((b) => b.id === "delivery"), [deptBoxes]);
 
-  const adminStatusDim = adminBox?.status;
-  const financeStatusDim = financeBox?.status;
-  const dispatchStatusDim = dispatchBox?.status;
-  const accountStatusDim = accountBox?.status;
-  const deliveryStatusDim = deliveryBox?.status;
+  const pipelineSteps = useMemo(
+    () =>
+      buildOrderFulfillmentPipelineSteps(deptBoxes, DEFAULT_ORDER_PIPELINE_ICONS, {
+        defaultTotal: orderKpis.totalQty,
+        totalByStep: {
+          finance: Math.max(orderKpis.adminApprovedQty, orderKpis.totalQty),
+          account: Math.max(orderKpis.adminApprovedQty, orderKpis.totalQty),
+          dispatch: Math.max(orderKpis.financeApprovedQty, orderKpis.adminApprovedQty),
+          delivery: Math.max(orderKpis.dispatchedQty, orderKpis.financeApprovedQty),
+          return: deliveryBox?.totalQty ?? Math.max(orderKpis.dispatchedQty, orderKpis.financeApprovedQty),
+        },
+      }),
+    [deptBoxes, orderKpis, deliveryBox?.totalQty],
+  );
 
   // Admin allowed status transitions
   const allowedTransitions = useMemo(() => {
@@ -575,7 +583,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
   }
 
   return (
-    <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden space-y-4 pb-20 md:pb-0">
+    <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden space-y-0 pb-20 md:pb-0">
 
       {/* Transitions Dialog */}
       {transitioningTo && (
@@ -823,75 +831,60 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
 
       {/* Order Main Content */}
       {detail && (
-        <>
-          <div className="flex-shrink-0 space-y-3">
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-shrink-0 space-y-1">
+            <div className="rounded-lg border border-slate-200/80 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-slate-900">
 
-              {/* ── Top row: breadcrumb + title + meta ── */}
-              <div className="flex items-start justify-between gap-3">
+              {/* ── Top row: order details + inline fulfillment pipeline ── */}
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  <div className="mb-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                     <button type="button" onClick={() => router.back()} className="font-medium text-blue-600 hover:underline dark:text-blue-400">Orders</button>
                     <span>/</span>
                     <span className="font-semibold text-slate-700 dark:text-slate-200">Order Details</span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="truncate text-lg sm:text-xl font-bold tracking-tight text-slate-950 dark:text-slate-50">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <h1 className="truncate text-base sm:text-lg font-bold tracking-tight text-slate-950 dark:text-slate-50">
                       {detail.order_no ? String(detail.order_no) : "Order"}
                     </h1>
                     <span className="shrink-0">{renderPriorityBadge(typeof detail.priority === "string" ? detail.priority : "normal")}</span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
                     <span>Party: <b className="font-semibold text-slate-700 dark:text-slate-200">{custLabel}</b></span>
                     <span>Date: {formatDateShort(detail.order_date)}</span>
                     <span>EDD: {formatDateShort(detail.expected_delivery_date)}</span>
                   </div>
                 </div>
-                <button type="button" onClick={handleRefetch} className="shrink-0 rounded-lg border border-slate-200/95 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5" title="Refresh">
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                </button>
+
+                <div className="flex min-w-0 items-center gap-1.5 lg:shrink-0">
+                  <div className="min-w-0 flex-1 overflow-x-auto lg:flex-none lg:min-w-[420px]">
+                    <OrderFulfillmentPipelineStrip steps={pipelineSteps} size="sm" />
+                  </div>
+                  <button type="button" onClick={() => setIsFulfillmentModalOpen(true)} className="shrink-0 rounded-md border border-amber-200/80 bg-white px-1.5 py-0.5 text-[9px] font-bold text-amber-600 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-950 dark:text-amber-400 dark:hover:bg-white/5" title="Fulfillment details">Details</button>
+                  <button type="button" onClick={handleRefetch} className="shrink-0 rounded-md border border-slate-200/95 p-1 text-slate-500 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5" title="Refresh">
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  </button>
+                </div>
               </div>
 
-              {/* ── Info buttons: 2-col on mobile, inline on sm+ ── */}
-              <div className="mt-3 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 font-sans font-medium">
-                <button type="button" onClick={() => setIsOrderDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
-                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              {/* ── Info buttons ── */}
+              <div className="mt-1 grid grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:gap-1.5 font-sans font-medium">
+                <button type="button" onClick={() => setIsOrderDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                  <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                   <span>Order Info</span>
                 </button>
-                <button type="button" onClick={() => setIsPartyDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white px-2 py-2 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
-                  <svg className="h-4 w-4 sm:h-3.5 sm:w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                <button type="button" onClick={() => setIsPartyDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                  <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                   <span>Party Info</span>
                 </button>
               </div>
 
-              {/* ── Fulfillment pipeline ── */}
-              <div className="mt-4 border-t border-slate-100 pt-4 dark:border-white/10 flex flex-col w-full bg-slate-50/50 p-3 sm:p-4 rounded-2xl dark:bg-slate-950/20">
-                <div className="flex items-center justify-between mb-3 w-full gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-tight">Fulfillment Pipeline<span className="hidden sm:inline"> (vs {orderKpis.totalQty} ordered)</span></span>
-                  <button type="button" onClick={() => setIsFulfillmentModalOpen(true)} className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-blue-200/80 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[10px] sm:text-xs font-bold text-blue-600 shadow-sm transition dark:border-white/10 dark:bg-slate-950 dark:text-blue-400 dark:hover:bg-white/5 cursor-pointer active:scale-[0.98]">Details</button>
-                </div>
-                <div className="overflow-x-auto -mx-1 px-1 pb-1">
-                  <div className="grid grid-cols-9 items-center justify-items-center min-w-[280px] w-full max-w-4xl mx-auto py-1">
-                    <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderKpis.totalQty} icon={UserCheck} />
-                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={Math.max(orderKpis.adminApprovedQty, orderKpis.totalQty)} icon={DollarSign} />
-                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    
-                        <FulfillmentCircleStep label="Account" status={accountStatusDim} completed={accountBox?.completedQty} total={Math.max(orderKpis.adminApprovedQty, orderKpis.totalQty)} icon={Wallet} />
-                        <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                        <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={Math.max(orderKpis.financeApprovedQty, orderKpis.adminApprovedQty)} icon={Package} />
-                    <span className="text-slate-300 dark:text-slate-600 text-xs font-semibold">→</span>
-                    <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={Math.max(orderKpis.dispatchedQty, orderKpis.financeApprovedQty)} icon={Truck} />
-                  </div>
-                </div>
-              </div>
-
               {/* ── Action buttons bar ── */}
-              <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/10">
-                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 font-sans font-medium">
-                  <button type="button" disabled={!canHold || busy} onClick={() => setTransitioningTo("on_hold")} className="rounded-lg bg-amber-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40">Hold</button>
-                  <button type="button" disabled={!canResume || busy} onClick={() => setTransitioningTo("submitted")} className="rounded-lg bg-blue-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">{resumeLabel}</button>
-                  <button type="button" disabled={!canCancel || busy} onClick={() => setTransitioningTo("cancelled")} className="rounded-lg bg-rose-600 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40">Cancel</button>
+              <div className="mt-2 border-t border-slate-100 pt-2 dark:border-white/10">
+                <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 font-sans font-medium">
+                  <button type="button" disabled={!canHold || busy} onClick={() => setTransitioningTo("on_hold")} className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Hold</button>
+                  <button type="button" disabled={!canResume || busy} onClick={() => setTransitioningTo("submitted")} className="rounded-md bg-blue-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">{resumeLabel}</button>
+                  <button type="button" disabled={!canCancel || busy} onClick={() => setTransitioningTo("cancelled")} className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Cancel</button>
                 </div>
               </div>
 
@@ -926,8 +919,8 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
           </div>
 
           {/* ── DESKTOP: Footer Tab Nav ── */}
-          <div className="hidden md:block flex-shrink-0 pt-2 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 p-2 rounded-xl">
-            <OrderDetailTabsNav
+          <div className="hidden md:block mb-0 flex-shrink-0 border-t border-slate-100 dark:border-white/5 bg-slate-50/95 dark:bg-slate-955/90 backdrop-blur-md px-2 pt-1.5 pb-0 [&_nav]:pb-0">
+            <OrderDetailTabsNav className="!mb-0 !rounded-none !border-0 !bg-transparent !p-0"
               tabs={[
                 { id: "approval_items", name: "Order Items", count: orderKpis.totalLines },
                 { id: "admin_approvals", name: "Order Approval", count: adminApprovalsCount },
@@ -984,7 +977,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
               </div>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* ── MOBILE: Bottom Tab Nav ── */}
