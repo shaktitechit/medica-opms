@@ -415,7 +415,7 @@ export default function AttachmentsTab({
         <button
           type="button"
           onClick={() => setIsUploadModalOpen(true)}
-          className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-50 dark:hover:bg-blue-400 active:scale-[0.98]"
+          className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 active:scale-[0.98]"
         >
           Upload Attachment
         </button>
@@ -434,7 +434,7 @@ export default function AttachmentsTab({
             <button
               type="button"
               onClick={() => setIsUploadModalOpen(true)}
-              className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-50 dark:hover:bg-blue-400 active:scale-[0.98]"
+              className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 active:scale-[0.98]"
             >
               Upload Attachment
             </button>

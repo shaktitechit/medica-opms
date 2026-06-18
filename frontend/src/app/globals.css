@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Professional blue + slate system (light / dark via prefers-color-scheme) */
 :root {
   color-scheme: light;
@@ -32,6 +34,46 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 
+  /* Custom palette colors used in the components */
+  --color-slate-105: #f8fafc;
+  --color-slate-150: #eef2f6;
+  --color-slate-205: #cbd5e1;
+  --color-slate-250: #94a3b8;
+  --color-slate-350: #8898aa;
+  --color-slate-355: #7b8e9f;
+  --color-slate-455: #64748b;
+  --color-slate-505: #475569;
+  --color-slate-650: #334155;
+  --color-slate-750: #1e293b;
+  --color-slate-905: #0f172a;
+  --color-slate-955: #020617;
+
+  --color-red-650: #e11d48;
+  --color-red-955: #450a0a;
+  --color-red-455: #f87171;
+
+  --color-rose-855: #9f1239;
+  --color-rose-955: #4c0519;
+  --color-rose-450: #f43f5e;
+  --color-rose-455: #fb7185;
+  --color-rose-655: #e11d48;
+  --color-rose-605: #e11d48;
+  --color-rose-445: #fda4af;
+  --color-rose-350: #fda4af;
+
+  --color-blue-855: #1e40af;
+  --color-blue-955: #172554;
+  --color-blue-455: #60a5fa;
+
+  --color-emerald-405: #34d399;
+  --color-emerald-455: #34d399;
+  --color-emerald-955: #064e3b;
+
+  --color-violet-955: #2e1065;
+
+  --color-amber-655: #d97706;
+
+
   /*
    * Compact production density.
    * Tailwind v4 utilities read these tokens, so this trims app-wide
@@ -57,19 +99,17 @@
   --text-4xl--line-height: 2.375rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --background: #020617;
-    --foreground: #f1f5f9;
-    --card: #0f172a;
-    --muted: #94a3b8;
-    --border: rgba(148, 163, 184, 0.16);
-    --primary: #3b82f6;
-    --primary-hover: #60a5fa;
-    --primary-muted: rgba(59, 130, 246, 0.12);
-    --ring: #60a5fa;
-  }
+:root.dark {
+  color-scheme: dark;
+  --background: #020617;
+  --foreground: #f1f5f9;
+  --card: #0f172a;
+  --muted: #94a3b8;
+  --border: rgba(148, 163, 184, 0.16);
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-muted: rgba(59, 130, 246, 0.12);
+  --ring: #60a5fa;
 }
 
 body {
@@ -152,10 +192,8 @@ table {
   -webkit-backdrop-filter: blur(6px);
 }
 
-@media (prefers-color-scheme: dark) {
-  .portal-fs-loader__backdrop {
-    background: color-mix(in srgb, #020617 78%, transparent);
-  }
+.dark .portal-fs-loader__backdrop {
+  background: color-mix(in srgb, #020617 78%, transparent);
 }
 
 .portal-fs-loader__panel {

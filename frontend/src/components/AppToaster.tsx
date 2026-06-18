@@ -1,28 +1,10 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
 import { Toaster } from "sonner";
-
-function subscribeDark(cb: () => void) {
-  const mq = window.matchMedia("(prefers-color-scheme: dark)");
-  mq.addEventListener("change", cb);
-  return () => mq.removeEventListener("change", cb);
-}
-
-function prefersDarkSnapshot() {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-function prefersDarkServerFallback() {
-  return false;
-}
+import { useIsDark } from "@/hooks/useTheme";
 
 export function AppToaster() {
-  const dark = useSyncExternalStore(
-    subscribeDark,
-    prefersDarkSnapshot,
-    prefersDarkServerFallback,
-  );
+  const dark = useIsDark();
 
   return (
     <Toaster
@@ -34,3 +16,4 @@ export function AppToaster() {
     />
   );
 }
+
