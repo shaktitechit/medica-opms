@@ -39,7 +39,7 @@ import { DeliveriesTab } from "./components/DeliveriesTab";
 import { ReturnsTab } from "./components/ReturnsTab";
 import { CloseAccountOrderModal } from "./components/CloseAccountOrderModal";
 import { isOrderClosed } from "@/components/portal/sales/orderUtils";
-import { canSettleAccountOrder, filterReturnsReceivedAtWarehouse } from "@/components/portal/shared/returnSettlement";
+import { canSettleAccountOrder } from "@/components/portal/shared/returnSettlement";
 import { ApprovalTab } from "./components/ApprovalTab";
 import {
   filterAccountApprovalsForUser,
@@ -454,20 +454,12 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
 
   const orderIsAccountClosed = useMemo(() => isOrderClosed(detail), [detail]);
 
-  const receivedReturns = useMemo(
-    () => filterReturnsReceivedAtWarehouse(returns),
-    [returns],
-  );
-
   const hasDispatchReleases = useMemo(
     () => hasAccountDispatchReleases(accountApprovals, dispatches),
     [accountApprovals, dispatches],
   );
 
-  const canSettleOrder = useMemo(
-    () => canSettleAccountOrder(detail, returns),
-    [detail, returns],
-  );
+  const canSettleOrder = useMemo(() => canSettleAccountOrder(detail), [detail]);
 
   const canActivateSettleClose = hasDispatchReleases && canSettleOrder;
 
@@ -636,9 +628,7 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
       {isCloseSettleOpen && (
         <CloseAccountOrderModal
           orderId={orderId}
-          returnRecord={receivedReturns[0] ?? null}
           detail={detail}
-          allReturns={returns}
           approvals={accountApprovals}
           dispatches={dispatches}
           onClose={() => setIsCloseSettleOpen(false)}
@@ -731,9 +721,7 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
                     title={
                       !hasDispatchReleases
                         ? "Record dispatch against a finance release to enable settle & close"
-                        : !canSettleOrder
-                          ? "Pending returns must be received at warehouse before settling"
-                          : undefined
+                        : undefined
                     }
                     className="rounded-md bg-emerald-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98] dark:bg-emerald-500 dark:hover:bg-emerald-400 disabled:hover:bg-emerald-600"
                   >

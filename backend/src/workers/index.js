@@ -7,6 +7,7 @@ const reportWorker = require('./report.worker');
 const messageWorker = require('./message.worker');
 const orderWorker = require('./order.worker');
 const workflowWorker = require('./workflow.worker');
+const dispatchWorker = require('./dispatch.worker');
 
 let activeWorkers = {};
 
@@ -21,6 +22,7 @@ function startAll(logger = console) {
   activeWorkers.message = messageWorker.start();
   activeWorkers.order = orderWorker.start();
   activeWorkers.workflow = workflowWorker.start();
+  activeWorkers.dispatch = dispatchWorker.start();
 
   logger.info('[workers] Background workers started.');
 }
@@ -51,6 +53,12 @@ function stopAll(logger = console) {
   if (activeWorkers.workflow) {
     activeWorkers.workflow.close().catch((err) => {
       logger.error(`[workers] Error closing workflow worker: ${err.message}`);
+    });
+  }
+
+  if (activeWorkers.dispatch) {
+    activeWorkers.dispatch.close().catch((err) => {
+      logger.error(`[workers] Error closing dispatch worker: ${err.message}`);
     });
   }
 

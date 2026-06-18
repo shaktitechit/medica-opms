@@ -130,6 +130,19 @@ function computeLineDispatchAvailability(clearedQty, alreadyDispatched, atWareho
   };
 }
 
+function aggregateDispatchReturnsByOrderLine(dispatches) {
+  const byLine = {};
+  for (const dispatch of dispatches || []) {
+    if (dispatch.dispatch_status === 'cancelled') continue;
+    for (const item of dispatch.dispatch_items || []) {
+      const key = refId(item.order_item_id);
+      if (!key) continue;
+      byLine[key] = (byLine[key] || 0) + Number(item.returned_quantity || 0);
+    }
+  }
+  return byLine;
+}
+
 module.exports = {
   refId,
   getReleaseDispatchIds,
@@ -137,6 +150,7 @@ module.exports = {
   aggregateReceivedReturnsByOrderLine,
   aggregateReportedReturnsByOrderLine,
   aggregateReleaseReturnsByOrderLine,
+  aggregateDispatchReturnsByOrderLine,
   lineAtWarehouseQty,
   computeLineDispatchAvailability,
   isReturnCountedOnOrder,

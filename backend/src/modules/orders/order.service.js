@@ -477,6 +477,11 @@ async function syncDispatchDeliveredAfterSettlement(orderId, settledLines) {
         item.delivered_quantity = target;
         changed = true;
       }
+      const returnTarget = Number(settled.returned_quantity || 0);
+      if (Number(item.returned_quantity || 0) !== returnTarget) {
+        item.returned_quantity = returnTarget;
+        changed = true;
+      }
     }
     if (changed) await dispatch.save();
   }
@@ -612,11 +617,11 @@ async function closeAfterFullDelivery(id, body, user) {
 }
 
 /**
- * Shared validation for account order closure after warehouse returns.
+ * Shared validation for account order closure.
  */
 async function assertCloseWithReturnsPreconditions(id, body = {}) {
-  const { return_id: returnId } = body || {};
-  const { Order, OrderReturn } = getModels();
+  void body;
+  const { Order } = getModels();
 
   const doc = await Order.findById(id);
   if (!doc) throw new ApiError(404, 'Order not found');
@@ -629,29 +634,7 @@ async function assertCloseWithReturnsPreconditions(id, body = {}) {
     throw new ApiError(400, 'Order is already closed or cancelled');
   }
 
-  const allReturns = await OrderReturn.find({
-    order: id,
-    deletedAt: null,
-  }).lean();
-
-  const pendingReturns = allReturns.filter((r) => isReturnPending(r.return_status));
-  if (pendingReturns.length > 0) {
-    throw new ApiError(
-      400,
-      'All return records must be received at warehouse before closing the order',
-    );
-  }
-
-  const returns = allReturns.filter((r) => isReturnReceivedAtWarehouse(r.return_status));
-
-  if (returnId) {
-    const trigger = returns.find((r) => String(r._id) === String(returnId));
-    if (!trigger) {
-      throw new ApiError(400, 'Return must be received at warehouse before closing the order');
-    }
-  }
-
-  return { doc, returns };
+  return { doc };
 }
 
 /**
@@ -665,8 +648,9 @@ async function settleOrderCommercials(id, body, user) {
     remarks,
   } = body || {};
 
-  const { doc, returns } = await assertCloseWithReturnsPreconditions(id, body);
+  const { doc } = await assertCloseWithReturnsPreconditions(id, body);
   const { OrderDispatch } = getModels();
+  const { aggregateDispatchReturnsByOrderLine } = require('../../utils/returnSettlement');
 
   const dispatches = await OrderDispatch.find({
     order: id,
@@ -674,7 +658,7 @@ async function settleOrderCommercials(id, body, user) {
     dispatch_status: { $ne: 'cancelled' },
   }).lean();
 
-  const returnedByLine = mergeReturnAllocationsToLines(doc.order_items || [], returns, dispatches);
+  const returnedByLine = aggregateDispatchReturnsByOrderLine(dispatches);
 
   const nextItems = (doc.order_items || []).map((line) => {
     const item = line.toObject ? line.toObject() : { ...line };
@@ -703,7 +687,7 @@ async function settleOrderCommercials(id, body, user) {
   await syncDispatchDeliveredAfterSettlement(id, nextItems);
   await doc.save();
 
-  return { doc, returns, nextItems };
+  return { doc, nextItems };
 }
 
 /**
@@ -1363,6 +1347,10 @@ async function processOrderJob({ type, payload = {} }) {
     case 'post_shipment_delivery': {
       const orderDeliveryService = require('../orderDelivery/orderDelivery.service');
       return orderDeliveryService.processPostShipmentDeliveryJob(payload);
+    }
+    case 'post_order_return': {
+      const orderReturnService = require('../orderReturn/orderReturn.service');
+      return orderReturnService.processPostOrderReturnJob(payload);
     }
     case ORDER_JOB_TYPES.SETTLE_AND_CLOSE:
     case 'settle_and_close':

@@ -971,7 +971,7 @@ function registerModels() {
       },
       account_approval_status: {
         type: String,
-        enum: ["pending", "partial", "approved", "rejected"],
+        enum: ["pending", "partial", "approved", "rejected", "full"],
         default: "pending",
         index: true,
       },
@@ -1310,6 +1310,7 @@ function registerModels() {
           "transport_agent",
           "delivery",
           "return",
+          "order_due_sheet",
         ],
         required: true,
       },
@@ -1352,6 +1353,7 @@ function registerModels() {
       allocated_quantity: { type: Number, required: true, min: 0 },
       dispatched_quantity: { type: Number, required: true, min: 0 },
       delivered_quantity: { type: Number, default: 0 },
+      returned_quantity: { type: Number, default: 0 },
       remarks: String,
     },
     { _id: true }
@@ -1503,6 +1505,12 @@ function registerModels() {
       returned_quantity: { type: Number, required: true, min: 1 },
       return_reason: String,
       remarks: String,
+      expiry_type: {
+        type: String,
+        enum: ["expiry", "other"],
+        default: "other",
+      },
+      expiry_date: Date,
     },
     { _id: true }
   );
@@ -1535,6 +1543,32 @@ function registerModels() {
   orderReturnSchema.plugin(softDeletePlugin);
   mongoose.model("OrderReturn", orderReturnSchema);
 
+  const orderDueSheetSchema = new mongoose.Schema(
+    {
+      due_sheet_no: { type: String, required: true, unique: true, index: true },
+      order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
+      document: { type: mongoose.Schema.Types.ObjectId, ref: "Attachment", required: true },
+      sheet_date: { type: Date, default: Date.now },
+      revision_number: { type: Number, default: 1, min: 1 },
+      is_current: { type: Boolean, default: true, index: true },
+      status: {
+        type: String,
+        enum: ["active", "superseded", "archived"],
+        default: "active",
+        index: true,
+      },
+      remarks: String,
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true }
+  );
+
+  orderDueSheetSchema.index({ order: 1, is_current: 1 });
+  orderDueSheetSchema.plugin(softDeletePlugin);
+  mongoose.model("OrderDueSheet", orderDueSheetSchema);
+
   // --- Schemas from ActivityLog.js ---
   /**
    * @fileoverview ESM mongoose mirror for ActivityLog (canonical runtime schemas live in data/mongoRegistry.js).
@@ -1564,6 +1598,7 @@ function registerModels() {
           "attachment",
           "delivery",
           "return",
+          "order_due_sheet",
         ],
       },
   
@@ -1705,6 +1740,7 @@ function registerModels() {
       mongoose.models.TransportShipment || mongoose.model('TransportShipment', transportShipmentSchema),
     OrderDelivery: mongoose.models.OrderDelivery || mongoose.model('OrderDelivery', orderDeliverySchema),
     OrderReturn: mongoose.models.OrderReturn || mongoose.model('OrderReturn', orderReturnSchema),
+    OrderDueSheet: mongoose.models.OrderDueSheet || mongoose.model('OrderDueSheet', orderDueSheetSchema),
     ActivityLog: mongoose.models.ActivityLog || mongoose.model('ActivityLog', activityLogSchema),
     Notification: mongoose.models.Notification || mongoose.model('Notification', notificationSchema),
     Message: mongoose.models.Message || mongoose.model('Message', messageSchema),

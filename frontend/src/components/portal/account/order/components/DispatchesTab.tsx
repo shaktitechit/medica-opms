@@ -24,6 +24,11 @@ import {
 import { publicApiOrigin } from "@/lib/env";
 import { toast } from "@/lib/toast";
 import { useAppSelector } from "@/store/hooks";
+import {
+  FilePreviewModal,
+  useFilePreview,
+  type PreviewFile,
+} from "@/components/portal/shared/FilePreviewModal";
 
 type DispatchesTabProps = {
   orderId: string;
@@ -65,13 +70,19 @@ function resolveFileUrl(url: string): string {
 
 function billDocumentMeta(
   billDocument: unknown,
-): { name: string; url: string } | null {
+): { name: string; url: string; mime: string } | null {
   if (!billDocument) return null;
   if (typeof billDocument === "object" && billDocument !== null) {
     const doc = billDocument as Record<string, unknown>;
     const url = String(doc.url ?? "");
     const name = String(doc.original_name ?? doc.file_name ?? "Bill document");
-    if (url) return { name, url };
+    if (url) {
+      return {
+        name,
+        url,
+        mime: String(doc.mime_type ?? ""),
+      };
+    }
   }
   return null;
 }
@@ -92,6 +103,13 @@ export function DispatchesTab({
 }: DispatchesTabProps) {
   const currentUser = useAppSelector((state) => state.auth.user);
   const token = useAppSelector((state) => state.auth.token);
+  const {
+    previewDoc,
+    previewBlobUrl,
+    previewLoading,
+    openPreview,
+    closePreview,
+  } = useFilePreview(token);
   const currentUserId = useMemo(
     () => String(currentUser?._id ?? currentUser?.id ?? ""),
     [currentUser],
@@ -178,23 +196,6 @@ export function DispatchesTab({
     if (!transportsQ.isUninitialized) void transportsQ.refetch();
   }, [refetchOrder, dispatchesQ, returnsQ, approvalsQ, transportsQ]);
 
-  const handleViewBillDocument = useCallback(
-    async (fileUrl: string) => {
-      try {
-        const response = await fetch(resolveFileUrl(fileUrl), {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!response.ok) throw new Error("Failed to view file");
-        const blob = await response.blob();
-        const blobUrl = window.URL.createObjectURL(blob);
-        window.open(blobUrl, "_blank");
-      } catch {
-        toast.error("Failed to view bill document");
-      }
-    },
-    [token],
-  );
-
   const handleDownloadBillDocument = useCallback(
     async (fileUrl: string, fileName: string) => {
       try {
@@ -218,8 +219,35 @@ export function DispatchesTab({
     [token],
   );
 
+  const handleViewBillDocument = useCallback(
+    (billDoc: { name: string; url: string; mime: string }) => {
+      void openPreview({
+        name: billDoc.name,
+        url: resolveFileUrl(billDoc.url),
+        mime: billDoc.mime,
+      });
+    },
+    [openPreview],
+  );
+
+  const handlePreviewBillDownload = useCallback(
+    (doc: PreviewFile) => {
+      void handleDownloadBillDocument(doc.url, doc.name);
+    },
+    [handleDownloadBillDocument],
+  );
+
   return (
     <div className="space-y-6 font-sans">
+      <FilePreviewModal
+        doc={previewDoc}
+        blobUrl={previewBlobUrl}
+        loading={previewLoading}
+        onClose={closePreview}
+        onDownload={handlePreviewBillDownload}
+        subtitle="Bill document preview"
+      />
+
       <div className="rounded-xl border border-slate-200/90 bg-slate-50/70 p-4 shadow-sm dark:border-white/10 dark:bg-slate-900/50">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0">
@@ -400,40 +428,97 @@ export function DispatchesTab({
                         Dispatched Items
                       </h5>
                       <div className="overflow-x-auto rounded-lg border border-slate-200/60 dark:border-white/5">
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-medium">
-                            <tr>
-                              <th className="px-3 py-2">Product</th>
-                              <th className="px-3 py-2 text-center w-24">Ordered</th>
-                              <th className="px-3 py-2 text-right w-24">This Batch</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                            {dispatchItems.map((item: any, idx: number) => {
-                              const matchItem = orderItems.find(
-                                (oi: any) => String(oi._id ?? oi.id ?? "") === String(item.order_item_id)
-                              );
-                              const productName = matchItem?.product_name || item.product_name || item.product?.product_name || "—";
-                              const orderedQty = matchItem
-                                ? (matchItem.ordered_quantity ?? matchItem.quantity ?? 0)
-                                : (item.ordered_quantity ?? "—");
-
-                              return (
-                                <tr key={String(item.order_item_id || idx)} className="bg-white dark:bg-slate-900">
-                                  <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
-                                    {productName}
-                                  </td>
-                                  <td className="px-3 py-2 text-center text-slate-600 dark:text-slate-400">
-                                    {orderedQty}
-                                  </td>
-                                  <td className="px-3 py-2 text-right font-semibold text-blue-600 dark:text-blue-400">
-                                    {item.dispatched_quantity ?? item.dispatch_quantity ?? "—"}
-                                  </td>
+                        {(() => {
+                          const hasDelivered = dispatchItems.some(
+                            (item: any) => Number(item.delivered_quantity ?? 0) > 0,
+                          );
+                          const hasReturned = dispatchItems.some(
+                            (item: any) => Number(item.returned_quantity ?? 0) > 0,
+                          );
+                          return (
+                            <table className="w-full text-left text-xs">
+                              <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-medium">
+                                <tr>
+                                  <th className="px-3 py-2">Product</th>
+                                  <th className="px-3 py-2 text-center w-20">Ordered</th>
+                                  <th className="px-3 py-2 text-center w-22">Dispatched</th>
+                                  {hasDelivered && (
+                                    <th className="px-3 py-2 text-center w-22 text-emerald-600 dark:text-emerald-400">
+                                      Delivered
+                                    </th>
+                                  )}
+                                  {hasReturned && (
+                                    <th className="px-3 py-2 text-center w-22 text-rose-600 dark:text-rose-400">
+                                      Returned
+                                    </th>
+                                  )}
                                 </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                                {dispatchItems.map((item: any, idx: number) => {
+                                  const matchItem = orderItems.find(
+                                    (oi: any) => String(oi._id ?? oi.id ?? "") === String(item.order_item_id)
+                                  );
+                                  const productName = matchItem?.product_name || item.product_name || item.product?.product_name || "—";
+                                  const orderedQty = matchItem
+                                    ? (matchItem.ordered_quantity ?? matchItem.quantity ?? 0)
+                                    : (item.ordered_quantity ?? "—");
+                                  const dispatchedQty = item.dispatched_quantity ?? item.dispatch_quantity ?? "—";
+                                  const deliveredQty = Number(item.delivered_quantity ?? 0);
+                                  const returnedQty = Number(item.returned_quantity ?? 0);
+
+                                  return (
+                                    <tr key={String(item.order_item_id || idx)} className="bg-white dark:bg-slate-900">
+                                      <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                                        {productName}
+                                      </td>
+                                      <td className="px-3 py-2 text-center text-slate-600 dark:text-slate-400">
+                                        {orderedQty}
+                                      </td>
+                                      <td className="px-3 py-2 text-center font-semibold text-blue-600 dark:text-blue-400">
+                                        {dispatchedQty}
+                                      </td>
+                                      {hasDelivered && (
+                                        <td className="px-3 py-2 text-center">
+                                          {deliveredQty > 0 ? (
+                                            <span className="inline-flex items-center justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+                                              {deliveredQty}
+                                            </span>
+                                          ) : (
+                                            <span className="text-slate-350 dark:text-slate-600">—</span>
+                                          )}
+                                        </td>
+                                      )}
+                                      {hasReturned && (
+                                        <td className="px-3 py-2 text-center">
+                                          {returnedQty > 0 ? (
+                                            <span className="inline-flex items-center justify-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-400">
+                                              <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                className="h-2.5 w-2.5 shrink-0"
+                                                viewBox="0 0 20 20"
+                                                fill="currentColor"
+                                              >
+                                                <path
+                                                  fillRule="evenodd"
+                                                  d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 017 7v2a1 1 0 11-2 0v-2a5 5 0 00-5-5H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
+                                                  clipRule="evenodd"
+                                                />
+                                              </svg>
+                                              {returnedQty}
+                                            </span>
+                                          ) : (
+                                            <span className="text-slate-350 dark:text-slate-600">—</span>
+                                          )}
+                                        </td>
+                                      )}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          );
+                        })()}
                       </div>
                     </div>
 
@@ -462,7 +547,7 @@ export function DispatchesTab({
                           <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
-                              onClick={() => void handleViewBillDocument(billDoc.url)}
+                              onClick={() => handleViewBillDocument(billDoc)}
                               className="rounded border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-50 dark:border-white/10 dark:text-blue-300 dark:hover:bg-blue-950/30"
                             >
                               View

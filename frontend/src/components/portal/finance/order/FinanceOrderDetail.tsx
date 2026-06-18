@@ -32,6 +32,7 @@ import {
   useRejectOrderApprovalMutation,
   useListOrderApprovalsQuery,
   useGetOrderFulfillmentQuery,
+  useListOrderDueSheetsQuery,
 } from "@/store/api";
 
 import { FlagsTab } from "./components/FlagsTab";
@@ -39,6 +40,7 @@ import AttachmentsTab from "./components/AttachmentsTab";
 import { ApprovalTab } from "./components/ApprovalTab";
 import { DispatchesTab } from "./components/DispatchesTab";
 import { TransportsTab } from "./components/TransportsTab";
+import { DueSheetTab } from "./components/DueSheetTab";
 
 import { ALL_FLAG_TYPES, FLAGS_FOR_TARGET_DEPARTMENT } from "@/components/portal/shared/flagTypes";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
@@ -155,6 +157,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
   const partiesQ = useListPartiesQuery({});
   const financeApprovalsQ = useListOrderApprovalsQuery({ order: orderId, is_admin_approved: true });
   const fulfillmentQ = useGetOrderFulfillmentQuery(orderId);
+  const dueSheetsQ = useListOrderDueSheetsQuery({ order: orderId });
   const adminApprovalsQ = useListOrderApprovalsQuery(
     { order: orderId, assigned_finance_user: currentUserId },
     { skip: !orderId || !currentUserId },
@@ -258,6 +261,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     | "approvals"
     | "dispatches"
     | "transports"
+    | "due_sheet"
     | "flags"
     | "attachments"
   >("approvals");
@@ -302,6 +306,9 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
   const attachments = useMemo(() => {
     return pickList(attachmentsQ.data) as Record<string, unknown>[];
   }, [attachmentsQ.data]);
+
+  const dueSheets = useMemo(() => pickList(dueSheetsQ.data), [dueSheetsQ.data]);
+  const dueSheetCount = dueSheets.length;
 
   const usersQ = useListUsersQuery({});
   const users = useMemo(() => {
@@ -391,7 +398,8 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     if (!financeApprovalsQ.isUninitialized) financeApprovalsQ.refetch();
     if (!fulfillmentQ.isUninitialized) fulfillmentQ.refetch();
     if (!adminApprovalsQ.isUninitialized) adminApprovalsQ.refetch();
-  }, [refetch, flagsQ, historyQ, attachmentsQ, financeApprovalsQ, fulfillmentQ, adminApprovalsQ]);
+    if (!dueSheetsQ.isUninitialized) dueSheetsQ.refetch();
+  }, [refetch, flagsQ, historyQ, attachmentsQ, financeApprovalsQ, fulfillmentQ, adminApprovalsQ, dueSheetsQ]);
 
   const handleResolveOrder = useCallback(async () => {
     if (!detail || !Array.isArray(detail.order_items)) return;
@@ -985,6 +993,11 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 refetchOrder={handleRefetch}
               />
             )}
+
+            {activeTab === "due_sheet" && (
+              <DueSheetTab orderId={orderId} onUploadSuccess={handleRefetch} />
+            )}
+
                 {activeTab === "flags" && (
               <FlagsTab
                 orderId={orderId}
@@ -1019,6 +1032,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 },
                 { id: "dispatches", name: "Dispatches" },
                 { id: "transports", name: "Transports" },
+                { id: "due_sheet", name: "Due Sheet", count: dueSheetCount },
                 {
                   id: "flags",
                   name: "Flags",
@@ -1043,6 +1057,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   {activeTab === "attachments" && "Attachments"}
                   {activeTab === "dispatches" && "Dispatches"}
                   {activeTab === "transports" && "Transports"}
+                  {activeTab === "due_sheet" && "Due Sheet"}
                 </h2>
                 <button
                   type="button"
@@ -1101,6 +1116,9 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                     refetchOrder={handleRefetch}
                   />
                 )}
+                {activeTab === "due_sheet" && (
+                  <DueSheetTab orderId={orderId} onUploadSuccess={handleRefetch} />
+                )}
               </div>
             </div>
           )}
@@ -1143,6 +1161,17 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2.556-2.556M13 16H9m4 0h2m2 0h.01M13 16V6m0 0h3l3 4v6h-1M6 16H5m8-10H5" />
+                  </svg>
+                ),
+              },
+              {
+                id: "due_sheet" as const,
+                name: "Due",
+                count: dueSheetCount,
+                dangerBadge: false,
+                icon: (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 ),
               },

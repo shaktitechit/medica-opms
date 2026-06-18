@@ -31,6 +31,7 @@ const attachmentSchema = new mongoose.Schema(
         "customer",
         "driver",
         "vehicle",
+        "order_due_sheet",
       ],
       required: true,
     },

@@ -52,7 +52,7 @@ const ORDER_STATUS = [
   "on_hold",
 ];
 
-const APPROVAL_STATUS = ["pending", "partial", "approved", "rejected"];
+const APPROVAL_STATUS = ["pending", "partial", "approved", "rejected", "full"];
 
 const FULFILLMENT_STATUS = ["pending", "partial", "completed"];
 

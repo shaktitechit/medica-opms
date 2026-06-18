@@ -775,6 +775,7 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
                 orderItems={readOnlyItems}
                 userNameById={userNameById}
                 onRefetch={handleRefetch}
+                orderId={orderId}
               />
             )}
 
@@ -821,7 +822,7 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
                 {activeTab === "dispatches" && (<DispatchesTab dispatches={dispatches} transports={transports} isFetching={dispatchesQ.isFetching} isPatchingDispatch={isPatchingDispatch} onUpdateStatus={handleUpdateDispatchStatus} formatDate={formatDate} userNameById={userNameById} orderItems={readOnlyItems} orderId={orderId} orderStatus={status} expectedDeliveryDate={detail?.expected_delivery_date ? String(detail.expected_delivery_date) : undefined} shippingAddress={(partyDetailQ.data as any)?.shipping_address} onRefetch={handleRefetch} />)}
                 {activeTab === "transports" && (<TransportsTab transports={transports} isFetching={transportsQ.isFetching} isPatchingTransport={isPatchingTransport} onUpdateStatus={handleUpdateTransportStatus} formatDate={formatDate} orderId={orderId} onRefetch={handleRefetch} dispatches={dispatches} orderItems={readOnlyItems} />)}
                 {activeTab === "deliveries" && (<DeliveriesTab deliveries={deliveries} isFetching={deliveriesQ.isFetching} formatDate={formatDate} orderItems={readOnlyItems} />)}
-                {activeTab === "returns" && (<ReturnsTab returns={returns} isFetching={returnsQ.isFetching} formatDate={formatDate} orderItems={readOnlyItems} userNameById={userNameById} onRefetch={handleRefetch} />)}
+                {activeTab === "returns" && (<ReturnsTab returns={returns} isFetching={returnsQ.isFetching} formatDate={formatDate} orderItems={readOnlyItems} userNameById={userNameById} onRefetch={handleRefetch} orderId={orderId} />)}
               </div>
             </div>
           )}

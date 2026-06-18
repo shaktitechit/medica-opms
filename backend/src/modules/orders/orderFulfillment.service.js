@@ -528,14 +528,21 @@ function buildOrderSnapshot(orderPlain, dispatches, shipments) {
 }
 
 async function syncDispatchDeliveredFromDeliveries(orderId) {
-  const { OrderDispatch, OrderDelivery } = getModels();
-  const deliveries = await OrderDelivery.find({
-    order: orderId,
-    deletedAt: null,
-    delivery_status: 'delivered',
-  }).lean();
+  const { OrderDispatch, OrderDelivery, OrderReturn } = getModels();
+  const [deliveries, returns] = await Promise.all([
+    OrderDelivery.find({
+      order: orderId,
+      deletedAt: null,
+      delivery_status: 'delivered',
+    }).lean(),
+    OrderReturn.find({
+      order: orderId,
+      deletedAt: null,
+      return_status: { $ne: 'cancelled' },
+    }).lean(),
+  ]);
 
-  if (deliveries.length === 0) return false;
+  if (deliveries.length === 0 && returns.length === 0) return false;
 
   const deliveredByDispatchProduct = {};
   for (const delivery of deliveries) {
@@ -552,6 +559,21 @@ async function syncDispatchDeliveredFromDeliveries(orderId) {
     }
   }
 
+  const returnedByDispatchProduct = {};
+  for (const ret of returns) {
+    const dispatchKey = String(ret.dispatch);
+    if (!returnedByDispatchProduct[dispatchKey]) {
+      returnedByDispatchProduct[dispatchKey] = {};
+    }
+    for (const item of ret.return_items || []) {
+      const productKey = String(item.product?._id ?? item.product ?? '');
+      if (!productKey) continue;
+      returnedByDispatchProduct[dispatchKey][productKey] =
+        (returnedByDispatchProduct[dispatchKey][productKey] || 0) +
+        Number(item.returned_quantity || 0);
+    }
+  }
+
   const dispatches = await OrderDispatch.find({
     order: orderId,
     deletedAt: null,
@@ -560,26 +582,23 @@ async function syncDispatchDeliveredFromDeliveries(orderId) {
 
   for (const dispatch of dispatches) {
     const dispatchKey = String(dispatch._id);
-    const productMap = deliveredByDispatchProduct[dispatchKey];
-    if (!productMap) continue;
+    const productMap = deliveredByDispatchProduct[dispatchKey] || {};
+    const returnMap = returnedByDispatchProduct[dispatchKey] || {};
 
     let changed = false;
     for (const item of dispatch.dispatch_items || []) {
       const productKey = String(item.product?._id ?? item.product ?? '');
       const dispatched = Number(item.dispatched_quantity || 0);
-      const target = Math.min(dispatched, Number(productMap[productKey] || 0));
-      if (Number(item.delivered_quantity || 0) !== target) {
-        item.delivered_quantity = target;
+
+      const targetDelivered = Math.min(dispatched, Number(productMap[productKey] || 0));
+      if (Number(item.delivered_quantity || 0) !== targetDelivered) {
+        item.delivered_quantity = targetDelivered;
         changed = true;
       }
-    }
 
-    // Lines with no delivery record for this dispatch → not delivered
-    for (const item of dispatch.dispatch_items || []) {
-      const productKey = String(item.product?._id ?? item.product ?? '');
-      if (productKey in productMap) continue;
-      if (Number(item.delivered_quantity || 0) !== 0) {
-        item.delivered_quantity = 0;
+      const targetReturned = Math.min(dispatched, Number(returnMap[productKey] || 0));
+      if (Number(item.returned_quantity || 0) !== targetReturned) {
+        item.returned_quantity = targetReturned;
         changed = true;
       }
     }
@@ -614,6 +633,10 @@ async function syncDispatchDeliveredFromShipments(orderId) {
       const target = Number(item.dispatched_quantity || 0);
       if (Number(item.delivered_quantity || 0) !== target) {
         item.delivered_quantity = target;
+        changed = true;
+      }
+      if (Number(item.returned_quantity || 0) !== 0) {
+        item.returned_quantity = 0;
         changed = true;
       }
     }
@@ -834,6 +857,7 @@ async function recalculateFromExecutions(orderId, user) {
 
   if (user?._id) orderDoc.updated_by = user._id;
   orderDoc.markModified('order_items');
+  normalizeOrderWorkflowFields(orderDoc);
   await orderDoc.save();
 
   const plain = toPlain(orderDoc.toObject());
@@ -885,7 +909,7 @@ async function syncOrderLineReturnedQuantitiesFromReturns(orderId) {
   }
 
   if (changed) {
-    orderDoc.markModified('order_items');
+    normalizeOrderWorkflowFields(orderDoc);
     await orderDoc.save();
   }
 

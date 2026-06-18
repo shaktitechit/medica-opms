@@ -5,6 +5,16 @@ import { useLogShipmentDeliveryMutation } from "@/store/api";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 
+const COMMON_REASONS = [
+  "Customer Rejected / Refused Delivery",
+  "Damaged Goods",
+  "Incorrect Product Sent",
+  "Expired Stock",
+  "Shortage / Missing Items",
+  "Quality Defect",
+  "Other",
+];
+
 type DeliveryFormItem = {
   product: string;
   productName: string;
@@ -12,6 +22,9 @@ type DeliveryFormItem = {
   deliveredQty: number;
   returnedQty: number;
   remarks: string;
+  expiry_type: "expiry" | "other";
+  expiry_date: string;
+  return_reason: string;
 };
 
 type OrderDeliveryModalProps = {
@@ -92,6 +105,9 @@ export function OrderDeliveryModal({
         deliveredQty: type === "full" ? dispatchedQty : 0,
         returnedQty: 0,
         remarks: "",
+        expiry_type: "other" as const,
+        expiry_date: "",
+        return_reason: "Customer Rejected / Refused Delivery",
       };
     });
 
@@ -130,8 +146,8 @@ export function OrderDeliveryModal({
         return;
       }
       for (const item of returnedLines) {
-        if (!item.remarks?.trim()) {
-          toast.error(`Add a return reason/remark for "${item.productName}".`);
+        if (item.expiry_type === "expiry" && !item.expiry_date) {
+          toast.error(`Please select an expiry date for product: ${item.productName}`);
           return;
         }
       }
@@ -142,7 +158,7 @@ export function OrderDeliveryModal({
         .map((item) => `${item.productName}: ${item.deliveredQty}`)
         .join("; ");
       const returnedSummary = returnedLines
-        .map((item) => `${item.productName}: ${item.returnedQty}`)
+        .map((item) => `${item.productName}: ${item.returnedQty} (${item.return_reason})`)
         .join("; ");
       const statusRemarks = [
         deliveryType === "partial" ? "[Partial delivery]" : "[Delivered]",
@@ -167,8 +183,10 @@ export function OrderDeliveryModal({
         return_items: returnedLines.map((item) => ({
           product: item.product,
           returned_quantity: Number(item.returnedQty),
-          return_reason: item.remarks.trim() || "Customer rejection / Partial delivery",
+          return_reason: item.return_reason,
           remarks: item.remarks.trim(),
+          expiry_type: item.expiry_type,
+          expiry_date: item.expiry_date || undefined,
         })),
         received_by: receivedBy.trim(),
         remarks:
@@ -200,7 +218,7 @@ export function OrderDeliveryModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px] overflow-y-auto animate-fade-in">
-      <div className="w-full max-w-4xl rounded-2xl border border-slate-200/90 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900 overflow-hidden my-8 transition-all duration-300 transform scale-100">
+      <div className="w-full max-w-6xl rounded-2xl border border-slate-200/90 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900 overflow-hidden my-8 transition-all duration-300 transform scale-100">
         <div className="px-6 py-4 border-b border-slate-100 dark:border-white/5 flex items-center justify-between bg-emerald-50/40 dark:bg-emerald-950/10">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-full bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center shrink-0">
@@ -349,18 +367,21 @@ export function OrderDeliveryModal({
               </h4>
               <div className="overflow-hidden rounded-xl border border-slate-200/80 dark:border-white/5 bg-slate-50/30 dark:bg-slate-950/20">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs min-w-[700px]">
+                  <table className="w-full text-left text-xs min-w-[900px]">
                     <thead className="bg-slate-50 dark:bg-slate-950 text-slate-550 dark:text-slate-400 font-semibold border-b border-slate-200/60 dark:border-white/5">
                       <tr>
-                        <th className="px-4 py-3">Product Name</th>
-                        <th className="px-4 py-3 text-center w-28">Dispatched Qty</th>
-                        <th className="px-4 py-3 text-center w-36 text-emerald-700 dark:text-emerald-400">
+                        <th className="px-4 py-3 min-w-[200px]">Product Name</th>
+                        <th className="px-4 py-3 text-center w-24">Dispatched</th>
+                        <th className="px-4 py-3 text-center w-28 text-emerald-700 dark:text-emerald-400">
                           Accepted Qty
                         </th>
-                        <th className="px-4 py-3 text-center w-36 text-rose-700 dark:text-rose-400">
+                        <th className="px-4 py-3 text-center w-28 text-rose-700 dark:text-rose-400">
                           Returned Qty
                         </th>
-                        <th className="px-4 py-3">Inline Remarks / Return Reason</th>
+                        <th className="px-4 py-3 w-32">Expiry/Other</th>
+                        <th className="px-4 py-3 w-36">Expiry Date</th>
+                        <th className="px-4 py-3 w-44">Return Reason</th>
+                        <th className="px-4 py-3 min-w-[150px]">Remarks / Notes</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-white/5 bg-white dark:bg-slate-900">
@@ -396,7 +417,7 @@ export function OrderDeliveryModal({
                                   };
                                   setDeliveryFormItems(updated);
                                 }}
-                                className="w-20 rounded border border-slate-205 px-2 py-1 text-center text-xs font-semibold focus:border-blue-600 focus:ring-1 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-950 dark:text-slate-50"
+                                className="w-20 rounded border border-slate-205 px-2 py-1 text-center text-xs font-semibold focus:border-blue-600 focus:ring-1 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-955 dark:text-slate-50"
                               />
                             )}
                           </td>
@@ -422,22 +443,90 @@ export function OrderDeliveryModal({
                                   };
                                   setDeliveryFormItems(updated);
                                 }}
-                                className="w-20 rounded border border-slate-205 px-2 py-1 text-center text-xs font-semibold focus:border-blue-600 focus:ring-1 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-950 dark:text-slate-50"
+                                className="w-20 rounded border border-slate-205 px-2 py-1 text-center text-xs font-semibold focus:border-blue-600 focus:ring-1 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-955 dark:text-slate-50"
                               />
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            <input
-                              type="text"
-                              placeholder="E.g., damaged cap, wrong size..."
-                              value={item.remarks}
-                              onChange={(e) => {
-                                const updated = [...deliveryFormItems];
-                                updated[idx] = { ...item, remarks: e.target.value };
-                                setDeliveryFormItems(updated);
-                              }}
-                              className="w-full rounded border border-slate-205 px-3 py-1 text-xs focus:border-blue-600 focus:ring-1 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-950 dark:text-slate-50"
-                            />
+                            {deliveryType === "full" ? (
+                              <span className="text-slate-400 font-medium">—</span>
+                            ) : (
+                              <select
+                                disabled={item.returnedQty === 0}
+                                value={item.expiry_type}
+                                onChange={(e) => {
+                                  const type = e.target.value as "expiry" | "other";
+                                  const updated = [...deliveryFormItems];
+                                  updated[idx] = {
+                                    ...item,
+                                    expiry_type: type,
+                                    expiry_date: type === "other" ? "" : item.expiry_date,
+                                  };
+                                  setDeliveryFormItems(updated);
+                                }}
+                                className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:opacity-50"
+                              >
+                                <option value="other">Other</option>
+                                <option value="expiry">Expiry</option>
+                              </select>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {deliveryType === "full" ? (
+                              <span className="text-slate-400 font-medium">—</span>
+                            ) : (
+                              <input
+                                type="date"
+                                disabled={item.returnedQty === 0 || item.expiry_type !== "expiry"}
+                                value={item.expiry_date}
+                                onChange={(e) => {
+                                  const updated = [...deliveryFormItems];
+                                  updated[idx] = { ...item, expiry_date: e.target.value };
+                                  setDeliveryFormItems(updated);
+                                }}
+                                className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                              />
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {deliveryType === "full" ? (
+                              <span className="text-slate-400 font-medium">—</span>
+                            ) : (
+                              <select
+                                disabled={item.returnedQty === 0}
+                                value={item.return_reason}
+                                onChange={(e) => {
+                                  const updated = [...deliveryFormItems];
+                                  updated[idx] = { ...item, return_reason: e.target.value };
+                                  setDeliveryFormItems(updated);
+                                }}
+                                className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:opacity-50"
+                              >
+                                {COMMON_REASONS.map((r) => (
+                                  <option key={r} value={r}>
+                                    {r}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {deliveryType === "full" ? (
+                              <span className="text-slate-400 font-medium">—</span>
+                            ) : (
+                              <input
+                                type="text"
+                                disabled={item.returnedQty === 0}
+                                placeholder="Enter batch/expiry remarks..."
+                                value={item.remarks}
+                                onChange={(e) => {
+                                  const updated = [...deliveryFormItems];
+                                  updated[idx] = { ...item, remarks: e.target.value };
+                                  setDeliveryFormItems(updated);
+                                }}
+                                className="w-full rounded border border-slate-205 px-3 py-1 text-xs focus:border-blue-600 focus:ring-1 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-955 dark:text-slate-50 disabled:opacity-50"
+                              />
+                            )}
                           </td>
                         </tr>
                       ))}

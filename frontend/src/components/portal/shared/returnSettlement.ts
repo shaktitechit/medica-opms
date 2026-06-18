@@ -35,6 +35,29 @@ export function aggregateReceivedReturnsByProduct(returns: Record<string, unknow
   return map;
 }
 
+/** Sum returned_quantity from dispatch batch line items keyed by order_item_id. */
+export function aggregateDispatchReturnsByOrderLine(
+  dispatches: Record<string, unknown>[],
+): Record<string, number> {
+  const byLine: Record<string, number> = {};
+  for (const dispatch of dispatches) {
+    const status = String(dispatch.dispatch_status ?? dispatch.status ?? "");
+    if (status === "cancelled") continue;
+    const items = Array.isArray(dispatch.dispatch_items)
+      ? dispatch.dispatch_items
+      : Array.isArray(dispatch.items)
+        ? dispatch.items
+        : [];
+    for (const rawItem of items) {
+      const item = rawItem as Record<string, unknown>;
+      const key = refId(item.order_item_id);
+      if (!key) continue;
+      byLine[key] = (byLine[key] || 0) + Number(item.returned_quantity || 0);
+    }
+  }
+  return byLine;
+}
+
 export function aggregateReceivedReturnsByOrderLine(
   returns: Record<string, unknown>[],
   dispatches: Record<string, unknown>[],
@@ -114,17 +137,14 @@ export type SettlementPreviewLine = {
 
 export function buildSettlementPreviewLines(
   orderItems: Record<string, unknown>[],
-  returns: Record<string, unknown>[],
   dispatches: Record<string, unknown>[],
 ): SettlementPreviewLine[] {
-  const returnedByLine = aggregateReceivedReturnsByOrderLine(returns, dispatches);
-  const returnedByProduct = aggregateReceivedReturnsByProduct(returns);
+  const returnedByLine = aggregateDispatchReturnsByOrderLine(dispatches);
 
   return orderItems.map((line) => {
     const lineId = String(line._id ?? line.id ?? "");
-    const pid = refId(line.product);
     const gross = grossAcceptedQty(line);
-    const returnedQty = returnedByLine[lineId] ?? returnedByProduct[pid] ?? 0;
+    const returnedQty = returnedByLine[lineId] ?? 0;
     const cappedReturned = Math.max(0, Math.min(returnedQty, gross));
     const netQty = Math.max(0, gross - cappedReturned);
     const unitPrice = Number(line.unit_price || 0);
@@ -190,12 +210,11 @@ export function filterReturnsReceivedAtWarehouse(
   return returns.filter((r) => isReturnReceivedAtWarehouse(r.return_status));
 }
 
-export function canSettleAccountOrder(
-  detail: Record<string, unknown> | null,
-  returns: Record<string, unknown>[],
-): boolean {
+export function canSettleAccountOrder(detail: Record<string, unknown> | null): boolean {
   if (!detail) return false;
   const lifecycle = String(detail.lifecycle_status ?? "").toLowerCase();
-  if (lifecycle === "cancelled" || String(detail.status ?? "").toLowerCase() === "closed" || Boolean(detail.closed_at)) return false;
-  return !hasPendingReturns(returns);
+  if (lifecycle === "cancelled" || String(detail.status ?? "").toLowerCase() === "closed" || Boolean(detail.closed_at)) {
+    return false;
+  }
+  return true;
 }

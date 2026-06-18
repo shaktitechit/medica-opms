@@ -43,6 +43,11 @@ const dispatchItemSchema = new mongoose.Schema(
       default: 0,
     },
 
+    returned_quantity: {
+      type: Number,
+      default: 0,
+    },
+
     remarks: String,
   },
   {

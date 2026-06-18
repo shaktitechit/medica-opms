@@ -1,5 +1,5 @@
 import {
-  aggregateReceivedReturnsByOrderLine,
+  aggregateDispatchReturnsByOrderLine,
   refId,
 } from "@/components/portal/shared/returnSettlement";
 
@@ -101,24 +101,24 @@ export function computeReleaseDispatchedByLine(
   return map;
 }
 
-/** Warehouse returns from OrderReturn records linked to dispatches on this release. */
+/** Returned quantities from dispatch batch line items on this release. */
+export function aggregateReleaseDispatchReturnsByOrderLine(
+  dispatches: Record<string, unknown>[],
+  approvalId: string,
+): Record<string, number> {
+  if (!approvalId) return {};
+  const releaseDispatches = getReleaseDispatches(dispatches, approvalId);
+  return aggregateDispatchReturnsByOrderLine(releaseDispatches);
+}
+
+/** @deprecated Use aggregateReleaseDispatchReturnsByOrderLine — returns now come from dispatch batches. */
 export function aggregateReleaseReturnsByOrderLine(
   returns: Record<string, unknown>[],
   dispatches: Record<string, unknown>[],
   approvalId: string,
 ): Record<string, number> {
-  if (!approvalId) return {};
-
-  const releaseDispatchIds = new Set(
-    getReleaseDispatches(dispatches, approvalId).map((disp) => idFromRef(disp._id ?? disp.id)),
-  );
-
-  const releaseReturns = (returns || []).filter((ret) => {
-    const dispatchId = idFromRef(ret.dispatch);
-    return dispatchId && releaseDispatchIds.has(dispatchId);
-  });
-
-  return aggregateReceivedReturnsByOrderLine(releaseReturns, dispatches);
+  void returns;
+  return aggregateReleaseDispatchReturnsByOrderLine(dispatches, approvalId);
 }
 
 function lineAtWarehouseQty(
@@ -146,6 +146,27 @@ export function isDispatchReleaseResolved(
   approval?: Record<string, unknown> | null,
 ): boolean {
   return Boolean(approval?.dispatch_release_resolved);
+}
+
+/** True when any dispatch batch on this release has returned_quantity > 0. */
+export function releaseHasDispatchReturns(
+  dispatches: Record<string, unknown>[],
+  approvalId: string,
+): boolean {
+  const byLine = aggregateReleaseDispatchReturnsByOrderLine(dispatches, approvalId);
+  return Object.values(byLine).some((qty) => qty > 0);
+}
+
+/**
+ * A release marked resolved in DB is unresolved again when dispatch returns
+ * create settlement work (removedQty > 0 on preview rows).
+ */
+export function isReleaseEffectivelyResolved(
+  approval: Record<string, unknown>,
+  rows: AccountResolvePreviewRow[],
+): boolean {
+  if (!isDispatchReleaseResolved(approval)) return false;
+  return !rows.some((row) => row.removedQty > 0);
 }
 
 export function lineReturnItemQty(
@@ -275,13 +296,12 @@ export function buildAccountResolvePreviewRows(
   approval: Record<string, unknown> | null,
   orderItems: Record<string, unknown>[],
   dispatches: Record<string, unknown>[],
-  returns: Record<string, unknown>[] = [],
 ): AccountResolvePreviewRow[] {
   if (!approval) return [];
 
   const approvalId = idFromRef(approval._id ?? approval.id);
   const dispatchedByLine = computeReleaseDispatchedByLine(dispatches, approvalId, orderItems, approval);
-  const returnsByLine = aggregateReleaseReturnsByOrderLine(returns, dispatches, approvalId);
+  const returnsByLine = aggregateReleaseDispatchReturnsByOrderLine(dispatches, approvalId);
 
   const items = Array.isArray(approval.approval_items)
     ? (approval.approval_items as Record<string, unknown>[])
@@ -346,7 +366,6 @@ export function buildSettleCloseReleaseSections(
   approvals: Record<string, unknown>[],
   orderItems: Record<string, unknown>[],
   dispatches: Record<string, unknown>[],
-  returns: Record<string, unknown>[] = [],
 ): SettleCloseReleaseSection[] {
   return approvals
     .map((approval) => {
@@ -354,9 +373,9 @@ export function buildSettleCloseReleaseSections(
       const releaseDispatches = getReleaseDispatches(dispatches, approvalId);
       if (releaseDispatches.length === 0) return null;
 
-      const rows = buildAccountResolvePreviewRows(approval, orderItems, dispatches, returns);
-      const isResolved = isDispatchReleaseResolved(approval);
-      const needsResolve = !isResolved && hasResolvableReleaseWork(rows);
+      const rows = buildAccountResolvePreviewRows(approval, orderItems, dispatches);
+      const needsResolve = hasResolvableReleaseWork(rows);
+      const isResolved = isReleaseEffectivelyResolved(approval, rows);
 
       return {
         approvalId,
@@ -388,7 +407,10 @@ export function summarizeReleaseDispatchState(
     };
   }
 
-  if (isDispatchReleaseResolved(approval)) {
+  const approvalId = idFromRef(approval._id ?? approval.id);
+  const hasReturnsOnDispatch = releaseHasDispatchReturns(dispatches, approvalId);
+
+  if (isDispatchReleaseResolved(approval) && !hasReturnsOnDispatch) {
     return {
       hasDispatches: true,
       remainingTotal: 0,
@@ -401,10 +423,9 @@ export function summarizeReleaseDispatchState(
   }
 
   const includeWarehouseReturns = options.includeWarehouseReturns === true;
-  const approvalId = idFromRef(approval._id ?? approval.id);
   const dispatchedByLine = computeReleaseDispatchedByLine(dispatches, approvalId, orderItems, approval);
   const returnsByLine = includeWarehouseReturns
-    ? aggregateReleaseReturnsByOrderLine(returns, dispatches, approvalId)
+    ? aggregateReleaseDispatchReturnsByOrderLine(dispatches, approvalId)
     : {};
   const releaseDispatches = getReleaseDispatches(dispatches, approvalId);
   const hasDispatches = releaseDispatches.length > 0;

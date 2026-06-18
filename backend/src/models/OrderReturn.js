@@ -25,6 +25,14 @@ const orderReturnItemSchema = new mongoose.Schema(
     return_reason: String,
 
     remarks: String,
+
+    expiry_type: {
+      type: String,
+      enum: ["expiry", "other"],
+      default: "other",
+    },
+
+    expiry_date: Date,
   },
   {
     _id: true,

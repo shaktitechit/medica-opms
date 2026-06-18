@@ -49,6 +49,7 @@ const CURRENT_ACTION_TO_STATUS: Record<string, string> = {
   in_transit: "in_transit",
   out_for_delivery: "in_transit",
   delivered: "delivered",
+  return_logged: "partial_dispatch_created",
   delivery_failed: "partially_transported",
   returned: "partially_transported",
   cancelled: "cancelled",

@@ -11,6 +11,7 @@ const activityService = require('../activity/activity.service');
 const attachmentService = require('../attachments/attachment.service');
 const workflowService = require('../workflow/workflow.service');
 const orderQueue = require('../../queues/order.queue');
+const dispatchQueue = require('../../queues/dispatch.queue');
 const { API_PUBLIC_BASE_URL, FILE_DOCUMENT_LINKS_RELATIVE } = require('../../config/fileManagement');
 const { uploadMulterFile, getFileMeta } = require('../../services/fileManagement/index');
 const { assertOrderEligibleForDispatchPhase } = require('./dispatch.policy');
@@ -33,6 +34,19 @@ async function enqueuePostDispatchJobs(orderId, userId) {
     type: 'recalculate_fulfillment',
     payload: { orderId: oid, userId: userId ? String(userId) : undefined },
   });
+  // Also queue a dispatch quantities sync so returned/delivered fields stay accurate
+  await dispatchQueue.enqueue({
+    type: 'sync_dispatch_quantities',
+    payload: { orderId: oid, userId: userId ? String(userId) : undefined },
+  });
+}
+
+/**
+ * Enqueue a standalone dispatch background job.
+ * @param {{ type: string, payload: object }} jobData
+ */
+async function enqueueDispatchJob(jobData) {
+  await dispatchQueue.enqueue(jobData);
 }
 
 async function attachBillDocument(file, dispatchId, user, billNumber) {
@@ -607,6 +621,73 @@ async function restore(id, user) {
   return plain;
 }
 
+/**
+ * Process a dispatch background job dispatched from the 'dispatches' BullMQ queue.
+ *
+ * Supported job types:
+ *  - sync_dispatch_quantities  – Re-sync delivered_quantity & returned_quantity on all
+ *                                 dispatch items for an order from OrderDelivery / OrderReturn records.
+ *  - sync_dispatch_status      – Re-derive dispatch_status (partial / full) for a single dispatch.
+ *  - recalculate_dispatch      – Full recalculation via fulfillmentService.recalculateFromExecutions.
+ *
+ * @param {{ type: string, payload: object }} param0
+ */
+async function processDispatchJob({ type, payload = {} }) {
+  const fulfillmentService = require('../orders/orderFulfillment.service');
+
+  switch (type) {
+    case 'sync_dispatch_quantities': {
+      const orderId = payload.orderId;
+      if (!orderId) throw new Error('sync_dispatch_quantities requires orderId');
+      await fulfillmentService.syncDispatchDeliveredQuantities(orderId);
+      return { orderId, synced: true };
+    }
+
+    case 'sync_dispatch_status': {
+      const dispatchId = payload.dispatchId;
+      if (!dispatchId) throw new Error('sync_dispatch_status requires dispatchId');
+      const { OrderDispatch } = getModels();
+      const doc = await OrderDispatch.findById(dispatchId);
+      if (!doc) return { dispatchId, skipped: true };
+
+      const allDelivered = (doc.dispatch_items || []).every(
+        (item) => Number(item.delivered_quantity || 0) >= Number(item.dispatched_quantity || 0),
+      );
+      const anyDelivered = (doc.dispatch_items || []).some(
+        (item) => Number(item.delivered_quantity || 0) > 0,
+      );
+
+      let nextStatus = doc.dispatch_status;
+      if (allDelivered && doc.dispatch_items.length > 0) {
+        nextStatus = 'fully_dispatched';
+      } else if (anyDelivered) {
+        nextStatus = 'partially_dispatched';
+      }
+
+      if (nextStatus !== doc.dispatch_status) {
+        doc.dispatch_status = nextStatus;
+        await doc.save();
+      }
+      return { dispatchId, dispatch_status: doc.dispatch_status };
+    }
+
+    case 'recalculate_dispatch': {
+      const orderId = payload.orderId;
+      if (!orderId) throw new Error('recalculate_dispatch requires orderId');
+      const actor = payload.userId
+        ? await getModels().User.findById(payload.userId).lean()
+        : null;
+      const user = actor ? toPlain(actor) : null;
+      await fulfillmentService.recalculateFromExecutions(orderId, user);
+      await fulfillmentService.syncDispatchDeliveredQuantities(orderId);
+      return { orderId, recalculated: true };
+    }
+
+    default:
+      throw new Error(`Unknown dispatch job type: ${type}`);
+  }
+}
+
 module.exports = {
   list,
   get,
@@ -617,4 +698,6 @@ module.exports = {
   restore,
   recalculateOrderDispatchState,
   settleReleaseDispatchFulfillment,
+  enqueueDispatchJob,
+  processDispatchJob,
 };

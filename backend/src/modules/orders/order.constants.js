@@ -54,6 +54,7 @@ const APPROVAL_STATUS = Object.freeze({
   PARTIAL: 'partial',
   APPROVED: 'approved',
   REJECTED: 'rejected',
+  FULL: 'full',
 });
 
 const FULFILLMENT_STATUS = Object.freeze({
@@ -67,6 +68,7 @@ const ORDER_JOB_TYPES = Object.freeze({
   RECALCULATE_FULFILLMENT: 'recalculate_fulfillment',
   POST_TRANSPORT_SHIPMENT: 'post_transport_shipment',
   POST_SHIPMENT_DELIVERY: 'post_shipment_delivery',
+  POST_ORDER_RETURN: 'post_order_return',
   SETTLE_AND_CLOSE: 'settle_and_close',
   SUBMIT_ORDER: 'submit_order',
 });
@@ -116,6 +118,32 @@ function normalizeWorkflowStage(stage) {
   return s;
 }
 
+/** Legacy line_status values stored on older Order documents. */
+const LEGACY_ORDER_LINE_STATUS_ALIASES = Object.freeze({
+  fully_delivered: ORDER_LINE_STATUS.FULFILLED,
+  partially_delivered: ORDER_LINE_STATUS.PARTIAL,
+  fully_dispatched: ORDER_LINE_STATUS.FULFILLED,
+  partially_dispatched: ORDER_LINE_STATUS.PARTIAL,
+  draft: ORDER_LINE_STATUS.ACTIVE,
+  confirmed: ORDER_LINE_STATUS.ACTIVE,
+});
+
+function normalizeOrderLineStatus(status) {
+  const raw = String(status || ORDER_LINE_STATUS.ACTIVE).toLowerCase();
+  if (ORDER_LINE_STATUS_VALUES.includes(raw)) return raw;
+  return LEGACY_ORDER_LINE_STATUS_ALIASES[raw] || ORDER_LINE_STATUS.ACTIVE;
+}
+
+/** Coerce legacy line_status on every order item before persisting. */
+function normalizeOrderLineItems(doc) {
+  if (!doc?.order_items) return doc;
+  for (const line of doc.order_items) {
+    line.line_status = normalizeOrderLineStatus(line.line_status);
+  }
+  doc.markModified?.('order_items');
+  return doc;
+}
+
 /** Coerce legacy status/stage values before persisting Order documents. */
 function normalizeOrderWorkflowFields(doc) {
   if (!doc) return doc;
@@ -123,6 +151,13 @@ function normalizeOrderWorkflowFields(doc) {
   if (normalizedStatus) doc.status = normalizedStatus;
   const normalizedStage = normalizeWorkflowStage(doc.workflow_stage);
   if (normalizedStage) doc.workflow_stage = normalizedStage;
+  if (doc.account_approval_status === 'full') {
+    doc.account_approval_status = APPROVAL_STATUS.APPROVED;
+  }
+  if (doc.finance_approval_status) {
+    doc.finance_approval_status = normalizeFinanceApprovalStatus(doc.finance_approval_status);
+  }
+  normalizeOrderLineItems(doc);
   return doc;
 }
 
@@ -139,8 +174,11 @@ module.exports = {
   ORDER_STATUS_VALUES,
   APPROVAL_STATUS_VALUES,
   LEGACY_ORDER_STATUS_ALIASES,
+  LEGACY_ORDER_LINE_STATUS_ALIASES,
   normalizeFinanceApprovalStatus,
   normalizeOrderStoredStatus,
+  normalizeOrderLineStatus,
+  normalizeOrderLineItems,
   normalizeWorkflowStage,
   normalizeOrderWorkflowFields,
 };

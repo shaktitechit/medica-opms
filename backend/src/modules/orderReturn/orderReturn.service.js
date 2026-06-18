@@ -4,6 +4,14 @@
  */
 const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
+const orderQueue = require('../../queues/order.queue');
+const {
+  ORDER_STATUS,
+  ORDER_WORKFLOW_STAGE,
+  ORDER_LIFECYCLE_STATUS,
+  FULFILLMENT_STATUS,
+  normalizeOrderWorkflowFields,
+} = require('../orders/order.constants');
 const { ApiError } = require('../../utils/ApiError');
 const { softDeleteActiveById, restoreSoftDeletedById, listDeletedLean } = require('../../utils/mongoSoftDelete');
 const activityService = require('../activity/activity.service');
@@ -61,7 +69,18 @@ async function get(id) {
   return toPlain(row);
 }
 
-async function create(body, user) {
+/**
+ * Create a new OrderReturn record.
+ *
+ * @param {object} body
+ * @param {object} user
+ * @param {{ skipPostJob?: boolean }} [options]
+ *   skipPostJob: when true, the post_order_return background job is NOT enqueued.
+ *   Use this when the caller (e.g. logShipmentDelivery) already enqueues its own
+ *   comprehensive job (post_shipment_delivery) that handles order status + workflow,
+ *   so we avoid double-queueing and race conditions.
+ */
+async function create(body, user, options = {}) {
   const { OrderReturn, Order } = getModels();
 
   const orderExists = await Order.exists({ _id: body.order });
@@ -82,6 +101,8 @@ async function create(body, user) {
       returned_quantity: item.returned_quantity,
       return_reason: item.return_reason || '',
       remarks: item.remarks || '',
+      expiry_type: item.expiry_type || 'other',
+      expiry_date: item.expiry_date ? new Date(item.expiry_date) : undefined,
     })),
     returned_by: body.returned_by || '',
     received_by: body.received_by || undefined,
@@ -97,6 +118,49 @@ async function create(body, user) {
     action: 'created',
     message: `Return record ${doc.return_no} created for order ID ${body.order}`,
   });
+
+  // Immediately sync dispatch-level returned_quantity so the dispatch items reflect
+  // the accumulated return totals (sum of ALL OrderReturn docs for this dispatch)
+  // before the HTTP response is sent. This is synchronous intentionally.
+  try {
+    const fulfillmentService = require('../orders/orderFulfillment.service');
+    await fulfillmentService.syncDispatchDeliveredQuantities(String(doc.order));
+  } catch (syncErr) {
+    // Non-fatal: background job will retry
+    require('../../config/logger').logger.warn(
+      `[orderReturn.create] syncDispatchDeliveredQuantities failed: ${syncErr.message}`,
+    );
+  }
+
+  // Enqueue background jobs to sync dispatch quantities and update order workflow/status.
+  // Skipped when the caller (e.g. logShipmentDelivery) already handles this
+  // via its own comprehensive background job to avoid race conditions.
+  if (!options.skipPostJob) {
+    const dispatchService = require('../dispatch/dispatch.service');
+    const orderId = String(doc.order);
+    await dispatchService.enqueueDispatchJob({
+      type: 'sync_dispatch_quantities',
+      payload: { orderId, userId: String(user._id) },
+    });
+    if (body.dispatch) {
+      await dispatchService.enqueueDispatchJob({
+        type: 'sync_dispatch_status',
+        payload: { dispatchId: String(body.dispatch), userId: String(user._id) },
+      });
+    }
+
+    await orderQueue.enqueue({
+      type: 'post_order_return',
+      payload: {
+        orderId,
+        userId: String(user._id),
+        returnId: String(doc._id),
+        dispatchId: body.dispatch ? String(body.dispatch) : undefined,
+        transportId: body.transport ? String(body.transport) : undefined,
+        remarks: body.remarks || 'Product return logged',
+      },
+    });
+  }
 
   return toPlain(doc.toObject());
 }
@@ -132,6 +196,8 @@ async function patch(id, patchBody, user) {
       returned_quantity: item.returned_quantity,
       return_reason: item.return_reason || '',
       remarks: item.remarks || '',
+      expiry_type: item.expiry_type || 'other',
+      expiry_date: item.expiry_date ? new Date(item.expiry_date) : undefined,
     }));
   }
 
@@ -181,6 +247,149 @@ async function restore(id, user) {
   return plain;
 }
 
+/**
+ * Re-sync returned quantities, recalculate fulfillment totals, and apply
+ * return-aware lifecycle_status / workflow_stage / status fields on the Order.
+ *
+ * Reopen (previously closed order): status=dispatch, workflow_stage=dispatch,
+ * lifecycle_status=partially_fulfilled.
+ */
+async function recalculateOrderReturnState(orderId, user) {
+  const fulfillmentService = require('../orders/orderFulfillment.service');
+  const { Order } = getModels();
+
+  const orderBefore = await Order.findById(orderId).lean();
+  if (!orderBefore) return null;
+
+  const wasClosed =
+    orderBefore.status === ORDER_STATUS.CLOSED || Boolean(orderBefore.closed_at);
+
+  await fulfillmentService.syncOrderLineReturnedQuantitiesFromReturns(orderId);
+  await fulfillmentService.syncDispatchDeliveredQuantities(orderId);
+  await fulfillmentService.recalculateFromExecutions(orderId, user);
+
+  const orderDoc = await Order.findById(orderId);
+  if (!orderDoc) return null;
+
+  const totalReturned = (orderDoc.order_items || []).reduce(
+    (sum, line) => sum + Number(line.returned_quantity || 0),
+    0,
+  );
+  const totalDelivered = (orderDoc.order_items || []).reduce(
+    (sum, line) => sum + Number(line.delivered_quantity || 0),
+    0,
+  );
+
+  const skipLifecycle = [
+    ORDER_LIFECYCLE_STATUS.CANCELLED,
+    ORDER_LIFECYCLE_STATUS.ON_HOLD,
+  ].includes(String(orderDoc.lifecycle_status || ''));
+
+  if (!skipLifecycle) {
+    if (wasClosed) {
+      orderDoc.closed_at = null;
+      orderDoc.closed_by = null;
+      orderDoc.closure_remarks = null;
+      orderDoc.status = ORDER_STATUS.DISPATCH;
+      orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
+      orderDoc.lifecycle_status = ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED;
+      orderDoc.current_action = 'partial_dispatch';
+      if (totalDelivered > 0) {
+        orderDoc.delivery_status = FULFILLMENT_STATUS.PARTIAL;
+      }
+    } else if (totalReturned > 0) {
+      orderDoc.lifecycle_status = ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED;
+      orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
+      orderDoc.status = ORDER_STATUS.DISPATCH;
+      orderDoc.current_action = 'return_logged';
+      if (totalDelivered > 0) {
+        orderDoc.delivery_status = FULFILLMENT_STATUS.PARTIAL;
+      }
+    }
+  }
+
+  if (user?._id) orderDoc.updated_by = user._id;
+  orderDoc.markModified('order_items');
+  normalizeOrderWorkflowFields(orderDoc);
+  await orderDoc.save();
+  return toPlain(orderDoc.toObject());
+}
+
+async function processPostOrderReturnJob(payload = {}) {
+  const orderId = payload.orderId;
+  const userId = payload.userId;
+  const returnId = payload.returnId;
+  const remarks = payload.remarks;
+
+  if (!orderId) throw new Error('post_order_return requires orderId');
+  if (!userId) throw new Error('post_order_return requires userId');
+  if (!returnId) throw new Error('post_order_return requires returnId');
+
+  const { Order, User, OrderWorkflow, OrderStatusHistory } = getModels();
+  const transportService = require('../transport/transport.service');
+
+  const orderBefore = await Order.findById(orderId).lean();
+  if (!orderBefore) return { orderId, skipped: true };
+
+  const actor = await User.findById(userId).lean();
+  if (!actor) throw new Error(`post_order_return user not found: ${userId}`);
+  const user = toPlain(actor);
+
+  const wasClosed =
+    orderBefore.status === ORDER_STATUS.CLOSED || Boolean(orderBefore.closed_at);
+
+  const orderState = await recalculateOrderReturnState(orderId, user);
+  if (!orderState) return { orderId, skipped: true };
+
+  try {
+    const approvalService = require('../orderApproval/orderApproval.service');
+    await approvalService.reopenResolvedDispatchReleasesForOrder(
+      orderId,
+      payload.dispatchId ? String(payload.dispatchId) : undefined,
+    );
+  } catch (reopenErr) {
+    require('../../config/logger').logger.warn(
+      `[processPostOrderReturnJob] reopenResolvedDispatchReleasesForOrder failed: ${reopenErr.message}`,
+    );
+  }
+
+  await OrderWorkflow.create({
+    order: orderId,
+    action_by: userId,
+    role: transportService.workflowRoleForUser(user),
+    action: wasClosed ? 'partial_dispatch' : 'return_logged',
+    from_stage: orderBefore.workflow_stage,
+    to_stage: orderState.workflow_stage || ORDER_WORKFLOW_STAGE.DISPATCH,
+    from_status: orderBefore.status,
+    to_status: orderState.status || ORDER_STATUS.DISPATCH,
+    remarks: remarks || 'Product return logged',
+    revision_number: orderState.current_revision || orderBefore.current_revision || 1,
+    metadata: {
+      return_id: String(returnId),
+      dispatch_id: payload.dispatchId ? String(payload.dispatchId) : undefined,
+      transport_id: payload.transportId ? String(payload.transportId) : undefined,
+      event: 'order_return_logged',
+    },
+  });
+
+  await OrderStatusHistory.create({
+    order: orderId,
+    from_status: orderBefore.status,
+    to_status: orderState.status || orderBefore.status,
+    changed_by: userId,
+    remarks: remarks || 'Product return logged',
+  });
+
+  return {
+    orderId,
+    returnId,
+    status: orderState.status,
+    lifecycle_status: orderState.lifecycle_status,
+    workflow_stage: orderState.workflow_stage,
+    current_action: orderState.current_action,
+  };
+}
+
 module.exports = {
   list,
   get,
@@ -189,4 +398,6 @@ module.exports = {
   listDeleted,
   softDelete,
   restore,
+  recalculateOrderReturnState,
+  processPostOrderReturnJob,
 };

@@ -14,6 +14,7 @@ import {
   returnStatusBadgeClass,
   returnStatusLabel,
 } from "@/constants/orderReturnStatus";
+import { CreateReturnModal } from "./CreateReturnModal";
 
 interface ReturnsTabProps {
   returns: any[];
@@ -22,6 +23,7 @@ interface ReturnsTabProps {
   orderItems?: any[];
   userNameById?: Record<string, string>;
   onRefetch?: () => void;
+  orderId?: string;
 }
 
 export function ReturnsTab({
@@ -31,6 +33,7 @@ export function ReturnsTab({
   orderItems = [],
   userNameById,
   onRefetch,
+  orderId,
 }: ReturnsTabProps) {
   const [patchOrderReturn, { isLoading: isPatching }] = usePatchOrderReturnMutation();
   const currentUser = useAppSelector((state) => state.auth.user);
@@ -40,12 +43,27 @@ export function ReturnsTab({
   const [returningPerson, setReturningPerson] = useState("");
   const [returnRemarks, setReturnRemarks] = useState("");
 
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+
   return (
     <div className="space-y-6">
       <DashboardCard
         title="Recorded Product Returns"
         description="View logged customer rejections, returned product counts, return reasons, and warehouse processing status."
       >
+        <div className="flex justify-end mb-4 border-b border-slate-100 dark:border-white/5 pb-4">
+          <button
+            type="button"
+            onClick={() => setIsReturnModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 text-xs font-bold shadow-sm transition active:scale-[0.98] cursor-pointer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Record Product Return
+          </button>
+        </div>
+
         {isFetching ? (
           <p className="text-sm text-slate-500 font-sans">Loading returns...</p>
         ) : returns.length === 0 ? (
@@ -86,7 +104,7 @@ export function ReturnsTab({
                           {returnStatusLabel(status)}
                         </span>
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="mt-1 text-xs text-slate-505">
                         Recorded: {formatDate(ret.createdAt)}
                       </p>
                     </div>
@@ -144,6 +162,11 @@ export function ReturnsTab({
                                     <div className="font-semibold text-slate-700 dark:text-slate-300">
                                       {item.return_reason || "Rejection"}
                                     </div>
+                                    {item.expiry_type === "expiry" && item.expiry_date && (
+                                      <div className="text-[10px] text-amber-600 dark:text-amber-500 font-semibold mt-0.5">
+                                        Expiry Date: {formatDate(item.expiry_date)}
+                                      </div>
+                                    )}
                                     {item.remarks && (
                                       <div className="text-[10px] text-slate-450 italic mt-0.5">
                                         Note: {item.remarks}
@@ -228,14 +251,24 @@ export function ReturnsTab({
         )}
       </DashboardCard>
 
+      {/* Record Product Return Modal */}
+      <CreateReturnModal
+        open={isReturnModalOpen}
+        onClose={() => setIsReturnModalOpen(false)}
+        orderId={orderId}
+        orderItems={orderItems}
+        formatDate={formatDate}
+        onCreated={onRefetch}
+      />
+
       {/* Confirmation Modal */}
       {confirmReturnId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900">
-            <h3 className="text-base font-bold text-slate-900 dark:text-slate-50 font-sans">
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-550 dark:text-slate-50 font-sans">
               Receive Products in Warehouse
             </h3>
-            <p className="mt-1 text-xs text-slate-505 dark:text-slate-400 font-sans">
+            <p className="mt-1 text-xs text-slate-550 dark:text-slate-400 font-sans">
               Confirm receipt of the returned items back into warehouse inventory.
             </p>
 
@@ -272,7 +305,7 @@ export function ReturnsTab({
               <button
                 type="button"
                 onClick={() => setConfirmReturnId(null)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-slate-700 hover:bg-slate-50 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/5 transition cursor-pointer"
+                className="rounded-lg border border-slate-200 px-4 py-2 text-slate-700 hover:bg-slate-55 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/5 transition cursor-pointer"
               >
                 Cancel
               </button>

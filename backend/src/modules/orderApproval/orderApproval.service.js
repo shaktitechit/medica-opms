@@ -1994,6 +1994,36 @@ function aggregateDispatchedQtyForRelease(dispatches = []) {
   return dispatchedByLine;
 }
 
+function computeNetSettledQtyForResolveLine({
+  dispatched,
+  totalReturned,
+  priorReturnedSettled = 0,
+  priorApprovedQty = 0,
+}) {
+  const priorReturned = Number(priorReturnedSettled || 0);
+  const total = Number(totalReturned || 0);
+  const priorApproved = Number(priorApprovedQty || 0);
+
+  if (priorReturned > 0 || (priorApproved > 0 && priorApproved < dispatched)) {
+    const baseNet = priorApproved > 0
+      ? priorApproved
+      : Math.max(0, dispatched - priorReturned);
+    const additionalReturned = Math.max(0, total - priorReturned);
+    return Math.max(0, baseNet - additionalReturned);
+  }
+
+  return Math.max(0, dispatched - total);
+}
+
+function releaseHasUnsettledDispatchReturns(approvalItems = [], returnsByLine = {}) {
+  return (approvalItems || []).some((item) => {
+    const key = String(item.order_item_id);
+    const totalReturned = Number(returnsByLine[key] || 0);
+    const priorReturned = Number(item.return_item_qty || 0);
+    return totalReturned > priorReturned;
+  });
+}
+
 async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
   const { Order, OrderApproval, OrderDispatch, OrderReturn } = getModels();
   const orderService = require('../orders/order.service');
@@ -2001,10 +2031,6 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
 
   const doc = await OrderApproval.findOne({ _id: id, deletedAt: null });
   if (!doc) throw new ApiError(404, APPROVAL_NF);
-
-  if (doc.dispatch_release_resolved) {
-    throw new ApiError(400, 'This release has already been resolved');
-  }
 
   if (!doc.is_finance_approved) {
     throw new ApiError(400, 'Finance approval must be completed before resolving dispatch');
@@ -2024,7 +2050,8 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
   }
 
   const returns = await OrderReturn.find({ order: doc.order, deletedAt: null }).lean();
-  const returnsByLine = aggregateReleaseReturnsByOrderLine(returns, releaseDispatches, String(doc._id));
+  const { aggregateDispatchReturnsByOrderLine } = require('../../utils/returnSettlement');
+  const returnsByLine = aggregateDispatchReturnsByOrderLine(releaseDispatches);
 
   const dispatchedByLine = aggregateDispatchedQtyForRelease(releaseDispatches);
   const approvalItems = doc.approval_items || [];
@@ -2035,9 +2062,21 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
     const key = String(item.order_item_id);
     const approved = Number(item.approved_quantity || 0);
     const dispatched = dispatchedByLine.get(key) || 0;
-    const returnedAtWarehouse = Number(returnsByLine[key] || 0);
+    const totalReturned = Number(returnsByLine[key] || 0);
+    const priorReturned = Number(item.return_item_qty || 0);
+    const additionalReturned = Math.max(0, totalReturned - priorReturned);
     if (approved > dispatched) hasRemaining = true;
-    if (returnedAtWarehouse > 0) hasReturnsToSettle = true;
+    if (totalReturned > 0 && (priorReturned === 0 || additionalReturned > 0)) {
+      hasReturnsToSettle = true;
+    }
+  }
+
+  if (doc.dispatch_release_resolved) {
+    const hasNewReturnWork = releaseHasUnsettledDispatchReturns(approvalItems, returnsByLine);
+    if (!hasNewReturnWork && !hasRemaining) {
+      throw new ApiError(400, 'This release has already been resolved');
+    }
+    doc.dispatch_release_resolved = false;
   }
 
   if (!hasRemaining && !hasReturnsToSettle) {
@@ -2070,7 +2109,12 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
     const returnedAtWarehouse = Number(returnsByLine[key] || 0);
     if (dispatched <= 0 && returnedAtWarehouse <= 0) continue;
 
-    const netSettled = Math.max(0, dispatched - returnedAtWarehouse);
+    const netSettled = computeNetSettledQtyForResolveLine({
+      dispatched,
+      totalReturned: returnedAtWarehouse,
+      priorReturnedSettled: item.return_item_qty,
+      priorApprovedQty: item.approved_quantity,
+    });
     netSettledByLine.set(key, netSettled);
     if (netSettled <= 0) continue;
 
@@ -2120,6 +2164,14 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
 
   mergeApprovalItemOverrides(doc, approvalItemOverrides);
 
+  for (const item of doc.approval_items || []) {
+    const key = String(item.order_item_id);
+    if (returnsByLine[key] != null) {
+      item.return_item_qty = Number(returnsByLine[key] || 0);
+    }
+  }
+  doc.markModified('approval_items');
+
   const activeLineIds = new Set(
     (doc.approval_items || []).map((item) => String(item.order_item_id)),
   );
@@ -2130,18 +2182,26 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
   await syncOrderLinesFromFinanceAmendment(order, doc, rateByLine, { removedLineIds });
 
   if (hasReturnsToSettle) {
+    const orderDispatches = await OrderDispatch.find({
+      order: doc.order,
+      deletedAt: null,
+      dispatch_status: { $ne: 'cancelled' },
+    }).lean();
+    const orderReturnsByLine = aggregateDispatchReturnsByOrderLine(orderDispatches);
+
     const settledLines = [];
     for (const item of approvalItems) {
       const key = String(item.order_item_id);
-      const releaseReturned = Number(returnsByLine[key] || 0);
-      if (releaseReturned <= 0) continue;
+      const totalReturned = Number(returnsByLine[key] || 0);
+      const priorReturned = Number(item.return_item_qty || 0);
+      const additionalReturned = Math.max(0, totalReturned - priorReturned);
+      if (additionalReturned <= 0) continue;
 
       const orderLine = (order.order_items || []).find((line) => String(line._id) === key);
       if (!orderLine) continue;
 
-      const existingReturned = Number(orderLine.returned_quantity || 0);
       const gross = orderService.grossAcceptedQty(orderLine);
-      const newReturned = Math.min(gross, existingReturned + releaseReturned);
+      const newReturned = Math.min(gross, Number(orderReturnsByLine[key] || 0));
       orderService.applyReturnSettlementToLine(orderLine, newReturned);
       settledLines.push(orderLine);
     }
@@ -2249,6 +2309,9 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
  */
 async function resolvePendingReleaseApprovalsForOrder(orderId, user, options = {}) {
   const { OrderApproval, OrderDispatch } = getModels();
+  const { aggregateDispatchReturnsByOrderLine } = require('../../utils/returnSettlement');
+
+  await reopenResolvedDispatchReleasesForOrder(orderId);
 
   const dispatches = await OrderDispatch.find({
     order: orderId,
@@ -2277,13 +2340,30 @@ async function resolvePendingReleaseApprovalsForOrder(orderId, user, options = {
       skipped.push(approvalId);
       continue;
     }
-    if (doc.dispatch_release_resolved) {
-      skipped.push(approvalId);
-      continue;
-    }
     if (!doc.is_finance_approved || !doc.is_account_approved) {
       skipped.push(approvalId);
       continue;
+    }
+
+    const releaseDispatches = dispatches.filter(
+      (row) => String(row.finance_approval?._id ?? row.finance_approval ?? '') === approvalId,
+    );
+    const returnsByLine = aggregateDispatchReturnsByOrderLine(releaseDispatches);
+    const dispatchedByLine = aggregateDispatchedQtyForRelease(releaseDispatches);
+    const hasNewReturnWork = releaseHasUnsettledDispatchReturns(doc.approval_items, returnsByLine);
+    const hasRemaining = (doc.approval_items || []).some((item) => {
+      const key = String(item.order_item_id);
+      return Number(item.approved_quantity || 0) > (dispatchedByLine.get(key) || 0);
+    });
+
+    if (doc.dispatch_release_resolved && !hasNewReturnWork && !hasRemaining) {
+      skipped.push(approvalId);
+      continue;
+    }
+
+    if (doc.dispatch_release_resolved && (hasNewReturnWork || hasRemaining)) {
+      doc.dispatch_release_resolved = false;
+      await doc.save();
     }
 
     try {
@@ -2630,6 +2710,71 @@ async function restore(id, user) {
   return plain;
 }
 
+async function reopenResolvedDispatchReleasesForOrder(orderId, dispatchId) {
+  const { OrderApproval, OrderDispatch } = getModels();
+  const { aggregateDispatchReturnsByOrderLine } = require('../../utils/returnSettlement');
+
+  const dispatches = await OrderDispatch.find({
+    order: orderId,
+    deletedAt: null,
+    dispatch_status: { $ne: 'cancelled' },
+  }).lean();
+
+  const approvalIds = new Set();
+  if (dispatchId) {
+    const linked = dispatches.find((row) => String(row._id) === String(dispatchId));
+    const aid = String(linked?.finance_approval?._id ?? linked?.finance_approval ?? '');
+    if (aid) approvalIds.add(aid);
+  } else {
+    for (const disp of dispatches) {
+      const hasReturn = (disp.dispatch_items || []).some(
+        (item) => Number(item.returned_quantity || 0) > 0,
+      );
+      if (!hasReturn) continue;
+      const aid = String(disp.finance_approval?._id ?? disp.finance_approval ?? '');
+      if (aid) approvalIds.add(aid);
+    }
+  }
+
+  if (approvalIds.size === 0) return { reopened: 0 };
+
+  const toReopen = [];
+  for (const approvalId of approvalIds) {
+    const approval = await OrderApproval.findOne({
+      _id: approvalId,
+      order: orderId,
+      deletedAt: null,
+      dispatch_release_resolved: true,
+    }).lean();
+    if (!approval) continue;
+
+    const releaseDispatches = dispatches.filter(
+      (row) => String(row.finance_approval?._id ?? row.finance_approval ?? '') === approvalId,
+    );
+    const returnsByLine = aggregateDispatchReturnsByOrderLine(releaseDispatches);
+    if (releaseHasUnsettledDispatchReturns(approval.approval_items, returnsByLine)) {
+      toReopen.push(approvalId);
+    }
+  }
+
+  if (toReopen.length === 0) return { reopened: 0 };
+
+  const result = await OrderApproval.updateMany(
+    {
+      _id: { $in: toReopen },
+      order: orderId,
+      deletedAt: null,
+      dispatch_release_resolved: true,
+    },
+    {
+      $set: { dispatch_release_resolved: false },
+      $unset: { dispatch_release_resolved_by: 1, dispatch_release_resolved_at: 1 },
+    },
+  );
+
+  return { reopened: result.modifiedCount };
+}
+
 module.exports = {
   list,
   get,
@@ -2643,6 +2788,7 @@ module.exports = {
   amendByAccount,
   resolvePartialDispatchByAccount,
   resolvePendingReleaseApprovalsForOrder,
+  reopenResolvedDispatchReleasesForOrder,
   finalizeDispatchReleasesOnOrderClose,
   amend,
   listDeleted,

@@ -2,6 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
+import {
+  FilePreviewModal,
+  useFilePreview,
+  type PreviewFile,
+} from "@/components/portal/shared/FilePreviewModal";
 import { useAppSelector } from "@/store";
 import { useDeleteAttachmentMutation, useCreateAttachmentMutation } from "@/store/api";
 import { toast } from "@/lib/toast";
@@ -133,6 +138,13 @@ export default function AttachmentsTab({
 }: AttachmentsTabProps) {
   const token = useAppSelector((s) => s.auth.token);
   const [deleteAttachment, { isLoading: isDeleting }] = useDeleteAttachmentMutation();
+  const {
+    previewDoc,
+    previewBlobUrl,
+    previewLoading,
+    openPreview,
+    closePreview,
+  } = useFilePreview(token);
 
   // Upload state
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -182,21 +194,16 @@ export default function AttachmentsTab({
     }
   };
 
-  const handleView = async (fileUrl: string) => {
-    try {
-      const response = await fetch(fileUrl, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!response.ok) throw new Error("Failed to view file");
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      window.open(blobUrl, "_blank");
-    } catch (error) {
-      console.error("View failed:", error);
-      toast.error("Failed to view file");
-    }
+  const handlePreviewDownload = (doc: PreviewFile) => {
+    void handleDownload(doc.url, doc.name);
+  };
+
+  const handleView = (att: { url: string; original_name?: string; mime_type?: string }) => {
+    void openPreview({
+      name: String(att.original_name ?? "Attachment"),
+      url: String(att.url),
+      mime: String(att.mime_type ?? ""),
+    });
   };
 
   const handleDelete = async (id: string, name: string) => {
@@ -244,6 +251,15 @@ export default function AttachmentsTab({
 
   return (
     <div className="space-y-6">
+      <FilePreviewModal
+        doc={previewDoc}
+        blobUrl={previewBlobUrl}
+        loading={previewLoading}
+        onClose={closePreview}
+        onDownload={handlePreviewDownload}
+        subtitle="Attachment preview"
+      />
+
       {/* Upload Attachment Modal */}
       {isUploadModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
@@ -450,7 +466,7 @@ export default function AttachmentsTab({
                     <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
                       <button
                         type="button"
-                        onClick={() => handleView(att.url)}
+                        onClick={() => handleView(att)}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 transition dark:border-white/10 dark:text-slate-300 dark:bg-slate-950 dark:hover:bg-white/5"
                       >
                         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

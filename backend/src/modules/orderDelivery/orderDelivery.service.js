@@ -170,6 +170,9 @@ async function processPostShipmentDeliveryJob(payload = {}) {
 
   if (payload.deliveryType === 'partial' || payload.hasReturns) {
     await fulfillmentService.syncOrderLineReturnedQuantitiesFromReturns(orderId);
+    // Also sync dispatch item returned_quantity — accumulates ALL OrderReturn records
+    // so previous returns are not overwritten, only the running total is updated
+    await fulfillmentService.syncDispatchDeliveredQuantities(orderId);
   }
 
   const orderState = await transportService.recalculateOrderShipmentState(orderId, user);
@@ -239,9 +242,15 @@ async function logShipmentDelivery(body, user) {
         returned_quantity: Number(item.returned_quantity),
         return_reason: item.return_reason || item.remarks || 'Customer rejection / Partial delivery',
         remarks: item.remarks || '',
+        expiry_type: item.expiry_type || 'other',
+        expiry_date: item.expiry_date || undefined,
       })),
       remarks: body.return_remarks || body.remarks || 'Returns from partial delivery',
-    }, user);
+    }, user, {
+      // Skip post_order_return job — post_shipment_delivery handles order status
+      // + workflow for this flow, avoiding race conditions and duplicate entries.
+      skipPostJob: true,
+    });
   }
 
   await enqueuePostShipmentDeliveryJobs(body.order, user._id, {
