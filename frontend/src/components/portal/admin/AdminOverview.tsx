@@ -18,6 +18,7 @@ import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import {
   buildPartyNameById,
+  buildPartySraById,
 } from "@/components/portal/sales/partyDisplay";
 import {
   FilePlus,
@@ -110,6 +111,11 @@ export default function AdminOverview() {
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
+    [partiesData],
+  );
+
+  const partySraById = useMemo(
+    () => buildPartySraById(partiesData),
     [partiesData],
   );
 
@@ -321,6 +327,7 @@ export default function AdminOverview() {
           isOrdersFetching={isOrdersFetching}
           isOrdersError={isOrdersError}
           partyNameById={partyNameById}
+          partySraById={partySraById}
         />
 
         {/* SIDE COLUMN: STATS & SYSTEM FLAGS */}

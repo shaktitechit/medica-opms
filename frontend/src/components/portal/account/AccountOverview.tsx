@@ -30,7 +30,7 @@ import {
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { buildPartyNameById, pickList } from "@/components/portal/sales/partyDisplay";
+import { buildPartyNameById, buildPartySraById, pickList } from "@/components/portal/sales/partyDisplay";
 import {
   ClipboardCheck,
   Users,
@@ -119,6 +119,11 @@ export default function AccountOverview() {
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
+    [partiesData],
+  );
+
+  const partySraById = useMemo(
+    () => buildPartySraById(partiesData),
     [partiesData],
   );
 
@@ -293,6 +298,7 @@ export default function AccountOverview() {
           isOrdersFetching={isOrdersFetching}
           isOrdersError={isOrdersError}
           partyNameById={partyNameById}
+          partySraById={partySraById}
         />
 
         <div className="space-y-6">

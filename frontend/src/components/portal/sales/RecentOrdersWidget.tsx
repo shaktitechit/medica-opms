@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import { AlertTriangle, UserCheck, DollarSign, Package, Truck, ArrowRight, Wallet } from "lucide-react";
-import { resolveOrderCounterparty } from "./partyDisplay";
+import { resolveOrderCounterparty, checkOrderPartySra } from "./partyDisplay";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
@@ -14,6 +14,7 @@ interface RecentOrdersWidgetProps {
   isOrdersFetching: boolean;
   isOrdersError: boolean;
   partyNameById: Map<string, string>;
+  partySraById?: Map<string, boolean>;
 }
 
 function formatDateShort(v: unknown): string {
@@ -102,6 +103,7 @@ export default function RecentOrdersWidget({
   isOrdersFetching,
   isOrdersError,
   partyNameById,
+  partySraById,
 }: RecentOrdersWidgetProps) {
   return (
     <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900">
@@ -222,10 +224,15 @@ export default function RecentOrdersWidget({
 
                     {/* Party Title */}
                     <span
-                      className="text-xs font-semibold text-slate-800 dark:text-slate-200 sm:flex-1 break-words whitespace-normal"
+                      className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 sm:flex-1 break-words whitespace-normal font-sans"
                       title={partyLabel}
                     >
-                      {partyLabel}
+                      <span>{partyLabel}</span>
+                      {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
+                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0 font-sans">
+                          SRA
+                        </span>
+                      )}
                     </span>
 
                     {/* Dates */}

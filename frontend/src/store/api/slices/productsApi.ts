@@ -80,6 +80,15 @@ export const productsApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       invalidatesTags: ["Products"],
     }),
+    bulkDeleteProducts: build.mutation<unknown, string[]>({
+      query: (ids) => ({
+        url: "products/bulk-delete",
+        method: "POST",
+        body: { ids },
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: ["Products"],
+    }),
   }),
 });
 
@@ -95,4 +104,5 @@ export const {
   useDeleteProductMutation,
   useRestoreProductMutation,
   useBulkCreateProductMutation,
+  useBulkDeleteProductsMutation,
 } = productsApi;

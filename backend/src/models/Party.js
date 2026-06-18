@@ -50,6 +50,7 @@ const partySchema = new mongoose.Schema(
     /** Trace import from legacy Customer document during migration */
     legacy_customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", unique: true, sparse: true },
     is_active: { type: Boolean, default: true },
+    sra: { type: Boolean, default: false },
     created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     deletedAt: { type: Date, default: null, index: true },
   },

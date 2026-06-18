@@ -16,6 +16,7 @@ import { pickOrders } from "@/components/portal/shared/pickOrders";
 import { computeSalesOrderStats } from "@/components/portal/sales/orderUtils";
 import {
   buildPartyNameById,
+  buildPartySraById,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import {
@@ -102,6 +103,11 @@ export default function SalesOverview() {
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
+    [partiesData]
+  );
+
+  const partySraById = useMemo(
+    () => buildPartySraById(partiesData),
     [partiesData]
   );
 
@@ -219,6 +225,7 @@ export default function SalesOverview() {
           isOrdersFetching={isOrdersFetching}
           isOrdersError={isOrdersError}
           partyNameById={partyNameById}
+          partySraById={partySraById}
         />
 
         {/* SIDE COLUMN: STATS & REPRESENTATIVE FLAGS */}

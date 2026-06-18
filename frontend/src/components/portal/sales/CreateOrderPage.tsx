@@ -213,6 +213,11 @@ function PartyAutocomplete({
                   <span>
                     {name}
                     {type && <span className="text-xs text-slate-400 ml-1">{type}</span>}
+                    {p.sra === true && (
+                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 ml-1.5">
+                        SRA
+                      </span>
+                    )}
                   </span>
                   {isSelected && <Check className="h-4 w-4 text-blue-600 dark:text-blue-400" />}
                 </button>

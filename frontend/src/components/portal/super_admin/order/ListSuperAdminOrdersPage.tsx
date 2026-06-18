@@ -6,6 +6,8 @@ import { useCallback, useMemo, useState } from "react";
 
 import {
   buildPartyNameById,
+  buildPartySraById,
+  checkOrderPartySra,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
@@ -139,6 +141,11 @@ export default function ListSuperAdminOrdersPage() {
   const orders = useMemo(() => pickOrders(data) as OrderRow[], [data]);
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesQ.data),
+    [partiesQ.data],
+  );
+
+  const partySraById = useMemo(
+    () => buildPartySraById(partiesQ.data),
     [partiesQ.data],
   );
 
@@ -377,10 +384,15 @@ export default function ListSuperAdminOrdersPage() {
                           {renderPriorityBadge(pri)}
                         </div>
                         <span
-                          className="min-w-0 break-words whitespace-normal text-xs font-semibold text-slate-800 dark:text-slate-200 lg:col-span-3"
+                          className="min-w-0 break-words whitespace-normal text-xs font-semibold text-slate-800 dark:text-slate-200 lg:col-span-3 flex items-center gap-1.5"
                           title={partyLabel}
                         >
-                          {partyLabel}
+                          <span>{partyLabel}</span>
+                          {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
+                            <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                              SRA
+                            </span>
+                          )}
                         </span>
                         <div className="grid min-w-0 grid-cols-2 gap-3 text-[11px] text-slate-500 lg:col-span-2">
                           <div className="flex flex-col">

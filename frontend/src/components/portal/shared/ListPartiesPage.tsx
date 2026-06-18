@@ -20,6 +20,7 @@ import {
 import { primaryContactDisplay } from "@/lib/partyContacts";
 import { canBulkUploadParties } from "@/lib/permissions";
 import { ConfirmDeletePartyModal } from "@/components/portal/shared/ConfirmDeletePartyModal";
+import { ConfirmBulkDeletePartiesModal } from "@/components/portal/shared/ConfirmBulkDeletePartiesModal";
 import { PartyDetailModal } from "@/components/portal/shared/PartyDetailModal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { BulkUploadPartiesModal } from "@/components/portal/shared/BulkUploadPartiesModal";
@@ -31,6 +32,7 @@ import { toast } from "@/lib/toast";
 import {
   useDeletePartyMutation,
   useListPartiesQuery,
+  useBulkDeletePartiesMutation,
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
 
@@ -68,6 +70,7 @@ type PartyRow = {
   state?: string;
   payment_terms?: string;
   is_active?: boolean;
+  sra?: boolean;
 };
 
 function rowKey(row: unknown): string {
@@ -173,11 +176,75 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
       await deleteParty(id).unwrap();
       toast.success(mutationSuccessCopy("deleteParty"));
       if (detailId === id) closePartyModal();
+      setSelectedIds((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       setDeleteTarget(null);
     } catch (rejected) {
       toast.error(mutationRejectedMessage(rejected));
     }
   }, [closePartyModal, deleteParty, deleteTarget, detailId]);
+
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+  const [bulkDeleteTarget, setBulkDeleteTarget] = useState<string[] | null>(null);
+
+  const [bulkDeleteParties, { isLoading: isBulkDeleting }] = useBulkDeletePartiesMutation();
+
+  const selectedCount = useMemo(() => {
+    return Object.keys(selectedIds).filter((id) => selectedIds[id]).length;
+  }, [selectedIds]);
+
+  const isAllOnPageSelected = useMemo(() => {
+    if (parties.length === 0) return false;
+    return parties.every((p) => {
+      const id = rowKey(p);
+      return id && !!selectedIds[id];
+    });
+  }, [parties, selectedIds]);
+
+  const toggleSelectAllOnPage = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = { ...prev };
+      if (isAllOnPageSelected) {
+        parties.forEach((p) => {
+          const id = rowKey(p);
+          if (id) {
+            delete next[id];
+          }
+        });
+      } else {
+        parties.forEach((p) => {
+          const id = rowKey(p);
+          if (id) {
+            next[id] = true;
+          }
+        });
+      }
+      return next;
+    });
+  }, [isAllOnPageSelected, parties]);
+
+  const closeBulkDeleteModal = useCallback(() => setBulkDeleteTarget(null), []);
+
+  const confirmBulkDelete = useCallback(async () => {
+    if (!bulkDeleteTarget || bulkDeleteTarget.length === 0) return;
+    try {
+      await bulkDeleteParties(bulkDeleteTarget).unwrap();
+      toast.success(`Successfully deleted ${bulkDeleteTarget.length} parties`);
+      setSelectedIds((prev) => {
+        const next = { ...prev };
+        bulkDeleteTarget.forEach((id) => {
+          delete next[id];
+        });
+        return next;
+      });
+      setBulkDeleteTarget(null);
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }, [bulkDeleteParties, bulkDeleteTarget]);
 
   // Total matched records from backend pagination
   const totalMatching = useMemo(() => {
@@ -206,6 +273,13 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
         isDeleting={isDeletingParty}
         onClose={closeDeleteModal}
         onConfirm={confirmDelete}
+      />
+      <ConfirmBulkDeletePartiesModal
+        isOpen={bulkDeleteTarget !== null}
+        selectedCount={bulkDeleteTarget?.length ?? 0}
+        isDeleting={isBulkDeleting}
+        onClose={closeBulkDeleteModal}
+        onConfirm={confirmBulkDelete}
       />
       <PartyDetailModal
         partyId={createOpen ? null : detailId}
@@ -353,6 +427,45 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
 
         {!isLoading && !isError && totalMatching > 0 && (
           <>
+          {selectedCount > 0 && (
+            <div className="flex items-center justify-between px-5 py-3.5 bg-blue-500/5 dark:bg-blue-500/10 border-b border-blue-100 dark:border-blue-500/20 text-sm">
+              <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                <span className="font-semibold">{selectedCount}</span>
+                <span>parties selected</span>
+                <span className="text-slate-300 dark:text-slate-700">|</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds({})}
+                  className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-200 underline font-medium"
+                >
+                  Clear selection
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBulkDeleteTarget(Object.keys(selectedIds).filter((id) => selectedIds[id]))}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white dark:bg-rose-50 dark:hover:bg-rose-600 text-xs font-semibold shadow-sm transition active:scale-[0.98]"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Delete Selected ({selectedCount})</span>
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-4 px-5 py-3 border-b border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            <div className="flex items-center gap-3 shrink-0">
+              <input
+                type="checkbox"
+                checked={isAllOnPageSelected}
+                onChange={toggleSelectAllOnPage}
+                className="h-4.5 w-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950 cursor-pointer"
+              />
+            </div>
+            <div className="flex-1">Party Details</div>
+            <div className="hidden lg:block lg:flex-[2] max-w-2xl">Contact & Location</div>
+            <div className="w-24 text-right">Actions</div>
+          </div>
+
           <div className="divide-y divide-slate-100 dark:divide-white/5">
             {parties.map((p) => {
               const id = rowKey(p);
@@ -379,6 +492,21 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
                   key={id || label}
                   className="p-5 hover:bg-slate-50/50 dark:hover:bg-white/5 transition duration-150 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
                 >
+                  <div className="flex items-center gap-3 shrink-0 self-start lg:self-center">
+                    <input
+                      type="checkbox"
+                      checked={!!(id && selectedIds[id])}
+                      onChange={(e) => {
+                        if (id) {
+                          setSelectedIds((prev) => ({
+                            ...prev,
+                            [id]: e.target.checked,
+                          }));
+                        }
+                      }}
+                      className="h-4.5 w-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950 cursor-pointer"
+                    />
+                  </div>
                   {/* Left Column: Icon, Party Name, Type & Status badges, GSTIN */}
                   <div className="flex items-start gap-4 flex-1 min-w-0">
                     <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-600 dark:bg-blue-500/5 dark:text-blue-400 shrink-0">
@@ -415,6 +543,11 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
                           <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 font-medium bg-slate-50 dark:bg-slate-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
                             <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
                             Inactive
+                          </span>
+                        )}
+                        {p.sra && (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-emerald-600/10 dark:ring-emerald-500/20" title="Special Rate Approval Enabled">
+                            SRA
                           </span>
                         )}
                       </div>

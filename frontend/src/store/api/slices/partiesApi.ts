@@ -76,6 +76,15 @@ export const partiesApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       invalidatesTags: ["Parties"],
     }),
+    bulkDeleteParties: build.mutation<unknown, string[]>({
+      query: (ids) => ({
+        url: "parties/bulk-delete",
+        method: "POST",
+        body: { ids },
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: ["Parties"],
+    }),
   }),
 });
 
@@ -91,5 +100,6 @@ export const {
   useDeletePartyMutation,
   useRestorePartyMutation,
   useBulkCreatePartyMutation,
+  useBulkDeletePartiesMutation,
 } = partiesApi;
 

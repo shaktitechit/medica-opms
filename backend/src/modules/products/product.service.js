@@ -400,6 +400,43 @@ async function bulkCreate(items, user) {
   return createdProducts;
 }
 
+async function bulkDelete(ids, user) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return { count: 0, deletedIds: [] };
+  }
+
+  const { Product } = getModels();
+
+  const docs = await Product.find({
+    _id: { $in: ids },
+    deletedAt: null,
+  });
+
+  const deletedIds = [];
+  const deletedNames = [];
+
+  for (const doc of docs) {
+    await doc.softDelete();
+    deletedIds.push(doc._id.toString());
+    deletedNames.push(doc.product_name);
+  }
+
+  if (deletedIds.length > 0 && user) {
+    await activityService.create({
+      actor: user._id,
+      entity_type: "product",
+      entity_id: deletedIds[0],
+      action: "deleted",
+      message: `Bulk soft-deleted ${deletedIds.length} products: ${deletedNames.join(", ")}`,
+    });
+  }
+
+  return {
+    count: deletedIds.length,
+    deletedIds,
+  };
+}
+
 module.exports = {
   list,
   get,
@@ -409,4 +446,5 @@ module.exports = {
   softDelete,
   restore,
   bulkCreate,
+  bulkDelete,
 };

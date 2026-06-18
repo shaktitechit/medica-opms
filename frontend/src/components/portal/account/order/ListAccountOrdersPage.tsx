@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   buildPartyNameById,
+  buildPartySraById,
+  checkOrderPartySra,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
@@ -76,21 +78,21 @@ function renderPriorityBadge(priority: string) {
   const p = String(priority).toLowerCase();
   if (p === "urgent") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-950/30 dark:text-rose-400/90 dark:ring-rose-500/25">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
         Urgent
       </span>
     );
   }
   if (p === "high") {
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-950/30 dark:text-amber-400/90 dark:ring-amber-500/20">
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-455/90 dark:ring-amber-500/20">
         High
       </span>
     );
   }
   if (p === "normal") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-950/30 dark:text-blue-400/90 dark:ring-blue-500/20">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
         Normal
       </span>
     );
@@ -127,32 +129,32 @@ function renderWorkflowStatusBadge(category: AccountOrderTabCategory) {
     case "pending_account_approval":
       label = "Pending Account";
       bgClass =
-        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-955/30 dark:text-purple-400 dark:ring-purple-500/25";
       break;
     case "pending_approvals":
       label = "Pending Approvals";
       bgClass =
-        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-955/30 dark:text-violet-400 dark:ring-violet-500/25";
       break;
     case "open":
       label = "Open";
       bgClass =
-        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-955/30 dark:text-teal-400 dark:ring-teal-500/25";
       break;
     case "closed":
       label = "Closed";
       bgClass =
-        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
       break;
     case "on_hold":
       label = "On Hold";
       bgClass =
-        "bg-orange-50 text-orange-700 ring-orange-600/10 dark:bg-orange-950/30 dark:text-orange-400 dark:ring-orange-500/25";
+        "bg-orange-50 text-orange-700 ring-orange-600/10 dark:bg-orange-955/30 dark:text-orange-400 dark:ring-orange-500/25";
       break;
     case "cancelled":
       label = "Cancelled";
       bgClass =
-        "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-slate-950/30 dark:text-slate-400 dark:ring-slate-500/25";
+        "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-slate-955/30 dark:text-slate-400 dark:ring-slate-500/25";
       break;
     default:
       label = category;
@@ -185,7 +187,7 @@ function renderPendingApprovalBadge(order: OrderRow) {
 
   return (
     <span
-      className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700 ring-1 ring-inset ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25"
+      className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700 ring-1 ring-inset ring-violet-600/10 dark:bg-violet-955/30 dark:text-violet-400 dark:ring-violet-500/25"
       title={title}
     >
       {label}
@@ -261,6 +263,11 @@ export default function ListAccountOrdersPage() {
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesQ.data),
+    [partiesQ.data],
+  );
+
+  const partySraById = useMemo(
+    () => buildPartySraById(partiesQ.data),
     [partiesQ.data],
   );
 
@@ -556,11 +563,17 @@ export default function ListAccountOrdersPage() {
                         </div>
                       </div>
 
+                      {/* Party Title */}
                       <span
-                        className="text-xs font-semibold text-slate-800 dark:text-slate-200 lg:flex-1 break-words whitespace-normal font-sans"
+                        className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 lg:flex-1 break-words whitespace-normal font-sans"
                         title={partyLabel}
                       >
-                        {partyLabel}
+                        <span>{partyLabel}</span>
+                        {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
+                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                            SRA
+                          </span>
+                        )}
                       </span>
 
                       <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-8 lg:w-[280px] lg:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">

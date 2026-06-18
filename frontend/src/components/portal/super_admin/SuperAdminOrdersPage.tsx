@@ -5,6 +5,10 @@ import { useState, useMemo } from "react";
 import { useListOrdersQuery, useListPartiesQuery } from "@/store/api";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import {
+  buildPartySraById,
+  checkOrderPartySra,
+} from "@/components/portal/sales/partyDisplay";
+import {
   ClipboardList,
   Search,
   RefreshCw,
@@ -61,6 +65,10 @@ export default function SuperAdminOrdersPage() {
       if (id) map.set(id, p.party_name || p.name || id.slice(0, 8));
     }
     return map;
+  }, [partiesRaw]);
+
+  const partySraById = useMemo(() => {
+    return buildPartySraById(partiesRaw);
   }, [partiesRaw]);
 
   const allOrders = useMemo(() => pickOrders(ordersRaw) as any[], [ordersRaw]);
@@ -184,7 +192,16 @@ export default function SuperAdminOrdersPage() {
                       return (
                         <tr key={id} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition">
                           <td className="px-4 py-3 font-mono text-[11px] font-semibold text-slate-900 dark:text-slate-100">{ref.slice(0, 14)}</td>
-                          <td className="max-w-[140px] truncate px-4 py-3 text-xs text-slate-800 dark:text-slate-200" title={partyName}>{partyName}</td>
+                           <td className="px-4 py-3 text-xs text-slate-800 dark:text-slate-200">
+                            <div className="flex items-center gap-1.5 max-w-[150px]">
+                              <span className="truncate" title={partyName}>{partyName}</span>
+                              {checkOrderPartySra(o, partySraById) && (
+                                <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                                  SRA
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-4 py-3 text-right font-medium tabular-nums text-slate-900 dark:text-slate-100">
                             {Number.isFinite(total) ? total.toLocaleString("en-IN", { minimumFractionDigits: 2 }) : "0.00"}
                           </td>

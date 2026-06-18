@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { ConfirmDeleteProductModal } from "@/components/portal/shared/ConfirmDeleteProductModal";
+import { ConfirmBulkDeleteProductsModal } from "@/components/portal/shared/ConfirmBulkDeleteProductsModal";
 import { ProductDetailModal } from "@/components/portal/shared/ProductDetailModal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { BulkUploadProductsModal } from "@/components/portal/shared/BulkUploadProductsModal";
@@ -27,7 +28,11 @@ import {
   mutationSuccessCopy,
 } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
-import { useDeleteProductMutation, useListProductsQuery } from "@/store/api";
+import {
+  useDeleteProductMutation,
+  useListProductsQuery,
+  useBulkDeleteProductsMutation,
+} from "@/store/api";
 
 const btnSecondaryClass =
   "inline-flex items-center gap-1.5 rounded-lg border border-slate-200/90 bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 active:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-white/5 dark:active:bg-white/10";
@@ -157,11 +162,75 @@ export default function ListProductsPage({
       await deleteProduct(id).unwrap();
       toast.success(mutationSuccessCopy("deleteProduct"));
       if (detailId === id) closeProductModal();
+      setSelectedIds((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       setDeleteTarget(null);
     } catch (rejected) {
       toast.error(mutationRejectedMessage(rejected));
     }
   }, [closeProductModal, deleteProduct, deleteTarget, detailId]);
+
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+  const [bulkDeleteTarget, setBulkDeleteTarget] = useState<string[] | null>(null);
+
+  const [bulkDeleteProducts, { isLoading: isBulkDeleting }] = useBulkDeleteProductsMutation();
+
+  const selectedCount = useMemo(() => {
+    return Object.keys(selectedIds).filter((id) => selectedIds[id]).length;
+  }, [selectedIds]);
+
+  const isAllOnPageSelected = useMemo(() => {
+    if (products.length === 0) return false;
+    return products.every((p) => {
+      const id = rowKey(p);
+      return id && !!selectedIds[id];
+    });
+  }, [products, selectedIds]);
+
+  const toggleSelectAllOnPage = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = { ...prev };
+      if (isAllOnPageSelected) {
+        products.forEach((p) => {
+          const id = rowKey(p);
+          if (id) {
+            delete next[id];
+          }
+        });
+      } else {
+        products.forEach((p) => {
+          const id = rowKey(p);
+          if (id) {
+            next[id] = true;
+          }
+        });
+      }
+      return next;
+    });
+  }, [isAllOnPageSelected, products]);
+
+  const closeBulkDeleteModal = useCallback(() => setBulkDeleteTarget(null), []);
+
+  const confirmBulkDelete = useCallback(async () => {
+    if (!bulkDeleteTarget || bulkDeleteTarget.length === 0) return;
+    try {
+      await bulkDeleteProducts(bulkDeleteTarget).unwrap();
+      toast.success(`Successfully deleted ${bulkDeleteTarget.length} products`);
+      setSelectedIds((prev) => {
+        const next = { ...prev };
+        bulkDeleteTarget.forEach((id) => {
+          delete next[id];
+        });
+        return next;
+      });
+      setBulkDeleteTarget(null);
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }, [bulkDeleteProducts, bulkDeleteTarget]);
 
   // Extract unique groups dynamically from backend paginated response metadata
   const uniqueGroups = useMemo(() => {
@@ -198,6 +267,13 @@ export default function ListProductsPage({
         isDeleting={isDeletingProduct}
         onClose={closeDeleteModal}
         onConfirm={confirmDelete}
+      />
+      <ConfirmBulkDeleteProductsModal
+        isOpen={bulkDeleteTarget !== null}
+        selectedCount={bulkDeleteTarget?.length ?? 0}
+        isDeleting={isBulkDeleting}
+        onClose={closeBulkDeleteModal}
+        onConfirm={confirmBulkDelete}
       />
       <ProductDetailModal
         productId={createOpen ? null : detailId}
@@ -350,6 +426,45 @@ export default function ListProductsPage({
 
         {!isLoading && !isError && totalMatching > 0 && (
           <>
+          {selectedCount > 0 && (
+            <div className="flex items-center justify-between px-5 py-3.5 bg-blue-500/5 dark:bg-blue-500/10 border-b border-blue-100 dark:border-blue-500/20 text-sm">
+              <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                <span className="font-semibold">{selectedCount}</span>
+                <span>products selected</span>
+                <span className="text-slate-300 dark:text-slate-700">|</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds({})}
+                  className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-200 underline font-medium"
+                >
+                  Clear selection
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBulkDeleteTarget(Object.keys(selectedIds).filter((id) => selectedIds[id]))}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white dark:bg-rose-50 dark:hover:bg-rose-600 text-xs font-semibold shadow-sm transition active:scale-[0.98]"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Delete Selected ({selectedCount})</span>
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-4 px-5 py-3 border-b border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            <div className="flex items-center gap-3 shrink-0">
+              <input
+                type="checkbox"
+                checked={isAllOnPageSelected}
+                onChange={toggleSelectAllOnPage}
+                className="h-4.5 w-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950 cursor-pointer"
+              />
+            </div>
+            <div className="flex-1">Product Details</div>
+            <div className="hidden lg:block lg:flex-[2.5] max-w-3xl">Attributes & Pricing</div>
+            <div className="w-24 text-right">Actions</div>
+          </div>
+
           <div className="divide-y divide-slate-100 dark:divide-white/5">
             {products.map((p) => {
               const id = rowKey(p);
@@ -378,6 +493,21 @@ export default function ListProductsPage({
                   key={id || label}
                   className="p-5 hover:bg-slate-50/50 dark:hover:bg-white/5 transition duration-150 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
                 >
+                  <div className="flex items-center gap-3 shrink-0 self-start lg:self-center">
+                    <input
+                      type="checkbox"
+                      checked={!!(id && selectedIds[id])}
+                      onChange={(e) => {
+                        if (id) {
+                          setSelectedIds((prev) => ({
+                            ...prev,
+                            [id]: e.target.checked,
+                          }));
+                        }
+                      }}
+                      className="h-4.5 w-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950 cursor-pointer"
+                    />
+                  </div>
                   {/* Left Column: Icon, Product Name, Generic Name, SKU */}
                   <div className="flex items-start gap-4 flex-1 min-w-0">
                     <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-600 dark:bg-blue-500/5 dark:text-blue-400 shrink-0">

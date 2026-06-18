@@ -16,7 +16,7 @@ import {
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { buildPartyNameById } from "@/components/portal/sales/partyDisplay";
+import { buildPartyNameById, buildPartySraById } from "@/components/portal/sales/partyDisplay";
 import {
   ClipboardCheck,
   Users,
@@ -106,6 +106,11 @@ export default function FinanceOverview() {
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
+    [partiesData],
+  );
+
+  const partySraById = useMemo(
+    () => buildPartySraById(partiesData),
     [partiesData],
   );
 
@@ -286,6 +291,7 @@ export default function FinanceOverview() {
           isOrdersFetching={isOrdersFetching}
           isOrdersError={isOrdersError}
           partyNameById={partyNameById}
+          partySraById={partySraById}
         />
 
         {/* SIDE COLUMN: STATS & SYSTEM FLAGS */}

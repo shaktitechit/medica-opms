@@ -241,15 +241,19 @@ function PartyAutocomplete({
                     onChange(id);
                     setIsOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-white/5 ${
-                    isSelected
+                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-white/5 ${isSelected
                       ? "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 font-medium"
                       : "text-slate-800 dark:text-slate-200"
-                  }`}
+                    }`}
                 >
                   <span>
                     {name}
                     {type && <span className="text-xs text-slate-400 ml-1">{type}</span>}
+                    {p.sra === true && (
+                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 ml-1.5">
+                        SRA
+                      </span>
+                    )}
                   </span>
                   {isSelected && <Check className="h-4 w-4 text-blue-600 dark:text-blue-400" />}
                 </button>
@@ -366,11 +370,10 @@ function ProductAutocomplete({
                     onChange(id);
                     setIsOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition hover:bg-slate-50 dark:hover:bg-white/5 ${
-                    isSelected
+                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition hover:bg-slate-50 dark:hover:bg-white/5 ${isSelected
                       ? "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 font-medium"
                       : "text-slate-800 dark:text-slate-200"
-                  }`}
+                    }`}
                 >
                   <span className="truncate">
                     {name}
@@ -497,11 +500,10 @@ function SalesAutocomplete({
                     onChange(id);
                     setIsOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-white/5 ${
-                    isSelected
+                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-white/5 ${isSelected
                       ? "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 font-medium"
                       : "text-slate-800 dark:text-slate-200"
-                  }`}
+                    }`}
                 >
                   <span>{name}</span>
                   {isSelected && <Check className="h-4 w-4 text-blue-600 dark:text-blue-400" />}
@@ -767,7 +769,7 @@ export default function AdminCreateOrderPage() {
 
   const populateFromLastOrder = useCallback((lastOrder: any) => {
     if (!lastOrder || !Array.isArray(lastOrder.order_items)) return;
-    
+
     const mappedLines = lastOrder.order_items.map((item: any) => ({
       key: typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
@@ -1066,285 +1068,285 @@ export default function AdminCreateOrderPage() {
               {lines.map((row, idx) => {
                 const rateItem = row.productId
                   ? rateItemByLine.get(
-                      rateLookupKey(row.productId, row.applied_rate_type),
-                    )
+                    rateLookupKey(row.productId, row.applied_rate_type),
+                  )
                   : undefined;
                 const displayStatus = resolveRateDisplayStatus(rateItem);
 
                 return (
-                <div
-                  key={row.key}
-                  className="relative space-y-3 rounded-xl border border-slate-100 bg-slate-50/50 p-4 dark:border-white/5 dark:bg-slate-955/30"
-                >
-                  {/* Row Top Header (Mobile view item badge + delete) */}
-                  <div className="flex items-center justify-between lg:hidden border-b border-slate-100 pb-2 dark:border-white/5">
-                    <span className="text-xs font-semibold text-slate-500">
-                      Item #{idx + 1}
-                    </span>
-                    <button
-                      type="button"
-                      className="text-xs font-semibold text-rose-500 hover:text-rose-600"
-                      disabled={lines.length <= 1}
-                      onClick={() =>
-                        setLines((prev) => prev.filter((l) => l.key !== row.key))
-                      }
-                    >
-                      Remove
-                    </button>
-                  </div>
-
-                  {/* Tier 1 Grid */}
-                  <div className="grid gap-3 grid-cols-1 lg:grid-cols-12">
-                    {/* Product */}
-                    <div className="space-y-1 lg:col-span-4">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-550">
-                        Product
+                  <div
+                    key={row.key}
+                    className="relative space-y-3 rounded-xl border border-slate-100 bg-slate-50/50 p-4 dark:border-white/5 dark:bg-slate-955/30"
+                  >
+                    {/* Row Top Header (Mobile view item badge + delete) */}
+                    <div className="flex items-center justify-between lg:hidden border-b border-slate-100 pb-2 dark:border-white/5">
+                      <span className="text-xs font-semibold text-slate-500">
+                        Item #{idx + 1}
                       </span>
-                      <ProductAutocomplete
-                        products={products}
-                        selectedId={row.productId}
-                        onChange={(val) => onProductRowChange(row.key, val)}
-                        className={inputClass}
-                      />
-                    </div>
-
-                    {/* Qty */}
-                    <div className="space-y-1 lg:col-span-1">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        Qty
-                      </span>
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={row.quantity}
-                        onChange={(e) =>
-                          setLines((prev) =>
-                            prev.map((l) =>
-                              l.key === row.key
-                                ? {
-                                    ...l,
-                                    quantity: Number(e.target.value) || 0,
-                                  }
-                                : l,
-                            ),
-                          )
-                        }
-                        className={inputClass}
-                      />
-                    </div>
-
-                    {/* Free Qty */}
-                    <div className="space-y-1 lg:col-span-1">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        Free
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={row.free_qty}
-                        onChange={(e) =>
-                          setLines((prev) =>
-                            prev.map((l) =>
-                              l.key === row.key
-                                ? {
-                                    ...l,
-                                    free_qty: Number(e.target.value) || 0,
-                                  }
-                                : l,
-                            ),
-                          )
-                        }
-                        className={inputClass}
-                      />
-                    </div>
-
-                    {/* Rate Type */}
-                    <div className="space-y-1 lg:col-span-1">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-550">
-                        Rate Type
-                      </span>
-                      <select
-                        value={row.applied_rate_type}
-                        onChange={(e) =>
-                          onRateTypeChange(row.key, e.target.value)
-                        }
-                        className={inputClass}
-                      >
-                        <option value="SR">SR</option>
-                        <option value="SRA">SRA</option>
-                        <option value="CR">CR</option>
-                      </select>
-                    </div>
-
-                    {/* Unit Price */}
-                    <div className="space-y-1 lg:col-span-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        Price
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        step="any"
-                        value={row.unit_price}
-                        onChange={(e) =>
-                          setLines((prev) =>
-                            prev.map((l) =>
-                              l.key === row.key
-                                ? {
-                                    ...l,
-                                    unit_price: Number(e.target.value) || 0,
-                                  }
-                                : l,
-                            ),
-                          )
-                        }
-                        className={inputClass}
-                      />
-                    </div>
-
-                    {/* Disc % */}
-                    <div className="space-y-1 lg:col-span-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        Disc %
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="any"
-                        value={row.discount_percent}
-                        onChange={(e) =>
-                          setLines((prev) =>
-                            prev.map((l) =>
-                              l.key === row.key
-                                ? {
-                                    ...l,
-                                    discount_percent: Number(e.target.value) || 0,
-                                  }
-                                : l,
-                            ),
-                          )
-                        }
-                        className={inputClass}
-                      />
-                    </div>
-
-                    {/* GST % */}
-                    <div className="space-y-1 lg:col-span-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        GST %
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        step="any"
-                        value={row.gst_percent}
-                        onChange={(e) =>
-                          setLines((prev) =>
-                            prev.map((l) =>
-                              l.key === row.key
-                                ? {
-                                    ...l,
-                                    gst_percent: Number(e.target.value) || 0,
-                                  }
-                                : l,
-                            ),
-                          )
-                        }
-                        className={inputClass}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Tier 2 Grid */}
-                  <div className="grid gap-3 grid-cols-1 lg:grid-cols-12 pt-2 border-t border-slate-100/50 dark:border-white/5">
-                    {/* Line Remarks */}
-                    <div className="space-y-1 lg:col-span-7">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        Line Remarks
-                      </span>
-                      <input
-                        placeholder="Internal item specifications..."
-                        value={row.remarks}
-                        onChange={(e) =>
-                          setLines((prev) =>
-                            prev.map((l) =>
-                              l.key === row.key
-                                ? {
-                                    ...l,
-                                    remarks: e.target.value,
-                                  }
-                                : l,
-                            ),
-                          )
-                        }
-                        className={inputClass}
-                      />
-                    </div>
-
-                    {/* Price Mapping Status & Map action */}
-                    <div className="space-y-1 lg:col-span-3">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        Price Mapping
-                      </span>
-                      <div className="h-[38px] flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-                        {row.productId ? (
-                          rateCheckQ.isFetching ? (
-                            <span className="text-[10px] text-slate-400 italic">
-                              Checking...
-                            </span>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <LineRateStatusBadge
-                                status={displayStatus}
-                                rateItem={rateItem}
-                                formatMoney={formatMoney}
-                              />
-                              {canMapPrice ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openMapModal(row)}
-                                  className="inline-flex items-center justify-center rounded bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm hover:bg-blue-700 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer transition-colors"
-                                >
-                                  Map
-                                </button>
-                              ) : null}
-                            </div>
-                          )
-                        ) : (
-                          <span className="text-[10px] text-slate-400 italic">—</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Line Total */}
-                    <div className="space-y-1 lg:col-span-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        Line Total
-                      </span>
-                      <div className="rounded-lg border border-slate-200/80 bg-slate-50 px-3 py-2 text-sm font-semibold tabular-nums text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-50 h-[38px] flex items-center">
-                        ₹{formatMoney(lineTotal(row))}
-                      </div>
-                    </div>
-
-                    {/* Actions (Trash Can Icon) */}
-                    <div className="hidden lg:flex lg:col-span-1 items-end justify-end pb-0.5">
                       <button
                         type="button"
-                        className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-slate-200/95 bg-white p-2 text-xs font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/15 dark:bg-slate-955 dark:text-rose-400 dark:hover:bg-rose-950/20"
+                        className="text-xs font-semibold text-rose-500 hover:text-rose-600"
                         disabled={lines.length <= 1}
                         onClick={() =>
                           setLines((prev) => prev.filter((l) => l.key !== row.key))
                         }
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        Remove
                       </button>
                     </div>
+
+                    {/* Tier 1 Grid */}
+                    <div className="grid gap-3 grid-cols-1 lg:grid-cols-12">
+                      {/* Product */}
+                      <div className="space-y-1 lg:col-span-4">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-550">
+                          Product
+                        </span>
+                        <ProductAutocomplete
+                          products={products}
+                          selectedId={row.productId}
+                          onChange={(val) => onProductRowChange(row.key, val)}
+                          className={inputClass}
+                        />
+                      </div>
+
+                      {/* Qty */}
+                      <div className="space-y-1 lg:col-span-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          Qty
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={row.quantity}
+                          onChange={(e) =>
+                            setLines((prev) =>
+                              prev.map((l) =>
+                                l.key === row.key
+                                  ? {
+                                    ...l,
+                                    quantity: Number(e.target.value) || 0,
+                                  }
+                                  : l,
+                              ),
+                            )
+                          }
+                          className={inputClass}
+                        />
+                      </div>
+
+                      {/* Free Qty */}
+                      <div className="space-y-1 lg:col-span-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          Free
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={row.free_qty}
+                          onChange={(e) =>
+                            setLines((prev) =>
+                              prev.map((l) =>
+                                l.key === row.key
+                                  ? {
+                                    ...l,
+                                    free_qty: Number(e.target.value) || 0,
+                                  }
+                                  : l,
+                              ),
+                            )
+                          }
+                          className={inputClass}
+                        />
+                      </div>
+
+                      {/* Rate Type */}
+                      <div className="space-y-1 lg:col-span-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-550">
+                          Rate Type
+                        </span>
+                        <select
+                          value={row.applied_rate_type}
+                          onChange={(e) =>
+                            onRateTypeChange(row.key, e.target.value)
+                          }
+                          className={inputClass}
+                        >
+                          <option value="SR">SR</option>
+                          <option value="SRA">SRA</option>
+                          <option value="CR">CR</option>
+                        </select>
+                      </div>
+
+                      {/* Unit Price */}
+                      <div className="space-y-1 lg:col-span-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          Price
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={row.unit_price}
+                          onChange={(e) =>
+                            setLines((prev) =>
+                              prev.map((l) =>
+                                l.key === row.key
+                                  ? {
+                                    ...l,
+                                    unit_price: Number(e.target.value) || 0,
+                                  }
+                                  : l,
+                              ),
+                            )
+                          }
+                          className={inputClass}
+                        />
+                      </div>
+
+                      {/* Disc % */}
+                      <div className="space-y-1 lg:col-span-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          Disc %
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="any"
+                          value={row.discount_percent}
+                          onChange={(e) =>
+                            setLines((prev) =>
+                              prev.map((l) =>
+                                l.key === row.key
+                                  ? {
+                                    ...l,
+                                    discount_percent: Number(e.target.value) || 0,
+                                  }
+                                  : l,
+                              ),
+                            )
+                          }
+                          className={inputClass}
+                        />
+                      </div>
+
+                      {/* GST % */}
+                      <div className="space-y-1 lg:col-span-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          GST %
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={row.gst_percent}
+                          onChange={(e) =>
+                            setLines((prev) =>
+                              prev.map((l) =>
+                                l.key === row.key
+                                  ? {
+                                    ...l,
+                                    gst_percent: Number(e.target.value) || 0,
+                                  }
+                                  : l,
+                              ),
+                            )
+                          }
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tier 2 Grid */}
+                    <div className="grid gap-3 grid-cols-1 lg:grid-cols-12 pt-2 border-t border-slate-100/50 dark:border-white/5">
+                      {/* Line Remarks */}
+                      <div className="space-y-1 lg:col-span-7">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          Line Remarks
+                        </span>
+                        <input
+                          placeholder="Internal item specifications..."
+                          value={row.remarks}
+                          onChange={(e) =>
+                            setLines((prev) =>
+                              prev.map((l) =>
+                                l.key === row.key
+                                  ? {
+                                    ...l,
+                                    remarks: e.target.value,
+                                  }
+                                  : l,
+                              ),
+                            )
+                          }
+                          className={inputClass}
+                        />
+                      </div>
+
+                      {/* Price Mapping Status & Map action */}
+                      <div className="space-y-1 lg:col-span-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          Price Mapping
+                        </span>
+                        <div className="h-[38px] flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+                          {row.productId ? (
+                            rateCheckQ.isFetching ? (
+                              <span className="text-[10px] text-slate-400 italic">
+                                Checking...
+                              </span>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <LineRateStatusBadge
+                                  status={displayStatus}
+                                  rateItem={rateItem}
+                                  formatMoney={formatMoney}
+                                />
+                                {canMapPrice ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openMapModal(row)}
+                                    className="inline-flex items-center justify-center rounded bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm hover:bg-blue-700 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer transition-colors"
+                                  >
+                                    Map
+                                  </button>
+                                ) : null}
+                              </div>
+                            )
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic">—</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Line Total */}
+                      <div className="space-y-1 lg:col-span-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          Line Total
+                        </span>
+                        <div className="rounded-lg border border-slate-200/80 bg-slate-50 px-3 py-2 text-sm font-semibold tabular-nums text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-50 h-[38px] flex items-center">
+                          ₹{formatMoney(lineTotal(row))}
+                        </div>
+                      </div>
+
+                      {/* Actions (Trash Can Icon) */}
+                      <div className="hidden lg:flex lg:col-span-1 items-end justify-end pb-0.5">
+                        <button
+                          type="button"
+                          className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-slate-200/95 bg-white p-2 text-xs font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/15 dark:bg-slate-955 dark:text-rose-400 dark:hover:bg-rose-950/20"
+                          disabled={lines.length <= 1}
+                          onClick={() =>
+                            setLines((prev) => prev.filter((l) => l.key !== row.key))
+                          }
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              );
+                );
               })}
             </div>
 

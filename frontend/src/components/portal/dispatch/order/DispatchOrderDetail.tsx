@@ -15,6 +15,8 @@ import { DeliveriesTab } from "./components/DeliveriesTab";
 import { ReturnsTab } from "./components/ReturnsTab";
 import {
   buildPartyNameById,
+  buildPartySraById,
+  checkOrderPartySra,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { isOrderClosed } from "@/components/portal/sales/orderUtils";
@@ -206,6 +208,10 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesQ.data),
+    [partiesQ.data],
+  );
+  const partySraById = useMemo(
+    () => buildPartySraById(partiesQ.data),
     [partiesQ.data],
   );
 
@@ -663,7 +669,14 @@ export default function DispatchOrderDetail({ orderId }: { orderId: string }) {
                     <span className="shrink-0">{renderPriorityBadge(typeof detail.priority === "string" ? detail.priority : "normal")}</span>
                   </div>
                   <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                    <span>Party: <b className="font-semibold text-slate-700 dark:text-slate-200">{custLabel}</b></span>
+                    <span className="flex items-center gap-1">
+                      Party: <b className="font-semibold text-slate-700 dark:text-slate-200">{custLabel}</b>
+                      {detail && (checkOrderPartySra(detail, partySraById) || (partyDetailQ.data as any)?.sra === true) && (
+                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                          SRA
+                        </span>
+                      )}
+                    </span>
                     <span>Date: {formatDateShort(detail.order_date)}</span>
                     <span>EDD: {formatDateShort(detail.expected_delivery_date)}</span>
                   </div>

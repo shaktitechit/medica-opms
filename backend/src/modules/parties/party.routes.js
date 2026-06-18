@@ -20,6 +20,7 @@ router.get(
 );
 router.get('/', requireDepartment(...readDepartments), controller.list);
 router.post('/bulk', requireDepartment(...manageDepartments), controller.bulkCreate);
+router.post('/bulk-delete', requireDepartment(...manageDepartments), controller.bulkDelete);
 router.delete(
   '/:id',
   requireDepartment(...manageDepartments),

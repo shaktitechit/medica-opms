@@ -635,6 +635,23 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                 <div className={`${valueClass} capitalize`}>{p.party_type || "—"}</div>
               </div>
 
+              {/* SRA Status */}
+              <div className="space-y-1">
+                <label className={labelClass}>Special Rate Approval (SRA)</label>
+                <div className={valueClass}>
+                  {p.sra ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded-full ring-1 ring-inset ring-emerald-600/10 dark:ring-emerald-500/20">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
+                      Enabled
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-550 dark:text-slate-450 bg-slate-50 dark:bg-white/5 px-2.5 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                      Disabled
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
             <h3 className="text-md font-bold text-slate-900 dark:text-slate-50 flex items-center gap-2 border-b border-slate-100 dark:border-white/5 pt-4 pb-3">

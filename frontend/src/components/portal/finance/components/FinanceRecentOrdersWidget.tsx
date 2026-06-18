@@ -11,7 +11,7 @@ import { AlertTriangle,
   Search,
   X,
   SlidersHorizontal, Wallet } from "lucide-react";
-import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
+import { resolveOrderCounterparty, checkOrderPartySra } from "@/components/portal/sales/partyDisplay";
 import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
 import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
@@ -26,6 +26,7 @@ interface FinanceRecentOrdersWidgetProps {
   isOrdersFetching: boolean;
   isOrdersError: boolean;
   partyNameById: Map<string, string>;
+  partySraById?: Map<string, boolean>;
 }
 
 function formatMoney(v: number): string {
@@ -126,6 +127,7 @@ export default function FinanceRecentOrdersWidget({
   isOrdersFetching,
   isOrdersError,
   partyNameById,
+  partySraById,
 }: FinanceRecentOrdersWidgetProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -345,10 +347,15 @@ export default function FinanceRecentOrdersWidget({
 
                     {/* Party Title */}
                     <span
-                      className="text-xs font-semibold text-slate-800 dark:text-slate-200 sm:flex-1 break-words whitespace-normal font-sans"
+                      className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 sm:flex-1 break-words whitespace-normal font-sans"
                       title={partyLabel}
                     >
-                      {partyLabel}
+                      <span>{partyLabel}</span>
+                      {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
+                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                          SRA
+                        </span>
+                      )}
                     </span>
 
                     {/* Financials & Dates */}

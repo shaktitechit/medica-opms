@@ -232,6 +232,15 @@ export default function SuperAdminOverview() {
     return map;
   }, [partyList]);
 
+  const partySraById = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const p of partyList) {
+      const id = String(p._id || p.id || "");
+      if (id) map.set(id, p.sra === true);
+    }
+    return map;
+  }, [partyList]);
+
   const userList = useMemo(() => extractList(usersRaw) as any[], [usersRaw]);
   const recentUsers = useMemo(() => [...userList].slice(0, 5), [userList]);
 
@@ -484,7 +493,16 @@ export default function SuperAdminOverview() {
                     return (
                       <tr key={id} className="hover:bg-slate-50/30 dark:hover:bg-white/[0.02]">
                         <td className="py-2.5 font-mono text-[11px] text-slate-900 dark:text-slate-100">{ref.slice(0, 12)}</td>
-                        <td className="max-w-[130px] truncate py-2.5 pr-2 text-slate-800 dark:text-slate-200" title={partyName}>{partyName}</td>
+                        <td className="max-w-[130px] truncate py-2.5 pr-2 text-slate-800 dark:text-slate-200" title={partyName}>
+                          <span className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">{partyName}</span>
+                            {partySraById.get(partyId) === true && (
+                              <span className="inline-flex items-center rounded-full bg-emerald-50 px-1 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                                SRA
+                              </span>
+                            )}
+                          </span>
+                        </td>
                         <td className="py-2.5 text-right font-medium tabular-nums text-slate-900 dark:text-slate-100">
                           {Number.isFinite(total) ? total.toFixed(2) : "0.00"}
                         </td>

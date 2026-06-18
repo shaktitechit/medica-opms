@@ -14,6 +14,7 @@ const readDepartments = ['sales', 'admin', 'finance', 'account', 'dispatch'];
 const manageDepartments = ['admin', 'super_admin', 'sales','finance','account'];
 
 router.post('/bulk', requireDepartment(...manageDepartments), controller.bulkCreate);
+router.post('/bulk-delete', requireDepartment(...manageDepartments), controller.bulkDelete);
 
 router.get(
   '/deleted',

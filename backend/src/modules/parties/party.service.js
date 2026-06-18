@@ -27,6 +27,7 @@ const PATCHABLE_KEYS = Object.freeze([
   'payment_terms',
   'legacy_customer',
   'is_active',
+  'sra',
 ]);
 
 function sanitizeContacts(contacts) {
@@ -183,6 +184,7 @@ async function create(body, user) {
     payment_terms: body.payment_terms != null ? String(body.payment_terms).trim() : '',
     legacy_customer: body.legacy_customer || undefined,
     is_active: body.is_active !== false,
+    sra: Boolean(body.sra),
     created_by: user._id,
   };
 
@@ -298,6 +300,7 @@ async function bulkCreate(items, user) {
       payment_terms: item.payment_terms != null ? String(item.payment_terms).trim() : '',
       legacy_customer: item.legacy_customer || undefined,
       is_active: item.is_active !== false,
+      sra: Boolean(item.sra),
     };
 
     if (user) {
@@ -321,6 +324,43 @@ async function bulkCreate(items, user) {
   return createdParties;
 }
 
+async function bulkDelete(ids, user) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return { count: 0, deletedIds: [] };
+  }
+
+  const { Party } = getModels();
+
+  const docs = await Party.find({
+    _id: { $in: ids },
+    deletedAt: null,
+  });
+
+  const deletedIds = [];
+  const deletedNames = [];
+
+  for (const doc of docs) {
+    await doc.softDelete();
+    deletedIds.push(doc._id.toString());
+    deletedNames.push(doc.party_name);
+  }
+
+  if (deletedIds.length > 0 && user) {
+    await activityService.create({
+      actor: user._id,
+      entity_type: "party",
+      entity_id: deletedIds[0],
+      action: "deleted",
+      message: `Bulk soft-deleted ${deletedIds.length} parties: ${deletedNames.join(", ")}`,
+    });
+  }
+
+  return {
+    count: deletedIds.length,
+    deletedIds,
+  };
+}
+
 module.exports = {
   list,
   get,
@@ -330,5 +370,6 @@ module.exports = {
   softDelete,
   restore,
   bulkCreate,
+  bulkDelete,
 };
 

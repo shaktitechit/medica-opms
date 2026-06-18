@@ -62,6 +62,7 @@ type PartyState = {
   state: string;
   payment_terms: string;
   is_active: boolean;
+  sra: boolean;
   billing_address: {
     address_line_1: string;
     address_line_2: string;
@@ -90,6 +91,7 @@ const defaultPartyState = (): PartyState => ({
   state: "",
   payment_terms: "",
   is_active: true,
+  sra: false,
   billing_address: {
     address_line_1: "",
     address_line_2: "",
@@ -154,6 +156,7 @@ export function PartyDetailModal({
         state: stringField(p.state),
         payment_terms: stringField(p.payment_terms),
         is_active: p.is_active !== false,
+        sra: p.sra === true,
         billing_address: {
           address_line_1: stringField(bAddr.address_line_1),
           address_line_2: stringField(bAddr.address_line_2),
@@ -248,6 +251,7 @@ export function PartyDetailModal({
         if (!valsEqual(form.state, pObj.state)) patch.state = form.state;
         if (!valsEqual(form.payment_terms, pObj.payment_terms)) patch.payment_terms = form.payment_terms;
         if (form.is_active !== pObj.is_active) patch.is_active = form.is_active;
+        if (form.sra !== pObj.sra) patch.sra = form.sra;
 
         // Address diff
         const billingDiff: Record<string, any> = {};
@@ -474,18 +478,34 @@ export function PartyDetailModal({
                 />
               </div>
 
-              <div className="flex items-center gap-2 mt-7">
-                <input
-                  type="checkbox"
-                  id="party-active"
-                  className="h-4 w-4 rounded border-slate-300 bg-white text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950"
-                  checked={form.is_active}
-                  onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
-                  disabled={isSaving}
-                />
-                <label htmlFor="party-active" className="text-sm font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
-                  Is Active Profile
-                </label>
+              <div className="flex flex-wrap items-center gap-6 mt-7 md:col-span-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="party-active"
+                    className="h-4 w-4 rounded border-slate-300 bg-white text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950 cursor-pointer"
+                    checked={form.is_active}
+                    onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
+                    disabled={isSaving}
+                  />
+                  <label htmlFor="party-active" className="text-sm font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                    Is Active Profile
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="party-sra"
+                    className="h-4 w-4 rounded border-slate-300 bg-white text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950 cursor-pointer"
+                    checked={form.sra}
+                    onChange={(e) => setForm((f) => ({ ...f, sra: e.target.checked }))}
+                    disabled={isSaving}
+                  />
+                  <label htmlFor="party-sra" className="text-sm font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                    SRA (Special Rate Approval)
+                  </label>
+                </div>
               </div>
             </div>
           ) : (

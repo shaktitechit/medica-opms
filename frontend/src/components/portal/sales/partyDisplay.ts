@@ -76,3 +76,40 @@ export function resolveOrderCounterparty(
   if (!cid) return "—";
   return `Legacy · ${cid.slice(0, 8)}…`;
 }
+
+export function buildPartySraById(partiesRaw: unknown): Map<string, boolean> {
+  const list = pickList(partiesRaw);
+  const map = new Map<string, boolean>();
+  for (const row of list) {
+    if (!row || typeof row !== "object") continue;
+    const o = row as Record<string, unknown>;
+    const id = o._id != null ? String(o._id) : o.id != null ? String(o.id) : "";
+    if (!id) continue;
+    map.set(id, o.sra === true);
+  }
+  return map;
+}
+
+export function checkOrderPartySra(
+  row: Record<string, unknown>,
+  partySraById?: Map<string, boolean>
+): boolean {
+  if (row.party && typeof row.party === "object") {
+    const p = row.party as Record<string, unknown>;
+    if (p.sra === true) return true;
+  }
+  if (row.customer && typeof row.customer === "object") {
+    const c = row.customer as Record<string, unknown>;
+    if (c.sra === true) return true;
+  }
+  if (partySraById) {
+    const partyId = typeof row.party === "string" ? row.party : 
+                    (row.party && typeof row.party === "object") ? String((row.party as Record<string, unknown>)._id ?? (row.party as Record<string, unknown>).id ?? "") : "";
+    if (partyId && partySraById.get(partyId) === true) return true;
+    
+    const custId = typeof row.customer === "string" ? row.customer : 
+                    (row.customer && typeof row.customer === "object") ? String((row.customer as Record<string, unknown>)._id ?? (row.customer as Record<string, unknown>).id ?? "") : "";
+    if (custId && partySraById.get(custId) === true) return true;
+  }
+  return false;
+}

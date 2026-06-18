@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ConfirmDeleteDraftModal } from "@/components/portal/sales/components/modals/ConfirmDeleteDraftModal";
 import {
   buildPartyNameById,
+  buildPartySraById,
+  checkOrderPartySra,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
@@ -278,6 +280,11 @@ export default function ListAdminOrdersPage() {
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesQ.data),
+    [partiesQ.data],
+  );
+
+  const partySraById = useMemo(
+    () => buildPartySraById(partiesQ.data),
     [partiesQ.data],
   );
 
@@ -622,10 +629,15 @@ export default function ListAdminOrdersPage() {
 
                       {/* Party Title */}
                       <span
-                        className="text-xs font-semibold text-slate-800 dark:text-slate-200 lg:flex-1 break-words whitespace-normal"
+                        className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 lg:flex-1 break-words whitespace-normal"
                         title={partyLabel}
                       >
-                        {partyLabel}
+                        <span>{partyLabel}</span>
+                        {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
+                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                            SRA
+                          </span>
+                        )}
                       </span>
 
                       {/* Financials & Dates */}
