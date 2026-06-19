@@ -112,6 +112,51 @@ export function GoogleSheetPartiesModal({
   const [copiedScript, setCopiedScript] = useState(false);
   const [drawerPartyId, setDrawerPartyId] = useState<string | null>(null);
 
+  // Resizable columns width state
+  const [colWidths, setColWidths] = useState<Record<string, number>>({
+    party_name: 180,
+    party_type: 110,
+    contact_person: 140,
+    mobile: 130,
+    email: 160,
+    gst_no: 140,
+    drug_license_no: 140,
+    district: 120,
+    state: 120,
+    payment_terms: 120,
+    is_active: 80,
+    sra: 80,
+  });
+
+  const handleResizeStart = (colKey: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = colWidths[colKey] || 120;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const newWidth = Math.max(60, startWidth + deltaX);
+      setColWidths(prev => ({
+        ...prev,
+        [colKey]: newWidth
+      }));
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const totalWidth = useMemo(() => {
+    const columnsSum = COLUMNS.reduce((sum, col) => sum + (colWidths[col.key] || 120), 0);
+    return 48 + 80 + columnsSum; // 48px row numbers, 80px actions column
+  }, [colWidths]);
+
+
   // RTK Queries & Mutations
   const { data, isLoading, isError, refetch } = useListPartiesQuery(
     { paginate: "false" },
@@ -556,9 +601,9 @@ function onEdit(e) {
   const isSavingAny = Object.values(savingRows).some(Boolean);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-900 text-slate-100 font-sans" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans" role="dialog" aria-modal="true">
       {/* Top Main Google Sheets-Style Header */}
-      <div className="flex flex-wrap items-center justify-between border-b border-slate-700 bg-slate-900 px-4 py-2.5 shrink-0 select-none">
+      <div className="flex flex-wrap items-center justify-between border-b border-slate-200 dark:border-slate-700 bg-slate-55 dark:bg-slate-900 px-4 py-2.5 shrink-0 select-none">
         <div className="flex items-center gap-3">
           {/* Sheets Premium Logo */}
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-650 text-white font-semibold text-lg shadow shadow-emerald-500/20">
@@ -566,11 +611,11 @@ function onEdit(e) {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold tracking-wide text-slate-100">
+              <span className="text-sm font-bold tracking-wide text-slate-900 dark:text-slate-100">
                 Parties Master Spreadsheet
               </span>
               {/* Sync Status Badge */}
-              <div className="flex items-center gap-1 text-[11px] rounded bg-slate-800 px-2 py-0.5 border border-slate-700 text-slate-400">
+              <div className="flex items-center gap-1 text-[11px] rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 border border-slate-200 dark:border-slate-700 text-slate-550 dark:text-slate-400">
                 {isSavingAny ? (
                   <>
                     <RefreshCw className="h-3 w-3 animate-spin text-blue-400" />
@@ -585,10 +630,10 @@ function onEdit(e) {
               </div>
             </div>
             {/* Nav Menus Mock */}
-            <div className="mt-1 flex items-center gap-3.5 text-xs text-slate-400">
-              <button onClick={exportToCSV} className="hover:text-slate-100 transition">File (Export CSV)</button>
-              <span className="text-slate-700">|</span>
-              <button onClick={() => void refetch()} className="hover:text-slate-100 transition flex items-center gap-1">
+            <div className="mt-1 flex items-center gap-3.5 text-xs text-slate-500 dark:text-slate-400">
+              <button onClick={exportToCSV} className="hover:text-slate-900 dark:hover:text-slate-100 transition">File (Export CSV)</button>
+              <span className="text-slate-300 dark:text-slate-700">|</span>
+              <button onClick={() => void refetch()} className="hover:text-slate-900 dark:hover:text-slate-100 transition flex items-center gap-1">
                 🔄 Reload
               </button>
             </div>
@@ -597,12 +642,12 @@ function onEdit(e) {
 
         {/* Tabs Control & Close */}
         <div className="flex items-center gap-4">
-          <div className="flex rounded-lg bg-slate-800 p-1 border border-slate-700">
+          <div className="flex rounded-lg bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700">
             <button
               onClick={() => setActiveTab("virtual")}
               className={`rounded-md px-3.5 py-1 text-xs font-semibold transition ${activeTab === "virtual"
                   ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-100"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
                 }`}
             >
               Virtual Sheet (Instant)
@@ -611,7 +656,7 @@ function onEdit(e) {
               onClick={() => setActiveTab("real")}
               className={`rounded-md px-3.5 py-1 text-xs font-semibold transition ${activeTab === "real"
                   ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-100"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
                 }`}
             >
               Real Google Sheet Connection
@@ -620,7 +665,7 @@ function onEdit(e) {
 
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition"
+            className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition"
             title="Exit full screen"
           >
             <X className="h-5 w-5" />
@@ -630,9 +675,9 @@ function onEdit(e) {
 
       {/* Main Grid View */}
       {activeTab === "virtual" ? (
-        <div className="flex-1 flex flex-col min-h-0 bg-slate-950 relative">
+        <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-slate-950 relative">
           {/* Sheets Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 bg-slate-900 px-4 py-2 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-4 py-2 shrink-0">
             {/* Toolbar Buttons */}
             <div className="flex items-center gap-2.5">
               <button
@@ -645,7 +690,7 @@ function onEdit(e) {
               </button>
               <button
                 onClick={exportToCSV}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-850 hover:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 transition"
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 transition"
               >
                 <Download className="h-3.5 w-3.5" />
                 <span>Export CSV</span>
@@ -654,7 +699,7 @@ function onEdit(e) {
 
             {/* Filter Search */}
             <div className="relative w-72">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-500 pointer-events-none">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400 dark:text-slate-555 pointer-events-none">
                 <Search className="h-3.5 w-3.5" />
               </span>
               <input
@@ -662,15 +707,15 @@ function onEdit(e) {
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Search cell values in spreadsheet..."
-                className="w-full rounded-lg border border-slate-700 bg-slate-850 pl-8 pr-3 py-1.5 text-xs text-slate-100 outline-none transition focus:border-emerald-600 focus:ring-1 focus:ring-emerald-500/30"
+                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-slate-100 outline-none transition focus:border-emerald-600 focus:ring-1 focus:ring-emerald-500/30"
               />
             </div>
           </div>
 
           {/* Formula Bar */}
-          <div className="flex items-center border-b border-slate-800 bg-slate-900 px-4 py-1.5 text-xs select-none shrink-0 font-mono">
-            <span className="text-slate-500 font-semibold select-none pr-3 select-none">fx</span>
-            <span className="text-slate-600 px-1 border-r border-slate-700 mr-3">|</span>
+          <div className="flex items-center border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-4 py-1.5 text-xs select-none shrink-0 font-mono">
+            <span className="text-slate-450 dark:text-slate-555 font-semibold select-none pr-3">fx</span>
+            <span className="text-slate-300 dark:text-slate-700 px-1 border-r border-slate-200 dark:border-slate-700 mr-3">|</span>
             <input
               type="text"
               value={formulaValue}
@@ -699,7 +744,7 @@ function onEdit(e) {
               }}
               disabled={!selectedCell || COLUMNS.find(c => c.key === selectedCell.colKey)?.readonly}
               placeholder={selectedCell ? "Enter value..." : "Select a cell to edit its formula/content"}
-              className="flex-1 bg-transparent text-slate-200 outline-none placeholder-slate-650"
+              className="flex-1 bg-transparent text-slate-800 dark:text-slate-200 outline-none placeholder-slate-400 dark:placeholder-slate-650"
             />
           </div>
 
@@ -714,43 +759,53 @@ function onEdit(e) {
               </div>
             )}
 
-            <table className="w-full text-left text-xs border-collapse min-w-[1500px]">
+            <table className="text-left text-xs border-collapse table-fixed" style={{ width: totalWidth }}>
               {/* Header row */}
-              <thead className="sticky top-0 bg-slate-900 border-b border-slate-700 z-20 text-slate-400 font-semibold font-mono">
+              <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 z-20 text-slate-550 dark:text-slate-400 font-semibold font-mono">
                 <tr>
-                  <th className="w-12 px-2 py-1.5 border-r border-slate-700 text-center select-none bg-slate-850"></th>
-                  <th className="w-20 px-2 py-1.5 border-r border-slate-700 text-center select-none bg-slate-850">Actions</th>
+                  <th className="w-12 px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850" style={{ width: 48, minWidth: 48, maxWidth: 48 }}></th>
+                  <th className="w-20 px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850" style={{ width: 80, minWidth: 80, maxWidth: 80 }}>Actions</th>
                   {COLUMNS.map(col => (
-                    <th key={col.key} className="px-3 py-1.5 border-r border-slate-700 text-center select-none bg-slate-850">
+                    <th
+                      key={col.key}
+                      style={{ width: colWidths[col.key] || 120, minWidth: colWidths[col.key] || 120, maxWidth: colWidths[col.key] || 120 }}
+                      className="px-3 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850 relative group/header"
+                    >
                       {col.headerLetter}
-                      <span className="block text-[10px] uppercase font-sans text-slate-500 font-bold tracking-wider mt-0.5">
+                      <span className="block text-[10px] uppercase font-sans text-slate-400 dark:text-slate-500 font-bold tracking-wider mt-0.5 truncate">
                         {col.label}
                       </span>
+                      {/* Resize Handle */}
+                      <div
+                        onMouseDown={e => handleResizeStart(col.key, e)}
+                        className="absolute top-0 right-0 bottom-0 w-1 hover:w-1.5 hover:bg-emerald-500 dark:hover:bg-emerald-400 cursor-col-resize active:bg-emerald-600 z-30 transition-all select-none"
+                      />
                     </th>
                   ))}
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                 {filteredRows.map((row, rowIdx) => {
                   const isSavingRow = !!savingRows[row._id];
                   return (
                     <tr
                       key={row._id}
-                      className={`hover:bg-slate-900/40 transition group ${isSavingRow ? "bg-emerald-950/10" : ""
-                        }`}
+                      className={`bg-white dark:bg-slate-900/60 hover:bg-slate-50 dark:hover:bg-slate-900/40 transition group ${
+                        isSavingRow ? "bg-emerald-500/5 dark:bg-emerald-950/10" : ""
+                      }`}
                     >
                       {/* Left Number */}
-                      <td className="w-12 border-r border-slate-800 bg-slate-900/60 font-mono text-center text-slate-500 select-none font-bold py-1.5 sticky left-0 z-10">
+                      <td className="w-12 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 font-mono text-center text-slate-450 dark:text-slate-550 select-none font-bold py-1.5 sticky left-0 z-10" style={{ width: 48, minWidth: 48, maxWidth: 48 }}>
                         {rowIdx + 1}
                       </td>
 
                       {/* Row Actions (Details & Delete) */}
-                      <td className="w-20 border-r border-slate-800 bg-slate-900/40 text-center py-1">
+                      <td className="w-20 border-r border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/40 text-center py-1" style={{ width: 80, minWidth: 80, maxWidth: 80 }}>
                         <div className="flex items-center justify-center gap-1.5">
                           <button
                             onClick={() => setDrawerPartyId(row._id)}
-                            className="p-1 rounded hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-350 transition"
+                            className="p-1 rounded hover:bg-emerald-500/20 text-emerald-500 hover:text-emerald-400 transition"
                             title="Edit address and contacts details"
                           >
                             <FileText className="h-3.5 w-3.5" />
@@ -758,7 +813,7 @@ function onEdit(e) {
                           <button
                             onClick={() => handleDeleteRow(row._id)}
                             disabled={isDeleting}
-                            className="p-1 rounded hover:bg-rose-500/20 text-rose-500 hover:text-rose-400 transition"
+                            className="p-1 rounded hover:bg-rose-500/20 text-rose-500 hover:text-rose-455 transition"
                             title="Delete row"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -776,9 +831,12 @@ function onEdit(e) {
                           <td
                             key={col.key}
                             onClick={() => setSelectedCell({ partyId: row._id, colKey: col.key })}
-                            className={`border-r border-slate-800 p-0 text-slate-200 min-w-[120px] transition duration-75 relative ${isReadonly ? "bg-slate-900/30 text-slate-500 font-mono text-[10px]" : "cursor-cell hover:bg-slate-850/50"
-                              } ${isSelected ? "ring-2 ring-emerald-500 ring-inset bg-slate-850/90 z-10" : ""
-                              }`}
+                            style={{ width: colWidths[col.key] || 120, minWidth: colWidths[col.key] || 120, maxWidth: colWidths[col.key] || 120 }}
+                            className={`border-r border-slate-200 dark:border-slate-800 p-0 text-slate-800 dark:text-slate-200 transition duration-75 relative ${
+                              isReadonly ? "bg-slate-50/50 dark:bg-slate-900/30 text-slate-400 dark:text-slate-500 font-mono text-[10px]" : "cursor-cell hover:bg-slate-100/50 dark:hover:bg-slate-850/50"
+                            } ${
+                              isSelected ? "ring-2 ring-emerald-500 ring-inset bg-emerald-50/5 dark:bg-slate-850/90 z-10" : ""
+                            }`}
                           >
                             {/* Readonly View */}
                             {isReadonly ? (
@@ -800,7 +858,7 @@ function onEdit(e) {
                                         );
                                         saveCell(row._id, col.key, nextVal);
                                       }}
-                                      className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-offset-transparent cursor-pointer"
+                                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-offset-transparent cursor-pointer"
                                     />
                                   </div>
                                 ) : col.type === "select" ? (
@@ -813,10 +871,10 @@ function onEdit(e) {
                                       );
                                       saveCell(row._id, "party_type", newVal);
                                     }}
-                                    className="w-full bg-transparent border-none outline-none focus:ring-0 text-xs px-3 py-2 text-slate-100 cursor-pointer capitalize"
+                                    className="w-full bg-transparent border-none outline-none focus:ring-0 text-xs px-3 py-2 text-slate-800 dark:text-slate-100 cursor-pointer capitalize"
                                   >
                                     {col.options?.map(opt => (
-                                      <option key={opt} value={opt} className="bg-slate-900 text-slate-100">
+                                      <option key={opt} value={opt} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
                                         {opt}
                                       </option>
                                     ))}
@@ -838,11 +896,12 @@ function onEdit(e) {
                                         (e.target as HTMLInputElement).blur();
                                       }
                                     }}
-                                    className="w-full h-full bg-transparent border-none outline-none focus:ring-0 text-xs px-3 py-2 text-slate-200"
+                                    className="w-full h-full bg-transparent border-none outline-none focus:ring-0 text-xs px-3 py-2 text-slate-800 dark:text-slate-200"
                                   />
                                 )}
                               </div>
                             )}
+
                           </td>
                         );
                       })}
@@ -852,8 +911,7 @@ function onEdit(e) {
               </tbody>
             </table>
           </div>
-
-          {/* Side Drawer Details Panel overlay */}
+                    {/* Side Drawer Details Panel overlay */}
           {drawerParty && (
             <>
               {/* Backdrop */}
@@ -862,20 +920,20 @@ function onEdit(e) {
                 className="absolute inset-0 bg-black/40 backdrop-blur-[1px] z-30 transition-opacity"
               />
               {/* Drawer Container */}
-              <div className="absolute right-0 top-0 bottom-0 w-[500px] bg-slate-900 border-l border-slate-800 shadow-2xl z-40 flex flex-col transition-transform duration-300">
+              <div className="absolute right-0 top-0 bottom-0 w-[500px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-40 flex flex-col transition-transform duration-300">
                 {/* Header */}
-                <div className="bg-slate-850 px-5 py-4 border-b border-slate-800 flex justify-between items-center select-none shrink-0">
+                <div className="bg-slate-50 dark:bg-slate-850 px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center select-none shrink-0">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-100 truncate max-w-[360px]">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate max-w-[360px]">
                       {drawerParty.party_name}
                     </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5 font-medium">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
                       Configure Multiple Contacts & Addresses
                     </p>
                   </div>
                   <button
                     onClick={() => setDrawerPartyId(null)}
-                    className="p-1 rounded hover:bg-slate-805 text-slate-400 hover:text-slate-200 transition"
+                    className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition"
                   >
                     <X className="h-4.5 w-4.5" />
                   </button>
@@ -884,164 +942,164 @@ function onEdit(e) {
                 {/* Form fields content */}
                 <div className="flex-1 overflow-y-auto p-5 space-y-6 select-text">
                   {/* Billing Address Section */}
-                  <div className="space-y-3.5 bg-slate-850/30 border border-slate-850/50 rounded-xl p-4.5">
-                    <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider border-b border-slate-800 pb-2">
+                  <div className="space-y-3.5 bg-slate-50/50 dark:bg-slate-850/30 border border-slate-200 dark:border-slate-850/50 rounded-xl p-4.5">
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">
                       🏠 Billing Address
                     </h4>
                     <div className="grid grid-cols-2 gap-3.5 text-[11px]">
                       <div className="col-span-2">
-                        <label className="block text-slate-450 mb-1 font-medium">Address Line 1</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Address Line 1</label>
                         <input
                           type="text"
                           defaultValue={drawerParty.billing_address?.address_line_1 || ""}
                           onBlur={e => saveAddress(drawerParty._id, "billing_address", "address_line_1", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
                           placeholder="e.g. 123 Health Ave"
                         />
                       </div>
                       <div className="col-span-2">
-                        <label className="block text-slate-450 mb-1 font-medium">Address Line 2</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Address Line 2</label>
                         <input
                           type="text"
                           defaultValue={drawerParty.billing_address?.address_line_2 || ""}
                           onBlur={e => saveAddress(drawerParty._id, "billing_address", "address_line_2", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
                           placeholder="e.g. Suite 400"
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-450 mb-1 font-medium">City</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">City</label>
                         <input
                           type="text"
                           defaultValue={drawerParty.billing_address?.city || ""}
                           onBlur={e => saveAddress(drawerParty._id, "billing_address", "city", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
                           placeholder="e.g. Kolkata"
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-450 mb-1 font-medium">State</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">State</label>
                         <input
                           type="text"
                           defaultValue={drawerParty.billing_address?.state || ""}
                           onBlur={e => saveAddress(drawerParty._id, "billing_address", "state", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
                           placeholder="e.g. West Bengal"
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-450 mb-1 font-medium">Pincode</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Pincode</label>
                         <input
                           type="text"
                           defaultValue={drawerParty.billing_address?.pincode || ""}
                           onBlur={e => saveAddress(drawerParty._id, "billing_address", "pincode", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition font-mono"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition font-mono"
                           placeholder="700001"
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-450 mb-1 font-medium">Country</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Country</label>
                         <input
                           type="text"
                           defaultValue={drawerParty.billing_address?.country || "India"}
                           onBlur={e => saveAddress(drawerParty._id, "billing_address", "country", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
                         />
                       </div>
                     </div>
                   </div>
 
                   {/* Shipping Address Section */}
-                  <div className="space-y-3.5 bg-slate-850/30 border border-slate-850/50 rounded-xl p-4.5">
-                    <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                      <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                  <div className="space-y-3.5 bg-slate-50/50 dark:bg-slate-850/30 border border-slate-200 dark:border-slate-850/50 rounded-xl p-4.5">
+                    <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-2">
+                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
                         🚚 Shipping Address
                       </h4>
                       <button
                         onClick={() => handleCopyBillingToShipping(drawerParty._id)}
-                        className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold transition"
+                        className="text-[10px] text-emerald-500 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 font-semibold transition"
                       >
                         Copy from Billing
                       </button>
                     </div>
                     <div className="grid grid-cols-2 gap-3.5 text-[11px]">
                       <div className="col-span-2">
-                        <label className="block text-slate-450 mb-1 font-medium">Address Line 1</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Address Line 1</label>
                         <input
                           type="text"
                           key={`ship-1-${drawerParty.shipping_address?.address_line_1 || ""}`}
                           defaultValue={drawerParty.shipping_address?.address_line_1 || ""}
                           onBlur={e => saveAddress(drawerParty._id, "shipping_address", "address_line_1", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
                           placeholder="e.g. 123 Health Ave"
                         />
                       </div>
                       <div className="col-span-2">
-                        <label className="block text-slate-450 mb-1 font-medium">Address Line 2</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Address Line 2</label>
                         <input
                           type="text"
                           key={`ship-2-${drawerParty.shipping_address?.address_line_2 || ""}`}
                           defaultValue={drawerParty.shipping_address?.address_line_2 || ""}
                           onBlur={e => saveAddress(drawerParty._id, "shipping_address", "address_line_2", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
                           placeholder="e.g. Suite 400"
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-450 mb-1 font-medium">City</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">City</label>
                         <input
                           type="text"
                           key={`ship-city-${drawerParty.shipping_address?.city || ""}`}
                           defaultValue={drawerParty.shipping_address?.city || ""}
                           onBlur={e => saveAddress(drawerParty._id, "shipping_address", "city", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
                           placeholder="e.g. Kolkata"
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-450 mb-1 font-medium">State</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">State</label>
                         <input
                           type="text"
                           key={`ship-state-${drawerParty.shipping_address?.state || ""}`}
                           defaultValue={drawerParty.shipping_address?.state || ""}
                           onBlur={e => saveAddress(drawerParty._id, "shipping_address", "state", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
                           placeholder="e.g. West Bengal"
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-450 mb-1 font-medium">Pincode</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Pincode</label>
                         <input
                           type="text"
                           key={`ship-pin-${drawerParty.shipping_address?.pincode || ""}`}
                           defaultValue={drawerParty.shipping_address?.pincode || ""}
                           onBlur={e => saveAddress(drawerParty._id, "shipping_address", "pincode", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition font-mono"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition font-mono"
                           placeholder="700001"
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-450 mb-1 font-medium">Country</label>
+                        <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Country</label>
                         <input
                           type="text"
                           key={`ship-country-${drawerParty.shipping_address?.country || "India"}`}
                           defaultValue={drawerParty.shipping_address?.country || "India"}
                           onBlur={e => saveAddress(drawerParty._id, "shipping_address", "country", e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-850 px-3 py-1.5 text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs transition"
                         />
                       </div>
                     </div>
                   </div>
 
                   {/* Multiple Contacts Section */}
-                  <div className="space-y-4 bg-slate-850/30 border border-slate-850/50 rounded-xl p-4.5">
-                    <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                      <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                  <div className="space-y-4 bg-slate-50/50 dark:bg-slate-850/30 border border-slate-200 dark:border-slate-850/50 rounded-xl p-4.5">
+                    <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-2">
+                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
                         📞 Contacts Directory
                       </h4>
                       <button
                         onClick={() => handleAddContact(drawerParty._id)}
-                        className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold transition flex items-center gap-1 bg-slate-800 border border-slate-700 px-2 py-0.5 rounded"
+                        className="text-[10px] text-emerald-500 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 font-semibold transition flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded"
                       >
                         <UserPlus className="h-3 w-3" />
                         <span>Add Contact</span>
@@ -1050,79 +1108,79 @@ function onEdit(e) {
 
                     <div className="space-y-4">
                       {(!drawerParty.contacts || drawerParty.contacts.length === 0) && (
-                        <p className="text-[11px] text-slate-500 text-center py-4 select-none">
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center py-4 select-none">
                           No contacts configured. Click Add Contact to set up the list.
                         </p>
                       )}
 
                       {drawerParty.contacts?.map((contact, idx) => (
-                        <div key={idx} className="bg-slate-850/80 border border-slate-800 rounded-lg p-3.5 relative space-y-3.5 group">
+                        <div key={idx} className="bg-white dark:bg-slate-850/80 border border-slate-200 dark:border-slate-800 rounded-lg p-3.5 relative space-y-3.5 group">
                           {/* Remove Contact Card */}
                           <button
                             onClick={() => handleDeleteContact(drawerParty._id, idx)}
-                            className="absolute top-2.5 right-2.5 p-1 rounded hover:bg-rose-500/10 text-rose-500 hover:text-rose-400 transition"
+                            className="absolute top-2.5 right-2.5 p-1 rounded hover:bg-rose-500/10 text-rose-550 dark:text-rose-500 hover:text-rose-400 transition"
                             title="Remove contact card"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
 
-                          <div className="text-[10px] font-bold text-slate-500 select-none">
+                          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 select-none">
                             CONTACT CARD #{idx + 1} {idx === 0 && <span className="text-emerald-500 font-bold ml-1.5">(PRIMARY)</span>}
                           </div>
 
                           <div className="grid grid-cols-2 gap-3 text-[11px]">
                             <div className="col-span-2">
-                              <label className="block text-slate-450 mb-0.5">Contact Name</label>
+                              <label className="block text-slate-600 dark:text-slate-400 mb-0.5">Contact Name</label>
                               <input
                                 type="text"
                                 value={contact.name || ""}
                                 onChange={e => handleContactFieldChange(drawerParty._id, idx, "name", e.target.value)}
                                 onBlur={() => saveContacts(drawerParty._id)}
-                                className="w-full rounded border border-slate-750 bg-slate-900 px-2.5 py-1 text-slate-100 outline-none focus:border-emerald-500 text-xs"
+                                className="w-full rounded border border-slate-200 dark:border-slate-750 bg-slate-50 dark:bg-slate-900 px-2.5 py-1 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs"
                                 placeholder="Full Name"
                               />
                             </div>
                             <div>
-                              <label className="block text-slate-450 mb-0.5">Department</label>
+                              <label className="block text-slate-600 dark:text-slate-400 mb-0.5">Department</label>
                               <input
                                 type="text"
                                 value={contact.department || ""}
                                 onChange={e => handleContactFieldChange(drawerParty._id, idx, "department", e.target.value)}
                                 onBlur={() => saveContacts(drawerParty._id)}
-                                className="w-full rounded border border-slate-750 bg-slate-900 px-2.5 py-1 text-slate-100 outline-none focus:border-emerald-500 text-xs"
+                                className="w-full rounded border border-slate-200 dark:border-slate-750 bg-slate-50 dark:bg-slate-900 px-2.5 py-1 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs"
                                 placeholder="e.g. Procurement"
                               />
                             </div>
                             <div>
-                              <label className="block text-slate-450 mb-0.5">Mobile Phone</label>
+                              <label className="block text-slate-600 dark:text-slate-400 mb-0.5">Mobile Phone</label>
                               <input
                                 type="text"
                                 value={contact.phone || ""}
                                 onChange={e => handleContactFieldChange(drawerParty._id, idx, "phone", e.target.value)}
                                 onBlur={() => saveContacts(drawerParty._id)}
-                                className="w-full rounded border border-slate-750 bg-slate-900 px-2.5 py-1 text-slate-100 outline-none focus:border-emerald-500 text-xs font-mono"
+                                className="w-full rounded border border-slate-200 dark:border-slate-750 bg-slate-50 dark:bg-slate-900 px-2.5 py-1 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs font-mono"
                                 placeholder="Mobile No"
                               />
                             </div>
                             <div>
-                              <label className="block text-slate-450 mb-0.5">Email Address</label>
+                              <label className="block text-slate-600 dark:text-slate-400 mb-0.5">Email Address</label>
                               <input
                                 type="text"
                                 value={contact.email || ""}
                                 onChange={e => handleContactFieldChange(drawerParty._id, idx, "email", e.target.value)}
                                 onBlur={() => saveContacts(drawerParty._id)}
-                                className="w-full rounded border border-slate-750 bg-slate-900 px-2.5 py-1 text-slate-100 outline-none focus:border-emerald-500 text-xs font-mono"
+                                className="w-full rounded border border-slate-200 dark:border-slate-750 bg-slate-50 dark:bg-slate-900 px-2.5 py-1 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs font-mono"
                                 placeholder="mail@domain.com"
                               />
                             </div>
                             <div>
-                              <label className="block text-slate-450 mb-0.5">Alt Phone</label>
+                              <label className="block text-slate-600 dark:text-slate-400 mb-0.5">Alt Phone</label>
                               <input
                                 type="text"
                                 value={contact.alternate_phone || ""}
                                 onChange={e => handleContactFieldChange(drawerParty._id, idx, "alternate_phone", e.target.value)}
                                 onBlur={() => saveContacts(drawerParty._id)}
-                                className="w-full rounded border border-slate-750 bg-slate-900 px-2.5 py-1 text-slate-100 outline-none focus:border-emerald-500 text-xs font-mono"
+                                className="w-full rounded border border-slate-200 dark:border-slate-750 bg-slate-50 dark:bg-slate-900 px-2.5 py-1 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-xs font-mono"
                                 placeholder="Alternate phone"
                               />
                             </div>
@@ -1134,8 +1192,8 @@ function onEdit(e) {
                 </div>
 
                 {/* Footer status check */}
-                <div className="bg-slate-850 px-5 py-3 border-t border-slate-800 text-[10px] text-slate-500 shrink-0 select-none flex items-center gap-1.5 justify-end">
-                  <Cloud className="h-3 w-3 text-slate-500" />
+                <div className="bg-slate-50 dark:bg-slate-850 px-5 py-3 border-t border-slate-200 dark:border-slate-800 text-[10px] text-slate-550 dark:text-slate-500 shrink-0 select-none flex items-center gap-1.5 justify-end">
+                  <Cloud className="h-3 w-3 text-slate-450 dark:text-slate-500" />
                   <span>Changes auto-save instantly on field blur.</span>
                 </div>
               </div>
@@ -1143,9 +1201,9 @@ function onEdit(e) {
           )}
 
           {/* Grid Footer Bar */}
-          <div className="border-t border-slate-800 bg-slate-900 px-4 py-2 shrink-0 flex items-center justify-between text-xs text-slate-400 select-none">
+          <div className="border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-4 py-2 shrink-0 flex items-center justify-between text-xs text-slate-550 dark:text-slate-400 select-none">
             <div>
-              Total Parties: <span className="font-semibold text-slate-200">{localRows.length}</span>
+              Total Parties: <span className="font-semibold text-slate-800 dark:text-slate-200">{localRows.length}</span>
               {searchQuery && (
                 <span className="ml-3 text-slate-500">
                   (filtered to {filteredRows.length} matching rows)
@@ -1160,14 +1218,14 @@ function onEdit(e) {
         </div>
       ) : (
         /* Connect Real Google Sheet View */
-        <div className="flex-1 overflow-y-auto bg-slate-950 p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 p-6 space-y-6">
           <div className="max-w-4xl mx-auto space-y-6">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg space-y-4">
-              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-lg space-y-4">
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Link2 className="h-5 w-5 text-emerald-500" />
                 <span>Link a Real Google Sheet URL</span>
               </h3>
-              <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
+              <p className="text-xs text-slate-650 dark:text-slate-400 max-w-2xl leading-relaxed">
                 Paste your Google Sheet link here. We will parse it and embed it so you can edit it directly from this popup modal. Updates from the sheet will be synced back to the backend in real-time.
               </p>
 
@@ -1177,14 +1235,14 @@ function onEdit(e) {
                   value={realSheetUrl}
                   onChange={e => handleSaveRealSheetUrl(e.target.value)}
                   placeholder="https://docs.google.com/spreadsheets/d/.../edit"
-                  className="flex-1 rounded-lg border border-slate-700 bg-slate-850 px-3.5 py-2 text-sm text-slate-100 outline-none transition focus:border-emerald-600 focus:ring-1 focus:ring-emerald-500/30"
+                  className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3.5 py-2 text-sm text-slate-800 dark:text-slate-100 outline-none transition focus:border-emerald-600 focus:ring-1 focus:ring-emerald-500/30"
                 />
                 {realSheetUrl && (
                   <a
                     href={realSheetUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-850 hover:bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-200 transition"
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-705 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200 transition"
                   >
                     <span>Open Sheet</span>
                     <ExternalLink className="h-4 w-4" />
@@ -1195,10 +1253,10 @@ function onEdit(e) {
 
             {/* Embedded Iframe */}
             {googleSheetEmbedUrl ? (
-              <div className="border border-slate-850 rounded-xl overflow-hidden shadow-xl bg-slate-900">
-                <div className="bg-slate-850 px-4 py-2 border-b border-slate-800 flex justify-between items-center text-xs">
-                  <span className="font-semibold text-slate-300">Google Sheet Embedded View</span>
-                  <span className="text-[10px] text-slate-500">Iframe loading via Google Docs URL</span>
+              <div className="border border-slate-200 dark:border-slate-850 rounded-xl overflow-hidden shadow-xl bg-white dark:bg-slate-900">
+                <div className="bg-slate-100 dark:bg-slate-850 px-4 py-2 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center text-xs">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Google Sheet Embedded View</span>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">Iframe loading via Google Docs URL</span>
                 </div>
                 <iframe
                   src={googleSheetEmbedUrl}
@@ -1208,9 +1266,9 @@ function onEdit(e) {
                 />
               </div>
             ) : (
-              <div className="border-2 border-dashed border-slate-800 rounded-xl py-12 px-4 text-center bg-slate-900/30">
-                <div className="text-slate-650 mb-3 text-3xl">📁</div>
-                <h4 className="text-sm font-bold text-slate-300">No Google Sheet URL connected</h4>
+              <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl py-12 px-4 text-center bg-white dark:bg-slate-900/30">
+                <div className="text-slate-400 dark:text-slate-655 mb-3 text-3xl">📁</div>
+                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">No Google Sheet URL connected</h4>
                 <p className="text-xs text-slate-500 max-w-xs mx-auto mt-1">
                   Paste your spreadsheet link above to enable the embedded preview panel in this tab.
                 </p>
@@ -1218,57 +1276,57 @@ function onEdit(e) {
             )}
 
             {/* Setup Instructions */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-5">
-              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2 border-b border-slate-800 pb-3">
-                <Info className="h-5 w-5 text-blue-400" />
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-lg space-y-5">
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <Info className="h-5 w-5 text-blue-500 dark:text-blue-400" />
                 <span>Webhooks Setup Guide (How to Sync Google Sheet {"->"} Backend)</span>
               </h3>
 
-              <div className="space-y-4 text-xs leading-relaxed text-slate-350">
+              <div className="space-y-4 text-xs leading-relaxed text-slate-600 dark:text-slate-350">
                 <div className="space-y-2">
-                  <span className="font-bold text-slate-200 block">1. Sheet Columns Setup</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200 block">1. Sheet Columns Setup</span>
                   <p>
                     Set the headers in Row 1 of your spreadsheet exactly as follows (column order doesn't matter, but names must match):
                   </p>
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 pt-1.5 font-mono text-[10px]">
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">Party ID</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">Party Name*</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">Party Type*</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">Contact Person</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">Mobile / Phone</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">Email Address</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">GSTIN No</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">Drug License No</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">District</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">State</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">Payment Terms</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">Active</div>
-                    <div className="bg-slate-850 border border-slate-850 p-1.5 rounded text-center">SRA</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Party ID</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Party Name*</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Party Type*</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Contact Person</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Mobile / Phone</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Email Address</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">GSTIN No</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Drug License No</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">District</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">State</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Payment Terms</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Active</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">SRA</div>
                   </div>
-                  <span className="text-[10px] text-slate-500 block mt-1">
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-1">
                     * Asterisks denote fields required by the database engine.
                   </span>
                 </div>
 
                 <div className="space-y-2 pt-2">
-                  <span className="font-bold text-slate-200 block">2. Google Apps Script Configuration</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200 block">2. Google Apps Script Configuration</span>
                   <p>
-                    Open your sheet, select <strong className="text-slate-200">Extensions &gt; Apps Script</strong>, clear the editor, and copy-paste the code snippet below:
+                    Open your sheet, select <strong className="text-slate-800 dark:text-slate-200">Extensions &gt; Apps Script</strong>, clear the editor, and copy-paste the code snippet below:
                   </p>
 
                   {/* Copy Script Container */}
-                  <div className="relative border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-[11px] leading-normal text-slate-300">
-                    <div className="bg-slate-850 px-4 py-2 flex justify-between items-center text-xs select-none">
-                      <span className="font-semibold text-slate-450">GoogleAppsScriptCode.js</span>
+                  <div className="relative border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-950 font-mono text-[11px] leading-normal text-slate-700 dark:text-slate-300">
+                    <div className="bg-slate-100 dark:bg-slate-850 px-4 py-2 flex justify-between items-center text-xs select-none">
+                      <span className="font-semibold text-slate-550 dark:text-slate-450">GoogleAppsScriptCode.js</span>
                       <button
                         onClick={copyScriptCode}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-750 text-slate-250 transition active:scale-95"
+                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 text-slate-600 dark:text-slate-250 border border-slate-200 dark:border-slate-700 transition active:scale-95"
                       >
-                        {copiedScript ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copiedScript ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                         <span>{copiedScript ? "Copied!" : "Copy Code"}</span>
                       </button>
                     </div>
-                    <pre className="p-4 overflow-x-auto max-h-60 select-all">
+                    <pre className="p-4 overflow-x-auto max-h-60 select-all border-t border-slate-200 dark:border-slate-800">
                       {`function onEdit(e) {
   var sheet = e.source.getActiveSheet();
   var range = e.range;
@@ -1321,15 +1379,15 @@ function onEdit(e) {
                 </div>
 
                 <div className="space-y-2 pt-2">
-                  <span className="font-bold text-slate-200 block">3. Setup onEdit Trigger</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200 block">3. Setup onEdit Trigger</span>
                   <p>
-                    Inside the Google Apps Script panel, click on the Clock icon (<strong className="text-slate-200">Triggers</strong>) in the left sidebar. Add a trigger:
+                    Inside the Google Apps Script panel, click on the Clock icon (<strong className="text-slate-800 dark:text-slate-200">Triggers</strong>) in the left sidebar. Add a trigger:
                   </p>
-                  <ul className="list-disc list-inside pl-2 space-y-1 text-slate-400">
-                    <li>Choose function: <code className="font-mono text-emerald-400">onEdit</code></li>
+                  <ul className="list-disc list-inside pl-2 space-y-1 text-slate-500 dark:text-slate-400">
+                    <li>Choose function: <code className="font-mono text-emerald-600 dark:text-emerald-400">onEdit</code></li>
                     <li>Choose deployment: <code className="font-mono">Head</code></li>
-                    <li>Event source: <code className="font-mono text-emerald-400">From spreadsheet</code></li>
-                    <li>Event type: <code className="font-mono text-emerald-400">On edit</code></li>
+                    <li>Event source: <code className="font-mono text-emerald-600 dark:text-emerald-400">From spreadsheet</code></li>
+                    <li>Event type: <code className="font-mono text-emerald-600 dark:text-emerald-400">On edit</code></li>
                   </ul>
                   <p className="mt-1">
                     Save the trigger and authorize the Google Script. Now, updates/new lines created in your Google Sheet will sync live to your OPMS database!
