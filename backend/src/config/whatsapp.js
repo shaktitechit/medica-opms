@@ -2,7 +2,7 @@
  * @fileoverview Configuration (whatsapp).
  * @module config/whatsapp
  */
-const { WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_API_VERSION } = require('./env');
+const { WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_API_VERSION, WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET } = require('./env');
 
 function isConfigured() {
   return Boolean(WHATSAPP_ACCESS_TOKEN && WHATSAPP_PHONE_NUMBER_ID);
@@ -27,4 +27,6 @@ module.exports = {
   WHATSAPP_ACCESS_TOKEN,
   WHATSAPP_PHONE_NUMBER_ID,
   WHATSAPP_API_VERSION,
+  WHATSAPP_VERIFY_TOKEN,
+  WHATSAPP_APP_SECRET,
 };

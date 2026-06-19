@@ -39,7 +39,12 @@ const messageRoutes = require('./modules/messages/message.routes');
 
 const app = express();
 app.use(cors(corsOptions));
-app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(express.json({
+  limit: JSON_BODY_LIMIT,
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(authMiddleware);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));

@@ -15,6 +15,22 @@ type ApprovalMutationArg = {
   body?: Record<string, unknown>;
 };
 
+export type CreateOrderApprovalPayload = {
+  order: string;
+  approve_immediately?: boolean;
+  replace_snapshot?: boolean;
+  order_items?: any[];
+  approval_notes?: string;
+  approved_total_amount?: number;
+  approval_items?: any[];
+  contact_number?: string | string[];
+  whatsapp_number?: string | string[];
+  template_name?: string;
+  template_components?: unknown[];
+  [key: string]: any;
+};
+
+
 const orderApprovalTags = (id?: string) => [
   { type: "OrderApprovals" as const, id: "LIST" },
   ...(id ? [{ type: "OrderApprovals" as const, id }] : []),
@@ -49,7 +65,7 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       providesTags: (_r, _e, id) => [{ type: "OrderApprovals", id }],
     }),
-    createOrderApproval: build.mutation<unknown, Record<string, unknown>>({
+    createOrderApproval: build.mutation<unknown, CreateOrderApprovalPayload>({
       query: (body) => ({
         url: "order-approvals",
         method: "POST",

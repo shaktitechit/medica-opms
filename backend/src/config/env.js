@@ -59,6 +59,8 @@ module.exports = {
   WHATSAPP_ACCESS_TOKEN: process.env.WHATSAPP_ACCESS_TOKEN || '',
   WHATSAPP_PHONE_NUMBER_ID: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
   WHATSAPP_API_VERSION: process.env.WHATSAPP_API_VERSION || 'v19.0',
+  WHATSAPP_VERIFY_TOKEN: process.env.WHATSAPP_VERIFY_TOKEN || 'medica_verify_token_default_value',
+  WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET || 'medica_app_secret_default_value',
 
   /** Bull / ioredis / future queue driver */
   REDIS_URL: process.env.REDIS_URL || '',

@@ -5,6 +5,7 @@
 const axios = require('axios');
 const whatsappConfig = require('../../../config/whatsapp');
 const { logger } = require('../../../config/logger');
+const { WHATSAPP_TEMPLATES, isValidTemplate } = require('../whatsappTemplates.registry');
 
 /**
  * Sends a raw payload to WhatsApp Cloud API.
@@ -100,4 +101,7 @@ module.exports = {
   sendTextMessage,
   sendTemplateMessage,
   sendMediaMessage,
+  WHATSAPP_TEMPLATES,
+  isValidTemplate,
 };
+

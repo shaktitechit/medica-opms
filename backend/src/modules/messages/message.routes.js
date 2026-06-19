@@ -7,7 +7,11 @@ const router = Router();
 const { requireAuth } = require('../../middlewares/auth.middleware');
 const controller = require('./message.controller');
 
-// Require authentication for all message actions
+// Public Webhook routes (no Auth middleware)
+router.get('/webhook', controller.verifyWebhook);
+router.post('/webhook', controller.receiveWebhook);
+
+// Require authentication for all other message actions
 router.use(requireAuth);
 
 router.post('/send', controller.queueMessage);

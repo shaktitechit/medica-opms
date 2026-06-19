@@ -15,8 +15,10 @@ import {
   useCheckPartyLineRatesQuery,
   useCreateOrderApprovalMutation,
   useListProductsQuery,
+  useGetPartyQuery,
 } from "@/store/api";
 import type { CheckOrderRatesItem } from "@/store/api/slices/partyOrderProductsRateApi";
+import { contactsFromParty } from "@/lib/partyContacts";
 import {
   MapOrderLinePriceModal,
   type MapOrderLinePriceSuccess,
@@ -138,6 +140,25 @@ export function ApprovalModal({
 
   const [createAdminApproval, { isLoading: isCreating }] =
     useCreateOrderApprovalMutation();
+
+  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+  const { data: partyData } = useGetPartyQuery(partyId ?? "", {
+    skip: !open || !partyId,
+  });
+  const contacts = useMemo(() => contactsFromParty(partyData), [partyData]);
+
+  useEffect(() => {
+    if (open && contacts.length > 0) {
+      const firstWithPhone = contacts.find((c) => c.phone.trim());
+      if (firstWithPhone) {
+        setSelectedContacts([firstWithPhone.phone.trim()]);
+      } else {
+        setSelectedContacts([]);
+      }
+    } else if (!open) {
+      setSelectedContacts([]);
+    }
+  }, [open, contacts]);
 
   // Price mapping states
   const [mapTarget, setMapTarget] = useState<MapOrderLinePriceTarget | null>(
@@ -409,6 +430,7 @@ export function ApprovalModal({
         approval_notes: approvalNotes.trim() || undefined,
         approved_total_amount: approvedTotal,
         approval_items: approvalItems,
+        contact_number: selectedContacts,
       }).unwrap();
 
       toast.success("Order and approval updated successfully.");
@@ -432,6 +454,7 @@ export function ApprovalModal({
     onClose,
     onApproved,
     refetchOrder,
+    selectedContacts,
   ]);
 
   const busy = isCreating;
@@ -735,6 +758,60 @@ export function ApprovalModal({
                 placeholder="Notes for the approval record…"
               />
             </div>
+
+            {contacts.length > 0 && (
+              <div className="mt-4 space-y-2 border-t border-slate-100 pt-4 dark:border-white/5">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Send WhatsApp Notification
+                </label>
+                <p className="text-[10px] text-slate-450 dark:text-slate-400">
+                  Select contacts to receive WhatsApp approval notification:
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+                  {contacts.map((contact, index) => {
+                    const phone = contact.phone.trim();
+                    const hasPhone = Boolean(phone);
+                    return (
+                      <label
+                        key={`${phone}-${index}`}
+                        className={`flex items-start gap-2.5 rounded-lg border p-2.5 transition ${
+                          !hasPhone
+                            ? "opacity-50 cursor-not-allowed border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-slate-900/50"
+                            : "hover:bg-slate-50/50 dark:hover:bg-white/5 cursor-pointer border-slate-200 dark:border-white/10"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={!hasPhone || busy}
+                          checked={hasPhone && selectedContacts.includes(phone)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedContacts((prev) => [...prev, phone]);
+                            } else {
+                              setSelectedContacts((prev) => prev.filter((p) => p !== phone));
+                            }
+                          }}
+                          className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                        <div className="min-w-0 flex-1 text-xs">
+                          <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                            {contact.name || "Unnamed Contact"}
+                          </p>
+                          {contact.department && (
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
+                              {contact.department}
+                            </p>
+                          )}
+                          <p className="font-mono text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            {phone || "No phone number"}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-4 dark:border-white/5">

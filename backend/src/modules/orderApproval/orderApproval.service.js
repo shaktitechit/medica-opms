@@ -5,6 +5,9 @@
 const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
+const messageService = require('../messages/message.service');
+const { logger } = require('../../config/logger');
+const { WHATSAPP_TEMPLATES } = require('../messages/whatsappTemplates.registry');
 const { softDeleteActiveById, restoreSoftDeletedById, listDeletedLean } = require('../../utils/mongoSoftDelete');
 const activityService = require('../activity/activity.service');
 const workflowService = require('../workflow/workflow.service');
@@ -559,6 +562,40 @@ async function createAdminApproval(body, user) {
   order.admin_approval_status = APPROVAL_STATUS.PENDING;
   order.last_admin_approval = doc._id;
   await order.save();
+
+  // Send WhatsApp notification if recipient number(s) provided in body
+  const recipientsRaw = body.contact_number || body.whatsapp_number;
+  if (recipientsRaw) {
+    const recipients = Array.isArray(recipientsRaw)
+      ? recipientsRaw
+      : typeof recipientsRaw === 'string'
+        ? recipientsRaw.split(',').map(r => r.trim()).filter(Boolean)
+        : [recipientsRaw];
+
+    for (const recipient of recipients) {
+      try {
+        await messageService.createAndQueueMessage({
+          recipient,
+          channel: 'whatsapp',
+          templateName: body.template_name || WHATSAPP_TEMPLATES.ORDER_STATUS_UPDATE,
+          templateParams: {
+            languageCode: body.language_code || 'en_US',
+            components: body.template_components || [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: order.order_no || '' },
+                  { type: 'text', text: 'Admin Approval Pending' }
+                ]
+              }
+            ]
+          }
+        });
+      } catch (err) {
+        logger.error(`[OrderApproval Service] Failed to queue WhatsApp message for admin approval to ${recipient}: ${err.message}`);
+      }
+    }
+  }
 
   if (body.approve_immediately === true) {
     return approve(doc._id, { ...body, replace_snapshot: true }, user);
