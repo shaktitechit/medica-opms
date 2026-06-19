@@ -15,7 +15,8 @@ import {
   HelpCircle,
   FileText,
   RefreshCw,
-  Link2
+  Link2,
+  SlidersHorizontal
 } from "lucide-react";
 import {
   useListProductsQuery,
@@ -88,6 +89,43 @@ export function GoogleSheetProductsModal({
   const [savingRows, setSavingRows] = useState<Record<string, boolean>>({});
   const [realSheetUrl, setRealSheetUrl] = useState("");
   const [copiedScript, setCopiedScript] = useState(false);
+
+  // Filter panel toggle & criteria states
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [filterActiveStatus, setFilterActiveStatus] = useState<"all" | "active" | "inactive">("all");
+  const [filterGstRate, setFilterGstRate] = useState<string>("all");
+  const [filterUnit, setFilterUnit] = useState<string>("all");
+  const [filterMinPrice, setFilterMinPrice] = useState<string>("");
+  const [filterMaxPrice, setFilterMaxPrice] = useState<string>("");
+
+  const uniqueGstRates = useMemo(() => {
+    const rates = new Set<number>();
+    localRows.forEach(r => {
+      if (r.gst_percent !== undefined && r.gst_percent !== null) {
+        rates.add(r.gst_percent);
+      }
+    });
+    return Array.from(rates).sort((a, b) => a - b);
+  }, [localRows]);
+
+  const hasActiveFilters = useMemo(() => {
+    return (
+      filterActiveStatus !== "all" ||
+      filterGstRate !== "all" ||
+      filterUnit !== "all" ||
+      filterMinPrice.trim() !== "" ||
+      filterMaxPrice.trim() !== ""
+    );
+  }, [filterActiveStatus, filterGstRate, filterUnit, filterMinPrice, filterMaxPrice]);
+
+  const handleClearFilters = () => {
+    setFilterActiveStatus("all");
+    setFilterGstRate("all");
+    setFilterUnit("all");
+    setFilterMinPrice("");
+    setFilterMaxPrice("");
+  };
+
 
   // Resizable columns width state
   const [colWidths, setColWidths] = useState<Record<string, number>>({
@@ -273,20 +311,58 @@ export function GoogleSheetProductsModal({
       toast.error("Failed to delete product");
     }
   };
-
-  // Filtered rows for virtual sheet search
+  // Filtered rows for virtual sheet search and filter panel criteria
   const filteredRows = useMemo(() => {
-    if (!searchQuery.trim()) return localRows;
-    const query = searchQuery.toLowerCase().trim();
-    return localRows.filter(
-      r =>
-        r.product_name?.toLowerCase().includes(query) ||
-        r.sku?.toLowerCase().includes(query) ||
-        r.generic_name?.toLowerCase().includes(query) ||
-        r.brand?.toLowerCase().includes(query) ||
-        r.manufacturer?.toLowerCase().includes(query)
-    );
-  }, [localRows, searchQuery]);
+    let rows = localRows;
+
+    // 1. Text Search Query Filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      rows = rows.filter(
+        r =>
+          r.product_name?.toLowerCase().includes(query) ||
+          r.sku?.toLowerCase().includes(query) ||
+          r.generic_name?.toLowerCase().includes(query) ||
+          r.brand?.toLowerCase().includes(query) ||
+          r.manufacturer?.toLowerCase().includes(query)
+      );
+    }
+
+    // 2. Active Status Filter
+    if (filterActiveStatus !== "all") {
+      const wantActive = filterActiveStatus === "active";
+      rows = rows.filter(r => r.is_active === wantActive);
+    }
+
+    // 3. GST Rate Filter
+    if (filterGstRate !== "all") {
+      const gstVal = parseFloat(filterGstRate);
+      rows = rows.filter(r => r.gst_percent === gstVal);
+    }
+
+    // 4. Unit Filter
+    if (filterUnit !== "all") {
+      rows = rows.filter(r => r.unit === filterUnit);
+    }
+
+    // 5. Min Price Filter
+    if (filterMinPrice.trim()) {
+      const minVal = parseFloat(filterMinPrice);
+      if (!isNaN(minVal)) {
+        rows = rows.filter(r => (r.base_price ?? 0) >= minVal);
+      }
+    }
+
+    // 6. Max Price Filter
+    if (filterMaxPrice.trim()) {
+      const maxVal = parseFloat(filterMaxPrice);
+      if (!isNaN(maxVal)) {
+        rows = rows.filter(r => (r.base_price ?? 0) <= maxVal);
+      }
+    }
+
+    return rows;
+  }, [localRows, searchQuery, filterActiveStatus, filterGstRate, filterUnit, filterMinPrice, filterMaxPrice]);
 
   // Copy apps script code
   const copyScriptCode = () => {
@@ -482,21 +558,141 @@ function onEdit(e) {
               </button>
             </div>
 
-            {/* Filter Search */}
-            <div className="relative w-72">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400 dark:text-slate-555 pointer-events-none">
-                <Search className="h-3.5 w-3.5" />
-              </span>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search cell values in spreadsheet..."
-                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-slate-100 outline-none transition focus:border-emerald-600 focus:ring-1 focus:ring-emerald-500/30"
-              />
+            {/* Filter Search & Dropdown Controls */}
+            <div className="flex items-center gap-2 relative">
+              {/* Search input */}
+              <div className="relative w-60">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400 dark:text-slate-555 pointer-events-none">
+                  <Search className="h-3.5 w-3.5" />
+                </span>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search cell values in spreadsheet..."
+                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-slate-100 outline-none transition focus:border-emerald-600 focus:ring-1 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              {/* Filters Toggle Button */}
+              <button
+                onClick={() => setIsFilterPanelOpen(prev => !prev)}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition relative ${
+                  isFilterPanelOpen || hasActiveFilters
+                    ? "border-emerald-500 bg-emerald-50/10 text-emerald-600 dark:text-emerald-400"
+                    : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                }`}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <span>Filters</span>
+                {hasActiveFilters && (
+                  <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900" />
+                )}
+              </button>
+
+              {/* Clear Filters helper */}
+              {hasActiveFilters && (
+                <button
+                  onClick={handleClearFilters}
+                  className="text-xs font-semibold text-rose-500 hover:text-rose-600 px-1 py-1.5 transition"
+                  title="Clear all active filters"
+                >
+                  Clear
+                </button>
+              )}
+
+              {/* Filter Panel Dropdown Popover */}
+              {isFilterPanelOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setIsFilterPanelOpen(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-4 z-50 space-y-4 text-xs">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                      <span className="font-bold text-slate-900 dark:text-slate-100">Sheet Filters</span>
+                      <button
+                        onClick={handleClearFilters}
+                        disabled={!hasActiveFilters}
+                        className="text-[10px] text-slate-400 hover:text-emerald-500 disabled:opacity-50 transition"
+                      >
+                        Reset All
+                      </button>
+                    </div>
+
+                    {/* Filter fields list */}
+                    <div className="space-y-3 select-none">
+                      {/* Status select */}
+                      <div>
+                        <label className="block font-medium text-slate-500 dark:text-slate-400 mb-1">Product Status</label>
+                        <select
+                          value={filterActiveStatus}
+                          onChange={e => setFilterActiveStatus(e.target.value as any)}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                        >
+                          <option value="all">All statuses</option>
+                          <option value="active">Active Only</option>
+                          <option value="inactive">Inactive Only</option>
+                        </select>
+                      </div>
+
+                      {/* GST select */}
+                      <div>
+                        <label className="block font-medium text-slate-550 dark:text-slate-400 mb-1">GST Rate</label>
+                        <select
+                          value={filterGstRate}
+                          onChange={e => setFilterGstRate(e.target.value)}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                        >
+                          <option value="all">All rates</option>
+                          {uniqueGstRates.map(rate => (
+                            <option key={rate} value={String(rate)}>{rate}%</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Unit select */}
+                      <div>
+                        <label className="block font-medium text-slate-550 dark:text-slate-400 mb-1">Unit of Measure</label>
+                        <select
+                          value={filterUnit}
+                          onChange={e => setFilterUnit(e.target.value)}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                        >
+                          <option value="all">All units</option>
+                          {COLUMNS.find(c => c.key === "unit")?.options?.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Base Price range inputs */}
+                      <div>
+                        <label className="block font-medium text-slate-550 dark:text-slate-400 mb-1">Base Price Range</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            value={filterMinPrice}
+                            onChange={e => setFilterMinPrice(e.target.value)}
+                            placeholder="Min"
+                            className="w-1/2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-center"
+                          />
+                          <span className="text-slate-400">—</span>
+                          <input
+                            type="number"
+                            value={filterMaxPrice}
+                            onChange={e => setFilterMaxPrice(e.target.value)}
+                            placeholder="Max"
+                            className="w-1/2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 text-center"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
-
           {/* Formula Bar */}
           <div className="flex items-center border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-4 py-1.5 text-xs select-none shrink-0 font-mono">
             <span className="text-slate-450 dark:text-slate-550 font-semibold select-none pr-3 select-none">fx</span>
