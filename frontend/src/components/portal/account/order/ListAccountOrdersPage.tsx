@@ -21,7 +21,9 @@ import { Search,
   ChevronsLeft,
   ChevronsRight,
   RefreshCw,
-  LayoutDashboard } from "lucide-react";
+  LayoutDashboard,
+  TableProperties } from "lucide-react";
+import { GoogleSheetOrdersModal } from "@/components/portal/shared/GoogleSheetOrdersModal";
 import {
   OrderFulfillmentPipelineStrip,
   buildListOrderFulfillmentPipeline,
@@ -208,6 +210,7 @@ export default function ListAccountOrdersPage() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
 
   useEffect(() => {
     if (tabFromUrl === "pending_account_review") {
@@ -353,6 +356,15 @@ export default function ListAccountOrdersPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setIsSheetOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 hover:text-emerald-900 dark:border-emerald-700/50 dark:bg-emerald-950/40 dark:text-emerald-400 dark:hover:bg-emerald-900/30 cursor-pointer"
+              title="Open spreadsheet view"
+            >
+              <TableProperties className="h-3.5 w-3.5" />
+              View Sheet
+            </button>
             <button
               type="button"
               onClick={() => refetch()}
@@ -694,6 +706,14 @@ export default function ListAccountOrdersPage() {
           </>
         )}
       </div>
+
+      <GoogleSheetOrdersModal
+        isOpen={isSheetOpen}
+        onClose={() => setIsSheetOpen(false)}
+        partyNameById={partyNameById}
+        portal="account"
+        initialTab="pending_account_approval"
+      />
     </div>
   );
 }
