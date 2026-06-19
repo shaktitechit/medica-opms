@@ -361,6 +361,79 @@ async function bulkDelete(ids, user) {
   };
 }
 
+async function syncFromGoogleSheet(row) {
+  const { Party } = getModels();
+  const mongoose = require('mongoose');
+
+  if (!row || typeof row !== 'object') {
+    throw new ApiError(400, 'Invalid row payload');
+  }
+
+  // Find by ID or GSTIN
+  const rawId = row._id || row.id || row.party_id;
+  const isMongoId = rawId && mongoose.Types.ObjectId.isValid(rawId);
+
+  let doc = null;
+  if (isMongoId) {
+    doc = await Party.findOne({ _id: rawId, deletedAt: null });
+  }
+
+  const gstVal = row.gst_no ? String(row.gst_no).trim().toUpperCase() : '';
+  if (!doc && gstVal) {
+    doc = await Party.findOne({ gst_no: gstVal, deletedAt: null });
+  }
+
+  // Parse attributes
+  const typeRaw = row.party_type ? String(row.party_type).trim().toLowerCase() : undefined;
+  const activeRaw = row.is_active ?? row.active;
+  const isActive = activeRaw !== undefined ? (String(activeRaw).toLowerCase() === 'true' || activeRaw === true || activeRaw === '1' || activeRaw === 1) : undefined;
+  const sraRaw = row.sra;
+  const isSra = sraRaw !== undefined ? (String(sraRaw).toLowerCase() === 'true' || sraRaw === true || sraRaw === '1' || sraRaw === 1) : undefined;
+
+  const payload = {};
+  if (row.party_name || row.name) payload.party_name = String(row.party_name || row.name).trim();
+  if (typeRaw && ['customer', 'supplier', 'both'].includes(typeRaw)) payload.party_type = typeRaw;
+  
+  if (row.contact_person || row.contact) payload.contact_person = String(row.contact_person || row.contact).trim();
+  if (row.mobile || row.phone) payload.mobile = String(row.mobile || row.phone).trim();
+  if (row.email) payload.email = String(row.email).trim().toLowerCase();
+  if (gstVal) payload.gst_no = gstVal;
+  if (row.drug_license_no || row.drug_license) payload.drug_license_no = String(row.drug_license_no || row.drug_license).trim();
+  
+  if (row.district) payload.district = String(row.district).trim();
+  if (row.state) payload.state = String(row.state).trim();
+  if (row.payment_terms) payload.payment_terms = String(row.payment_terms).trim();
+
+  if (isActive !== undefined) payload.is_active = isActive;
+  if (isSra !== undefined) payload.sra = isSra;
+
+  // Contacts handling
+  if (payload.contact_person || payload.mobile || payload.email) {
+    const mainContact = {
+      name: payload.contact_person || (doc ? doc.contact_person : ''),
+      phone: payload.mobile || (doc ? doc.mobile : ''),
+      email: payload.email || (doc ? doc.email : ''),
+      department: doc && doc.contacts && doc.contacts[0] ? doc.contacts[0].department : 'Main'
+    };
+    payload.contacts = [mainContact];
+  }
+
+  if (doc) {
+    for (const [k, v] of Object.entries(payload)) {
+      doc.set(k, v);
+    }
+    await doc.save();
+    return toPlain(doc.toObject());
+  } else {
+    // defaults
+    if (!payload.party_name) payload.party_name = 'New Sheet Party';
+    if (payload.party_type === undefined) payload.party_type = 'customer';
+    
+    const newDoc = await Party.create(payload);
+    return toPlain(newDoc.toObject());
+  }
+}
+
 module.exports = {
   list,
   get,
@@ -371,5 +444,6 @@ module.exports = {
   restore,
   bulkCreate,
   bulkDelete,
+  syncFromGoogleSheet,
 };
 

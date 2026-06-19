@@ -437,6 +437,102 @@ async function bulkDelete(ids, user) {
   };
 }
 
+async function syncFromGoogleSheet(row) {
+  const { Product } = getModels();
+
+  if (!row || typeof row !== 'object') {
+    throw new ApiError(400, 'Invalid row payload');
+  }
+
+  // Find by ID or SKU
+  const rawId = row._id || row.id || row.product_id;
+  const isMongoId = rawId && mongoose.Types.ObjectId.isValid(rawId);
+
+  let doc = null;
+  if (isMongoId) {
+    doc = await Product.findOne({ _id: rawId, deletedAt: null });
+  }
+
+  const skuVal = row.sku ? String(row.sku).trim().toUpperCase() : '';
+  if (!doc && skuVal) {
+    doc = await Product.findOne({ sku: skuVal, deletedAt: null });
+  }
+
+  // Parse attributes
+  const priceRaw = row.base_price ?? row.price ?? row.default_price;
+  const basePrice = priceRaw !== undefined && priceRaw !== '' ? Number(priceRaw) : undefined;
+
+  const minSaleRaw = row.minimum_sale_rate ?? row.min_sale_rate ?? basePrice;
+  const minSaleRate = minSaleRaw !== undefined && minSaleRaw !== '' ? Number(minSaleRaw) : undefined;
+
+  const gstRaw = row.gst_percent ?? row.gst_rate ?? row.gst;
+  const gstPercent = gstRaw !== undefined && gstRaw !== '' ? Number(gstRaw) : undefined;
+
+  const mrpRaw = row.mrp;
+  const mrp = mrpRaw !== undefined && mrpRaw !== '' ? Number(mrpRaw) : undefined;
+
+  const wmRaw = row.warranty_months ?? row.warranty;
+  const warrantyMonths = wmRaw !== undefined && wmRaw !== '' ? Math.floor(Number(wmRaw)) : undefined;
+
+  const unitRaw = row.unit ? String(row.unit).trim().toLowerCase() : undefined;
+  const activeRaw = row.is_active ?? row.active;
+  const isActive = activeRaw !== undefined ? (String(activeRaw).toLowerCase() === 'true' || activeRaw === true || activeRaw === '1' || activeRaw === 1) : undefined;
+
+  const payload = {};
+  if (row.product_name || row.name) payload.product_name = String(row.product_name || row.name).trim();
+  if (row.generic_name || row.generic) payload.generic_name = String(row.generic_name || row.generic).trim();
+
+  if (row.aliases) {
+    payload.aliases = Array.isArray(row.aliases)
+      ? row.aliases.map(x => String(x ?? '').trim().toLowerCase()).filter(Boolean)
+      : String(row.aliases).split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  }
+
+  if (skuVal) payload.sku = skuVal;
+  if (row.product_group || row.group) payload.product_group = String(row.product_group || row.group).trim();
+  if (row.product_subgroup || row.subgroup) payload.product_subgroup = String(row.product_subgroup || row.subgroup).trim();
+  if (row.brand) payload.brand = String(row.brand).trim();
+  if (row.manufacturer) payload.manufacturer = String(row.manufacturer).trim();
+
+  if (unitRaw && ['pcs', 'box', 'kg', 'ltr', 'meter', 'set', 'kit', 'bottle'].includes(unitRaw)) {
+    payload.unit = unitRaw;
+  }
+
+  if (basePrice !== undefined && Number.isFinite(basePrice) && basePrice >= 0) payload.base_price = basePrice;
+  if (minSaleRate !== undefined && Number.isFinite(minSaleRate) && minSaleRate >= 0) payload.minimum_sale_rate = minSaleRate;
+  if (mrp !== undefined && Number.isFinite(mrp) && mrp >= 0) payload.mrp = mrp;
+  if (gstPercent !== undefined && Number.isFinite(gstPercent) && gstPercent >= 0 && gstPercent <= 100) payload.gst_percent = gstPercent;
+  if (warrantyMonths !== undefined && Number.isFinite(warrantyMonths) && warrantyMonths >= 0) payload.warranty_months = warrantyMonths;
+
+  if (row.description || row.desc) payload.description = String(row.description || row.desc).trim();
+
+  if (row.tags) {
+    payload.tags = Array.isArray(row.tags)
+      ? row.tags.map(x => String(x ?? '').trim().toLowerCase()).filter(Boolean)
+      : String(row.tags).split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  }
+
+  if (isActive !== undefined) payload.is_active = isActive;
+
+  if (doc) {
+    for (const [k, v] of Object.entries(payload)) {
+      doc.set(k, v);
+    }
+    await doc.save();
+    return toPlain(doc.toObject());
+  } else {
+    // defaults
+    if (!payload.product_name) payload.product_name = 'New Sheet Product';
+    if (payload.base_price === undefined) payload.base_price = 0;
+    if (payload.minimum_sale_rate === undefined) payload.minimum_sale_rate = payload.base_price;
+    if (payload.unit === undefined) payload.unit = 'pcs';
+    if (payload.gst_percent === undefined) payload.gst_percent = 18;
+
+    const newDoc = await Product.create(payload);
+    return toPlain(newDoc.toObject());
+  }
+}
+
 module.exports = {
   list,
   get,
@@ -447,4 +543,5 @@ module.exports = {
   restore,
   bulkCreate,
   bulkDelete,
+  syncFromGoogleSheet,
 };

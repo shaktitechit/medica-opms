@@ -24,8 +24,8 @@ import { ConfirmBulkDeletePartiesModal } from "@/components/portal/shared/Confir
 import { PartyDetailModal } from "@/components/portal/shared/PartyDetailModal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { BulkUploadPartiesModal } from "@/components/portal/shared/BulkUploadPartiesModal";
-import {
-  mutationRejectedMessage,
+import { GoogleSheetPartiesModal } from "@/components/portal/shared/GoogleSheetPartiesModal";
+import {  mutationRejectedMessage,
   mutationSuccessCopy,
 } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
@@ -130,6 +130,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+  const [googleSheetOpen, setGoogleSheetOpen] = useState(false);
 
   const handleSearchChange = (val: string) => {
     setSearch(val);
@@ -292,6 +293,11 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
         onClose={() => setBulkUploadOpen(false)}
         onSuccess={() => refetch()}
       />
+      <GoogleSheetPartiesModal
+        isOpen={googleSheetOpen}
+        onClose={() => setGoogleSheetOpen(false)}
+        onSuccess={() => refetch()}
+      />
 
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border border-blue-500/10 p-6 dark:from-blue-500/5 dark:to-indigo-500/5">
@@ -325,6 +331,13 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
                 📥 Bulk Upload
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setGoogleSheetOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-500/20 transition active:scale-[0.98] dark:bg-emerald-500 dark:hover:bg-emerald-400"
+            >
+              📊 Manage in Google Sheet
+            </button>
             <button
               type="button"
               onClick={openCreate}

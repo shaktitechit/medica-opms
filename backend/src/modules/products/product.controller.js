@@ -47,3 +47,15 @@ exports.bulkDelete = asyncHandler(async (req, res) => {
   }
   res.json({ success: true, data: await service.bulkDelete(ids, req.user) });
 });
+
+exports.googleSheetWebhook = asyncHandler(async (req, res) => {
+  const secret = req.query.secret || req.headers['x-webhook-secret'] || req.headers['x-api-key'];
+  const expectedSecret = process.env.GOOGLE_SHEET_WEBHOOK_SECRET || 'medica-gsheet-sync-secret';
+
+  if (!secret || secret !== expectedSecret) {
+    throw new ApiError(401, 'Unauthorized: Invalid secret key');
+  }
+
+  const data = await service.syncFromGoogleSheet(req.body);
+  res.json({ success: true, data });
+});

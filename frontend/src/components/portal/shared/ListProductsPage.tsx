@@ -23,8 +23,8 @@ import { ConfirmBulkDeleteProductsModal } from "@/components/portal/shared/Confi
 import { ProductDetailModal } from "@/components/portal/shared/ProductDetailModal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { BulkUploadProductsModal } from "@/components/portal/shared/BulkUploadProductsModal";
-import {
-  mutationRejectedMessage,
+import { GoogleSheetProductsModal } from "@/components/portal/shared/GoogleSheetProductsModal";
+import {  mutationRejectedMessage,
   mutationSuccessCopy,
 } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
@@ -129,6 +129,7 @@ export default function ListProductsPage({
   const [detailId, setDetailId] = useState<string | null>(null);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [googleSheetOpen, setGoogleSheetOpen] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
@@ -285,6 +286,11 @@ export default function ListProductsPage({
         onClose={() => setBulkUploadOpen(false)}
         onSuccess={() => refetch()}
       />
+      <GoogleSheetProductsModal
+        isOpen={googleSheetOpen}
+        onClose={() => setGoogleSheetOpen(false)}
+        onSuccess={() => refetch()}
+      />
 
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border border-blue-500/10 p-6 dark:from-blue-500/5 dark:to-indigo-500/5">
@@ -315,6 +321,13 @@ export default function ListProductsPage({
               className={btnSecondaryClass}
             >
               📥 Bulk Upload
+            </button>
+            <button
+              type="button"
+              onClick={() => setGoogleSheetOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-500/20 transition active:scale-[0.98] dark:bg-emerald-500 dark:hover:bg-emerald-400"
+            >
+              📊 Manage in Google Sheet
             </button>
             <button
               type="button"

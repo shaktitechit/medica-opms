@@ -8,6 +8,9 @@ const { requireAuth } = require('../../middlewares/auth.middleware');
 const { requireDepartment } = require('../../middlewares/dept.middleware');
 const controller = require('./party.controller');
 
+// Google Sheets sync webhook (handles authentication via api key / query secret)
+router.post('/google-sheet-webhook', controller.googleSheetWebhook);
+
 router.use(requireAuth);
 
 const readDepartments = ['sales', 'admin', 'finance', 'account', 'dispatch'];
