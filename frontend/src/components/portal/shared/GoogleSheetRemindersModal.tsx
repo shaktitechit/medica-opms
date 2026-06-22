@@ -26,6 +26,7 @@ import {
   type ReminderRecord,
 } from "@/store/api";
 import { useParams, useRouter } from "next/navigation";
+import { useAppSelector } from "@/store/hooks";
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 
@@ -102,6 +103,11 @@ export function GoogleSheetRemindersModal({
   const params = useParams();
   const router = useRouter();
   const portal = params?.portal || "finance";
+
+  const user = useAppSelector((s) => s.auth.user);
+  const currentUserId = useMemo(() => {
+    return user ? String(user._id || user.id || "") : "";
+  }, [user]);
 
   const [activeTab, setActiveTab] = useState<"virtual" | "real">("virtual");
   const [activeSheetTab, setActiveSheetTab] = useState<"todays" | "all" | "payment" | "remarks" | "follow_up" | "other">("todays");
@@ -201,8 +207,8 @@ export function GoogleSheetRemindersModal({
 
   // RTK Queries & Mutations
   const { data, isLoading, isError, refetch } = useListRemindersQuery(
-    {},
-    { skip: !isOpen }
+    currentUserId ? { user: currentUserId } : {},
+    { skip: !isOpen || !currentUserId }
   );
 
   const [patchReminder] = usePatchReminderMutation();
@@ -1019,13 +1025,29 @@ function onEdit(e) {
           <div className="flex items-center border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs shrink-0 select-none">
             <span className="font-bold text-slate-400 dark:text-slate-500 pr-3 border-r border-slate-200 dark:border-slate-800 font-mono">fx</span>
             <input
-              type="text"
-              value={formulaValue}
+              type={selectedCell?.colKey === "next_followup_date" ? "datetime-local" : "text"}
+              value={
+                selectedCell?.colKey === "next_followup_date"
+                  ? (() => {
+                      if (!formulaValue) return "";
+                      const d = new Date(formulaValue);
+                      return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 16);
+                    })()
+                  : formulaValue
+              }
               onChange={e => {
-                setFormulaValue(e.target.value);
+                const rawVal = e.target.value;
+                let formattedVal = rawVal;
+                if (selectedCell?.colKey === "next_followup_date" && rawVal) {
+                  const d = new Date(rawVal);
+                  if (!isNaN(d.getTime())) {
+                    formattedVal = d.toISOString();
+                  }
+                }
+                setFormulaValue(formattedVal);
                 if (selectedCell) {
                   setLocalRows(prev =>
-                    prev.map(r => r._id === selectedCell.reminderId ? { ...r, [selectedCell.colKey]: e.target.value } : r)
+                    prev.map(r => r._id === selectedCell.reminderId ? { ...r, [selectedCell.colKey]: formattedVal } : r)
                   );
                 }
               }}
@@ -1187,14 +1209,40 @@ function onEdit(e) {
                             ) : (
                               isSelected ? (
                                 <input
-                                  type="text"
-                                  value={val !== undefined && val !== null ? String(val) : ""}
+                                  type={col.key === "next_followup_date" ? "datetime-local" : "text"}
+                                  value={
+                                    col.key === "next_followup_date"
+                                      ? (() => {
+                                          if (!val) return "";
+                                          const d = new Date(val);
+                                          return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 16);
+                                        })()
+                                      : (val !== undefined && val !== null ? String(val) : "")
+                                  }
                                   onChange={e => {
+                                    const rawVal = e.target.value;
+                                    let formattedVal = rawVal;
+                                    if (col.key === "next_followup_date" && rawVal) {
+                                      const d = new Date(rawVal);
+                                      if (!isNaN(d.getTime())) {
+                                        formattedVal = d.toISOString();
+                                      }
+                                    }
                                     setLocalRows(prev =>
-                                      prev.map(r => r._id === row._id ? { ...r, [col.key]: e.target.value } : r)
+                                      prev.map(r => r._id === row._id ? { ...r, [col.key]: formattedVal } : r)
                                     );
                                   }}
-                                  onBlur={e => saveCell(row._id, col.key, e.target.value)}
+                                  onBlur={e => {
+                                    const rawVal = e.target.value;
+                                    let formattedVal = rawVal;
+                                    if (col.key === "next_followup_date" && rawVal) {
+                                      const d = new Date(rawVal);
+                                      if (!isNaN(d.getTime())) {
+                                        formattedVal = d.toISOString();
+                                      }
+                                    }
+                                    saveCell(row._id, col.key, formattedVal);
+                                  }}
                                   autoFocus
                                   className="w-full bg-transparent border-none outline-none"
                                 />
@@ -1205,7 +1253,10 @@ function onEdit(e) {
                                     : "text-slate-800 dark:text-slate-200"
                                 }>
                                   {col.key === "next_followup_date" && dueAlert && <span>⚠️</span>}
-                                  {val !== undefined && val !== null ? String(val) : ""}
+                                  {col.key === "next_followup_date"
+                                    ? formatDateTime(val)
+                                    : (val !== undefined && val !== null ? String(val) : "")
+                                  }
                                 </span>
                               )
                             )}

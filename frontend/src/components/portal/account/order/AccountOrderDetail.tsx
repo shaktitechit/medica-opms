@@ -28,11 +28,13 @@ import {
   useCreateFlagMutation,
   useListAttachmentsQuery,
   useGetOrderFulfillmentQuery,
+  useListRemindersQuery,
 } from "@/store/api";
 
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
 import { FlagsTab } from "./components/FlagsTab";
 import AttachmentsTab from "./components/AttachmentsTab";
+import { RemindersTab } from "@/components/portal/shared/RemindersTab";
 import { DispatchesTab } from "./components/DispatchesTab";
 import { TransportsTab } from "./components/TransportsTab";
 import { DeliveriesTab } from "./components/DeliveriesTab";
@@ -163,6 +165,10 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     { order: orderId },
     { skip: !orderId },
   );
+  const remindersQ = useListRemindersQuery(
+    { order: orderId },
+    { skip: !orderId },
+  );
   const detail =
     data && typeof data === "object"
       ? (data as Record<string, unknown>)
@@ -245,6 +251,7 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     | "returns"
     | "flags"
     | "attachments"
+    | "reminders"
   >("approvals");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
@@ -312,6 +319,11 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     [attachQ.data],
   );
 
+  const remindersCount = useMemo(
+    () => pickList(remindersQ.data).length,
+    [remindersQ.data],
+  );
+
   const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
   const transports = useMemo(() => pickList(transportsQ.data), [transportsQ.data]);
   const deliveries = useMemo(() => pickList(deliveriesQ.data), [deliveriesQ.data]);
@@ -329,7 +341,8 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     if (!deliveriesQ.isUninitialized) void deliveriesQ.refetch();
     if (!returnsQ.isUninitialized) void returnsQ.refetch();
     if (!approvalsQ.isUninitialized) void approvalsQ.refetch();
-  }, [refetch, fulfillmentQ, attachQ, dispatchesQ, transportsQ, deliveriesQ, returnsQ, approvalsQ]);
+    if (!remindersQ.isUninitialized) void remindersQ.refetch();
+  }, [refetch, fulfillmentQ, attachQ, dispatchesQ, transportsQ, deliveriesQ, returnsQ, approvalsQ, remindersQ]);
 
   const onSettleAndCloseSuccess = useCallback(async () => {
     handleRefetch();
@@ -803,6 +816,10 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
             onUploadSuccess={handleRefetch}
           />
         )}
+
+        {activeTab === "reminders" && (
+          <RemindersTab orderId={orderId} />
+        )}
       </div>
 
       {/* DESKTOP: Fixed Footer Tab Nav */}
@@ -845,6 +862,11 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
               name: "Attachments",
               count: attachCount,
             },
+            {
+              id: "reminders",
+              name: "Reminders",
+              count: remindersCount,
+            },
           ]}
           activeId={activeTab}
           onChange={(id) => setActiveTab(id as typeof activeTab)}
@@ -863,6 +885,7 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
               {activeTab === "transports" && "Transports"}
               {activeTab === "deliveries" && "Deliveries"}
               {activeTab === "returns" && "Returns"}
+              {activeTab === "reminders" && "Reminders"}
             </h2>
             <button
               type="button"
@@ -934,6 +957,9 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
                 isLoading={attachQ.isFetching}
                 onUploadSuccess={handleRefetch}
               />
+            )}
+            {activeTab === "reminders" && (
+              <RemindersTab orderId={orderId} />
             )}
           </div>
         </div>
@@ -1019,6 +1045,17 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
                 icon: (
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                ),
+              },
+              {
+                id: "reminders" as const,
+                name: "Reminders",
+                count: remindersCount,
+                dangerBadge: false,
+                icon: (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 ),
               },

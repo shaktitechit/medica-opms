@@ -21,7 +21,14 @@ export function Topbar({ portal }: TopbarProps) {
   const [showRemindersModal, setShowRemindersModal] = useState(false);
   const isDark = useIsDark();
 
-  const { data: remindersData } = useListRemindersQuery({});
+  const currentUserId = useMemo(() => {
+    return user ? String(user._id || user.id || "") : "";
+  }, [user]);
+
+  const { data: remindersData } = useListRemindersQuery(
+    currentUserId ? { user: currentUserId } : {},
+    { skip: !currentUserId }
+  );
   const todayRemindersCount = useMemo(() => {
     if (!remindersData) return 0;
     const list = Array.isArray(remindersData) ? remindersData : (remindersData as any).data || [];
