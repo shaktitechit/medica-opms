@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { persistSessionMarksFromAuth } from "@/lib/sessionCookie";
@@ -15,19 +15,29 @@ export function PortalAuthGate({ children }: PortalAuthGateProps) {
   const pathname = usePathname();
   const token = useAppSelector((s) => s.auth.token);
   const user = useAppSelector((s) => s.auth.user);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     if (!token) {
       const q = pathname ? `?from=${encodeURIComponent(pathname)}` : "";
       router.replace(`/login${q}`);
       return;
     }
     persistSessionMarksFromAuth({ token, user });
-  }, [token, user, pathname, router]);
+  }, [token, user, pathname, router, mounted]);
+
+  if (!mounted) {
+    return null;
+  }
 
   if (!token) {
     return (
-      <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-3 bg-slate-100 text-sm text-slate-600 dark:bg-slate-950 dark:text-slate-400">
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-3 bg-slate-100 text-sm text-slate-600 dark:bg-slate-950 dark:text-slate-450 dark:text-slate-400">
         <p>Redirecting to sign in…</p>
         <Link
           href="/login"

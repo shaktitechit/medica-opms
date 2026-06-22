@@ -36,6 +36,7 @@ export const medicaApi = createApi({
     "Orders",
     "OrderApprovals",
     "Payments",
+    "Reminders",
     "Products",
     "Transport",
     "TransportAgents",

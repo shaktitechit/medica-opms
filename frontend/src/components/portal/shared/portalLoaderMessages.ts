@@ -36,6 +36,10 @@ const ENDPOINT_MESSAGES: Record<string, string> = {
   patchTransportAgent: "Saving transport agent…",
   createUser: "Creating user…",
   patchUser: "Saving user…",
+  createReminder: "Creating reminder…",
+  patchReminder: "Saving reminder…",
+  addFollowUp: "Logging follow-up remarks…",
+  deleteReminder: "Deleting reminder…",
   login: "Signing in…",
 };
 

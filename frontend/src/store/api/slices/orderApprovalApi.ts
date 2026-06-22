@@ -25,6 +25,7 @@ export type CreateOrderApprovalPayload = {
   approval_items?: any[];
   contact_number?: string | string[];
   whatsapp_number?: string | string[];
+  contact_name?: string | string[];
   template_name?: string;
   template_components?: unknown[];
   [key: string]: any;

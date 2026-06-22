@@ -33,6 +33,7 @@ import {
   useListOrderApprovalsQuery,
   useGetOrderFulfillmentQuery,
   useListOrderDueSheetsQuery,
+  useListRemindersQuery,
 } from "@/store/api";
 
 import { FlagsTab } from "./components/FlagsTab";
@@ -41,6 +42,7 @@ import { ApprovalTab } from "./components/ApprovalTab";
 import { DispatchesTab } from "./components/DispatchesTab";
 import { TransportsTab } from "./components/TransportsTab";
 import { DueSheetTab } from "./components/DueSheetTab";
+import { RemindersTab } from "@/components/portal/shared/RemindersTab";
 
 import { ALL_FLAG_TYPES, FLAGS_FOR_TARGET_DEPARTMENT } from "@/components/portal/shared/flagTypes";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
@@ -158,6 +160,8 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
   const financeApprovalsQ = useListOrderApprovalsQuery({ order: orderId, is_admin_approved: true });
   const fulfillmentQ = useGetOrderFulfillmentQuery(orderId);
   const dueSheetsQ = useListOrderDueSheetsQuery({ order: orderId });
+  const remindersQ = useListRemindersQuery({ order: orderId });
+  const reminders = remindersQ.data || [];
   const adminApprovalsQ = useListOrderApprovalsQuery(
     { order: orderId, assigned_finance_user: currentUserId },
     { skip: !orderId || !currentUserId },
@@ -264,6 +268,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     | "due_sheet"
     | "flags"
     | "attachments"
+    | "reminders"
   >("approvals");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
@@ -399,7 +404,8 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     if (!fulfillmentQ.isUninitialized) fulfillmentQ.refetch();
     if (!adminApprovalsQ.isUninitialized) adminApprovalsQ.refetch();
     if (!dueSheetsQ.isUninitialized) dueSheetsQ.refetch();
-  }, [refetch, flagsQ, historyQ, attachmentsQ, financeApprovalsQ, fulfillmentQ, adminApprovalsQ, dueSheetsQ]);
+    if (!remindersQ.isUninitialized) remindersQ.refetch();
+  }, [refetch, flagsQ, historyQ, attachmentsQ, financeApprovalsQ, fulfillmentQ, adminApprovalsQ, dueSheetsQ, remindersQ]);
 
   const handleResolveOrder = useCallback(async () => {
     if (!detail || !Array.isArray(detail.order_items)) return;
@@ -1019,6 +1025,10 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 onUploadSuccess={handleRefetch}
               />
             )}
+
+            {activeTab === "reminders" && (
+              <RemindersTab orderId={orderId} />
+            )}
           </div>
 
           {/* ── DESKTOP: Fixed Footer Tab Nav ── */}
@@ -1040,6 +1050,11 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   dangerBadge: true,
                 },
                 { id: "attachments", name: "Attachments", count: attachments.length },
+                {
+                  id: "reminders",
+                  name: "Reminders",
+                  count: reminders.filter((r: any) => r.status === "active").length,
+                },
               ]}
               activeId={activeTab}
               onChange={(id) => setActiveTab(id as typeof activeTab)}
@@ -1051,13 +1066,14 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
             <div className="md:hidden fixed inset-0 z-[60] flex flex-col bg-white dark:bg-slate-900 animate-in slide-in-from-bottom duration-300">
               {/* Mobile popup header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-0 z-10">
-                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-50 capitalize">
+                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-555 dark:text-slate-50 capitalize">
                   {activeTab === "approvals" && "Order Approval"}
                   {activeTab === "flags" && "Flags"}
                   {activeTab === "attachments" && "Attachments"}
                   {activeTab === "dispatches" && "Dispatches"}
                   {activeTab === "transports" && "Transports"}
                   {activeTab === "due_sheet" && "Due Sheet"}
+                  {activeTab === "reminders" && "Reminders"}
                 </h2>
                 <button
                   type="button"
@@ -1118,6 +1134,9 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 )}
                 {activeTab === "due_sheet" && (
                   <DueSheetTab orderId={orderId} onUploadSuccess={handleRefetch} />
+                )}
+                {activeTab === "reminders" && (
+                  <RemindersTab orderId={orderId} />
                 )}
               </div>
             </div>
@@ -1194,6 +1213,17 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 icon: (
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                ),
+              },
+              {
+                id: "reminders" as const,
+                name: "Reminders",
+                count: reminders.filter((r: any) => r.status === "active").length,
+                dangerBadge: false,
+                icon: (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 ),
               },

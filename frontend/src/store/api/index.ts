@@ -29,5 +29,6 @@ export * from "./slices/orderDeliveryApi";
 export * from "./slices/orderReturnApi";
 export * from "./slices/orderDueSheetApi";
 export * from "./slices/finalOrderStatementApi";
+export * from "./slices/remindersApi";
 
 

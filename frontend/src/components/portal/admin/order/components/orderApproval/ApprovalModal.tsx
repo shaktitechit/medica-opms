@@ -421,6 +421,11 @@ export function ApprovalModal({
       remarks: line.remarks.trim() || "",
     }));
 
+    const selectedContactNames = selectedContacts.map((phone) => {
+      const found = contacts.find((c) => c.phone.trim() === phone);
+      return found ? found.name : "";
+    }).filter(Boolean);
+
     try {
       await createAdminApproval({
         order: orderId,
@@ -431,6 +436,7 @@ export function ApprovalModal({
         approved_total_amount: approvedTotal,
         approval_items: approvalItems,
         contact_number: selectedContacts,
+        contact_name: selectedContactNames,
       }).unwrap();
 
       toast.success("Order and approval updated successfully.");
@@ -455,6 +461,7 @@ export function ApprovalModal({
     onApproved,
     refetchOrder,
     selectedContacts,
+    contacts,
   ]);
 
   const busy = isCreating;

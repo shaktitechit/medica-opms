@@ -11,6 +11,7 @@ const WHATSAPP_TEMPLATES = {
   // Order related notifications
   ORDER_CREATED: 'order_created',
   ORDER_CONFIRMED: 'order_confirmed',
+  ORDER_RECEIVED: 'order_recieved',
   ORDER_STATUS_UPDATE: 'order_status_update',
   ORDER_DELIVERED: 'order_delivered',
 

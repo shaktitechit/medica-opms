@@ -572,20 +572,37 @@ async function createAdminApproval(body, user) {
         ? recipientsRaw.split(',').map(r => r.trim()).filter(Boolean)
         : [recipientsRaw];
 
-    for (const recipient of recipients) {
+    const orderDateStr = order.order_date
+      ? new Date(order.order_date).toLocaleDateString('en-GB')
+      : '';
+
+    const itemsSummary = (order.order_items || [])
+      .map(item => `${item.product_name || 'Item'} (${item.ordered_quantity || item.quantity || 0})`)
+      .join(', ');
+
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+      const contactName = Array.isArray(body.contact_name)
+        ? body.contact_name[i]
+        : typeof body.contact_name === 'string'
+          ? body.contact_name.split(',')[i]?.trim()
+          : body.contact_name;
+
       try {
         await messageService.createAndQueueMessage({
           recipient,
           channel: 'whatsapp',
-          templateName: body.template_name || WHATSAPP_TEMPLATES.ORDER_STATUS_UPDATE,
+          templateName: body.template_name || WHATSAPP_TEMPLATES.ORDER_RECEIVED,
           templateParams: {
             languageCode: body.language_code || 'en_US',
             components: body.template_components || [
               {
                 type: 'body',
                 parameters: [
+                  { type: 'text', text: contactName || 'Sir/Madam' },
                   { type: 'text', text: order.order_no || '' },
-                  { type: 'text', text: 'Admin Approval Pending' }
+                  { type: 'text', text: orderDateStr },
+                  { type: 'text', text: itemsSummary || 'No items' }
                 ]
               }
             ]
