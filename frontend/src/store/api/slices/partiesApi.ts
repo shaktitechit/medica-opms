@@ -10,7 +10,7 @@ export const partiesApi = medicaApi.injectEndpoints({
     >({
       query: (params) => ({
         url: "parties",
-        params: params ?? {},
+        params: { status: "all", ...params },
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       providesTags: [{ type: "Parties", id: "LIST" }],

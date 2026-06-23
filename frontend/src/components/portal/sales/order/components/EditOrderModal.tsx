@@ -260,7 +260,7 @@ export default function EditOrderModal({
     }
   }, [isOpen, detail]);
 
-  const partiesQ = useListPartiesQuery({}, { skip: !isOpen });
+  const partiesQ = useListPartiesQuery({ status: "active" }, { skip: !isOpen });
   const productsQ = useListProductsQuery({}, { skip: !isOpen });
 
   const [patchOrder, { isLoading: isPatching }] = usePatchOrderMutation();

@@ -358,7 +358,7 @@ function ProductAutocomplete({
 export default function CreateOrderPage() {
   const router = useRouter();
   const user = useAppSelector((s) => s.auth.user);
-  const partiesQ = useListPartiesQuery({});
+  const partiesQ = useListPartiesQuery({ status: "active" });
   const productsQ = useListProductsQuery({});
 
   const parties = useMemo(() => pickList(partiesQ.data), [partiesQ.data]);

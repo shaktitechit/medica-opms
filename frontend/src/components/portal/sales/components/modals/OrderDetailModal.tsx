@@ -202,7 +202,7 @@ export function OrderDetailModal({
   const isDraft = status === "draft";
 
   const partiesQ = useListPartiesQuery(
-    {},
+    { status: "active" },
     { skip: !open || !isDraft || !editing },
   );
   const productsQ = useListProductsQuery(

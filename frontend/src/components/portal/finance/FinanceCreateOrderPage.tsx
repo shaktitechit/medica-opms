@@ -520,7 +520,7 @@ function SalesAutocomplete({
 export default function FinanceCreateOrderPage() {
   const router = useRouter();
   const user = useAppSelector((s) => s.auth.user);
-  const partiesQ = useListPartiesQuery({});
+  const partiesQ = useListPartiesQuery({ status: "active" });
   const productsQ = useListProductsQuery({});
   const salesUsersQ = useListUsersQuery({ department: "sales" });
 

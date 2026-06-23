@@ -14,6 +14,7 @@ import {
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { GoogleSheetOrdersModal } from "@/components/portal/shared/GoogleSheetOrdersModal";
+import { GoogleSheetAnalyticsModal } from "@/components/portal/shared/GoogleSheetAnalyticsModal";
 import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
@@ -38,6 +39,7 @@ import {
   Plus,
   Trash2,
   FileText,
+  TrendingUp,
 } from "lucide-react";
 import {
   OrderFulfillmentPipelineStrip,
@@ -223,6 +225,7 @@ export default function ListAdminOrdersPage() {
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
   const [isGoogleSheetOpen, setIsGoogleSheetOpen] = useState(false);
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminOrderTabCategory>(() =>
     tabFromUrl && isAdminOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_admin_approval",
   );
@@ -406,6 +409,15 @@ export default function ListAdminOrdersPage() {
             >
               <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
               View Sheet
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAnalyticsOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-750 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
+              title="Open visual analytics dashboard"
+            >
+              <TrendingUp className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+              View Analytics
             </button>
             <Link
               href="/admin"
@@ -797,6 +809,12 @@ export default function ListAdminOrdersPage() {
         onClose={() => setIsGoogleSheetOpen(false)}
         partyNameById={partyNameById}
         initialTab={activeTab}
+      />
+      <GoogleSheetAnalyticsModal
+        isOpen={isAnalyticsOpen}
+        onClose={() => setIsAnalyticsOpen(false)}
+        partyNameById={partyNameById}
+        portal="admin"
       />
     </div>
   );

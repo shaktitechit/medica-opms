@@ -124,10 +124,12 @@ async function list(query = {}) {
     mongoFilter.party_type = query.type;
   }
 
-  if (query.status && query.status !== 'all') {
-    if (query.status === 'active') {
+  const status = query.status || 'active';
+
+  if (status !== 'all') {
+    if (status === 'active') {
       mongoFilter.is_active = { $ne: false };
-    } else if (query.status === 'inactive') {
+    } else if (status === 'inactive') {
       mongoFilter.is_active = false;
     }
   }

@@ -112,7 +112,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
 
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
