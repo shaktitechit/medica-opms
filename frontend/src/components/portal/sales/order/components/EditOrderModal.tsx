@@ -86,7 +86,7 @@ function newLine(): LineRow {
     discount_percent: 0,
     discount_amount: 0,
     gst_percent: 18,
-    applied_rate_type: "MANUAL",
+    applied_rate_type: "SR",
     remarks: "",
   };
 }
@@ -96,7 +96,7 @@ function getPriceForRateType(p: Record<string, unknown> | undefined, rateType: s
   if (rateType === "SR") return Number(p.base_price ?? 0);
   if (rateType === "SRA") return Number(p.minimum_sale_rate ?? p.base_price ?? 0);
   if (rateType === "CR") return Number(p.mrp ?? p.base_price ?? 0);
-  return Number(p.base_price ?? 0); // MANUAL
+  return Number(p.base_price ?? 0); // Fallback
 }
 
 function isLikelyObjectId(s: string): boolean {
@@ -137,7 +137,7 @@ function linesFromDetail(raw: unknown): LineRow[] {
       discount_percent: Number(l.discount_percent ?? 0),
       discount_amount: Number(l.discount_amount ?? 0),
       gst_percent: Number(l.gst_percent ?? 18),
-      applied_rate_type: String(l.applied_rate_type ?? "MANUAL"),
+      applied_rate_type: !l.applied_rate_type || l.applied_rate_type === "MANUAL" ? "SR" : String(l.applied_rate_type),
       remarks: String(l.remarks ?? ""),
     };
   });
@@ -784,7 +784,6 @@ export default function EditOrderModal({
                             <option value="SR">SR</option>
                             <option value="SRA">SRA</option>
                             <option value="CR">CR</option>
-                            <option value="MANUAL">MANUAL</option>
                           </select>
                         </div>
                         {itemsOnly ? (

@@ -30,9 +30,10 @@ function isSuperAdminUser(user) {
   return departmentOf(user) === 'super_admin';
 }
 
-/** Non-sales (except super_admin) only see orders that have left draft / been submitted. */
+/** Non-sales/admin/finance/account (except super_admin) only see orders that have left draft / been submitted. */
 function shouldExcludeDraftOrders(user) {
-  return !isSalesUser(user) && !isSuperAdminUser(user);
+  const dept = departmentOf(user);
+  return !['sales', 'admin', 'super_admin', 'finance', 'account'].includes(dept);
 }
 
 function shouldFilterOrdersBySalesAssignee(user) {

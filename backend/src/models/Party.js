@@ -51,6 +51,8 @@ const partySchema = new mongoose.Schema(
     legacy_customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", unique: true, sparse: true },
     is_active: { type: Boolean, default: true },
     sra: { type: Boolean, default: false },
+    sra_from_date: { type: Date, default: null },
+    sra_to_date: { type: Date, default: null },
     created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     deletedAt: { type: Date, default: null, index: true },
   },

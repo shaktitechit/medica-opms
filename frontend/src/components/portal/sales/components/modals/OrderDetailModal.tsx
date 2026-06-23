@@ -72,7 +72,7 @@ function newLine(): LineRow {
     unit_price: 0,
     discount_amount: 0,
     gst_percent: 18,
-    applied_rate_type: "MANUAL",
+    applied_rate_type: "SR",
   };
 }
 
@@ -81,7 +81,7 @@ function getPriceForRateType(p: Record<string, any> | undefined, rateType: strin
   if (rateType === "SR") return Number(p.base_price ?? 0);
   if (rateType === "SRA") return Number(p.minimum_sale_rate ?? p.base_price ?? 0);
   if (rateType === "CR") return Number(p.mrp ?? p.base_price ?? 0);
-  return Number(p.base_price ?? 0); // MANUAL
+  return Number(p.base_price ?? 0); // Fallback
 }
 
 type LineRow = {
@@ -137,7 +137,7 @@ function linesFromDetail(raw: unknown): LineRow[] {
       unit_price: Number(l.unit_price ?? 0),
       discount_amount: Number(l.discount_amount ?? 0),
       gst_percent: Number(l.gst_percent ?? 18),
-      applied_rate_type: String(l.applied_rate_type ?? "MANUAL"),
+      applied_rate_type: !l.applied_rate_type || l.applied_rate_type === "MANUAL" ? "SR" : String(l.applied_rate_type),
     };
   });
 }
@@ -625,7 +625,7 @@ export function OrderDetailModal({
                               ? line.product_name
                               : "—";
                           const qty = line.quantity;
-                          const rateType = typeof line.applied_rate_type === "string" ? line.applied_rate_type : "MANUAL";
+                          const rateType = !line.applied_rate_type || line.applied_rate_type === "MANUAL" ? "SR" : String(line.applied_rate_type);
                           const key =
                             line._id != null
                               ? String(line._id)
@@ -815,7 +815,6 @@ export function OrderDetailModal({
                           <option value="SR">SR</option>
                           <option value="SRA">SRA</option>
                           <option value="CR">CR</option>
-                          <option value="MANUAL">MANUAL</option>
                         </select>
                       </div>
                       <div className="flex gap-1 sm:col-span-2 sm:justify-end">

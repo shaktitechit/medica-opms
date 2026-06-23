@@ -10,6 +10,7 @@ import {
   useCreatePartyProductMutation,
   usePatchPartyProductMutation,
   useGetPartyProductQuery,
+  useGetPartyQuery,
 } from "@/store/api";
 
 const inputClass =
@@ -26,6 +27,13 @@ function normalizeRateType(appliedRateType: string): string {
   if (t === "MANUAL") return "SR";
   if (["SR", "SRA", "CR"].includes(t)) return t;
   return "SR";
+}
+
+function toDateString(v: unknown): string {
+  if (v == null || v === "") return "";
+  const d = new Date(String(v));
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().split("T")[0];
 }
 
 export type MapOrderLinePriceTarget = {
@@ -71,6 +79,10 @@ export function MapOrderLinePriceModal({
     { skip: !target?.mappingId || !open },
   );
 
+  const { data: partyDetail } = useGetPartyQuery(partyId, {
+    skip: !partyId || !open,
+  });
+
   const [priority, setPriority] = useState("100");
   const [expectedOrderQuantity, setExpectedOrderQuantity] = useState("0");
   const [isOrderable, setIsOrderable] = useState(true);
@@ -100,8 +112,16 @@ export function MapOrderLinePriceModal({
         ? String(target.unitPrice)
         : "",
     );
-    setValidityStart(new Date().toISOString().split("T")[0]);
-    setValidityEnd(defaultValidityEnd());
+    
+    const pObj = partyDetail as any;
+    if (rateType === "SRA" && pObj && pObj.sra === true) {
+      setValidityStart(toDateString(pObj.sra_from_date) || new Date().toISOString().split("T")[0]);
+      setValidityEnd(toDateString(pObj.sra_to_date) || defaultValidityEnd());
+    } else {
+      setValidityStart(new Date().toISOString().split("T")[0]);
+      setValidityEnd(defaultValidityEnd());
+    }
+    
     setRateRemarks("");
     
     if (isExistingMapping && mappingDetail) {
@@ -119,7 +139,7 @@ export function MapOrderLinePriceModal({
     
     setMinQty("1");
     setMaxQty("999999");
-  }, [open, target, isExistingMapping, mappingDetail]);
+  }, [open, target, isExistingMapping, mappingDetail, partyDetail, rateType]);
 
   if (!open || !target) return null;
 

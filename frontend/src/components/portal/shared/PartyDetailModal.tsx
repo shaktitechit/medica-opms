@@ -63,6 +63,8 @@ type PartyState = {
   payment_terms: string;
   is_active: boolean;
   sra: boolean;
+  sra_from_date: string;
+  sra_to_date: string;
   billing_address: {
     address_line_1: string;
     address_line_2: string;
@@ -92,6 +94,8 @@ const defaultPartyState = (): PartyState => ({
   payment_terms: "",
   is_active: true,
   sra: false,
+  sra_from_date: "",
+  sra_to_date: "",
   billing_address: {
     address_line_1: "",
     address_line_2: "",
@@ -109,6 +113,13 @@ const defaultPartyState = (): PartyState => ({
     country: "India",
   },
 });
+
+function toDateString(v: unknown): string {
+  if (v == null || v === "") return "";
+  const d = new Date(String(v));
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().split("T")[0];
+}
 
 export function PartyDetailModal({
   partyId,
@@ -157,6 +168,8 @@ export function PartyDetailModal({
         payment_terms: stringField(p.payment_terms),
         is_active: p.is_active !== false,
         sra: p.sra === true,
+        sra_from_date: toDateString(p.sra_from_date),
+        sra_to_date: toDateString(p.sra_to_date),
         billing_address: {
           address_line_1: stringField(bAddr.address_line_1),
           address_line_2: stringField(bAddr.address_line_2),
@@ -223,6 +236,8 @@ export function PartyDetailModal({
       contact_person: contacts[0]?.name ?? "",
       mobile: contacts[0]?.phone ?? "",
       email: contacts[0]?.email ?? "",
+      sra_from_date: form.sra ? (form.sra_from_date || null) : null,
+      sra_to_date: form.sra ? (form.sra_to_date || null) : null,
     };
 
     try {
@@ -252,6 +267,14 @@ export function PartyDetailModal({
         if (!valsEqual(form.payment_terms, pObj.payment_terms)) patch.payment_terms = form.payment_terms;
         if (form.is_active !== pObj.is_active) patch.is_active = form.is_active;
         if (form.sra !== pObj.sra) patch.sra = form.sra;
+        const nextFromDate = form.sra ? (form.sra_from_date || null) : null;
+        if (!valsEqual(nextFromDate, pObj.sra_from_date ? toDateString(pObj.sra_from_date) : null)) {
+          patch.sra_from_date = nextFromDate;
+        }
+        const nextToDate = form.sra ? (form.sra_to_date || null) : null;
+        if (!valsEqual(nextToDate, pObj.sra_to_date ? toDateString(pObj.sra_to_date) : null)) {
+          patch.sra_to_date = nextToDate;
+        }
 
         // Address diff
         const billingDiff: Record<string, any> = {};
@@ -507,6 +530,31 @@ export function PartyDetailModal({
                   </label>
                 </div>
               </div>
+
+              {form.sra && (
+                <div className="grid grid-cols-2 gap-4 w-full md:col-span-2 pt-3 border-t border-slate-100 dark:border-white/5">
+                  <div className="space-y-1">
+                    <label className={labelClass}>SRA From Date</label>
+                    <input
+                      type="date"
+                      className={inputClass}
+                      value={form.sra_from_date}
+                      onChange={(e) => setForm((f) => ({ ...f, sra_from_date: e.target.value }))}
+                      disabled={isSaving}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>SRA To Date</label>
+                    <input
+                      type="date"
+                      className={inputClass}
+                      value={form.sra_to_date}
+                      onChange={(e) => setForm((f) => ({ ...f, sra_to_date: e.target.value }))}
+                      disabled={isSaving}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-6">

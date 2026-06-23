@@ -28,7 +28,15 @@ const PATCHABLE_KEYS = Object.freeze([
   'legacy_customer',
   'is_active',
   'sra',
+  'sra_from_date',
+  'sra_to_date',
 ]);
+
+function parseDateOrNull(v) {
+  if (v == null || v === '') return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
 
 function sanitizeContacts(contacts) {
   if (!Array.isArray(contacts)) return [];
@@ -74,6 +82,10 @@ function sanitizePatch(patch) {
         v = sanitizeContacts(v);
         Object.assign(out, primaryContactFields(v));
         out.contacts = v;
+        continue;
+      }
+      if (k === 'sra_from_date' || k === 'sra_to_date') {
+        out[k] = parseDateOrNull(v);
         continue;
       }
       out[k] = v;
@@ -185,6 +197,8 @@ async function create(body, user) {
     legacy_customer: body.legacy_customer || undefined,
     is_active: body.is_active !== false,
     sra: Boolean(body.sra),
+    sra_from_date: parseDateOrNull(body.sra_from_date),
+    sra_to_date: parseDateOrNull(body.sra_to_date),
     created_by: user._id,
   };
 
@@ -301,6 +315,8 @@ async function bulkCreate(items, user) {
       legacy_customer: item.legacy_customer || undefined,
       is_active: item.is_active !== false,
       sra: Boolean(item.sra),
+      sra_from_date: parseDateOrNull(item.sra_from_date),
+      sra_to_date: parseDateOrNull(item.sra_to_date),
     };
 
     if (user) {
@@ -406,6 +422,11 @@ async function syncFromGoogleSheet(row) {
 
   if (isActive !== undefined) payload.is_active = isActive;
   if (isSra !== undefined) payload.sra = isSra;
+  
+  const sraFromDateRaw = row.sra_from_date || row.sra_start || row.sra_start_date;
+  const sraToDateRaw = row.sra_to_date || row.sra_end || row.sra_end_date;
+  if (sraFromDateRaw !== undefined) payload.sra_from_date = parseDateOrNull(sraFromDateRaw);
+  if (sraToDateRaw !== undefined) payload.sra_to_date = parseDateOrNull(sraToDateRaw);
 
   // Contacts handling
   if (payload.contact_person || payload.mobile || payload.email) {

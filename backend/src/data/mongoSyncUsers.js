@@ -23,13 +23,13 @@ const ROLE_SEED_DEFS = [
     name: 'Finance',
     code: 'finance',
     department: 'finance',
-    permCodes: ['parties:manage', 'orders:read', 'finance:suite', 'flags:suite', 'dashboard:view'],
+    permCodes: ['parties:manage', 'orders:read', 'orders:write', 'finance:suite', 'flags:suite', 'dashboard:view'],
   },
   {
     name: 'Account',
     code: 'account',
     department: 'account',
-    permCodes: ['orders:read', 'finance:suite', 'dispatch:suite', 'flags:suite', 'dashboard:view'],
+    permCodes: ['orders:read', 'orders:write', 'finance:suite', 'dispatch:suite', 'flags:suite', 'dashboard:view'],
   },
   {
     name: 'Dispatch',

@@ -214,7 +214,7 @@ export function ApprovalModal({
           discount_percent: Number(line.discount_percent ?? 0),
           discount_amount: Number(line.discount_amount ?? 0),
           gst_percent: Number(line.gst_percent ?? 18),
-          applied_rate_type: String(line.applied_rate_type ?? "MANUAL"),
+          applied_rate_type: !line.applied_rate_type || line.applied_rate_type === "MANUAL" ? "SR" : String(line.applied_rate_type),
           approval_status: "fully_approved" as ApprovalLineStatus,
           remarks: "",
         };
@@ -248,7 +248,7 @@ export function ApprovalModal({
   const openMapModal = useCallback(
     (line: EditableLine) => {
       if (!canMapPrice || !line.product) return;
-      const appliedRateType = line.applied_rate_type || "MANUAL";
+      const appliedRateType = line.applied_rate_type || "SR";
       const rateItem = rateItemByLine.get(
         rateLookupKey(line.product, appliedRateType),
       );
@@ -319,7 +319,7 @@ export function ApprovalModal({
         discount_percent: 0,
         discount_amount: 0,
         gst_percent: gstPercent,
-        applied_rate_type: "MANUAL",
+        applied_rate_type: "SR",
         approval_status: "fully_approved" as ApprovalLineStatus,
         remarks: "",
         isNew: true,
@@ -659,7 +659,6 @@ export function ApprovalModal({
                             <option value="SR">SR</option>
                             <option value="SRA">SRA</option>
                             <option value="CR">CR</option>
-                            <option value="MANUAL">MANUAL</option>
                           </select>
                         </td>
                         <td className="px-3 py-2">

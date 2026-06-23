@@ -192,7 +192,7 @@ export function AccountAmendFinanceApprovalModal({
           discount_percent: Number(orderLine.discount_percent ?? 0),
           discount_amount: Number(orderLine.discount_amount ?? 0),
           gst_percent: Number(orderLine.gst_percent ?? 18),
-          applied_rate_type: String(orderLine.applied_rate_type ?? "MANUAL"),
+          applied_rate_type: !orderLine.applied_rate_type || orderLine.applied_rate_type === "MANUAL" ? "SR" : String(orderLine.applied_rate_type),
           approval_status: String(
             it.approval_status ?? "fully_approved",
           ) as LineStatus,
@@ -265,7 +265,7 @@ export function AccountAmendFinanceApprovalModal({
           discount_percent: Number(line.discount_percent ?? 0),
           discount_amount: Number(line.discount_amount ?? 0),
           gst_percent: Number(line.gst_percent ?? 0),
-          applied_rate_type: String(line.applied_rate_type ?? "MANUAL"),
+          applied_rate_type: !line.applied_rate_type || line.applied_rate_type === "MANUAL" ? "SR" : String(line.applied_rate_type),
           approval_status: "fully_approved" as LineStatus,
           remarks: "",
           isNew: true,
@@ -300,7 +300,7 @@ export function AccountAmendFinanceApprovalModal({
           discount_percent: 0,
           discount_amount: 0,
           gst_percent: gstPercent,
-          applied_rate_type: "MANUAL",
+          applied_rate_type: "SR",
           approval_status: "fully_approved" as LineStatus,
           remarks: "",
           isNew: true,
@@ -358,7 +358,7 @@ export function AccountAmendFinanceApprovalModal({
         toast.error("No party linked to this order.");
         return;
       }
-      const appliedRateType = line.applied_rate_type || "MANUAL";
+      const appliedRateType = line.applied_rate_type || "SR";
       const rateItem = rateItemByLine.get(
         rateLookupKey(line.product, appliedRateType),
       );
@@ -471,7 +471,7 @@ export function AccountAmendFinanceApprovalModal({
     const unmapped = activeLines.filter((line) => {
       if (line.approved_quantity <= 0) return false;
       const source = orderLineById.get(line.order_item_id);
-      const rateType = String(source?.applied_rate_type ?? line.applied_rate_type ?? "MANUAL");
+      const rateType = String(source?.applied_rate_type ?? line.applied_rate_type ?? "SR");
       const rateItem = rateItemByLine.get(rateLookupKey(line.product, rateType));
       return resolveRateDisplayStatus(rateItem) !== "negotiated";
     });
@@ -694,7 +694,7 @@ export function AccountAmendFinanceApprovalModal({
                   <tbody className="divide-y divide-slate-200/80 dark:divide-white/10">
                     {formLines.map((line) => {
                       const source = orderLineById.get(line.order_item_id);
-                      const rateType = String(source?.applied_rate_type ?? line.applied_rate_type ?? "MANUAL");
+                      const rateType = String(source?.applied_rate_type ?? line.applied_rate_type ?? "SR");
                       const rateItem = rateItemByLine.get(
                         rateLookupKey(line.product, rateType),
                       );
@@ -777,7 +777,6 @@ export function AccountAmendFinanceApprovalModal({
                               <option value="SR">SR</option>
                               <option value="SRA">SRA</option>
                               <option value="CR">CR</option>
-                              <option value="MANUAL">MANUAL</option>
                             </select>
                           </td>
                           <td className="px-3 py-2 w-24">

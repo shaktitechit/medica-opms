@@ -72,6 +72,13 @@ export type PartyDetailPageProps = {
   portalHome: string;
 };
 
+function toDateString(v: unknown): string {
+  if (v == null || v === "") return "";
+  const d = new Date(String(v));
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().split("T")[0];
+}
+
 function orderKey(row: unknown): string {
   if (row && typeof row === "object") {
     const o = row as { _id?: unknown; id?: unknown };
@@ -640,10 +647,19 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                 <label className={labelClass}>Special Rate Approval (SRA)</label>
                 <div className={valueClass}>
                   {p.sra ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded-full ring-1 ring-inset ring-emerald-600/10 dark:ring-emerald-500/20">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
-                      Enabled
-                    </span>
+                    <div className="flex flex-col gap-1.5">
+                      <div>
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded-full ring-1 ring-inset ring-emerald-600/10 dark:ring-emerald-500/20">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
+                          Enabled
+                        </span>
+                      </div>
+                      {(p.sra_from_date || p.sra_to_date) && (
+                        <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                          Validity Range: <span className="font-semibold text-slate-700 dark:text-slate-350">{formatDateShort(p.sra_from_date)}</span> to <span className="font-semibold text-slate-700 dark:text-slate-350">{formatDateShort(p.sra_to_date)}</span>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-550 dark:text-slate-450 bg-slate-50 dark:bg-white/5 px-2.5 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
                       <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
@@ -1587,6 +1603,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
           mappedProductIds={mappedProductIds}
           createMapping={createMapping}
           isCreating={isCreating}
+          party={p}
         />
       )}
 
@@ -1607,6 +1624,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
           onClose={() => setAddRateTarget(null)}
           addRate={addRate}
           isAddingRate={isAddingRate}
+          party={p}
         />
       )}
 
@@ -1809,6 +1827,7 @@ type MapNewProductModalProps = {
   mappedProductIds: string[];
   createMapping: any;
   isCreating: boolean;
+  party?: any;
 };
 
 function MapNewProductModal({
@@ -1817,6 +1836,7 @@ function MapNewProductModal({
   mappedProductIds,
   createMapping,
   isCreating,
+  party,
 }: MapNewProductModalProps) {
   const [catalogSearch, setCatalogSearch] = useState("");
   const [debouncedCatalogSearch, setDebouncedCatalogSearch] = useState("");
@@ -1854,18 +1874,40 @@ function MapNewProductModal({
   const [remarks, setRemarks] = useState("");
 
   // Rate Info
-  const [hasRate, setHasRate] = useState(false);
-  const [rateType, setRateType] = useState("SR");
+  const [hasRate, setHasRate] = useState(() => !!(party && party.sra === true));
+  const [rateType, setRateType] = useState(() => (party && party.sra === true) ? "SRA" : "SR");
   const [rate, setRate] = useState("");
   const [minQty, setMinQty] = useState("1");
   const [maxQty, setMaxQty] = useState("999999");
-  const [validityStart, setValidityStart] = useState(() => new Date().toISOString().split("T")[0]);
+  const [validityStart, setValidityStart] = useState(() => {
+    if (party && party.sra === true) {
+      const sraStart = toDateString(party.sra_from_date);
+      if (sraStart) return sraStart;
+    }
+    return new Date().toISOString().split("T")[0];
+  });
   const [validityEnd, setValidityEnd] = useState(() => {
+    if (party && party.sra === true) {
+      const sraEnd = toDateString(party.sra_to_date);
+      if (sraEnd) return sraEnd;
+    }
     const nextYear = new Date();
     nextYear.setFullYear(nextYear.getFullYear() + 1);
     return nextYear.toISOString().split("T")[0];
   });
   const [rateRemarks, setRateRemarks] = useState("");
+
+  useEffect(() => {
+    if (rateType === "SRA" && party && party.sra === true) {
+      setValidityStart(toDateString(party.sra_from_date) || new Date().toISOString().split("T")[0]);
+      setValidityEnd(toDateString(party.sra_to_date) || toDateString(new Date(new Date().setFullYear(new Date().getFullYear() + 1))));
+    } else {
+      setValidityStart(new Date().toISOString().split("T")[0]);
+      const nextYear = new Date();
+      nextYear.setFullYear(nextYear.getFullYear() + 1);
+      setValidityEnd(nextYear.toISOString().split("T")[0]);
+    }
+  }, [rateType, party]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2265,6 +2307,7 @@ type AddRateModalProps = {
   onClose: () => void;
   addRate: any;
   isAddingRate: boolean;
+  party?: any;
 };
 
 function AddRateModal({
@@ -2272,18 +2315,41 @@ function AddRateModal({
   onClose,
   addRate,
   isAddingRate,
+  party,
 }: AddRateModalProps) {
-  const [rateType, setRateType] = useState("SR");
+  const [rateType, setRateType] = useState(() => (party && party.sra === true) ? "SRA" : "SR");
   const [rate, setRate] = useState("");
   const [minQty, setMinQty] = useState("1");
   const [maxQty, setMaxQty] = useState("999999");
-  const [validityStart, setValidityStart] = useState(() => new Date().toISOString().split("T")[0]);
+  const [validityStart, setValidityStart] = useState(() => {
+    if (party && party.sra === true) {
+      const sraStart = toDateString(party.sra_from_date);
+      if (sraStart) return sraStart;
+    }
+    return new Date().toISOString().split("T")[0];
+  });
   const [validityEnd, setValidityEnd] = useState(() => {
+    if (party && party.sra === true) {
+      const sraEnd = toDateString(party.sra_to_date);
+      if (sraEnd) return sraEnd;
+    }
     const nextYear = new Date();
     nextYear.setFullYear(nextYear.getFullYear() + 1);
     return nextYear.toISOString().split("T")[0];
   });
   const [remarks, setRemarks] = useState("");
+
+  useEffect(() => {
+    if (rateType === "SRA" && party && party.sra === true) {
+      setValidityStart(toDateString(party.sra_from_date) || new Date().toISOString().split("T")[0]);
+      setValidityEnd(toDateString(party.sra_to_date) || toDateString(new Date(new Date().setFullYear(new Date().getFullYear() + 1))));
+    } else {
+      setValidityStart(new Date().toISOString().split("T")[0]);
+      const nextYear = new Date();
+      nextYear.setFullYear(nextYear.getFullYear() + 1);
+      setValidityEnd(nextYear.toISOString().split("T")[0]);
+    }
+  }, [rateType, party]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

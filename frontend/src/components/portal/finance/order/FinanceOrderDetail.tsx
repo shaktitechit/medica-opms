@@ -41,7 +41,7 @@ import AttachmentsTab from "./components/AttachmentsTab";
 import { ApprovalTab } from "./components/ApprovalTab";
 import { DispatchesTab } from "./components/DispatchesTab";
 import { TransportsTab } from "./components/TransportsTab";
-import { DueSheetTab } from "./components/DueSheetTab";
+import { DueSheetTab } from "@/components/portal/shared/DueSheetTab";
 import { RemindersTab } from "@/components/portal/shared/RemindersTab";
 
 import { ALL_FLAG_TYPES, FLAGS_FOR_TARGET_DEPARTMENT } from "@/components/portal/shared/flagTypes";
@@ -173,11 +173,11 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
         typeof app.assigned_finance_user === "string"
           ? app.assigned_finance_user
           : String(
-              (app.assigned_finance_user as { _id?: unknown; id?: unknown } | undefined)
-                ?._id ??
-                (app.assigned_finance_user as { id?: unknown } | undefined)?.id ??
-                "",
-            );
+            (app.assigned_finance_user as { _id?: unknown; id?: unknown } | undefined)
+              ?._id ??
+            (app.assigned_finance_user as { id?: unknown } | undefined)?.id ??
+            "",
+          );
       return assigneeId && assigneeId === currentUserId;
     }).length;
   }, [adminApprovalsQ.data, currentUserId]);
@@ -496,20 +496,20 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
           const approvalItems =
             nextStatus === "finance_approved"
               ? readOnlyItems
-                  .map((line) => {
-                    const ordered = Number(line.ordered_quantity ?? line.quantity ?? 0);
-                    const alreadyApproved = Number(line.approved_quantity || 0);
-                    const remaining = Math.max(0, ordered - alreadyApproved);
-                    const approveQty = remaining > 0 ? remaining : ordered;
-                    if (approveQty <= 0) return null;
-                    return {
-                      order_item_id: line._id,
-                      approved_quantity: approveQty,
-                      approval_status:
-                        approveQty >= ordered ? "fully_approved" : "partially_approved",
-                    };
-                  })
-                  .filter(Boolean)
+                .map((line) => {
+                  const ordered = Number(line.ordered_quantity ?? line.quantity ?? 0);
+                  const alreadyApproved = Number(line.approved_quantity || 0);
+                  const remaining = Math.max(0, ordered - alreadyApproved);
+                  const approveQty = remaining > 0 ? remaining : ordered;
+                  if (approveQty <= 0) return null;
+                  return {
+                    order_item_id: line._id,
+                    approved_quantity: approveQty,
+                    approval_status:
+                      approveQty >= ordered ? "fully_approved" : "partially_approved",
+                  };
+                })
+                .filter(Boolean)
               : undefined;
 
           const approval = await createFinanceApproval({
@@ -610,11 +610,11 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     );
     const pendingDispatchQty = Number(
       fulfillmentTotals?.pendingDispatch ??
-        readOnlyItems.reduce((sum, line) => {
-          const approved = Number(line.approved_quantity || 0);
-          const cap = approved > 0 ? approved : Number(line.ordered_quantity ?? line.quantity ?? 0);
-          return sum + Math.max(0, cap - Number(line.dispatched_quantity || 0));
-        }, 0),
+      readOnlyItems.reduce((sum, line) => {
+        const approved = Number(line.approved_quantity || 0);
+        const cap = approved > 0 ? approved : Number(line.ordered_quantity ?? line.quantity ?? 0);
+        return sum + Math.max(0, cap - Number(line.dispatched_quantity || 0));
+      }, 0),
     );
     const pendingFinanceQty = Number(
       fulfillmentTotals?.pendingFinance ?? financeCaps.pendingFinanceQty,
@@ -781,7 +781,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 </svg>
               </button>
             </div>
-            
+
             <div className="mt-4 overflow-y-auto flex-1 pr-1">
               <OrderDepartmentFulfillmentPanel
                 order={detail}
@@ -854,10 +854,9 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   </div>
 
                   {/* Meta info */}
-                  <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                  <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[16px] text-slate-500 dark:text-slate-400">
                     <span className="flex items-center gap-1">
-                      Party:{" "}
-                      <b className="font-semibold text-slate-700 dark:text-slate-200">{custLabel}</b>
+                      Party: <b className="font-bold text-blue-700 dark:text-blue-400">{custLabel}</b>
                       {detail && (checkOrderPartySra(detail, partySraById) || (partyDetailQ.data as any)?.sra === true) && (
                         <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
                           SRA
@@ -972,7 +971,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
 
           {/* ── DESKTOP: Independently Scrollable Tab Content ── */}
           <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
-        
+
 
             {activeTab === "approvals" && (
               <ApprovalTab
@@ -1004,7 +1003,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
               <DueSheetTab orderId={orderId} onUploadSuccess={handleRefetch} />
             )}
 
-                {activeTab === "flags" && (
+            {activeTab === "flags" && (
               <FlagsTab
                 orderId={orderId}
                 flagsQ={flagsQ}
@@ -1241,29 +1240,26 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                       setMobileTabOpen(true);
                     }
                   }}
-                  className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 px-2 flex-1 min-w-0 transition-colors ${
-                    isActive
+                  className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 px-2 flex-1 min-w-0 transition-colors ${isActive
                       ? "text-blue-600 dark:text-blue-400"
                       : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                  }`}
+                    }`}
                 >
                   <span className={`relative transition-transform ${isActive ? "scale-110" : ""}`}>
                     {tab.icon}
                     {tab.count !== undefined && tab.count > 0 && (
                       <span
-                        className={`absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 flex items-center justify-center rounded-full px-1 text-[9px] font-bold ${
-                          tab.dangerBadge
+                        className={`absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 flex items-center justify-center rounded-full px-1 text-[9px] font-bold ${tab.dangerBadge
                             ? "bg-rose-500 text-white"
                             : "bg-slate-600 text-white dark:bg-slate-300 dark:text-slate-900"
-                        }`}
+                          }`}
                       >
                         {tab.count}
                       </span>
                     )}
                   </span>
-                  <span className={`text-[10px] font-semibold leading-none truncate max-w-full ${
-                    isActive ? "text-blue-600 dark:text-blue-400" : ""
-                  }`}>
+                  <span className={`text-[10px] font-semibold leading-none truncate max-w-full ${isActive ? "text-blue-600 dark:text-blue-400" : ""
+                    }`}>
                     {tab.name}
                   </span>
                   {isActive && (

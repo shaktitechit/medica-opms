@@ -13,7 +13,9 @@ import {
   ListAdminOrdersPage,
   AdminCreateOrderPage,
   ListFinanceOrdersPage,
+  FinanceCreateOrderPage,
   ListAccountOrdersPage,
+  AccountCreateOrderPage,
   ListDispatchOrdersPage,
   ListDriversPage,
   ListVehiclesPage,
@@ -84,6 +86,9 @@ export default function PortalCatchAllPage() {
   if (portal === "finance" && restArr.length === 1 && restArr[0] === "orders") {
     return <ListFinanceOrdersPage />;
   }
+  if (portal === "finance" && restArr.length === 1 && restArr[0] === "create-order") {
+    return <FinanceCreateOrderPage />;
+  }
   if (portal === "finance" && restArr.length === 1 && restArr[0] === "parties") {
     return <ListPartiesPage portalHome="/finance" />;
   }
@@ -94,6 +99,9 @@ export default function PortalCatchAllPage() {
   // ── ACCOUNT ──────────────────────────────────────────────────────────────
   if (portal === "account" && restArr.length === 1 && restArr[0] === "orders") {
     return <ListAccountOrdersPage />;
+  }
+  if (portal === "account" && restArr.length === 1 && restArr[0] === "create-order") {
+    return <AccountCreateOrderPage />;
   }
   if (portal === "account" && restArr.length === 1 && restArr[0] === "parties") {
     return <ListPartiesPage portalHome="/account" />;

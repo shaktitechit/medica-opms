@@ -77,6 +77,33 @@ export function resolveOrderCounterparty(
   return `Legacy · ${cid.slice(0, 8)}…`;
 }
 
+export function isPartySraActive(party: any, referenceDate?: Date | string | null): boolean {
+  if (!party || party.sra !== true) return false;
+  
+  const refDate = referenceDate ? new Date(referenceDate) : new Date();
+  if (isNaN(refDate.getTime())) return false;
+  
+  const refTime = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate()).getTime();
+
+  if (party.sra_from_date) {
+    const fromDate = new Date(party.sra_from_date);
+    if (!isNaN(fromDate.getTime())) {
+      const fromTime = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate()).getTime();
+      if (refTime < fromTime) return false;
+    }
+  }
+
+  if (party.sra_to_date) {
+    const toDate = new Date(party.sra_to_date);
+    if (!isNaN(toDate.getTime())) {
+      const toTime = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate()).getTime();
+      if (refTime > toTime) return false;
+    }
+  }
+
+  return true;
+}
+
 export function buildPartySraById(partiesRaw: unknown): Map<string, boolean> {
   const list = pickList(partiesRaw);
   const map = new Map<string, boolean>();
@@ -85,7 +112,7 @@ export function buildPartySraById(partiesRaw: unknown): Map<string, boolean> {
     const o = row as Record<string, unknown>;
     const id = o._id != null ? String(o._id) : o.id != null ? String(o.id) : "";
     if (!id) continue;
-    map.set(id, o.sra === true);
+    map.set(id, isPartySraActive(o));
   }
   return map;
 }
@@ -94,13 +121,16 @@ export function checkOrderPartySra(
   row: Record<string, unknown>,
   partySraById?: Map<string, boolean>
 ): boolean {
+  const orderDateRaw = row.order_date ?? row.createdAt ?? row.updatedAt;
+  const refDate = orderDateRaw ? new Date(String(orderDateRaw)) : new Date();
+
   if (row.party && typeof row.party === "object") {
     const p = row.party as Record<string, unknown>;
-    if (p.sra === true) return true;
+    if (isPartySraActive(p, refDate)) return true;
   }
   if (row.customer && typeof row.customer === "object") {
     const c = row.customer as Record<string, unknown>;
-    if (c.sra === true) return true;
+    if (isPartySraActive(c, refDate)) return true;
   }
   if (partySraById) {
     const partyId = typeof row.party === "string" ? row.party : 

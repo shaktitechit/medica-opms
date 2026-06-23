@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import {
   FilePreviewModal,
@@ -152,6 +152,42 @@ export function DueSheetTab({ orderId, onUploadSuccess }: DueSheetTabProps) {
   const [replaceTargetId, setReplaceTargetId] = useState<string | null>(null);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
 
+  useEffect(() => {
+    const handleGlobalPaste = (event: ClipboardEvent) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf("image") !== -1) {
+          const blob = item.getAsFile();
+          if (blob) {
+            const pastedFile = new File([blob], `screenshot_${Date.now()}.png`, {
+              type: "image/png",
+            });
+            if (isUploadModalOpen) {
+              setUploadFile(pastedFile);
+              toast.success("Screenshot pasted successfully!");
+              event.preventDefault();
+            } else if (replaceTargetId) {
+              setReplaceFile(pastedFile);
+              toast.success("Screenshot pasted to replace document!");
+              event.preventDefault();
+            }
+            break;
+          }
+        }
+      }
+    };
+
+    if (isUploadModalOpen || replaceTargetId) {
+      window.addEventListener("paste", handleGlobalPaste);
+    }
+    return () => {
+      window.removeEventListener("paste", handleGlobalPaste);
+    };
+  }, [isUploadModalOpen, replaceTargetId]);
+
   const handleView = (doc: PreviewFile) => {
     void openPreview(doc);
   };
@@ -293,6 +329,9 @@ export function DueSheetTab({ orderId, onUploadSuccess }: DueSheetTabProps) {
                   Upload due sheet document
                 </p>
                 <p className="text-xs text-slate-500">PDF, image, or office file</p>
+                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                  Or paste a screenshot directly (Ctrl+V / Cmd+V)
+                </p>
               </div>
 
               {uploadFile && (
@@ -364,14 +403,39 @@ export function DueSheetTab({ orderId, onUploadSuccess }: DueSheetTabProps) {
               Replace Document
             </h3>
             <form onSubmit={handleReplaceSubmit} className="mt-4 space-y-4">
-              <input
-                type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx"
-                onChange={(e) => {
-                  if (e.target.files?.[0]) setReplaceFile(e.target.files[0]);
-                }}
-                className="w-full text-sm text-slate-700 dark:text-slate-300"
-              />
+              <div className="space-y-1.5">
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx"
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) setReplaceFile(e.target.files[0]);
+                  }}
+                  className="w-full text-sm text-slate-700 dark:text-slate-300"
+                />
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Or paste a screenshot directly (Ctrl+V / Cmd+V)
+                </p>
+              </div>
+
+              {replaceFile && (
+                <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-slate-955">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
+                      {replaceFile.name}
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      {(replaceFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReplaceFile(null)}
+                    className="text-xs font-semibold text-rose-500 hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
               <div className="flex justify-end gap-3">
                 <button
                   type="button"

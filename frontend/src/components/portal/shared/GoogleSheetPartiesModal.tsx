@@ -66,6 +66,8 @@ type PartyRow = {
   payment_terms?: string;
   is_active: boolean;
   sra: boolean;
+  sra_from_date?: string;
+  sra_to_date?: string;
 };
 
 type SelectedCell = {
@@ -73,7 +75,7 @@ type SelectedCell = {
   colKey: keyof PartyRow;
 } | null;
 
-const COLUMNS: { key: keyof PartyRow; label: string; headerLetter: string; readonly?: boolean; type?: "text" | "number" | "select" | "boolean"; options?: string[] }[] = [
+const COLUMNS: { key: keyof PartyRow; label: string; headerLetter: string; readonly?: boolean; type?: "text" | "number" | "select" | "boolean" | "date"; options?: string[] }[] = [
   { key: "party_name", label: "Party Name*", headerLetter: "A", type: "text" },
   { key: "party_type", label: "Party Type*", headerLetter: "B", type: "select", options: ["customer", "supplier", "both"] },
   { key: "contact_person", label: "Contact Person", headerLetter: "C", type: "text" },
@@ -85,8 +87,17 @@ const COLUMNS: { key: keyof PartyRow; label: string; headerLetter: string; reado
   { key: "state", label: "State", headerLetter: "I", type: "text" },
   { key: "payment_terms", label: "Payment Terms", headerLetter: "J", type: "text" },
   { key: "is_active", label: "Active", headerLetter: "K", type: "boolean" },
-  { key: "sra", label: "SRA", headerLetter: "L", type: "boolean" }
+  { key: "sra", label: "SRA", headerLetter: "L", type: "boolean" },
+  { key: "sra_from_date", label: "SRA From Date", headerLetter: "M", type: "date" },
+  { key: "sra_to_date", label: "SRA To Date", headerLetter: "N", type: "date" }
 ];
+
+function toDateString(v: unknown): string {
+  if (v == null || v === "") return "";
+  const d = new Date(String(v));
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().split("T")[0];
+}
 
 function pickList(raw: unknown): unknown[] {
   if (Array.isArray(raw)) return raw;
@@ -161,6 +172,8 @@ export function GoogleSheetPartiesModal({
     payment_terms: 120,
     is_active: 80,
     sra: 80,
+    sra_from_date: 120,
+    sra_to_date: 120,
   });
 
   const handleResizeStart = (colKey: string, e: React.MouseEvent) => {
@@ -283,7 +296,11 @@ export function GoogleSheetPartiesModal({
     }
 
     // Don't patch if value didn't change
-    if (originalRow[colKey] === parsedVal) return;
+    let isSame = originalRow[colKey] === parsedVal;
+    if (colKey === "sra_from_date" || colKey === "sra_to_date") {
+      isSame = toDateString(originalRow[colKey]) === toDateString(parsedVal);
+    }
+    if (isSame) return;
 
     setSavingRows(prev => ({ ...prev, [partyId]: true }));
     try {
@@ -612,6 +629,8 @@ function onEdit(e) {
     if (key === "mobile" || key === "phone") key = "mobile";
     if (key === "gstin" || key === "gstin_no") key = "gst_no";
     if (key === "active") key = "is_active";
+    if (key === "sra_start" || key === "sra_start_date") key = "sra_from_date";
+    if (key === "sra_end" || key === "sra_end_date") key = "sra_to_date";
     
     payload[key] = rowData[i];
   }
@@ -1044,6 +1063,19 @@ function onEdit(e) {
                                       className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-offset-transparent cursor-pointer"
                                     />
                                   </div>
+                                ) : col.type === "date" ? (
+                                  <input
+                                    type="date"
+                                    value={cellVal ? toDateString(cellVal) : ""}
+                                    onChange={e => {
+                                      const rawVal = e.target.value;
+                                      setLocalRows(prev =>
+                                        prev.map(r => r._id === row._id ? { ...r, [col.key]: rawVal } : r)
+                                      );
+                                    }}
+                                    onBlur={e => saveCell(row._id, col.key, e.target.value || null)}
+                                    className="w-full h-full bg-transparent border-none outline-none focus:ring-0 text-xs px-3 py-2 text-slate-800 dark:text-slate-200"
+                                  />
                                 ) : col.type === "select" ? (
                                   <select
                                     value={String(cellVal || "customer")}
@@ -1485,6 +1517,8 @@ function onEdit(e) {
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Payment Terms</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Active</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">SRA</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">SRA From Date</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">SRA To Date</div>
                   </div>
                   <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-1">
                     * Asterisks denote fields required by the database engine.
@@ -1532,6 +1566,8 @@ function onEdit(e) {
     if (key === "mobile" || key === "phone") key = "mobile";
     if (key === "gstin" || key === "gstin_no") key = "gst_no";
     if (key === "active") key = "is_active";
+    if (key === "sra_start" || key === "sra_start_date") key = "sra_from_date";
+    if (key === "sra_end" || key === "sra_end_date") key = "sra_to_date";
     
     payload[key] = rowData[i];
   }

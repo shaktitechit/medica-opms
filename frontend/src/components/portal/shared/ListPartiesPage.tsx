@@ -71,6 +71,8 @@ type PartyRow = {
   payment_terms?: string;
   is_active?: boolean;
   sra?: boolean;
+  sra_from_date?: string;
+  sra_to_date?: string;
 };
 
 function rowKey(row: unknown): string {
@@ -86,6 +88,17 @@ function rowLabel(row: PartyRow, fallbackId: string): string {
   if (typeof row.party_name === "string" && row.party_name.trim())
     return row.party_name.trim();
   return fallbackId || "Party";
+}
+
+function formatDateShort(v: unknown): string {
+  if (v == null || v === "") return "";
+  const d = v instanceof Date ? v : new Date(String(v));
+  if (Number.isNaN(d.getTime())) return String(v);
+  return d.toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 export type ListPartiesPageProps = {
@@ -559,8 +572,11 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
                           </span>
                         )}
                         {p.sra && (
-                          <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-emerald-600/10 dark:ring-emerald-500/20" title="Special Rate Approval Enabled">
-                            SRA
+                          <span
+                            className="inline-flex items-center gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-emerald-600/10 dark:ring-emerald-500/20"
+                            title={`Special Rate Approval Enabled${p.sra_from_date || p.sra_to_date ? ` (${formatDateShort(p.sra_from_date)} - ${formatDateShort(p.sra_to_date)})` : ''}`}
+                          >
+                            SRA {p.sra_from_date || p.sra_to_date ? `(${formatDateShort(p.sra_from_date)} - ${formatDateShort(p.sra_to_date)})` : ''}
                           </span>
                         )}
                       </div>

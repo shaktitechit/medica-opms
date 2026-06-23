@@ -90,14 +90,15 @@ function departmentAllowsTransition(userDeptRaw, fromStatus, toStatus) {
   const from = normalizeOrderStatus(fromStatus);
   const to = normalizeOrderStatus(toStatus);
 
-  if (userDept === 'sales') {
-    return from === ORDER_STATUS.DRAFT
-      && [ORDER_STATUS.SUBMITTED, ORDER_STATUS.CANCELLED].includes(to);
+  if (['sales', 'finance', 'account'].includes(userDept)) {
+    if (from === ORDER_STATUS.DRAFT) {
+      return [ORDER_STATUS.SUBMITTED, ORDER_STATUS.CANCELLED].includes(to);
+    }
   }
 
   if (from === ORDER_STATUS.ON_HOLD && to !== ORDER_STATUS.ON_HOLD) {
     if (to === ORDER_STATUS.SUBMITTED) {
-      return ['sales', 'admin', 'super_admin'].includes(userDept);
+      return ['sales', 'admin', 'super_admin', 'finance', 'account'].includes(userDept);
     }
     if (to === ORDER_STATUS.FINANCE_REVIEW) {
       return ['finance', 'admin', 'super_admin'].includes(userDept);
@@ -116,7 +117,7 @@ function departmentAllowsTransition(userDeptRaw, fromStatus, toStatus) {
 
   if (from === ORDER_STATUS.FINANCE_REJECTED) {
     if (to === ORDER_STATUS.SUBMITTED) {
-      return ['sales', 'admin', 'super_admin'].includes(userDept);
+      return ['sales', 'admin', 'super_admin', 'finance', 'account'].includes(userDept);
     }
     if (to === ORDER_STATUS.CANCELLED) {
       return ['sales', 'finance', 'account', 'admin', 'super_admin'].includes(userDept);

@@ -306,11 +306,11 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
     ));
     const pendingQty = Number(
       totals?.pendingDispatch ??
-        readOnlyItems.reduce((sum, line) => {
-          const approved = Number(line.approved_quantity || 0);
-          const cap = approved > 0 ? approved : Number(line.ordered_quantity ?? line.quantity ?? 0);
-          return sum + Math.max(0, cap - Number(line.dispatched_quantity || 0));
-        }, 0),
+      readOnlyItems.reduce((sum, line) => {
+        const approved = Number(line.approved_quantity || 0);
+        const cap = approved > 0 ? approved : Number(line.ordered_quantity ?? line.quantity ?? 0);
+        return sum + Math.max(0, cap - Number(line.dispatched_quantity || 0));
+      }, 0),
     );
 
     return {
@@ -429,7 +429,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                 </svg>
               </button>
             </div>
-            
+
             <div className="mt-4 overflow-y-auto flex-1 pr-1">
               <OrderDepartmentFulfillmentPanel
                 order={detail}
@@ -470,7 +470,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                 </svg>
               </button>
             </div>
-            
+
             <div className="mt-4 overflow-y-auto flex-1 pr-1">
               <OrderTab
                 orderId={orderId}
@@ -512,7 +512,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                 </svg>
               </button>
             </div>
-            
+
             <div className="mt-4 overflow-y-auto flex-1 pr-1">
               <dl className="grid gap-3 text-xs sm:grid-cols-2">
                 <div>
@@ -625,7 +625,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                 </svg>
               </button>
             </div>
-            
+
             <div className="mt-4 overflow-y-auto flex-1 pr-1">
               {partyDetailQ.isFetching ? (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -734,9 +734,9 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                     </h1>
                     <span className="shrink-0">{renderPriorityBadge(typeof detail.priority === "string" ? detail.priority : "normal")}</span>
                   </div>
-                  <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                  <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[16px] text-slate-500 dark:text-slate-400">
                     <span className="flex items-center gap-1">
-                      Party: <b className="font-semibold text-slate-700 dark:text-slate-200">{custLabel}</b>
+                      Party: <b className="font-bold text-blue-700 dark:text-blue-400">{custLabel}</b>
                       {detail && (checkOrderPartySra(detail, partySraById) || (partyDetailQ.data as any)?.sra === true) && (
                         <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
                           SRA

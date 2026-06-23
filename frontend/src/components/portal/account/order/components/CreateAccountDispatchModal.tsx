@@ -125,6 +125,36 @@ export function CreateAccountDispatchModal({
     setDispatchItemsQuantities(buildInitialDispatchQuantities(activeApproval));
   }, [open, activeApproval, buildInitialDispatchQuantities]);
 
+  useEffect(() => {
+    const handleGlobalPaste = (event: ClipboardEvent) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf("image") !== -1) {
+          const blob = item.getAsFile();
+          if (blob) {
+            const pastedFile = new File([blob], `screenshot_${Date.now()}.png`, {
+              type: "image/png",
+            });
+            setBillDocumentFile(pastedFile);
+            toast.success("Bill document pasted successfully!");
+            event.preventDefault();
+            break;
+          }
+        }
+      }
+    };
+
+    if (open) {
+      window.addEventListener("paste", handleGlobalPaste);
+    }
+    return () => {
+      window.removeEventListener("paste", handleGlobalPaste);
+    };
+  }, [open]);
+
   const modalDispatchableTotal = useMemo(
     () => previewRows.reduce((sum, row) => sum + row.dispatchable, 0),
     [previewRows],
@@ -432,16 +462,30 @@ export function CreateAccountDispatchModal({
                         setBillDocumentFile(e.target.files?.[0] ?? null);
                       }}
                       className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-blue-700 hover:file:bg-blue-100 dark:text-slate-300 dark:file:bg-blue-950/40 dark:file:text-blue-300"
-                      required
+                      required={!billDocumentFile}
                       disabled={isCreating}
                     />
                     {billDocumentFile ? (
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Selected: {billDocumentFile.name}
-                      </p>
+                      <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 p-2.5 dark:border-white/5 dark:bg-slate-950 mt-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
+                            {billDocumentFile.name}
+                          </p>
+                          <p className="text-[10px] text-slate-500">
+                            {(billDocumentFile.size / 1024 / 1024).toFixed(2)} MB
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setBillDocumentFile(null)}
+                          className="text-xs font-semibold text-rose-500 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     ) : (
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Upload invoice or bill copy (PDF, image, or Word).
+                        Upload invoice or bill copy (PDF, image, or Word) or paste a screenshot directly (Ctrl+V / Cmd+V).
                       </p>
                     )}
                   </div>

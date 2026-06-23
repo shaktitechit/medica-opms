@@ -29,12 +29,14 @@ import {
   useListAttachmentsQuery,
   useGetOrderFulfillmentQuery,
   useListRemindersQuery,
+  useListOrderDueSheetsQuery,
 } from "@/store/api";
 
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
 import { FlagsTab } from "./components/FlagsTab";
 import AttachmentsTab from "./components/AttachmentsTab";
 import { RemindersTab } from "@/components/portal/shared/RemindersTab";
+import { DueSheetTab } from "@/components/portal/shared/DueSheetTab";
 import { DispatchesTab } from "./components/DispatchesTab";
 import { TransportsTab } from "./components/TransportsTab";
 import { DeliveriesTab } from "./components/DeliveriesTab";
@@ -169,6 +171,10 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     { order: orderId },
     { skip: !orderId },
   );
+  const dueSheetsQ = useListOrderDueSheetsQuery(
+    { order: orderId },
+    { skip: !orderId },
+  );
   const detail =
     data && typeof data === "object"
       ? (data as Record<string, unknown>)
@@ -252,6 +258,7 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     | "flags"
     | "attachments"
     | "reminders"
+    | "due_sheet"
   >("approvals");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
@@ -324,6 +331,11 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     [remindersQ.data],
   );
 
+  const dueSheetsCount = useMemo(
+    () => pickList(dueSheetsQ.data).length,
+    [dueSheetsQ.data],
+  );
+
   const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
   const transports = useMemo(() => pickList(transportsQ.data), [transportsQ.data]);
   const deliveries = useMemo(() => pickList(deliveriesQ.data), [deliveriesQ.data]);
@@ -342,7 +354,8 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     if (!returnsQ.isUninitialized) void returnsQ.refetch();
     if (!approvalsQ.isUninitialized) void approvalsQ.refetch();
     if (!remindersQ.isUninitialized) void remindersQ.refetch();
-  }, [refetch, fulfillmentQ, attachQ, dispatchesQ, transportsQ, deliveriesQ, returnsQ, approvalsQ, remindersQ]);
+    if (!dueSheetsQ.isUninitialized) void dueSheetsQ.refetch();
+  }, [refetch, fulfillmentQ, attachQ, dispatchesQ, transportsQ, deliveriesQ, returnsQ, approvalsQ, remindersQ, dueSheetsQ]);
 
   const onSettleAndCloseSuccess = useCallback(async () => {
     handleRefetch();
@@ -413,18 +426,18 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     ));
     const adminApprovedQty = Number(
       totals?.salesApproved ??
-        orderItems.reduce((sum, line) => {
-          const sales = Number(line.sales_approved_quantity ?? 0);
-          if (sales > 0) return sum + sales;
-          return sum + Number(line.approved_quantity || 0);
-        }, 0),
+      orderItems.reduce((sum, line) => {
+        const sales = Number(line.sales_approved_quantity ?? 0);
+        if (sales > 0) return sum + sales;
+        return sum + Number(line.approved_quantity || 0);
+      }, 0),
     );
     const financeApprovedQty = Number(
       totals?.approved ??
-        orderItems.reduce(
-          (sum, line) => sum + Number(line.approved_quantity || 0),
-          0,
-        ),
+      orderItems.reduce(
+        (sum, line) => sum + Number(line.approved_quantity || 0),
+        0,
+      ),
     );
     const dispatchedQty = Number(totals?.dispatched ?? orderItems.reduce(
       (sum, line) => sum + Number(line.dispatched_quantity || 0),
@@ -590,7 +603,7 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
                 </svg>
               </button>
             </div>
-            
+
             <div className="mt-4 overflow-y-auto flex-1 pr-1">
               <OrderDepartmentFulfillmentPanel
                 order={detail}
@@ -680,9 +693,9 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
                   <h1 className="truncate text-base sm:text-lg font-bold tracking-tight text-slate-950 dark:text-slate-50">{orderNo}</h1>
                   <span className="shrink-0">{renderPriorityBadge(typeof detail.priority === "string" ? detail.priority : "normal")}</span>
                 </div>
-                <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[16px] text-slate-500 dark:text-slate-400">
                   <span className="flex items-center gap-1">
-                    Party: <b className="font-semibold text-slate-700 dark:text-slate-200">{custLabel}</b>
+                    Party: <b className="font-bold text-blue-700 dark:text-blue-400">{custLabel}</b>
                     {detail && (checkOrderPartySra(detail, partySraById) || (partyDetailQ.data as any)?.sra === true) && (
                       <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
                         SRA
@@ -750,365 +763,386 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
           </div>
         </div>
 
-      {/* DESKTOP: Independently Scrollable Tab Content */}
-      <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
-        {activeTab === "approvals" && (
-          <ApprovalTab
-            orderId={orderId}
-            detail={detail}
-            readOnlyItems={orderItems}
-            refetchOrder={handleRefetch}
-            partyLabel={custLabel}
-          />
-        )}
+        {/* DESKTOP: Independently Scrollable Tab Content */}
+        <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
+          {activeTab === "approvals" && (
+            <ApprovalTab
+              orderId={orderId}
+              detail={detail}
+              readOnlyItems={orderItems}
+              refetchOrder={handleRefetch}
+              partyLabel={custLabel}
+            />
+          )}
 
-        {activeTab === "dispatches" && (
-          <DispatchesTab
-            orderId={orderId}
-            detail={detail}
-            refetchOrder={handleRefetch}
-            partyLabel={custLabel}
-            isAssignedToMe={isAssignedToMe}
-          />
-        )}
+          {activeTab === "dispatches" && (
+            <DispatchesTab
+              orderId={orderId}
+              detail={detail}
+              refetchOrder={handleRefetch}
+              partyLabel={custLabel}
+              isAssignedToMe={isAssignedToMe}
+            />
+          )}
 
-        {activeTab === "transports" && (
-          <TransportsTab
-            orderId={orderId}
-            detail={detail}
-            refetchOrder={handleRefetch}
-          />
-        )}
+          {activeTab === "transports" && (
+            <TransportsTab
+              orderId={orderId}
+              detail={detail}
+              refetchOrder={handleRefetch}
+            />
+          )}
 
-        {activeTab === "deliveries" && (
-          <DeliveriesTab
-            orderId={orderId}
-            detail={detail}
-            refetchOrder={handleRefetch}
-          />
-        )}
+          {activeTab === "deliveries" && (
+            <DeliveriesTab
+              orderId={orderId}
+              detail={detail}
+              refetchOrder={handleRefetch}
+            />
+          )}
 
-        {activeTab === "returns" && (
-          <ReturnsTab
-            orderId={orderId}
-            detail={detail}
-          />
-        )}
+          {activeTab === "returns" && (
+            <ReturnsTab
+              orderId={orderId}
+              detail={detail}
+            />
+          )}
 
-        {activeTab === "flags" && (
-          <FlagsTab
-            orderId={orderId}
-            flagsQ={flagsQ}
-            rawFlags={rawFlags}
-            formatDate={formatDate}
-            userNameById={userNameById}
-            setShowRaiseFlagModal={setShowRaiseFlagModal}
-            currentDepartment="account"
-            refetchOrder={handleRefetch}
-          />
-        )}
+          {activeTab === "flags" && (
+            <FlagsTab
+              orderId={orderId}
+              flagsQ={flagsQ}
+              rawFlags={rawFlags}
+              formatDate={formatDate}
+              userNameById={userNameById}
+              setShowRaiseFlagModal={setShowRaiseFlagModal}
+              currentDepartment="account"
+              refetchOrder={handleRefetch}
+            />
+          )}
 
-        {activeTab === "attachments" && (
-          <AttachmentsTab
-            orderId={orderId}
-            attachments={pickList(attachQ.data)}
-            isLoading={attachQ.isFetching}
-            onUploadSuccess={handleRefetch}
-          />
-        )}
+          {activeTab === "attachments" && (
+            <AttachmentsTab
+              orderId={orderId}
+              attachments={pickList(attachQ.data)}
+              isLoading={attachQ.isFetching}
+              onUploadSuccess={handleRefetch}
+            />
+          )}
 
-        {activeTab === "reminders" && (
-          <RemindersTab orderId={orderId} />
-        )}
-      </div>
+          {activeTab === "reminders" && (
+            <RemindersTab orderId={orderId} />
+          )}
 
-      {/* DESKTOP: Fixed Footer Tab Nav */}
-      <div className="hidden md:block mb-0 flex-shrink-0 border-t border-slate-100 dark:border-white/5 bg-slate-50/95 dark:bg-slate-955/90 backdrop-blur-md px-2 pt-1.5 pb-0 [&_nav]:pb-0">
-        <OrderDetailTabsNav className="!mb-0 !rounded-none !border-0 !bg-transparent !p-0"
-          tabs={[
-            {
-              id: "approvals",
-              name: "Approvals",
-              count: accountApprovals.length,
-            },
-            {
-              id: "dispatches",
-              name: "Dispatches",
-              count: dispatches.length,
-            },
-            {
-              id: "transports",
-              name: "Transports",
-              count: transports.length,
-            },
-            {
-              id: "deliveries",
-              name: "Deliveries",
-              count: deliveries.length,
-            },
-            {
-              id: "returns",
-              name: "Returns",
-              count: returns.length,
-            },
-            {
-              id: "flags",
-              name: "Flags",
-              count: rawFlags.filter((f) => f.status === "open").length,
-              dangerBadge: true,
-            },
-            {
-              id: "attachments",
-              name: "Attachments",
-              count: attachCount,
-            },
-            {
-              id: "reminders",
-              name: "Reminders",
-              count: remindersCount,
-            },
-          ]}
-          activeId={activeTab}
-          onChange={(id) => setActiveTab(id as typeof activeTab)}
-        />
-      </div>
-
-      {/* MOBILE: Full-screen tab content popup */}
-      {mobileTabOpen && (
-        <div className="md:hidden fixed inset-0 z-[60] flex flex-col bg-white dark:bg-slate-900 animate-in slide-in-from-bottom duration-300">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-0 z-10">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-550 capitalize">
-              {activeTab === "approvals" && "Order Approvals"}
-              {activeTab === "flags" && "Flags"}
-              {activeTab === "attachments" && "Attachments"}
-              {activeTab === "dispatches" && "Dispatches"}
-              {activeTab === "transports" && "Transports"}
-              {activeTab === "deliveries" && "Deliveries"}
-              {activeTab === "returns" && "Returns"}
-              {activeTab === "reminders" && "Reminders"}
-            </h2>
-            <button
-              type="button"
-              onClick={() => setMobileTabOpen(false)}
-              className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10 transition active:scale-95"
-              aria-label="Close panel"
-            >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 pb-24">
-            {activeTab === "approvals" && (
-              <ApprovalTab
-                orderId={orderId}
-                detail={detail}
-                readOnlyItems={orderItems}
-                refetchOrder={handleRefetch}
-                partyLabel={custLabel}
-              />
-            )}
-            {activeTab === "dispatches" && (
-              <DispatchesTab
-                orderId={orderId}
-                detail={detail}
-                refetchOrder={handleRefetch}
-                partyLabel={custLabel}
-                isAssignedToMe={isAssignedToMe}
-              />
-            )}
-            {activeTab === "transports" && (
-              <TransportsTab
-                orderId={orderId}
-                detail={detail}
-                refetchOrder={handleRefetch}
-              />
-            )}
-            {activeTab === "deliveries" && (
-              <DeliveriesTab
-                orderId={orderId}
-                detail={detail}
-                refetchOrder={handleRefetch}
-              />
-            )}
-            {activeTab === "returns" && (
-              <ReturnsTab
-                orderId={orderId}
-                detail={detail}
-              />
-            )}
-            {activeTab === "flags" && (
-              <FlagsTab
-                orderId={orderId}
-                flagsQ={flagsQ}
-                rawFlags={rawFlags}
-                formatDate={formatDate}
-                userNameById={userNameById}
-                setShowRaiseFlagModal={setShowRaiseFlagModal}
-                currentDepartment="account"
-                refetchOrder={handleRefetch}
-              />
-            )}
-            {activeTab === "attachments" && (
-              <AttachmentsTab
-                orderId={orderId}
-                attachments={pickList(attachQ.data)}
-                isLoading={attachQ.isFetching}
-                onUploadSuccess={handleRefetch}
-              />
-            )}
-            {activeTab === "reminders" && (
-              <RemindersTab orderId={orderId} />
-            )}
-          </div>
+          {activeTab === "due_sheet" && (
+            <DueSheetTab orderId={orderId} onUploadSuccess={handleRefetch} />
+          )}
         </div>
-      )}
 
-      {/* MOBILE: Bottom-fixed Tab Navigation Bar */}
-      {!isFetching && !isError && detail && (
-        <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 dark:border-white/10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2 pb-safe">
-          <nav className="flex items-stretch justify-around">
-            {([
+        {/* DESKTOP: Fixed Footer Tab Nav */}
+        <div className="hidden md:block mb-0 flex-shrink-0 border-t border-slate-100 dark:border-white/5 bg-slate-50/95 dark:bg-slate-955/90 backdrop-blur-md px-2 pt-1.5 pb-0 [&_nav]:pb-0">
+          <OrderDetailTabsNav className="!mb-0 !rounded-none !border-0 !bg-transparent !p-0"
+            tabs={[
               {
-                id: "approvals" as const,
+                id: "approvals",
                 name: "Approvals",
                 count: accountApprovals.length,
-                dangerBadge: false,
-                icon: (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                ),
               },
               {
-                id: "dispatches" as const,
-                name: "Dispatch",
+                id: "dispatches",
+                name: "Dispatches",
                 count: dispatches.length,
-                dangerBadge: false,
-                icon: (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                  </svg>
-                ),
               },
               {
-                id: "transports" as const,
-                name: "Transport",
+                id: "transports",
+                name: "Transports",
                 count: transports.length,
-                dangerBadge: false,
-                icon: (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2.556-2.556M13 16H9m4 0h2m2 0h.01M13 16V6m0 0h3l3 4v6h-1M6 16H5m8-10H5" />
-                  </svg>
-                ),
               },
               {
-                id: "deliveries" as const,
-                name: "Delivery",
+                id: "deliveries",
+                name: "Deliveries",
                 count: deliveries.length,
-                dangerBadge: false,
-                icon: (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                  </svg>
-                ),
               },
               {
-                id: "returns" as const,
-                name: "Return",
+                id: "returns",
+                name: "Returns",
                 count: returns.length,
-                dangerBadge: false,
-                icon: (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                ),
               },
               {
-                id: "flags" as const,
+                id: "due_sheet",
+                name: "Due Sheet",
+                count: dueSheetsCount,
+              },
+              {
+                id: "flags",
                 name: "Flags",
                 count: rawFlags.filter((f) => f.status === "open").length,
                 dangerBadge: true,
-                icon: (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
-                  </svg>
-                ),
               },
               {
-                id: "attachments" as const,
-                name: "Files",
+                id: "attachments",
+                name: "Attachments",
                 count: attachCount,
-                dangerBadge: false,
-                icon: (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                  </svg>
-                ),
               },
               {
-                id: "reminders" as const,
+                id: "reminders",
                 name: "Reminders",
                 count: remindersCount,
-                dangerBadge: false,
-                icon: (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                ),
               },
-            ]).map((tab) => {
-              const isActive = activeTab === tab.id && mobileTabOpen;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    if (activeTab === tab.id && mobileTabOpen) {
-                      setMobileTabOpen(false);
-                    } else {
-                      setActiveTab(tab.id);
-                      setMobileTabOpen(true);
-                    }
-                  }}
-                  className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 px-2 flex-1 min-w-0 transition-colors ${
-                    isActive
+            ]}
+            activeId={activeTab}
+            onChange={(id) => setActiveTab(id as typeof activeTab)}
+          />
+        </div>
+
+        {/* MOBILE: Full-screen tab content popup */}
+        {mobileTabOpen && (
+          <div className="md:hidden fixed inset-0 z-[60] flex flex-col bg-white dark:bg-slate-900 animate-in slide-in-from-bottom duration-300">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-0 z-10">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-550 capitalize">
+                {activeTab === "approvals" && "Order Approvals"}
+                {activeTab === "flags" && "Flags"}
+                {activeTab === "attachments" && "Attachments"}
+                {activeTab === "dispatches" && "Dispatches"}
+                {activeTab === "transports" && "Transports"}
+                {activeTab === "deliveries" && "Deliveries"}
+                {activeTab === "returns" && "Returns"}
+                {activeTab === "due_sheet" && "Due Sheet"}
+                {activeTab === "reminders" && "Reminders"}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setMobileTabOpen(false)}
+                className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10 transition active:scale-95"
+                aria-label="Close panel"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 pb-24">
+              {activeTab === "approvals" && (
+                <ApprovalTab
+                  orderId={orderId}
+                  detail={detail}
+                  readOnlyItems={orderItems}
+                  refetchOrder={handleRefetch}
+                  partyLabel={custLabel}
+                />
+              )}
+              {activeTab === "dispatches" && (
+                <DispatchesTab
+                  orderId={orderId}
+                  detail={detail}
+                  refetchOrder={handleRefetch}
+                  partyLabel={custLabel}
+                  isAssignedToMe={isAssignedToMe}
+                />
+              )}
+              {activeTab === "transports" && (
+                <TransportsTab
+                  orderId={orderId}
+                  detail={detail}
+                  refetchOrder={handleRefetch}
+                />
+              )}
+              {activeTab === "deliveries" && (
+                <DeliveriesTab
+                  orderId={orderId}
+                  detail={detail}
+                  refetchOrder={handleRefetch}
+                />
+              )}
+              {activeTab === "returns" && (
+                <ReturnsTab
+                  orderId={orderId}
+                  detail={detail}
+                />
+              )}
+              {activeTab === "flags" && (
+                <FlagsTab
+                  orderId={orderId}
+                  flagsQ={flagsQ}
+                  rawFlags={rawFlags}
+                  formatDate={formatDate}
+                  userNameById={userNameById}
+                  setShowRaiseFlagModal={setShowRaiseFlagModal}
+                  currentDepartment="account"
+                  refetchOrder={handleRefetch}
+                />
+              )}
+              {activeTab === "attachments" && (
+                <AttachmentsTab
+                  orderId={orderId}
+                  attachments={pickList(attachQ.data)}
+                  isLoading={attachQ.isFetching}
+                  onUploadSuccess={handleRefetch}
+                />
+              )}
+              {activeTab === "reminders" && (
+                <RemindersTab orderId={orderId} />
+              )}
+              {activeTab === "due_sheet" && (
+                <DueSheetTab orderId={orderId} onUploadSuccess={handleRefetch} />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* MOBILE: Bottom-fixed Tab Navigation Bar */}
+        {!isFetching && !isError && detail && (
+          <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 dark:border-white/10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2 pb-safe">
+            <nav className="flex items-stretch justify-around">
+              {([
+                {
+                  id: "approvals" as const,
+                  name: "Approvals",
+                  count: accountApprovals.length,
+                  dangerBadge: false,
+                  icon: (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "dispatches" as const,
+                  name: "Dispatch",
+                  count: dispatches.length,
+                  dangerBadge: false,
+                  icon: (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "transports" as const,
+                  name: "Transport",
+                  count: transports.length,
+                  dangerBadge: false,
+                  icon: (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2.556-2.556M13 16H9m4 0h2m2 0h.01M13 16V6m0 0h3l3 4v6h-1M6 16H5m8-10H5" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "deliveries" as const,
+                  name: "Delivery",
+                  count: deliveries.length,
+                  dangerBadge: false,
+                  icon: (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "returns" as const,
+                  name: "Return",
+                  count: returns.length,
+                  dangerBadge: false,
+                  icon: (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "due_sheet" as const,
+                  name: "Due",
+                  count: dueSheetsCount,
+                  dangerBadge: false,
+                  icon: (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "flags" as const,
+                  name: "Flags",
+                  count: rawFlags.filter((f) => f.status === "open").length,
+                  dangerBadge: true,
+                  icon: (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "attachments" as const,
+                  name: "Files",
+                  count: attachCount,
+                  dangerBadge: false,
+                  icon: (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "reminders" as const,
+                  name: "Reminders",
+                  count: remindersCount,
+                  dangerBadge: false,
+                  icon: (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  ),
+                },
+              ]).map((tab) => {
+                const isActive = activeTab === tab.id && mobileTabOpen;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      if (activeTab === tab.id && mobileTabOpen) {
+                        setMobileTabOpen(false);
+                      } else {
+                        setActiveTab(tab.id);
+                        setMobileTabOpen(true);
+                      }
+                    }}
+                    className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 px-2 flex-1 min-w-0 transition-colors ${isActive
                       ? "text-blue-600 dark:text-blue-400"
                       : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                  }`}
-                >
-                  <span className={`relative transition-transform ${isActive ? "scale-110" : ""}`}>
-                    {tab.icon}
-                    {tab.count !== undefined && tab.count > 0 && (
-                      <span
-                        className={`absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 flex items-center justify-center rounded-full px-1 text-[9px] font-bold ${
-                          tab.dangerBadge
+                      }`}
+                  >
+                    <span className={`relative transition-transform ${isActive ? "scale-110" : ""}`}>
+                      {tab.icon}
+                      {tab.count !== undefined && tab.count > 0 && (
+                        <span
+                          className={`absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 flex items-center justify-center rounded-full px-1 text-[9px] font-bold ${tab.dangerBadge
                             ? "bg-rose-500 text-white"
                             : "bg-slate-600 text-white dark:bg-slate-300 dark:text-slate-900"
-                        }`}
-                      >
-                        {tab.count}
-                      </span>
+                            }`}
+                        >
+                          {tab.count}
+                        </span>
+                      )}
+                    </span>
+                    <span className={`text-[10px] font-semibold leading-none truncate max-w-full ${isActive ? "text-blue-600 dark:text-blue-400" : ""
+                      }`}>
+                      {tab.name}
+                    </span>
+                    {isActive && (
+                      <span className="absolute top-0 left-2 right-2 h-0.5 rounded-full bg-blue-600 dark:bg-blue-400" />
                     )}
-                  </span>
-                  <span className={`text-[10px] font-semibold leading-none truncate max-w-full ${
-                    isActive ? "text-blue-600 dark:text-blue-400" : ""
-                  }`}>
-                    {tab.name}
-                  </span>
-                  {isActive && (
-                    <span className="absolute top-0 left-2 right-2 h-0.5 rounded-full bg-blue-600 dark:bg-blue-400" />
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-      )}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        )}
 
-      {/* Close main flex wrapper */}
+        {/* Close main flex wrapper */}
       </div>
 
       {/* Raise Flag Modal overlay */}

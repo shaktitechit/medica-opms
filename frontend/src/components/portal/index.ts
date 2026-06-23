@@ -24,10 +24,12 @@ export { default as ListMyOrdersPage } from "./sales/ListMyOrdersPage";
 
 export { default as FinanceOverview } from "./finance/FinanceOverview";
 export { default as ListFinanceOrdersPage } from "./finance/order/ListFinanceOrdersPage";
+export { default as FinanceCreateOrderPage } from "./finance/FinanceCreateOrderPage";
 
 export { default as AccountOverview } from "./account/AccountOverview";
 export { default as ListAccountOrdersPage } from "./account/order/ListAccountOrdersPage";
 export { default as AccountOrderDetail } from "./account/order/AccountOrderDetail";
+export { default as AccountCreateOrderPage } from "./account/AccountCreateOrderPage";
 
 export { default as DispatchOverview } from "./dispatch/DispatchOverview";
 export { default as ListDispatchOrdersPage } from "./dispatch/order/ListDispatchOrdersPage";

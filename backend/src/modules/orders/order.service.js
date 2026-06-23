@@ -1244,8 +1244,8 @@ async function update(id, patch, user) {
   }
 
   if (p.party !== undefined && String(p.party || '') !== String(order.party || '')) {
-    if (!['sales', 'admin', 'super_admin'].includes(user.department)) {
-      throw new ApiError(403, 'Only sales or admin may change party on an order');
+    if (!['sales', 'admin', 'super_admin', 'finance', 'account'].includes(user.department)) {
+      throw new ApiError(403, 'Only sales, admin, finance, or account may change party on an order');
     }
     policy.assertMayEditOrderPricing(user, order);
     if (p.party) {

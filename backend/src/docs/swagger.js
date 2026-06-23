@@ -532,7 +532,7 @@ const spec = {
       post: {
         tags: ['orders'],
         summary: 'Create draft order',
-        description: 'Requires `orders:write` or `*`; only **sales** or **admin** may create.',
+        description: 'Requires `orders:write` or `*`; only **sales**, **admin**, **finance**, or **account** may create.',
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,

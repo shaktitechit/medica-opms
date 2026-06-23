@@ -50,11 +50,11 @@ export function RoleBasedMenu({
 
   return (
     <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-1.5 py-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-      <p
+      {/* <p
         className={`${sectionLbl} ${desktopCollapsed ? "hidden lg:hidden" : ""}`}
       >
         {portal.charAt(0).toUpperCase() + portal.slice(1)}
-      </p>
+      </p> */}
       <ul className="space-y-0.5">
         {navLeaves.map((leaf) => {
           const href =
@@ -84,11 +84,7 @@ export function RoleBasedMenu({
         })}
       </ul>
 
-      <p
-        className={`mt-6 ${sectionLbl} ${desktopCollapsed ? "hidden lg:hidden" : ""}`}
-      >
-        Portals
-      </p>
+
       <ul className="space-y-0.5">
         {PORTAL_NAV_TOP.filter(
           (slot) =>
