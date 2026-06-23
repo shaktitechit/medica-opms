@@ -1142,8 +1142,10 @@ async function create(body, user) {
   const paymentStatus = body.payment_status ?? 'unpaid';
   if (!PAYMENT_STATUS_VALUES.has(paymentStatus)) throw new ApiError(400, 'Invalid payment_status');
 
+  const orderNo = await generateOrderNo(body.party, body.order_date);
+
   let payload = {
-    order_no: generateOrderNo(),
+    order_no: orderNo,
     party: body.party,
     order_date: body.order_date ? new Date(body.order_date) : new Date(),
     payment_status: paymentStatus,

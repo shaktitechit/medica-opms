@@ -465,8 +465,13 @@ async function create(body, user, options = {}) {
 
   const warehouseFields = resolveWarehouseFields(body);
 
+  const dispatchNo = body.dispatch_no || await generateDispatchNo(
+    order.party,
+    body.dispatched_at || body.dispatch_date || new Date()
+  );
+
   const doc = await OrderDispatch.create({
-    dispatch_no: body.dispatch_no || generateDispatchNo(),
+    dispatch_no: dispatchNo,
     order: body.order,
     finance_approval: body.finance_approval || undefined,
     warehouse: warehouseFields.warehouse,

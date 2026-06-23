@@ -9,6 +9,7 @@ import {
   type ReminderRecord,
   type FollowUpItem,
 } from "@/store/api";
+import { useAppSelector } from "@/store";
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 
@@ -17,7 +18,13 @@ interface RemindersTabProps {
 }
 
 export function RemindersTab({ orderId }: RemindersTabProps) {
-  const { data: reminders = [], isLoading, refetch } = useListRemindersQuery({ order: orderId });
+  const user = useAppSelector((state) => state.auth.user);
+  const currentUserId = user ? String(user._id || user.id || "") : "";
+
+  const { data: reminders = [], isLoading, refetch } = useListRemindersQuery({
+    order: orderId,
+    user: currentUserId || undefined,
+  });
   const [createReminder, { isLoading: isCreating }] = useCreateReminderMutation();
   const [addFollowUp, { isLoading: isAddingFollowUp }] = useAddFollowUpMutation();
   const [patchReminder, { isLoading: isPatching }] = usePatchReminderMutation();

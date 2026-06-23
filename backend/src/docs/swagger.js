@@ -3,13 +3,16 @@
  * Mirrors routes mounted in src/app.js and handlers under src/modules/*.
  * Default PORT comes from src/config/env.js (commonly 5000).
  */
+const { ORDER_STATUS_VALUES: CANONICAL_ORDER_STATUS, ORDER_LINE_STATUS_VALUES } = require('../modules/orders/order.constants');
+const { extendedTags, extendedPaths, extendedSchemas } = require('./swaggerExtended');
+
+/** Canonical Order.status values plus legacy workflow transition tokens still accepted. */
 const ORDER_STATUS_VALUES = [
-  'draft',
-  'submitted',
-  'sales_approved',
-  'finance_review',
-  'finance_approved',
-  'finance_rejected',
+  ...CANONICAL_ORDER_STATUS,
+  'partially_finance_approved',
+  'fully_finance_approved',
+  'partially_account_approved',
+  'fully_account_approved',
   'dispatch_pending',
   'partial_dispatch_created',
   'full_dispatch_created',
@@ -17,15 +20,10 @@ const ORDER_STATUS_VALUES = [
   'transport_assigned',
   'partially_transported',
   'fully_transported',
-  'in_transit',
-  'delivered',
   'invoice_generated',
   'collection_pending',
   'partially_paid',
   'paid',
-  'closed',
-  'cancelled',
-  'on_hold',
 ];
 
 const FLAG_TYPES = [
@@ -52,13 +50,14 @@ const spec = {
     title: 'Medica Backend API',
     version: '1.0.0',
     description: [
-      'REST API for order workflow, approvals, finance, dispatch, logistics (transport records), fleet, and notifications.',
+      'REST API for order workflow, approvals, finance, account, dispatch, logistics, fleet, files, and notifications.',
       'Domain data is persisted in **MongoDB** via Mongoose models in `src/data/mongoRegistry.js`; set `MONGO_URI` / `MONGODB_URI` before starting the server.',
       '',
       '**Auth:** `POST /api/auth/login` returns a JWT. Send `Authorization: Bearer <token>` on protected routes.',
       '**Dept rules:** Many routes additionally require `user.department` (or `admin`) — see each operation description.',
       '**RBAC:** Most routes combine permission codes with OR semantics (`orders:read` **or** `*`).',
       '**RBAC:** Soft-delete and restore endpoints accept **either** wildcard `*` **or** `records:delete`. Add `records:delete` to a role (or use `*`) and run `npm run seed:users` after catalog changes.',
+      '**Files:** Uploads use file management (MinIO). View/download via `/api/files/{fileId}/view|download`.',
     ].join('\n'),
   },
   servers: [
@@ -74,11 +73,8 @@ const spec = {
     { name: 'orders', description: 'Workflow + commercials; RBAC + department checks in handlers' },
     { name: 'approvals', description: 'Requires `orders:read`, `finance:suite`, or `*`' },
     { name: 'finance', description: 'Department: finance or admin' },
-    { name: 'payments' },
-    { name: 'invoices' },
-    { name: 'dispatch', description: 'Department: dispatch or admin' },
+    { name: 'dispatch', description: 'Department: dispatch, account, or admin' },
     { name: 'transport', description: 'Logistics / POD resources (department: dispatch or admin)' },
-    { name: 'collections', description: 'Collections AR records (finance or admin) — endpoints may not be mounted' },
     { name: 'flags', description: 'Requires `flags:suite` or `*`' },
     { name: 'dashboard', description: 'Department-scoped summaries' },
     { name: 'notifications' },
@@ -86,6 +82,7 @@ const spec = {
     { name: 'attachments', description: 'Soft-delete/restore: `*` or `records:delete`' },
     { name: 'vehicles', description: 'Department: dispatch or admin' },
     { name: 'drivers', description: 'Department: dispatch or admin' },
+    ...extendedTags,
   ],
   paths: {
     '/': {
@@ -738,227 +735,11 @@ const spec = {
       },
     },
 
-    '/api/payments': {
-      get: {
-        tags: ['payments'],
-        summary: 'List payments',
-        security: [{ bearerAuth: [] }],
-        parameters: [
-          { name: 'order', in: 'query', schema: { type: 'string' } },
-          { name: 'status', in: 'query', schema: { type: 'string', example: 'submitted' } },
-        ],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessArray' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-        },
-      },
-      post: {
-        tags: ['payments'],
-        summary: 'Submit payment',
-        security: [{ bearerAuth: [] }],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/PaymentCreate' },
-            },
-          },
-        },
-        responses: {
-          '201': { $ref: '#/components/responses/SuccessObject' },
-          '400': { $ref: '#/components/responses/BadRequest' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-    },
-
-    '/api/payments/deleted': {
-      get: {
-        tags: ['payments'],
-        summary: 'List soft-deleted payments',
-        description: 'Trash list; optional filters `order`, `status` (same as active list). ' + SOFT_DELETE_RBAC,
-        security: [{ bearerAuth: [] }],
-        parameters: [
-          { name: 'order', in: 'query', schema: { type: 'string' } },
-          { name: 'status', in: 'query', schema: { type: 'string' } },
-        ],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessArray' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/Forbidden' },
-        },
-      },
-    },
-
-    '/api/payments/{id}': {
-      get: {
-        tags: ['payments'],
-        summary: 'Get payment',
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-      delete: {
-        tags: ['payments'],
-        summary: 'Soft-delete payment',
-        description: 'Sets `deletedAt`. ' + SOFT_DELETE_RBAC,
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '400': { $ref: '#/components/responses/BadRequest' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/Forbidden' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-    },
-
-    '/api/payments/{id}/restore': {
-      post: {
-        tags: ['payments'],
-        summary: 'Restore payment',
-        description: 'Clears `deletedAt`. ' + SOFT_DELETE_RBAC,
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '400': { $ref: '#/components/responses/BadRequest' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/Forbidden' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-    },
-
-    '/api/payments/{id}/finance': {
-      patch: {
-        tags: ['payments'],
-        summary: 'Finance verify or reject payment',
-        description: 'Department: **finance** or **admin**.',
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/PaymentFinanceAction' },
-            },
-          },
-        },
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '400': { $ref: '#/components/responses/BadRequest' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/ForbiddenDept' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-    },
-
-    '/api/invoices': {
-      get: {
-        tags: ['invoices'],
-        summary: 'List invoices',
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: 'order', in: 'query', schema: { type: 'string' } }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessArray' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-        },
-      },
-    },
-
-    '/api/invoices/deleted': {
-      get: {
-        tags: ['invoices'],
-        summary: 'List soft-deleted invoices',
-        description: 'Optional filter `order`. ' + SOFT_DELETE_RBAC,
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: 'order', in: 'query', schema: { type: 'string' } }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessArray' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/Forbidden' },
-        },
-      },
-    },
-
-    '/api/invoices/{id}': {
-      get: {
-        tags: ['invoices'],
-        summary: 'Get invoice',
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-      patch: {
-        tags: ['invoices'],
-        summary: 'Patch invoice',
-        description: 'Collection users cannot alter financial totals (blocked in service).',
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        requestBody: {
-          content: {
-            'application/json': {
-              schema: { type: 'object', additionalProperties: true },
-            },
-          },
-        },
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/Forbidden' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-      delete: {
-        tags: ['invoices'],
-        summary: 'Soft-delete invoice',
-        description: 'Sets `deletedAt`. ' + SOFT_DELETE_RBAC,
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '400': { $ref: '#/components/responses/BadRequest' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/Forbidden' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-    },
-
-    '/api/invoices/{id}/restore': {
-      post: {
-        tags: ['invoices'],
-        summary: 'Restore invoice',
-        description: 'Clears `deletedAt`. ' + SOFT_DELETE_RBAC,
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '400': { $ref: '#/components/responses/BadRequest' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/Forbidden' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-    },
-
     '/api/dispatch': {
       get: {
         tags: ['dispatch'],
         summary: 'List dispatches',
-        description: 'Department: **dispatch** or **admin**.',
+        description: 'Department: **dispatch**, **account**, or **admin**.',
         security: [{ bearerAuth: [] }],
         parameters: [{ name: 'order', in: 'query', schema: { type: 'string' } }],
         responses: {
@@ -970,13 +751,17 @@ const spec = {
       post: {
         tags: ['dispatch'],
         summary: 'Create dispatch',
-        description: 'Department: **dispatch** or **admin**. Requires `items[]` with line quantities.',
+        description:
+          'Department: **dispatch** or **account**. Requires `finance_approval` and `dispatch_items[]` (or legacy `items[]`). Account users must supply `bill_number`, `billing_date`, and `bill_document` (file upload or attachment id).',
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/DispatchCreate' },
+            },
+            'multipart/form-data': {
+              schema: { $ref: '#/components/schemas/DispatchCreateMultipart' },
             },
           },
         },
@@ -994,7 +779,7 @@ const spec = {
       get: {
         tags: ['dispatch'],
         summary: 'List soft-deleted dispatches',
-        description: 'Trash list; optional `order` filter. Dept: **dispatch** or **admin**. ' + SOFT_DELETE_RBAC,
+        description: 'Trash list; optional `order` filter. Dept: **dispatch**, **account**, or **admin**. ' + SOFT_DELETE_RBAC,
         security: [{ bearerAuth: [] }],
         parameters: [{ name: 'order', in: 'query', schema: { type: 'string' } }],
         responses: {
@@ -1074,7 +859,7 @@ const spec = {
       get: {
         tags: ['transport'],
         summary: 'List transports',
-        description: 'Department: **dispatch** or **admin**.',
+        description: 'Department: **dispatch**, **account**, or **admin**.',
         security: [{ bearerAuth: [] }],
         parameters: [{ name: 'order', in: 'query', schema: { type: 'string' } }],
         responses: {
@@ -1086,7 +871,7 @@ const spec = {
       post: {
         tags: ['transport'],
         summary: 'Create transport',
-        description: 'Department: **dispatch** or **admin**.',
+        description: 'Department: **dispatch**, **account**, or **admin**.',
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
@@ -1110,7 +895,7 @@ const spec = {
       get: {
         tags: ['transport'],
         summary: 'List soft-deleted transports',
-        description: 'Trash list; optional `order`. Dept: **dispatch** or **admin**. ' + SOFT_DELETE_RBAC,
+        description: 'Trash list; optional `order`. Dept: **dispatch**, **account**, or **admin**. ' + SOFT_DELETE_RBAC,
         security: [{ bearerAuth: [] }],
         parameters: [{ name: 'order', in: 'query', schema: { type: 'string' } }],
         responses: {
@@ -1181,155 +966,6 @@ const spec = {
           '400': { $ref: '#/components/responses/BadRequest' },
           '401': { $ref: '#/components/responses/Unauthorized' },
           '403': { $ref: '#/components/responses/Forbidden' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-    },
-
-    '/api/collections': {
-      get: {
-        tags: ['collections'],
-        summary: 'List collections',
-        description: 'Department: **finance** or **admin**.',
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: 'order', in: 'query', schema: { type: 'string' } }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessArray' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/ForbiddenDept' },
-        },
-      },
-    },
-
-    '/api/collections/deleted': {
-      get: {
-        tags: ['collections'],
-        summary: 'List soft-deleted collection records',
-        description: 'Trash list; optional `order` filter. Dept: **finance** or **admin**. ' + SOFT_DELETE_RBAC,
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: 'order', in: 'query', schema: { type: 'string' } }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessArray' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/Forbidden' },
-        },
-      },
-    },
-
-    '/api/collections/mark-overdue': {
-      post: {
-        tags: ['collections'],
-        summary: 'Mark overdue (by collection ids)',
-        description: 'Department: **finance** or **admin**.',
-        security: [{ bearerAuth: [] }],
-        requestBody: {
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  ids: { type: 'array', items: { type: 'string' } },
-                },
-              },
-            },
-          },
-        },
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/ForbiddenDept' },
-        },
-      },
-    },
-    '/api/collections/{id}': {
-      get: {
-        tags: ['collections'],
-        summary: 'Get collection record',
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/ForbiddenDept' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-      patch: {
-        tags: ['collections'],
-        summary: 'Patch collection',
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        requestBody: {
-          content: {
-            'application/json': {
-              schema: { type: 'object', additionalProperties: true },
-            },
-          },
-        },
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/ForbiddenDept' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-      delete: {
-        tags: ['collections'],
-        summary: 'Soft-delete collection record',
-        description: 'Sets `deletedAt`. ' + SOFT_DELETE_RBAC,
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '400': { $ref: '#/components/responses/BadRequest' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/Forbidden' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-    },
-
-    '/api/collections/{id}/restore': {
-      post: {
-        tags: ['collections'],
-        summary: 'Restore collection record',
-        description: 'Clears `deletedAt`. ' + SOFT_DELETE_RBAC,
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        responses: {
-          '200': { $ref: '#/components/responses/SuccessObject' },
-          '400': { $ref: '#/components/responses/BadRequest' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/Forbidden' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-    },
-
-    '/api/collections/{id}/followups': {
-      post: {
-        tags: ['collections'],
-        summary: 'Append follow-up',
-        security: [{ bearerAuth: [] }],
-        parameters: [{ $ref: '#/components/parameters/IdPath' }],
-        requestBody: {
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                required: ['note'],
-                properties: {
-                  note: { type: 'string' },
-                  next_followup_date: { type: 'string', format: 'date-time', nullable: true },
-                },
-              },
-            },
-          },
-        },
-        responses: {
-          '201': { $ref: '#/components/responses/SuccessObject' },
-          '401': { $ref: '#/components/responses/Unauthorized' },
-          '403': { $ref: '#/components/responses/ForbiddenDept' },
           '404': { $ref: '#/components/responses/NotFound' },
         },
       },
@@ -1626,7 +1262,7 @@ const spec = {
       get: {
         tags: ['vehicles'],
         summary: 'List vehicles',
-        description: 'Department: **dispatch** or **admin**.',
+        description: 'Department: **dispatch**, **account**, or **admin**.',
         security: [{ bearerAuth: [] }],
         responses: {
           '200': { $ref: '#/components/responses/SuccessArray' },
@@ -1657,7 +1293,7 @@ const spec = {
       get: {
         tags: ['vehicles'],
         summary: 'List soft-deleted vehicles',
-        description: 'Dept: **dispatch** or **admin**. ' + SOFT_DELETE_RBAC,
+        description: 'Dept: **dispatch**, **account**, or **admin**. ' + SOFT_DELETE_RBAC,
         security: [{ bearerAuth: [] }],
         responses: {
           '200': { $ref: '#/components/responses/SuccessArray' },
@@ -1736,7 +1372,7 @@ const spec = {
       get: {
         tags: ['drivers'],
         summary: 'List drivers',
-        description: 'Department: **dispatch** or **admin**.',
+        description: 'Department: **dispatch**, **account**, or **admin**.',
         security: [{ bearerAuth: [] }],
         responses: {
           '200': { $ref: '#/components/responses/SuccessArray' },
@@ -1769,7 +1405,7 @@ const spec = {
       get: {
         tags: ['drivers'],
         summary: 'List soft-deleted drivers',
-        description: 'Dept: **dispatch** or **admin**. ' + SOFT_DELETE_RBAC,
+        description: 'Dept: **dispatch**, **account**, or **admin**. ' + SOFT_DELETE_RBAC,
         security: [{ bearerAuth: [] }],
         responses: {
           '200': { $ref: '#/components/responses/SuccessArray' },
@@ -1843,6 +1479,8 @@ const spec = {
         },
       },
     },
+
+    ...extendedPaths,
   },
 
   components: {
@@ -2022,7 +1660,19 @@ const spec = {
           taxable_amount: { type: 'number' },
           gst_amount: { type: 'number' },
           total_amount: { type: 'number' },
-          line_status: { type: 'string', enum: ['draft', 'confirmed', 'partially_dispatched', 'fully_dispatched', 'cancelled'] },
+          line_status: {
+            type: 'string',
+            enum: [
+              ...ORDER_LINE_STATUS_VALUES,
+              'draft',
+              'confirmed',
+              'partially_dispatched',
+              'fully_dispatched',
+              'partially_delivered',
+              'fully_delivered',
+            ],
+            description: 'Canonical values: active, partial, fulfilled, cancelled. Legacy aliases are normalized on write.',
+          },
           remarks: { type: 'string' },
         },
       },
@@ -2163,47 +1813,66 @@ const spec = {
           is_active: { type: 'boolean' },
         },
       },
-      PaymentCreate: {
-        type: 'object',
-        required: ['order', 'amount', 'payment_mode'],
-        properties: {
-          order: { type: 'string' },
-          customer: { type: 'string', description: 'Optional; defaults from order' },
-          amount: { type: 'number' },
-          payment_mode: { type: 'string' },
-          transaction_id: { type: 'string' },
-          cheque_no: { type: 'string' },
-          bank_name: { type: 'string' },
-          payment_date: { type: 'string', format: 'date-time' },
-        },
-      },
-      PaymentFinanceAction: {
-        type: 'object',
-        required: ['action'],
-        properties: {
-          action: { type: 'string', enum: ['verify', 'reject'] },
-          rejection_reason: { type: 'string', description: 'Required when action is reject' },
-        },
-      },
-
       DispatchLine: {
         type: 'object',
-        required: ['order_item_id', 'dispatch_quantity'],
+        required: ['order_item_id'],
         properties: {
           order_item_id: { type: 'string' },
-          dispatch_quantity: { type: 'number', minimum: 0 },
+          product: { type: 'string', description: 'Product ObjectId (optional if order_item_id resolves)' },
+          dispatch_quantity: { type: 'number', minimum: 0, description: 'Alias for dispatched_quantity' },
+          dispatched_quantity: { type: 'number', minimum: 0 },
+          allocated_quantity: { type: 'number', minimum: 0 },
+          delivered_quantity: { type: 'number', minimum: 0 },
+          batch: { type: 'string' },
+          remarks: { type: 'string' },
         },
       },
       DispatchCreate: {
         type: 'object',
-        required: ['order', 'items'],
+        required: ['order', 'finance_approval'],
         properties: {
           order: { type: 'string' },
-          items: { type: 'array', minItems: 1, items: { $ref: '#/components/schemas/DispatchLine' } },
-          dispatch_date: { type: 'string', format: 'date-time' },
-          status: { type: 'string' },
+          finance_approval: { type: 'string', description: 'OrderApproval release ObjectId' },
+          dispatch_items: {
+            type: 'array',
+            minItems: 1,
+            items: { $ref: '#/components/schemas/DispatchLine' },
+            description: 'Preferred field name; legacy alias `items` also accepted',
+          },
+          items: {
+            type: 'array',
+            minItems: 1,
+            items: { $ref: '#/components/schemas/DispatchLine' },
+            description: 'Legacy alias for dispatch_items',
+          },
+          dispatch_status: { type: 'string', enum: ['draft', 'allocation_pending', 'allocated', 'packing', 'partially_dispatched', 'fully_dispatched', 'cancelled'] },
+          status: { type: 'string', description: 'Legacy alias for dispatch_status' },
+          warehouse: { type: 'string', description: 'Warehouse ObjectId or free-text location' },
           warehouse_location: { type: 'string' },
+          dispatch_date: { type: 'string', format: 'date-time', description: 'Legacy alias for dispatched_at' },
+          dispatched_at: { type: 'string', format: 'date-time' },
           dispatch_assignee_user: { type: 'string', description: 'Dispatch operator assigned to this batch' },
+          bill_number: { type: 'string', description: 'Required for account department or when uploading bill_document' },
+          billing_date: { type: 'string', format: 'date-time', description: 'Required for account department or when uploading bill_document' },
+          bill_document: { type: 'string', description: 'Existing Attachment ObjectId when not uploading a file' },
+          remarks: { type: 'string' },
+        },
+      },
+      DispatchCreateMultipart: {
+        type: 'object',
+        required: ['order', 'finance_approval'],
+        properties: {
+          order: { type: 'string' },
+          finance_approval: { type: 'string' },
+          dispatch_items: { type: 'string', description: 'JSON string of DispatchLine[]' },
+          items: { type: 'string', description: 'Legacy JSON string alias for dispatch_items' },
+          dispatch_status: { type: 'string' },
+          warehouse: { type: 'string' },
+          warehouse_location: { type: 'string' },
+          dispatch_assignee_user: { type: 'string' },
+          bill_number: { type: 'string' },
+          billing_date: { type: 'string', format: 'date-time' },
+          bill_document: { type: 'string', format: 'binary', description: 'Bill PDF/image upload' },
           remarks: { type: 'string' },
         },
       },
@@ -2251,7 +1920,10 @@ const spec = {
         type: 'object',
         required: ['entity_type', 'entity_id'],
         properties: {
-          entity_type: { type: 'string' },
+          entity_type: {
+            type: 'string',
+            enum: ['order', 'dispatch', 'transport', 'customer', 'driver', 'vehicle', 'transport_agent', 'delivery', 'return', 'order_due_sheet'],
+          },
           entity_id: { type: 'string' },
           original_name: { type: 'string' },
           file_name: { type: 'string' },
@@ -2273,7 +1945,10 @@ const spec = {
           mime_type: { type: 'string' },
           size: { type: 'number' },
           storage_provider: { type: 'string' },
-          entity_type: { type: 'string' },
+          entity_type: {
+            type: 'string',
+            enum: ['order', 'dispatch', 'transport', 'customer', 'driver', 'vehicle', 'transport_agent', 'delivery', 'return', 'order_due_sheet'],
+          },
           entity_id: { type: 'string' },
           uploaded_by: { type: 'string' },
           deletedAt: {
@@ -2314,6 +1989,7 @@ const spec = {
           is_active: { type: 'boolean' },
         },
       },
+      ...extendedSchemas,
     },
   },
 };

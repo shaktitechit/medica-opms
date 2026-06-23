@@ -131,8 +131,8 @@ async function create(body, user, options = {}) {
     throw new ApiError(400, 'document file or document attachment id is required');
   }
 
-  const orderExists = await Order.exists({ _id: body.order, deletedAt: null });
-  if (!orderExists) throw new ApiError(404, 'Order not found');
+  const orderDoc = await Order.findOne({ _id: body.order, deletedAt: null }).select('party').lean();
+  if (!orderDoc) throw new ApiError(404, 'Order not found');
 
   const isCurrent = body.is_current !== false;
   const status = normalizeDueSheetStatus(body.status || DUE_SHEET_STATUS.ACTIVE);
@@ -154,8 +154,13 @@ async function create(body, user, options = {}) {
     await supersedePreviousCurrentSheets(body.order);
   }
 
+  const dueSheetNo = body.due_sheet_no || await generateDueSheetNo(
+    orderDoc.party,
+    body.sheet_date || new Date()
+  );
+
   const doc = await OrderDueSheet.create({
-    due_sheet_no: body.due_sheet_no || generateDueSheetNo(),
+    due_sheet_no: dueSheetNo,
     order: body.order,
     document: documentId,
     sheet_date: body.sheet_date ? new Date(body.sheet_date) : new Date(),
