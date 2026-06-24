@@ -43,6 +43,7 @@ export type OrderItemsPdfTemplateProps = {
   statusLabel: string;
   salesApproval: OrderItemsPdfSalesApproval;
   financeAmendment?: OrderItemsPdfFinanceAmendment;
+  adminAmendment?: OrderItemsPdfFinanceAmendment;
   items: OrderItemsPdfLine[];
   subtotal: string;
   gst: string;
@@ -61,6 +62,7 @@ export function OrderItemsPdfTemplate({
   statusLabel,
   salesApproval,
   financeAmendment,
+  adminAmendment,
   items,
   subtotal,
   gst,
@@ -226,6 +228,62 @@ export function OrderItemsPdfTemplate({
                   </td>
                   <td style={{ padding: "3px 0", fontWeight: 600, whiteSpace: "pre-line" }}>
                     {financeAmendment.amendmentNotes}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {/* Admin Amendment */}
+      {adminAmendment ? (
+        <div
+          style={{
+            marginBottom: "22px",
+            padding: "12px 14px",
+            borderRadius: "8px",
+            border: "1px solid #ddd6fe",
+            backgroundColor: "#f5f3ff",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "#6d28d9",
+              marginBottom: "8px",
+            }}
+          >
+            Admin Amendment Info
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              <tr>
+                <td style={{ padding: "3px 0", width: "28%", color: "#5b21b6" }}>
+                  Amended by
+                </td>
+                <td style={{ padding: "3px 0", fontWeight: 600 }}>
+                  {adminAmendment.amendedBy}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: "3px 0", color: "#5b21b6" }}>
+                  Date &amp; time
+                </td>
+                <td style={{ padding: "3px 0", fontWeight: 600 }}>
+                  {adminAmendment.amendedAt}
+                </td>
+              </tr>
+              {adminAmendment.amendmentNotes ? (
+                <tr>
+                  <td style={{ padding: "3px 0", color: "#5b21b6", verticalAlign: "top" }}>
+                    Amendment notes
+                  </td>
+                  <td style={{ padding: "3px 0", fontWeight: 600, whiteSpace: "pre-line" }}>
+                    {adminAmendment.amendmentNotes}
                   </td>
                 </tr>
               ) : null}

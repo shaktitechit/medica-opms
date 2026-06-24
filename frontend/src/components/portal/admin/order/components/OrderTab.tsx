@@ -25,7 +25,9 @@ import {
 } from "@/components/portal/shared/orderLineRateDisplay";
 import {
   adminApprovalActionLabel,
+  adminAmendmentNotes,
   canOpenAdminApprovalModal,
+  isAdminAmended,
   isAdminApprovalContinuation,
   pickLatestAdminSalesApproval,
 } from "@/components/portal/shared/orderAdminApprovalDisplay";
@@ -419,6 +421,17 @@ export function OrderTab({
     ? formatDate(latestAdminApprovalRecord.finance_amended_at)
     : "—";
 
+  const latestAdminAmended = latestAdminApprovalRecord ? isAdminAmended(latestAdminApprovalRecord) : false;
+  const latestAdminAmendedByLabel = latestAdminApprovalRecord
+    ? resolveUserDisplay(latestAdminApprovalRecord.admin_amended_by, userNameById)
+    : "—";
+  const latestAdminAmendedAtLabel = latestAdminApprovalRecord
+    ? formatDate(latestAdminApprovalRecord.admin_amended_at)
+    : "—";
+  const latestAdminAmendNotes = latestAdminApprovalRecord
+    ? adminAmendmentNotes(latestAdminApprovalRecord)
+    : undefined;
+
   const pdfLines = useMemo((): OrderItemsPdfLine[] => {
     return readOnlyItems.map((lineRaw) => {
       const line = lineRaw as Record<string, unknown>;
@@ -531,6 +544,15 @@ export function OrderTab({
                       amendmentNotes: latestAdminApprovalRecord?.approval_notes
                         ? String(latestAdminApprovalRecord.approval_notes)
                         : undefined,
+                    }
+                  : undefined
+              }
+              adminAmendment={
+                latestAdminAmended
+                  ? {
+                      amendedBy: latestAdminAmendedByLabel,
+                      amendedAt: latestAdminAmendedAtLabel,
+                      amendmentNotes: latestAdminAmendNotes,
                     }
                   : undefined
               }

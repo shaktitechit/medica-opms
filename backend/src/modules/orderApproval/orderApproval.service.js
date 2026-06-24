@@ -457,6 +457,7 @@ async function list(query = {}) {
     .populate('sent_to_finance_by', 'name username email')
     .populate('finance_amended_by', 'name username email')
     .populate('account_amended_by', 'name username email')
+    .populate('admin_amended_by', 'name username email')
     .populate('account_approved_by', 'name username email')
     .populate('assigned_account_user', 'name username email')
     .sort({ createdAt: -1 })
@@ -473,6 +474,7 @@ async function get(id) {
     .populate('sent_to_finance_by', 'name username email')
     .populate('finance_amended_by', 'name username email')
     .populate('account_amended_by', 'name username email')
+    .populate('admin_amended_by', 'name username email')
     .populate('account_approved_by', 'name username email')
     .populate('assigned_account_user', 'name username email')
     .lean();
@@ -2313,6 +2315,7 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
   }
 
   order.finance_approval_status = fulfillmentService.deriveFinanceApprovalStatus(order.order_items);
+  normalizeOrderWorkflowFields(order);
   order.markModified('order_items');
   orderService.recalcCommercials(order);
   await order.save();
@@ -2326,6 +2329,7 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
     line.ordered_quantity = approvedQty;
     line.quantity = approvedQty;
   }
+  normalizeOrderWorkflowFields(orderAligned);
   orderAligned.markModified('order_items');
   orderService.recalcCommercials(orderAligned);
   await orderAligned.save();
@@ -2512,6 +2516,11 @@ async function amend(id, body, user) {
     throw new ApiError(404, 'Corresponding sales/admin approval not found');
   }
 
+  const isSameDoc = String(adminApproval._id) === String(finApproval._id);
+  if (isSameDoc) {
+    adminApproval = finApproval;
+  }
+
   const existingItems = body.approval_items || [];
   const newItems = body.new_items || [];
   const overrideByLine = new Map(existingItems.map((item) => [String(item.order_item_id), item]));
@@ -2639,53 +2648,77 @@ async function amend(id, body, user) {
     const taxable = Math.max(0, gross - disc);
     const totalAmount = taxable + (taxable * gstPercent) / 100;
 
-    adminApproval.approval_items.push({
-      order_item_id: orderItemId,
-      product: productId,
-      ordered_quantity: approvedQty,
-      ordered_unit_price: approvedPrice,
-      ordered_total_amount: totalAmount,
-      approved_quantity: approvedQty,
-      approved_unit_price: approvedPrice,
-      approved_total_amount: totalAmount,
-      applied_rate_type: rateType,
-      manual_price_override: true,
-      rate_mapped: true,
-      free_quantity: freeQty,
-      discount_percent: discountPercent,
-      discount_amount: disc,
-      gst_percent: gstPercent,
-      remarks: remarks,
-    });
+    if (isSameDoc) {
+      finApproval.approval_items.push({
+        order_item_id: orderItemId,
+        product: productId,
+        ordered_quantity: approvedQty,
+        ordered_unit_price: approvedPrice,
+        ordered_total_amount: totalAmount,
+        approved_quantity: approvedQty,
+        approved_unit_price: approvedPrice,
+        approved_total_amount: totalAmount,
+        applied_rate_type: rateType,
+        manual_price_override: true,
+        rate_mapped: true,
+        free_quantity: freeQty,
+        discount_percent: discountPercent,
+        discount_amount: disc,
+        gst_percent: gstPercent,
+        remarks: remarks,
+      });
+    } else {
+      adminApproval.approval_items.push({
+        order_item_id: orderItemId,
+        product: productId,
+        ordered_quantity: approvedQty,
+        ordered_unit_price: approvedPrice,
+        ordered_total_amount: totalAmount,
+        approved_quantity: approvedQty,
+        approved_unit_price: approvedPrice,
+        approved_total_amount: totalAmount,
+        applied_rate_type: rateType,
+        manual_price_override: true,
+        rate_mapped: true,
+        free_quantity: freeQty,
+        discount_percent: discountPercent,
+        discount_amount: disc,
+        gst_percent: gstPercent,
+        remarks: remarks,
+      });
 
-    finApproval.approval_items.push({
-      order_item_id: orderItemId,
-      product: productId,
-      ordered_quantity: approvedQty,
-      ordered_unit_price: approvedPrice,
-      ordered_total_amount: totalAmount,
-      approved_quantity: approvedQty,
-      approved_unit_price: approvedPrice,
-      approved_total_amount: totalAmount,
-      remarks: remarks,
-    });
+      finApproval.approval_items.push({
+        order_item_id: orderItemId,
+        product: productId,
+        ordered_quantity: approvedQty,
+        ordered_unit_price: approvedPrice,
+        ordered_total_amount: totalAmount,
+        approved_quantity: approvedQty,
+        approved_unit_price: approvedPrice,
+        approved_total_amount: totalAmount,
+        remarks: remarks,
+      });
+    }
   }
 
   recalcCommercials(order);
   order.finance_approval_status = fulfillmentService.deriveFinanceApprovalStatus(order.order_items);
+  normalizeOrderWorkflowFields(order);
   order.markModified('order_items');
   await order.save();
 
-  adminApproval.approved_total_amount = (adminApproval.approval_items || []).reduce(
-    (sum, item) => sum + Number(item.approved_total_amount || 0),
-    0,
-  );
-  adminApproval.ordered_total_amount = (adminApproval.approval_items || []).reduce(
-    (sum, item) => sum + Number(item.ordered_total_amount || 0),
-    0,
-  );
-  adminApproval.markModified('approval_items');
-  await adminApproval.save();
+  if (!isSameDoc) {
+    adminApproval.approved_total_amount = (adminApproval.approval_items || []).reduce(
+      (sum, item) => sum + Number(item.approved_total_amount || 0),
+      0,
+    );
+    adminApproval.ordered_total_amount = (adminApproval.approval_items || []).reduce(
+      (sum, item) => sum + Number(item.ordered_total_amount || 0),
+      0,
+    );
+    adminApproval.markModified('approval_items');
+    await adminApproval.save();
+  }
 
   finApproval.approved_total_amount = (finApproval.approval_items || []).reduce(
     (sum, item) => sum + Number(item.approved_total_amount || 0),
@@ -2699,11 +2732,20 @@ async function amend(id, body, user) {
 
   const note = body.amendment_notes;
   if (note) {
-    const stamp = `[Account amend ${new Date().toISOString().slice(0, 10)}] ${note}`;
+    const stamp = `[Admin amend ${new Date().toISOString().slice(0, 10)}] ${note}`;
     finApproval.approval_notes = finApproval.approval_notes ? `${finApproval.approval_notes}\n${stamp}` : stamp;
   }
   finApproval.reviewed_by = user._id;
   finApproval.reviewed_at = new Date();
+  finApproval.admin_amended = true;
+  finApproval.admin_amended_by = user._id;
+  finApproval.admin_amended_at = new Date();
+
+  if (!isSameDoc) {
+    adminApproval.admin_amended = true;
+    adminApproval.admin_amended_by = user._id;
+    adminApproval.admin_amended_at = new Date();
+  }
 
   finApproval.markModified('approval_items');
   await finApproval.save();
@@ -2713,7 +2755,7 @@ async function amend(id, body, user) {
   const { OrderAmmendmentUser: AmendmentModel } = getModels();
   await AmendmentModel.create({
     order_approval: finApproval._id,
-    department: 'account',
+    department: 'admin',
     ammended_by: user._id,
     ammended_at: new Date(),
   });
@@ -2723,7 +2765,7 @@ async function amend(id, body, user) {
     entity_type: 'approval',
     entity_id: finApproval._id,
     action: 'updated',
-    message: `Finance approval ${finApproval.approval_no} amended by account`,
+    message: `Finance approval ${finApproval.approval_no} amended by admin`,
   });
 
   return get(id);

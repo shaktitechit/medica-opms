@@ -119,3 +119,18 @@ export function pickSendableAdminApprovalId(rows: unknown[]): string {
   }
   return "";
 }
+
+export function isAdminAmended(approval: Record<string, unknown>): boolean {
+  return Boolean(approval.admin_amended);
+}
+
+/** Lines stamped by admin amend flow in `approval_notes`. */
+export function adminAmendmentNotes(
+  approval: Record<string, unknown>,
+): string | undefined {
+  const lines = String(approval.approval_notes ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("[Admin amend"));
+  return lines.length > 0 ? lines.join("\n") : undefined;
+}

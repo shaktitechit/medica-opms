@@ -54,6 +54,9 @@ const orderApprovalSchema = new mongoose.Schema(
     account_amended: { type: Boolean, default: false },
     account_amended_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     account_amended_at: Date,
+    admin_amended: { type: Boolean, default: false },
+    admin_amended_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    admin_amended_at: Date,
 
     // Detailed line items being approved
     approval_items: [

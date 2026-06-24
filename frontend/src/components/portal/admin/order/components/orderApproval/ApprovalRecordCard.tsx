@@ -12,6 +12,10 @@ import {
   accountAmendmentNotes,
   isAccountAmended,
 } from "@/components/portal/shared/orderAccountApprovalDisplay";
+import {
+  adminAmendmentNotes,
+  isAdminAmended,
+} from "@/components/portal/shared/orderAdminApprovalDisplay";
 import { resolveUserDisplay } from "@/components/portal/shared/userDisplay";
 import {
   companyLetterheadLogoUrl,
@@ -157,6 +161,13 @@ export function ApprovalRecordCard({
   );
   const accountAmendedAtLabel = formatDate(approval.account_amended_at);
   const accountAmendNotes = accountAmendmentNotes(approval);
+  const adminAmended = isAdminAmended(approval);
+  const adminAmendedByLabel = resolveUserDisplay(
+    approval.admin_amended_by,
+    userNameById,
+  );
+  const adminAmendedAtLabel = formatDate(approval.admin_amended_at);
+  const adminAmendNotes = adminAmendmentNotes(approval);
   const financeAssigneeLabel = resolveUserDisplay(
     approval.assigned_finance_user,
     userNameById,
@@ -348,6 +359,15 @@ export function ApprovalRecordCard({
                   }
                   : undefined
               }
+              adminAmendment={
+                adminAmended
+                  ? {
+                    amendedBy: adminAmendedByLabel,
+                    amendedAt: adminAmendedAtLabel,
+                    amendmentNotes: adminAmendNotes,
+                  }
+                  : undefined
+              }
               items={pdfLines}
               subtotal={pdfMoney(computedTotals.subtotal)}
               gst={pdfMoney(computedTotals.gst)}
@@ -425,6 +445,12 @@ export function ApprovalRecordCard({
                   Account Amended
                 </span>
               )}
+
+              {adminAmended && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-1 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-600/20 dark:bg-violet-950/30 dark:text-violet-300">
+                  Admin Amended
+                </span>
+              )}
             </div>
             <div className="mt-2 space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
               <p>
@@ -477,8 +503,27 @@ export function ApprovalRecordCard({
                     </>
                   ) : null}
                   {accountAmendNotes ? (
-                    <span className="mt-1 block text-[10px] italic text-slate-500 dark:text-slate-400">
+                    <span className="mt-1 block text-[10px] italic text-slate-500 dark:text-slate-400 font-sans">
                       {accountAmendNotes}
+                    </span>
+                  ) : null}
+                </p>
+              )}
+              {adminAmended && (
+                <p className="text-slate-500 dark:text-slate-400">
+                  <b>Admin Amendment:</b> Amended by{" "}
+                  <span className="font-medium text-slate-700 dark:text-slate-200">
+                    {adminAmendedByLabel}
+                  </span>
+                  {adminAmendedAtLabel !== "—" ? (
+                    <>
+                      {" "}
+                      · <span className="tabular-nums">{adminAmendedAtLabel}</span>
+                    </>
+                  ) : null}
+                  {adminAmendNotes ? (
+                    <span className="mt-1 block text-[10px] italic text-slate-500 dark:text-slate-400 font-sans">
+                      {adminAmendNotes}
                     </span>
                   ) : null}
                 </p>

@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import { ApprovalRecordCard } from "./ApprovalRecordCard";
 import { ApprovalModal } from "./ApprovalModal";
+import { AdminAmendSalesApprovalModal } from "./AdminAmendSalesApprovalModal";
 import { canOpenAdminApprovalModal } from "@/components/portal/shared/orderAdminApprovalDisplay";
 import {
   useListOrderApprovalsQuery,
   useListUsersQuery,
   useCheckOrderRatesQuery,
+  useListDispatchesQuery,
 } from "@/store/api";
 import {
   rateLookupKey,
@@ -60,8 +62,21 @@ export function ApprovalTab({
   );
   const usersQ = useListUsersQuery({});
   const rateCheckQ = useCheckOrderRatesQuery(orderId, { skip: !orderId });
+  const dispatchesQ = useListDispatchesQuery(
+    { order: orderId },
+    { skip: !orderId },
+  );
 
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [amendApprovalId, setAmendApprovalId] = useState<string | null>(null);
+  const [isAmendModalOpen, setIsAmendModalOpen] = useState(false);
+
+  const hasActiveDispatch = useMemo(() => {
+    const list = pickList(dispatchesQ?.data);
+    return list.some(
+      (d) => String(d.dispatch_status).toLowerCase() !== "cancelled",
+    );
+  }, [dispatchesQ.data]);
 
   const mayApprove = useMemo(
     () => canOpenAdminApprovalModal(status, readOnlyItems),
@@ -75,6 +90,33 @@ export function ApprovalTab({
         Number(b.revision_number ?? 0) - Number(a.revision_number ?? 0),
     );
   }, [adminApprovalsQ.data]);
+
+  const selectedApproval = useMemo(
+    () =>
+      amendApprovalId
+        ? approvals.find((app) => String(app._id ?? app.id) === amendApprovalId) ?? null
+        : null,
+    [approvals, amendApprovalId],
+  );
+
+  const openAmendModal = useCallback((approvalId: string) => {
+    setAmendApprovalId(approvalId);
+    setIsAmendModalOpen(true);
+  }, []);
+
+  const handleAmended = useCallback(async () => {
+    const tasks: Promise<unknown>[] = [];
+    if (refetchOrder) {
+      const res = refetchOrder() as unknown;
+      if (res instanceof Promise) tasks.push(res);
+    }
+    if (!adminApprovalsQ.isUninitialized) {
+      tasks.push(adminApprovalsQ.refetch() as Promise<unknown>);
+    }
+    if (tasks.length > 0) {
+      await Promise.all(tasks);
+    }
+  }, [refetchOrder, adminApprovalsQ]);
 
   const userNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -138,6 +180,11 @@ export function ApprovalTab({
         title="Admin Approvals"
         description="Each sales review approval with financial breakdown, approved items, and PDF export."
       >
+        {hasActiveDispatch && (
+          <div className="mb-4 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-955/30 dark:text-amber-300 dark:ring-amber-500/30 font-sans">
+            Amendment is locked because a dispatch execution has already been initiated for this order.
+          </div>
+        )}
         {adminApprovalsQ.isLoading ? (
           <p className="text-xs font-sans text-slate-500">Loading approvals…</p>
         ) : adminApprovalsQ.isError ? (
@@ -177,6 +224,9 @@ export function ApprovalTab({
                 orderDate={detail?.order_date}
                 expectedDeliveryDate={detail?.expected_delivery_date}
                 userNameById={userNameById}
+                onAmend={openAmendModal}
+                amendingApprovalId={amendApprovalId}
+                isAmendBlocked={hasActiveDispatch}
               />
             ))}
           </div>
@@ -193,6 +243,21 @@ export function ApprovalTab({
         detail={detail}
         onApproved={() => {
           void adminApprovalsQ.refetch();
+        }}
+      />
+
+      <AdminAmendSalesApprovalModal
+        key={amendApprovalId ?? "closed"}
+        open={isAmendModalOpen}
+        approval={selectedApproval}
+        orderId={orderId}
+        detail={detail}
+        readOnlyItems={readOnlyItems}
+        refetchOrder={refetchOrder}
+        onAmended={() => void handleAmended()}
+        onClose={() => {
+          setIsAmendModalOpen(false);
+          setAmendApprovalId(null);
         }}
       />
     </div>
