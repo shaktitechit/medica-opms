@@ -660,6 +660,7 @@ export function AdminAmendSalesApprovalModal({
                 <table className="w-full min-w-[1300px] text-left text-xs">
                   <thead className="bg-slate-50 dark:bg-slate-950">
                     <tr>
+                      <th className="px-3 py-2 font-medium text-center w-10"></th>
                       <th className="px-3 py-2 font-medium">Product</th>
                       <th className="px-3 py-2 font-medium text-right">Batch Qty</th>
                       <th className="px-3 py-2 font-medium">Rate Status</th>
@@ -672,7 +673,6 @@ export function AdminAmendSalesApprovalModal({
                       <th className="px-3 py-2 font-medium text-right">Net Total</th>
                       <th className="px-3 py-2 font-medium">Map</th>
                       <th className="px-3 py-2 font-medium">Remarks</th>
-                      <th className="px-3 py-2 font-medium text-center w-10"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200/80 dark:divide-white/10">
@@ -693,6 +693,16 @@ export function AdminAmendSalesApprovalModal({
 
                       return (
                         <tr key={line.order_item_id} className="bg-white dark:bg-slate-900">
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => removeLine(line.order_item_id)}
+                              disabled={busy}
+                              className="text-slate-400 transition hover:text-red-650 disabled:opacity-50 dark:hover:text-red-400 cursor-pointer"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
                           <td className="px-3 py-2">
                             <span className="font-medium text-slate-900 dark:text-slate-100">
                               {line.product_name}
@@ -840,16 +850,6 @@ export function AdminAmendSalesApprovalModal({
                               }
                               className={inputClass}
                             />
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => removeLine(line.order_item_id)}
-                              disabled={busy}
-                              className="text-slate-400 transition hover:text-red-650 disabled:opacity-50 dark:hover:text-red-400 cursor-pointer"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
                           </td>
                         </tr>
                       );

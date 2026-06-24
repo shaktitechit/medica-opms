@@ -2525,6 +2525,30 @@ async function amend(id, body, user) {
   const newItems = body.new_items || [];
   const overrideByLine = new Map(existingItems.map((item) => [String(item.order_item_id), item]));
 
+  const priorLineIds = new Set(
+    (finApproval.approval_items || []).map((item) => String(item.order_item_id)),
+  );
+  const activeLineIds = new Set(
+    existingItems.map((item) => String(item.order_item_id)),
+  );
+  const removedLineIds = new Set(
+    [...priorLineIds].filter((lineId) => !activeLineIds.has(lineId)),
+  );
+
+  if (removedLineIds.size > 0) {
+    finApproval.approval_items = (finApproval.approval_items || []).filter(
+      (item) => !removedLineIds.has(String(item.order_item_id)),
+    );
+    if (!isSameDoc && adminApproval) {
+      adminApproval.approval_items = (adminApproval.approval_items || []).filter(
+        (item) => !removedLineIds.has(String(item.order_item_id)),
+      );
+    }
+    order.order_items = (order.order_items || []).filter(
+      (line) => !removedLineIds.has(String(line._id)),
+    );
+  }
+
   // A. Process Existing Items
   for (const item of finApproval.approval_items || []) {
     const key = String(item.order_item_id);
