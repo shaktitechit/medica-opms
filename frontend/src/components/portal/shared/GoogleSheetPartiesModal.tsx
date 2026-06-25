@@ -22,7 +22,8 @@ import {
   useListPartiesQuery,
   usePatchPartyMutation,
   useCreatePartyMutation,
-  useDeletePartyMutation
+  useDeletePartyMutation,
+  useBulkDeletePartiesMutation
 } from "@/store/api";
 import { toast } from "@/lib/toast";
 
@@ -123,6 +124,7 @@ export function GoogleSheetPartiesModal({
   const [realSheetUrl, setRealSheetUrl] = useState("");
   const [copiedScript, setCopiedScript] = useState(false);
   const [drawerPartyId, setDrawerPartyId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
   // Filter panel toggle & criteria states
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -201,7 +203,7 @@ export function GoogleSheetPartiesModal({
 
   const totalWidth = useMemo(() => {
     const columnsSum = COLUMNS.reduce((sum, col) => sum + (colWidths[col.key] || 120), 0);
-    return 48 + 80 + columnsSum; // 48px row numbers, 80px actions column
+    return 48 + 48 + 80 + columnsSum; // 48px row numbers, 48px checkbox, 80px actions column
   }, [colWidths]);
 
 
@@ -214,6 +216,7 @@ export function GoogleSheetPartiesModal({
   const [patchParty] = usePatchPartyMutation();
   const [createParty, { isLoading: isCreating }] = useCreatePartyMutation();
   const [deleteParty, { isLoading: isDeleting }] = useDeletePartyMutation();
+  const [bulkDeleteParties, { isLoading: isBulkDeleting }] = useBulkDeletePartiesMutation();
 
   const fetchedParties = useMemo(() => {
     return (pickList(data) as PartyRow[]).filter(Boolean);
@@ -589,6 +592,48 @@ export function GoogleSheetPartiesModal({
     filterState
   ]);
 
+  const selectedCount = useMemo(() => {
+    return Object.keys(selectedIds).filter(id => selectedIds[id] && localRows.some(r => r._id === id)).length;
+  }, [selectedIds, localRows]);
+
+  const isAllSelected = useMemo(() => {
+    if (filteredRows.length === 0) return false;
+    return filteredRows.every(r => selectedIds[r._id]);
+  }, [filteredRows, selectedIds]);
+
+  const handleToggleSelectAll = () => {
+    setSelectedIds(prev => {
+      const next = { ...prev };
+      if (isAllSelected) {
+        filteredRows.forEach(r => {
+          delete next[r._id];
+        });
+      } else {
+        filteredRows.forEach(r => {
+          next[r._id] = true;
+        });
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    const idsToDelete = Object.keys(selectedIds).filter(id => selectedIds[id] && localRows.some(r => r._id === id));
+    if (idsToDelete.length === 0) return;
+
+    if (!confirm(`Are you sure you want to delete ${idsToDelete.length} selected parties?`)) return;
+
+    try {
+      await bulkDeleteParties(idsToDelete).unwrap();
+      toast.success(`Successfully deleted ${idsToDelete.length} parties`);
+      setSelectedIds({});
+      refetch();
+      if (onSuccess) onSuccess();
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed to delete selected parties");
+    }
+  };
+
   // Copy apps script code
   const copyScriptCode = () => {
     const code = `/**
@@ -784,6 +829,16 @@ function onEdit(e) {
                 <Download className="h-3.5 w-3.5" />
                 <span>Export CSV</span>
               </button>
+              {selectedCount > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={isBulkDeleting}
+                  className="flex items-center gap-1.5 rounded-lg bg-rose-600 hover:bg-rose-750 active:scale-[0.98] px-3.5 py-1.5 text-xs font-bold text-white shadow shadow-rose-500/10 transition disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Delete Selected ({selectedCount})</span>
+                </button>
+              )}
             </div>
 
             {/* Filter Search & Dropdown Controls */}
@@ -966,6 +1021,14 @@ function onEdit(e) {
               <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 z-20 text-slate-550 dark:text-slate-400 font-semibold font-mono">
                 <tr>
                   <th className="w-12 px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850" style={{ width: 48, minWidth: 48, maxWidth: 48 }}></th>
+                  <th className="w-12 px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850" style={{ width: 48, minWidth: 48, maxWidth: 48 }}>
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={handleToggleSelectAll}
+                      className="h-4 w-4 rounded border-slate-350 dark:border-slate-700 bg-white dark:bg-slate-900 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer"
+                    />
+                  </th>
                   <th className="w-20 px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850" style={{ width: 80, minWidth: 80, maxWidth: 80 }}>Actions</th>
                   {COLUMNS.map(col => (
                     <th
@@ -1000,6 +1063,21 @@ function onEdit(e) {
                       {/* Left Number */}
                       <td className="w-12 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 font-mono text-center text-slate-450 dark:text-slate-550 select-none font-bold py-1.5 sticky left-0 z-10" style={{ width: 48, minWidth: 48, maxWidth: 48 }}>
                         {rowIdx + 1}
+                      </td>
+
+                      {/* Selection Checkbox */}
+                      <td className="w-12 border-r border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/40 text-center py-1" style={{ width: 48, minWidth: 48, maxWidth: 48 }}>
+                        <input
+                          type="checkbox"
+                          checked={!!selectedIds[row._id]}
+                          onChange={e => {
+                            setSelectedIds(prev => ({
+                              ...prev,
+                              [row._id]: e.target.checked
+                            }));
+                          }}
+                          className="h-4 w-4 rounded border-slate-350 dark:border-slate-700 bg-white dark:bg-slate-900 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer"
+                        />
                       </td>
 
                       {/* Row Actions (Details & Delete) */}

@@ -22,7 +22,8 @@ import {
   useListProductsQuery,
   usePatchProductMutation,
   useCreateProductMutation,
-  useDeleteProductMutation
+  useDeleteProductMutation,
+  useBulkDeleteProductsMutation
 } from "@/store/api";
 import { toast } from "@/lib/toast";
 
@@ -43,8 +44,13 @@ type ProductRow = {
   manufacturer?: string;
   unit: "pcs" | "box" | "kg" | "ltr" | "meter" | "set" | "kit" | "bottle";
   base_price: number;
+  minimum_sale_rate: number;
   mrp?: number;
   gst_percent?: number;
+  warranty_months?: number;
+  aliases?: string[] | string;
+  tags?: string[] | string;
+  description?: string;
   is_active: boolean;
 };
 
@@ -59,11 +65,18 @@ const COLUMNS: { key: keyof ProductRow; label: string; headerLetter: string; rea
   { key: "generic_name", label: "Generic Name", headerLetter: "C", type: "text" },
   { key: "brand", label: "Brand", headerLetter: "D", type: "text" },
   { key: "manufacturer", label: "Manufacturer", headerLetter: "E", type: "text" },
-  { key: "base_price", label: "Base Price*", headerLetter: "F", type: "number" },
-  { key: "mrp", label: "MRP", headerLetter: "G", type: "number" },
-  { key: "gst_percent", label: "GST %", headerLetter: "H", type: "number" },
-  { key: "unit", label: "Unit", headerLetter: "I", type: "select", options: ["pcs", "box", "kg", "ltr", "meter", "set", "kit", "bottle"] },
-  { key: "is_active", label: "Active", headerLetter: "J", type: "boolean" }
+  { key: "product_group", label: "Product Group", headerLetter: "F", type: "text" },
+  { key: "product_subgroup", label: "Product Subgroup", headerLetter: "G", type: "text" },
+  { key: "base_price", label: "Base Price*", headerLetter: "H", type: "number" },
+  { key: "minimum_sale_rate", label: "Min Sale Rate*", headerLetter: "I", type: "number" },
+  { key: "mrp", label: "MRP", headerLetter: "J", type: "number" },
+  { key: "gst_percent", label: "GST %", headerLetter: "K", type: "number" },
+  { key: "unit", label: "Unit", headerLetter: "L", type: "select", options: ["pcs", "box", "kg", "ltr", "meter", "set", "kit", "bottle"] },
+  { key: "warranty_months", label: "Warranty Months", headerLetter: "M", type: "number" },
+  { key: "aliases", label: "Aliases", headerLetter: "N", type: "text" },
+  { key: "tags", label: "Tags", headerLetter: "O", type: "text" },
+  { key: "description", label: "Description", headerLetter: "P", type: "text" },
+  { key: "is_active", label: "Active", headerLetter: "Q", type: "boolean" }
 ];
 
 function pickList(raw: unknown): unknown[] {
@@ -89,6 +102,7 @@ export function GoogleSheetProductsModal({
   const [savingRows, setSavingRows] = useState<Record<string, boolean>>({});
   const [realSheetUrl, setRealSheetUrl] = useState("");
   const [copiedScript, setCopiedScript] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
   // Filter panel toggle & criteria states
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -97,6 +111,11 @@ export function GoogleSheetProductsModal({
   const [filterUnit, setFilterUnit] = useState<string>("all");
   const [filterMinPrice, setFilterMinPrice] = useState<string>("");
   const [filterMaxPrice, setFilterMaxPrice] = useState<string>("");
+  const [filterBrand, setFilterBrand] = useState<string>("all");
+  const [filterManufacturer, setFilterManufacturer] = useState<string>("all");
+  const [filterProductGroup, setFilterProductGroup] = useState<string>("all");
+  const [filterProductSubgroup, setFilterProductSubgroup] = useState<string>("all");
+  const [filterTag, setFilterTag] = useState<string>("all");
 
   const uniqueGstRates = useMemo(() => {
     const rates = new Set<number>();
@@ -108,15 +127,80 @@ export function GoogleSheetProductsModal({
     return Array.from(rates).sort((a, b) => a - b);
   }, [localRows]);
 
+  const uniqueBrands = useMemo(() => {
+    const values = new Set<string>();
+    localRows.forEach(r => {
+      if (r.brand?.trim()) values.add(r.brand.trim());
+    });
+    return Array.from(values).sort();
+  }, [localRows]);
+
+  const uniqueManufacturers = useMemo(() => {
+    const values = new Set<string>();
+    localRows.forEach(r => {
+      if (r.manufacturer?.trim()) values.add(r.manufacturer.trim());
+    });
+    return Array.from(values).sort();
+  }, [localRows]);
+
+  const uniqueProductGroups = useMemo(() => {
+    const values = new Set<string>();
+    localRows.forEach(r => {
+      if (r.product_group?.trim()) values.add(r.product_group.trim());
+    });
+    return Array.from(values).sort();
+  }, [localRows]);
+
+  const uniqueProductSubgroups = useMemo(() => {
+    const values = new Set<string>();
+    localRows.forEach(r => {
+      if (r.product_subgroup?.trim()) values.add(r.product_subgroup.trim());
+    });
+    return Array.from(values).sort();
+  }, [localRows]);
+
+  const uniqueTags = useMemo(() => {
+    const values = new Set<string>();
+    localRows.forEach(r => {
+      if (Array.isArray(r.tags)) {
+        r.tags.forEach(t => {
+          if (t?.trim()) values.add(t.trim());
+        });
+      } else if (typeof r.tags === "string") {
+        r.tags.split(",").forEach(t => {
+          const trimmed = t.trim();
+          if (trimmed) values.add(trimmed);
+        });
+      }
+    });
+    return Array.from(values).sort();
+  }, [localRows]);
+
   const hasActiveFilters = useMemo(() => {
     return (
       filterActiveStatus !== "all" ||
       filterGstRate !== "all" ||
       filterUnit !== "all" ||
       filterMinPrice.trim() !== "" ||
-      filterMaxPrice.trim() !== ""
+      filterMaxPrice.trim() !== "" ||
+      filterBrand !== "all" ||
+      filterManufacturer !== "all" ||
+      filterProductGroup !== "all" ||
+      filterProductSubgroup !== "all" ||
+      filterTag !== "all"
     );
-  }, [filterActiveStatus, filterGstRate, filterUnit, filterMinPrice, filterMaxPrice]);
+  }, [
+    filterActiveStatus,
+    filterGstRate,
+    filterUnit,
+    filterMinPrice,
+    filterMaxPrice,
+    filterBrand,
+    filterManufacturer,
+    filterProductGroup,
+    filterProductSubgroup,
+    filterTag
+  ]);
 
   const handleClearFilters = () => {
     setFilterActiveStatus("all");
@@ -124,6 +208,11 @@ export function GoogleSheetProductsModal({
     setFilterUnit("all");
     setFilterMinPrice("");
     setFilterMaxPrice("");
+    setFilterBrand("all");
+    setFilterManufacturer("all");
+    setFilterProductGroup("all");
+    setFilterProductSubgroup("all");
+    setFilterTag("all");
   };
 
 
@@ -134,10 +223,17 @@ export function GoogleSheetProductsModal({
     generic_name: 150,
     brand: 120,
     manufacturer: 150,
+    product_group: 120,
+    product_subgroup: 120,
     base_price: 100,
+    minimum_sale_rate: 120,
     mrp: 100,
     gst_percent: 80,
     unit: 90,
+    warranty_months: 120,
+    aliases: 150,
+    tags: 150,
+    description: 200,
     is_active: 80,
   });
 
@@ -166,7 +262,7 @@ export function GoogleSheetProductsModal({
 
   const totalWidth = useMemo(() => {
     const columnsSum = COLUMNS.reduce((sum, col) => sum + (colWidths[col.key] || 120), 0);
-    return 48 + 64 + columnsSum; // 48px row numbers, 64px delete column
+    return 48 + 48 + 64 + columnsSum; // 48px row numbers, 48px checkbox, 64px delete column
   }, [colWidths]);
 
   // RTK Queries & Mutations
@@ -178,6 +274,7 @@ export function GoogleSheetProductsModal({
   const [patchProduct] = usePatchProductMutation();
   const [createProduct, { isLoading: isCreating }] = useCreateProductMutation();
   const [deleteProduct, { isLoading: isDeleting }] = useDeleteProductMutation();
+  const [bulkDeleteProducts, { isLoading: isBulkDeleting }] = useBulkDeleteProductsMutation();
 
   const fetchedProducts = useMemo(() => {
     return (pickList(data) as ProductRow[]).filter(Boolean);
@@ -250,16 +347,38 @@ export function GoogleSheetProductsModal({
     if (!originalRow) return;
 
     let parsedVal = val;
-    if (colKey === "base_price" || colKey === "mrp" || colKey === "gst_percent") {
+    if (
+      colKey === "base_price" ||
+      colKey === "mrp" ||
+      colKey === "gst_percent" ||
+      colKey === "minimum_sale_rate" ||
+      colKey === "warranty_months"
+    ) {
       parsedVal = val === "" ? undefined : Number(val);
       if (parsedVal !== undefined && isNaN(parsedVal)) {
         toast.error("Invalid number value entered");
         return;
       }
+    } else if (colKey === "aliases" || colKey === "tags") {
+      if (typeof val === "string") {
+        parsedVal = val.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+      } else if (Array.isArray(val)) {
+        parsedVal = val.map(s => String(s ?? "").trim().toLowerCase()).filter(Boolean);
+      } else {
+        parsedVal = [];
+      }
     }
 
+    // Helper to check equality (handles arrays and primitive values)
+    const areEqual = (a: any, b: any) => {
+      if (Array.isArray(a) && Array.isArray(b)) {
+        return a.length === b.length && a.every((v, i) => v === b[i]);
+      }
+      return a === b;
+    };
+
     // Don't patch if value didn't change
-    if (originalRow[colKey] === parsedVal) return;
+    if (areEqual(originalRow[colKey], parsedVal)) return;
 
     setSavingRows(prev => ({ ...prev, [productId]: true }));
     try {
@@ -311,6 +430,7 @@ export function GoogleSheetProductsModal({
       toast.error("Failed to delete product");
     }
   };
+
   // Filtered rows for virtual sheet search and filter panel criteria
   const filteredRows = useMemo(() => {
     let rows = localRows;
@@ -324,7 +444,12 @@ export function GoogleSheetProductsModal({
           r.sku?.toLowerCase().includes(query) ||
           r.generic_name?.toLowerCase().includes(query) ||
           r.brand?.toLowerCase().includes(query) ||
-          r.manufacturer?.toLowerCase().includes(query)
+          r.manufacturer?.toLowerCase().includes(query) ||
+          r.product_group?.toLowerCase().includes(query) ||
+          r.product_subgroup?.toLowerCase().includes(query) ||
+          r.description?.toLowerCase().includes(query) ||
+          (Array.isArray(r.aliases) ? r.aliases.join(", ") : String(r.aliases || "")).toLowerCase().includes(query) ||
+          (Array.isArray(r.tags) ? r.tags.join(", ") : String(r.tags || "")).toLowerCase().includes(query)
       );
     }
 
@@ -361,8 +486,95 @@ export function GoogleSheetProductsModal({
       }
     }
 
+    // 7. Brand Filter
+    if (filterBrand !== "all") {
+      rows = rows.filter(r => r.brand?.trim() === filterBrand);
+    }
+
+    // 8. Manufacturer Filter
+    if (filterManufacturer !== "all") {
+      rows = rows.filter(r => r.manufacturer?.trim() === filterManufacturer);
+    }
+
+    // 9. Product Group Filter
+    if (filterProductGroup !== "all") {
+      rows = rows.filter(r => r.product_group?.trim() === filterProductGroup);
+    }
+
+    // 10. Product Subgroup Filter
+    if (filterProductSubgroup !== "all") {
+      rows = rows.filter(r => r.product_subgroup?.trim() === filterProductSubgroup);
+    }
+
+    // 11. Tag Filter
+    if (filterTag !== "all") {
+      rows = rows.filter(r => {
+        if (Array.isArray(r.tags)) {
+          return r.tags.includes(filterTag);
+        } else if (typeof r.tags === "string") {
+          return r.tags.split(",").map(t => t.trim()).includes(filterTag);
+        }
+        return false;
+      });
+    }
+
     return rows;
-  }, [localRows, searchQuery, filterActiveStatus, filterGstRate, filterUnit, filterMinPrice, filterMaxPrice]);
+  }, [
+    localRows,
+    searchQuery,
+    filterActiveStatus,
+    filterGstRate,
+    filterUnit,
+    filterMinPrice,
+    filterMaxPrice,
+    filterBrand,
+    filterManufacturer,
+    filterProductGroup,
+    filterProductSubgroup,
+    filterTag
+  ]);
+
+  const selectedCount = useMemo(() => {
+    return Object.keys(selectedIds).filter(id => selectedIds[id] && localRows.some(r => r._id === id)).length;
+  }, [selectedIds, localRows]);
+
+  const isAllSelected = useMemo(() => {
+    if (filteredRows.length === 0) return false;
+    return filteredRows.every(r => selectedIds[r._id]);
+  }, [filteredRows, selectedIds]);
+
+  const handleToggleSelectAll = () => {
+    setSelectedIds(prev => {
+      const next = { ...prev };
+      if (isAllSelected) {
+        filteredRows.forEach(r => {
+          delete next[r._id];
+        });
+      } else {
+        filteredRows.forEach(r => {
+          next[r._id] = true;
+        });
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    const idsToDelete = Object.keys(selectedIds).filter(id => selectedIds[id] && localRows.some(r => r._id === id));
+    if (idsToDelete.length === 0) return;
+
+    if (!confirm(`Are you sure you want to delete ${idsToDelete.length} selected products?`)) return;
+
+    try {
+      await bulkDeleteProducts(idsToDelete).unwrap();
+      toast.success(`Successfully deleted ${idsToDelete.length} products`);
+      setSelectedIds({});
+      refetch();
+      if (onSuccess) onSuccess();
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed to delete selected products");
+    }
+  };
 
   // Copy apps script code
   const copyScriptCode = () => {
@@ -403,6 +615,8 @@ function onEdit(e) {
     if (key === "base_price" || key === "price") key = "base_price";
     if (key === "gst_" || key === "gst_rate") key = "gst_percent";
     if (key === "active") key = "is_active";
+    if (key === "minimum_sale_rate" || key === "min_sale_rate" || key === "min_rate") key = "minimum_sale_rate";
+    if (key === "warranty_months" || key === "warranty") key = "warranty_months";
     
     payload[key] = rowData[i];
   }
@@ -556,6 +770,16 @@ function onEdit(e) {
                 <Download className="h-3.5 w-3.5" />
                 <span>Export CSV</span>
               </button>
+              {selectedCount > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={isBulkDeleting}
+                  className="flex items-center gap-1.5 rounded-lg bg-rose-600 hover:bg-rose-750 active:scale-[0.98] px-3.5 py-1.5 text-xs font-bold text-white shadow shadow-rose-500/10 transition disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Delete Selected ({selectedCount})</span>
+                </button>
+              )}
             </div>
 
             {/* Filter Search & Dropdown Controls */}
@@ -619,9 +843,8 @@ function onEdit(e) {
                         Reset All
                       </button>
                     </div>
-
                     {/* Filter fields list */}
-                    <div className="space-y-3 select-none">
+                    <div className="space-y-3 select-none max-h-[380px] overflow-y-auto pr-1">
                       {/* Status select */}
                       <div>
                         <label className="block font-medium text-slate-500 dark:text-slate-400 mb-1">Product Status</label>
@@ -662,6 +885,81 @@ function onEdit(e) {
                           <option value="all">All units</option>
                           {COLUMNS.find(c => c.key === "unit")?.options?.map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Brand select */}
+                      <div>
+                        <label className="block font-medium text-slate-550 dark:text-slate-400 mb-1">Brand</label>
+                        <select
+                          value={filterBrand}
+                          onChange={e => setFilterBrand(e.target.value)}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                        >
+                          <option value="all">All brands</option>
+                          {uniqueBrands.map(b => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Manufacturer select */}
+                      <div>
+                        <label className="block font-medium text-slate-550 dark:text-slate-400 mb-1">Manufacturer</label>
+                        <select
+                          value={filterManufacturer}
+                          onChange={e => setFilterManufacturer(e.target.value)}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                        >
+                          <option value="all">All manufacturers</option>
+                          {uniqueManufacturers.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Product Group select */}
+                      <div>
+                        <label className="block font-medium text-slate-550 dark:text-slate-400 mb-1">Product Group</label>
+                        <select
+                          value={filterProductGroup}
+                          onChange={e => setFilterProductGroup(e.target.value)}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                        >
+                          <option value="all">All groups</option>
+                          {uniqueProductGroups.map(pg => (
+                            <option key={pg} value={pg}>{pg}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Product Subgroup select */}
+                      <div>
+                        <label className="block font-medium text-slate-550 dark:text-slate-400 mb-1">Product Subgroup</label>
+                        <select
+                          value={filterProductSubgroup}
+                          onChange={e => setFilterProductSubgroup(e.target.value)}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                        >
+                          <option value="all">All subgroups</option>
+                          {uniqueProductSubgroups.map(psg => (
+                            <option key={psg} value={psg}>{psg}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Tag select */}
+                      <div>
+                        <label className="block font-medium text-slate-550 dark:text-slate-400 mb-1">Tag</label>
+                        <select
+                          value={filterTag}
+                          onChange={e => setFilterTag(e.target.value)}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 font-mono text-[11px]"
+                        >
+                          <option value="all">All tags</option>
+                          {uniqueTags.map(t => (
+                            <option key={t} value={t}>{t}</option>
                           ))}
                         </select>
                       </div>
@@ -748,6 +1046,14 @@ function onEdit(e) {
               <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 z-20 text-slate-550 dark:text-slate-400 font-semibold font-mono">
                 <tr>
                   <th className="w-12 px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850" style={{ width: 48, minWidth: 48, maxWidth: 48 }}></th>
+                  <th className="w-12 px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850" style={{ width: 48, minWidth: 48, maxWidth: 48 }}>
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={handleToggleSelectAll}
+                      className="h-4 w-4 rounded border-slate-350 dark:border-slate-700 bg-white dark:bg-slate-900 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer"
+                    />
+                  </th>
                   <th className="w-16 px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850" style={{ width: 64, minWidth: 64, maxWidth: 64 }}>Del</th>
                   {COLUMNS.map(col => (
                     <th
@@ -782,6 +1088,21 @@ function onEdit(e) {
                       {/* Left Header Row Number */}
                       <td className="w-12 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 font-mono text-center text-slate-450 dark:text-slate-500 select-none font-bold py-1.5 sticky left-0 z-10" style={{ width: 48, minWidth: 48, maxWidth: 48 }}>
                         {rowIdx + 1}
+                      </td>
+
+                      {/* Selection Checkbox */}
+                      <td className="w-12 border-r border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/40 text-center py-1" style={{ width: 48, minWidth: 48, maxWidth: 48 }}>
+                        <input
+                          type="checkbox"
+                          checked={!!selectedIds[row._id]}
+                          onChange={e => {
+                            setSelectedIds(prev => ({
+                              ...prev,
+                              [row._id]: e.target.checked
+                            }));
+                          }}
+                          className="h-4 w-4 rounded border-slate-350 dark:border-slate-700 bg-white dark:bg-slate-900 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer"
+                        />
                       </td>
 
                       {/* Row Delete Button */}
@@ -981,10 +1302,17 @@ function onEdit(e) {
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Generic Name</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Brand</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Manufacturer</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Product Group</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Product Subgroup</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Base Price*</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Min Sale Rate*</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">MRP</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">GST %</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Unit</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Warranty Months</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Aliases</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Tags</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Description</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Active</div>
                   </div>
                   <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-1">
@@ -1032,6 +1360,8 @@ function onEdit(e) {
     if (key === "base_price" || key === "price") key = "base_price";
     if (key === "gst_" || key === "gst_rate") key = "gst_percent";
     if (key === "active") key = "is_active";
+    if (key === "minimum_sale_rate" || key === "min_sale_rate" || key === "min_rate") key = "minimum_sale_rate";
+    if (key === "warranty_months" || key === "warranty") key = "warranty_months";
     
     payload[key] = rowData[i];
   }
