@@ -31,7 +31,6 @@ import {
   usePatchOrderMutation,
   useTransitionOrderMutation,
   useListFlagsQuery,
-  useCreateFlagMutation,
   useGetPartyQuery,
   useGetOrderHistoryQuery,
   useListAttachmentsQuery,
@@ -40,7 +39,6 @@ import {
   useListRemindersQuery,
 } from "@/store/api";
 
-import { ALL_FLAG_TYPES, FLAGS_FOR_TARGET_DEPARTMENT } from "@/components/portal/shared/flagTypes";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { withAdminApprovalQuantities } from "@/components/portal/shared/orderAdminApprovalDisplay";
@@ -321,20 +319,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     | "reminders"
   >("approval_items");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
-  const [showRaiseFlagModal, setShowRaiseFlagModal] = useState(false);
-  const [newFlagDept, setNewFlagDept] = useState("sales");
-  const [newFlagType, setNewFlagType] = useState("urgent");
-  const [newFlagSeverity, setNewFlagSeverity] = useState("medium");
-  const [newFlagTitle, setNewFlagTitle] = useState("");
-  const [newFlagDesc, setNewFlagDesc] = useState("");
-  const [newFlagDueDate, setNewFlagDueDate] = useState("");
-
-  useEffect(() => {
-    const allowed = FLAGS_FOR_TARGET_DEPARTMENT[newFlagDept] || [];
-    if (allowed.length > 0 && !allowed.includes(newFlagType)) {
-      setNewFlagType(allowed[0]);
-    }
-  }, [newFlagDept]);
 
   const attachmentsQ = useListAttachmentsQuery({ entity_type: "order", entity_id: orderId });
 
@@ -344,7 +328,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
   }, [attachmentsQ.data]);
 
   const flagsQ = useListFlagsQuery({ order: orderId });
-  const [createFlag, { isLoading: isCreatingFlag }] = useCreateFlagMutation();
+
   const rawFlags = useMemo(() => {
     const arr = pickList(flagsQ.data);
     return arr as Record<string, unknown>[];
@@ -381,49 +365,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     }
     return map;
   }, [users]);
-
-  const handleRaiseFlag = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!orderId || !newFlagTitle.trim()) return;
-
-      try {
-        await createFlag({
-          order: orderId,
-          flag_type: newFlagType,
-          severity: newFlagSeverity,
-          title: newFlagTitle.trim(),
-          description: newFlagDesc.trim(),
-          blocks_order: false,
-          department: newFlagDept,
-          due_date: newFlagDueDate ? new Date(newFlagDueDate).toISOString() : undefined,
-        }).unwrap();
-
-        toast.success("Flag raised successfully.");
-        setShowRaiseFlagModal(false);
-        setNewFlagTitle("");
-        setNewFlagDesc("");
-        setNewFlagType("urgent");
-        setNewFlagSeverity("medium");
-        setNewFlagDept("sales");
-        setNewFlagDueDate("");
-        handleRefetch();
-      } catch (err) {
-        toast.error(mutationRejectedMessage(err));
-      }
-    },
-    [
-      orderId,
-      newFlagType,
-      newFlagSeverity,
-      newFlagTitle,
-      newFlagDesc,
-      newFlagDept,
-      newFlagDueDate,
-      createFlag,
-      handleRefetch,
-    ],
-  );
 
   const executeTransition = useCallback(
     async (nextStatus: string) => {
@@ -657,137 +598,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {/* Raise Flag Modal */}
-      {showRaiseFlagModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-550 dark:text-slate-50">
-                Raise Departmental Flag
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowRaiseFlagModal(false)}
-                className="text-slate-400 hover:text-slate-500 dark:hover:text-slate-350 dark:hover:text-slate-300"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <form onSubmit={(e) => void handleRaiseFlag(e)} className="mt-4 space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="flag-dept" className={labelClass}>Target Department</label>
-                  <select
-                    id="flag-dept"
-                    value={newFlagDept}
-                    onChange={(e) => setNewFlagDept(e.target.value)}
-                    className={inputClass}
-                    required
-                  >
-                    {Object.entries(departmentLabels)
-                      .filter(([val]) => val !== "admin")
-                      .map(([val, label]) => (
-                        <option key={val} value={val}>{label}</option>
-                      ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="flag-type" className={labelClass}>Flag Type</label>
-                  <select
-                    id="flag-type"
-                    value={newFlagType}
-                    onChange={(e) => setNewFlagType(e.target.value)}
-                    className={inputClass}
-                    required
-                  >
-                    {(FLAGS_FOR_TARGET_DEPARTMENT[newFlagDept] ?? Object.keys(ALL_FLAG_TYPES)).map((val) => (
-                      <option key={val} value={val}>
-                        {ALL_FLAG_TYPES[val]?.label || val}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="flag-severity" className={labelClass}>Severity</label>
-                  <select
-                    id="flag-severity"
-                    value={newFlagSeverity}
-                    onChange={(e) => setNewFlagSeverity(e.target.value)}
-                    className={inputClass}
-                    required
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="critical">Critical</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="flag-due" className={labelClass}>Due Date (Optional)</label>
-                  <input
-                    id="flag-due"
-                    type="date"
-                    value={newFlagDueDate}
-                    onChange={(e) => setNewFlagDueDate(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="flag-title" className={labelClass}>Flag Title</label>
-                <input
-                  id="flag-title"
-                  type="text"
-                  value={newFlagTitle}
-                  onChange={(e) => setNewFlagTitle(e.target.value)}
-                  className={inputClass}
-                  placeholder="E.g., Missing delivery address details"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="flag-desc" className={labelClass}>Description / Instructions</label>
-                <textarea
-                  id="flag-desc"
-                  rows={3}
-                  value={newFlagDesc}
-                  onChange={(e) => setNewFlagDesc(e.target.value)}
-                  className={inputClass}
-                  placeholder="Add detailed context for the assigned department..."
-                />
-              </div>
-
-              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-white/5">
-                <button
-                  type="button"
-                  onClick={() => setShowRaiseFlagModal(false)}
-                  className={btnSecondaryClass}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreatingFlag}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
-                >
-                  {isCreatingFlag ? "Raising Flag..." : "Raise Flag"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Item Fulfillment Details Modal */}
       {isFulfillmentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
@@ -918,7 +728,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
 
           {/* ── DESKTOP: Tab Content ── */}
           <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
-            {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} setShowRaiseFlagModal={setShowRaiseFlagModal} currentDepartment="admin" refetchOrder={handleRefetch} />)}
+            {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} currentDepartment="admin" refetchOrder={handleRefetch} />)}
             {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isFetching} onUploadSuccess={handleRefetch} />)}
             {activeTab === "approval_items" && (
               <OrderItemsTab
@@ -979,7 +789,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 pb-24">
-                {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} setShowRaiseFlagModal={setShowRaiseFlagModal} currentDepartment="admin" refetchOrder={handleRefetch} />)}
+                {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} currentDepartment="admin" refetchOrder={handleRefetch} />)}
                 {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isFetching} onUploadSuccess={handleRefetch} />)}
                 {activeTab === "approval_items" && (
                   <OrderItemsTab

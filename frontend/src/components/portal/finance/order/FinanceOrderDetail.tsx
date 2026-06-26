@@ -278,24 +278,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
 
 
 
-  const [showRaiseFlagModal, setShowRaiseFlagModal] = useState(false);
-  const [newFlagDept, setNewFlagDept] = useState("sales");
-  const [newFlagType, setNewFlagType] = useState("urgent");
-  const [newFlagSeverity, setNewFlagSeverity] = useState("medium");
-  const [newFlagTitle, setNewFlagTitle] = useState("");
-  const [newFlagDesc, setNewFlagDesc] = useState("");
-  const [newFlagDueDate, setNewFlagDueDate] = useState("");
-
-  useEffect(() => {
-    const allowed = FLAGS_FOR_TARGET_DEPARTMENT[newFlagDept] || [];
-    if (allowed.length > 0 && !allowed.includes(newFlagType)) {
-      setNewFlagType(allowed[0]);
-    }
-  }, [newFlagDept]);
-  const [createAttachment] = useCreateAttachmentMutation();
-
   const flagsQ = useListFlagsQuery({ order: orderId });
-  const [createFlag, { isLoading: isCreatingFlag }] = useCreateFlagMutation();
   const rawFlags = useMemo(() => {
     const arr = pickList(flagsQ.data);
     return arr as Record<string, unknown>[];
@@ -439,48 +422,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     }
   }, [detail, orderId, patchOrder, transitionOrder, handleRefetch]);
 
-  const handleRaiseFlag = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!orderId || !newFlagTitle.trim()) return;
 
-      try {
-        await createFlag({
-          order: orderId,
-          flag_type: newFlagType,
-          severity: newFlagSeverity,
-          title: newFlagTitle.trim(),
-          description: newFlagDesc.trim(),
-          blocks_order: false,
-          department: newFlagDept,
-          due_date: newFlagDueDate ? new Date(newFlagDueDate).toISOString() : undefined,
-        }).unwrap();
-
-        toast.success("Flag raised successfully.");
-        setShowRaiseFlagModal(false);
-        setNewFlagTitle("");
-        setNewFlagDesc("");
-        setNewFlagType("urgent");
-        setNewFlagSeverity("medium");
-        setNewFlagDept("sales");
-        setNewFlagDueDate("");
-        handleRefetch();
-      } catch (err) {
-        toast.error(mutationRejectedMessage(err));
-      }
-    },
-    [
-      orderId,
-      newFlagType,
-      newFlagSeverity,
-      newFlagTitle,
-      newFlagDesc,
-      newFlagDept,
-      newFlagDueDate,
-      createFlag,
-      handleRefetch,
-    ],
-  );
 
 
 
@@ -1010,7 +952,6 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 rawFlags={rawFlags}
                 formatDate={formatDate}
                 userNameById={userNameById}
-                setShowRaiseFlagModal={setShowRaiseFlagModal}
                 currentDepartment="finance"
                 refetchOrder={handleRefetch}
               />
@@ -1095,7 +1036,6 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                     rawFlags={rawFlags}
                     formatDate={formatDate}
                     userNameById={userNameById}
-                    setShowRaiseFlagModal={setShowRaiseFlagModal}
                     currentDepartment="finance"
                     refetchOrder={handleRefetch}
                   />

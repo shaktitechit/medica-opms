@@ -25,7 +25,6 @@ import {
   useListOrderApprovalsQuery,
   useTransitionOrderMutation,
   useListFlagsQuery,
-  useCreateFlagMutation,
   useListAttachmentsQuery,
   useGetOrderFulfillmentQuery,
   useListRemindersQuery,
@@ -51,7 +50,6 @@ import {
   idFromRef,
 } from "./components/accountDispatchAvailability";
 
-import { ALL_FLAG_TYPES, FLAGS_FOR_TARGET_DEPARTMENT } from "@/components/portal/shared/flagTypes";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
@@ -262,59 +260,7 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
   >("approvals");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
-  // Flags raise state
-  const [showRaiseFlagModal, setShowRaiseFlagModal] = useState(false);
-  const [newFlagDept, setNewFlagDept] = useState("sales");
-  const [newFlagType, setNewFlagType] = useState("urgent");
-  const [newFlagSeverity, setNewFlagSeverity] = useState("medium");
-  const [newFlagTitle, setNewFlagTitle] = useState("");
-  const [newFlagDesc, setNewFlagDesc] = useState("");
-  const [newFlagDueDate, setNewFlagDueDate] = useState("");
 
-  const [createFlag, { isLoading: isCreatingFlag }] = useCreateFlagMutation();
-
-  const handleRaiseFlag = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!orderId || !newFlagTitle.trim()) return;
-
-      try {
-        await createFlag({
-          order: orderId,
-          flag_type: newFlagType,
-          severity: newFlagSeverity,
-          title: newFlagTitle.trim(),
-          description: newFlagDesc.trim(),
-          blocks_order: false,
-          department: newFlagDept,
-          due_date: newFlagDueDate ? new Date(newFlagDueDate).toISOString() : undefined,
-        }).unwrap();
-
-        toast.success("Flag raised successfully.");
-        setShowRaiseFlagModal(false);
-        setNewFlagTitle("");
-        setNewFlagDesc("");
-        setNewFlagType("urgent");
-        setNewFlagSeverity("medium");
-        setNewFlagDept("sales");
-        setNewFlagDueDate("");
-        refetch();
-      } catch (err) {
-        toast.error(mutationRejectedMessage(err));
-      }
-    },
-    [
-      orderId,
-      newFlagType,
-      newFlagSeverity,
-      newFlagTitle,
-      newFlagDesc,
-      newFlagDept,
-      newFlagDueDate,
-      createFlag,
-      refetch,
-    ],
-  );
 
   // Attachment count
   const attachQ = useListAttachmentsQuery({
@@ -815,7 +761,6 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
               rawFlags={rawFlags}
               formatDate={formatDate}
               userNameById={userNameById}
-              setShowRaiseFlagModal={setShowRaiseFlagModal}
               currentDepartment="account"
               refetchOrder={handleRefetch}
             />
@@ -968,7 +913,6 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
                   rawFlags={rawFlags}
                   formatDate={formatDate}
                   userNameById={userNameById}
-                  setShowRaiseFlagModal={setShowRaiseFlagModal}
                   currentDepartment="account"
                   refetchOrder={handleRefetch}
                 />
@@ -1144,137 +1088,6 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
 
         {/* Close main flex wrapper */}
       </div>
-
-      {/* Raise Flag Modal overlay */}
-      {showRaiseFlagModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-              <h3 className="text-lg font-semibold text-slate-950 dark:text-slate-50">
-                Raise Departmental Flag
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowRaiseFlagModal(false)}
-                className="text-slate-400 hover:text-slate-500 dark:hover:text-slate-350 dark:hover:text-slate-300"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <form onSubmit={(e) => void handleRaiseFlag(e)} className="mt-4 space-y-4 font-sans text-xs">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="flag-dept" className={labelClass}>Target Department</label>
-                  <select
-                    id="flag-dept"
-                    value={newFlagDept}
-                    onChange={(e) => setNewFlagDept(e.target.value)}
-                    className={inputClass}
-                    required
-                  >
-                    {Object.entries(departmentLabels)
-                      .filter(([val]) => val !== "account")
-                      .map(([val, label]) => (
-                        <option key={val} value={val}>{label}</option>
-                      ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="flag-type" className={labelClass}>Flag Type</label>
-                  <select
-                    id="flag-type"
-                    value={newFlagType}
-                    onChange={(e) => setNewFlagType(e.target.value)}
-                    className={inputClass}
-                    required
-                  >
-                    {(FLAGS_FOR_TARGET_DEPARTMENT[newFlagDept] ?? Object.keys(ALL_FLAG_TYPES)).map((val) => (
-                      <option key={val} value={val}>
-                        {ALL_FLAG_TYPES[val]?.label || val}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="flag-severity" className={labelClass}>Severity</label>
-                  <select
-                    id="flag-severity"
-                    value={newFlagSeverity}
-                    onChange={(e) => setNewFlagSeverity(e.target.value)}
-                    className={inputClass}
-                    required
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="critical">Critical</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="flag-due" className={labelClass}>Due Date (Optional)</label>
-                  <input
-                    id="flag-due"
-                    type="date"
-                    value={newFlagDueDate}
-                    onChange={(e) => setNewFlagDueDate(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="flag-title" className={labelClass}>Flag Title</label>
-                <input
-                  id="flag-title"
-                  type="text"
-                  value={newFlagTitle}
-                  onChange={(e) => setNewFlagTitle(e.target.value)}
-                  className={inputClass}
-                  placeholder="E.g., Missing delivery address details"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="flag-desc" className={labelClass}>Description / Instructions</label>
-                <textarea
-                  id="flag-desc"
-                  rows={3}
-                  value={newFlagDesc}
-                  onChange={(e) => setNewFlagDesc(e.target.value)}
-                  className={inputClass}
-                  placeholder="Add detailed context for the assigned department..."
-                />
-              </div>
-
-              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-white/5 font-sans font-medium">
-                <button
-                  type="button"
-                  onClick={() => setShowRaiseFlagModal(false)}
-                  className={btnSecondaryClass}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreatingFlag}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
-                >
-                  {isCreatingFlag ? "Raising Flag..." : "Raise Flag"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -54,6 +54,8 @@ import {
   type AdminOrderTabCategory,
 } from "@/components/portal/admin/adminOrderUtils";
 import { resolveApprovalPending } from "@/components/portal/sales/orderUtils";
+import { OrderFlagBadge } from "@/components/portal/shared/OrderFlagBadge";
+import { OrderDueSheetBadge } from "@/components/portal/shared/OrderDueSheetBadge";
 
 type OrderRow = {
   _id?: string;
@@ -76,6 +78,7 @@ type OrderRow = {
   created_at?: string;
   createdAt?: string;
   order_items?: unknown[];
+  due_sheet_uploaded?: boolean;
 };
 
 function orderKey(row: unknown): string {
@@ -621,7 +624,7 @@ export default function ListAdminOrdersPage() {
                     {/* Top Row: Ref, Badges, Party, Financials & Dates, Actions */}
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
                       {/* Ref & Badges */}
-                      <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[130px] lg:shrink-0">
+                      <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[420px] lg:shrink-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
                             {ref}
@@ -630,6 +633,8 @@ export default function ListAdminOrdersPage() {
                           {activeTab === "pending_admin_approval" || activeTab === "pending_approvals"
                             ? renderPendingApprovalBadge(o)
                             : renderWorkflowStatusBadge(getAdminOrderTabCategory(o) ?? "open")}
+                          <OrderDueSheetBadge uploaded={o.due_sheet_uploaded} />
+                          <OrderFlagBadge orderId={o._id || o.id} department="admin" />
                         </div>
 
                         {/* Mobile Actions (hidden on lg and up) */}

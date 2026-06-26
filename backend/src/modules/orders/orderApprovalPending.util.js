@@ -173,6 +173,81 @@ async function enrichOrdersWithApprovalPending(rows, models) {
   }));
 }
 
+async function enrichOrdersWithDueSheetStatus(rows, models) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  const orderIds = rows
+    .map((row) => row?._id)
+    .filter((id) => id && mongoose.Types.ObjectId.isValid(String(id)));
+
+  if (orderIds.length === 0) {
+    return rows.map((row) => ({
+      ...row,
+      due_sheet_uploaded: false,
+    }));
+  }
+
+  const activeDueSheets = await models.OrderDueSheet.find({
+    order: { $in: orderIds },
+    is_current: true,
+    status: 'active',
+    deletedAt: null,
+  })
+    .select('order')
+    .lean();
+
+  const uploadedOrderIds = new Set(activeDueSheets.map((ds) => String(ds.order)));
+
+  return rows.map((row) => ({
+    ...row,
+    due_sheet_uploaded: uploadedOrderIds.has(String(row._id)),
+  }));
+}
+
+async function enrichOrdersWithFlagStatus(rows, models) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  const orderIds = rows
+    .map((row) => row?._id)
+    .filter((id) => id && mongoose.Types.ObjectId.isValid(String(id)));
+
+  if (orderIds.length === 0) {
+    return rows.map((row) => ({
+      ...row,
+      flag_status: 'none',
+    }));
+  }
+
+  const flags = await models.OrderFlag.find({
+    order: { $in: orderIds },
+  })
+    .select('order status')
+    .lean();
+
+  const flagsByOrder = new Map();
+  for (const flag of flags) {
+    const key = String(flag.order);
+    const list = flagsByOrder.get(key) || [];
+    list.push(flag);
+    flagsByOrder.set(key, list);
+  }
+
+  return rows.map((row) => {
+    const orderFlags = flagsByOrder.get(String(row._id)) || [];
+    let flag_status = 'none';
+    if (orderFlags.length > 0) {
+      const hasUnresolved = orderFlags.some(
+        (f) => f.status === 'open' || f.status === 'in_progress'
+      );
+      flag_status = hasUnresolved ? 'unresolved' : 'resolved';
+    }
+    return {
+      ...row,
+      flag_status,
+    };
+  });
+}
+
 module.exports = {
   PENDING_APPROVAL_STAGES,
   ADMIN_PENDING_STATUS_ALIASES,
@@ -185,4 +260,8 @@ module.exports = {
   isAnyPendingApprovalStatus,
   resolveOrderApprovalPending,
   enrichOrdersWithApprovalPending,
+  enrichOrdersWithDueSheetStatus,
+  enrichOrdersWithFlagStatus,
 };
+
+

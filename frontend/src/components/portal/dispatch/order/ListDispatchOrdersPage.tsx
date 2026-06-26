@@ -45,6 +45,7 @@ import {
   type DispatchOrderTabCategory,
 } from "../dispatchOrderUtils";
 import { resolveApprovalPending } from "@/components/portal/sales/orderUtils";
+import { OrderFlagBadge } from "@/components/portal/shared/OrderFlagBadge";
 
 type OrderRow = {
   _id?: string;
@@ -571,7 +572,7 @@ export default function ListDispatchOrdersPage() {
                     {/* Top Row: Ref, Badges, Party, Financials & Dates */}
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
                       {/* Ref & Badges */}
-                      <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[130px] lg:shrink-0">
+                      <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[420px] lg:shrink-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
                             {ref}
@@ -580,6 +581,7 @@ export default function ListDispatchOrdersPage() {
                           {activeTab === "pending_approvals"
                             ? renderPendingApprovalBadge(o)
                             : renderWorkflowStatusBadge(getDispatchOrderTabCategory(o, categoryOptions))}
+                          <OrderFlagBadge orderId={o._id || o.id} department="dispatch" />
                         </div>
                       </div>
 

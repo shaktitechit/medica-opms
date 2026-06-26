@@ -32,6 +32,7 @@ export const ALL_FLAG_TYPES: Record<string, FlagTypeOption> = {
 export const ALLOWED_FLAGS_BY_DEPARTMENT: Record<string, string[]> = {
   sales: ["urgent", "customer_issue", "document_missing"],
   finance: ["urgent", "payment_issue", "document_missing", "approval_delay"],
+  account: ["urgent", "payment_issue", "document_missing", "approval_delay"],
   dispatch: ["urgent", "dispatch_issue", "stock_issue", "vehicle_issue", "document_missing"],
   admin: [
     "urgent",
@@ -60,6 +61,7 @@ export const ALLOWED_FLAGS_BY_DEPARTMENT: Record<string, string[]> = {
 export const FLAGS_FOR_TARGET_DEPARTMENT: Record<string, string[]> = {
   sales: ["urgent", "customer_issue", "document_missing"],
   finance: ["urgent", "payment_issue", "approval_delay", "document_missing"],
+  account: ["urgent", "payment_issue", "document_missing"],
   dispatch: ["urgent", "dispatch_issue", "stock_issue", "vehicle_issue", "document_missing"],
   admin: ["urgent", "approval_delay", "document_missing"],
 };

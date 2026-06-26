@@ -42,7 +42,7 @@ const orderFlagSchema = new mongoose.Schema(
 
     department: {
       type: String,
-      enum: ["sales", "finance", "dispatch"],
+      enum: ["sales", "finance", "account", "dispatch"],
     },
 
     raised_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },

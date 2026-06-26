@@ -44,6 +44,8 @@ import {
   type FinanceOrderTabCategory,
 } from "../financeOrderUtils";
 import { resolveApprovalPending } from "@/components/portal/sales/orderUtils";
+import { OrderDueSheetBadge } from "@/components/portal/shared/OrderDueSheetBadge";
+import { OrderFlagBadge } from "@/components/portal/shared/OrderFlagBadge";
 
 type OrderRow = {
   _id?: string;
@@ -73,6 +75,8 @@ type OrderRow = {
     account?: boolean;
     stage?: string;
   };
+  due_sheet_uploaded?: boolean;
+  flag_status?: "none" | "resolved" | "unresolved";
 };
 
 function orderKey(row: unknown): string {
@@ -609,7 +613,7 @@ export default function ListFinanceOrdersPage() {
                     {/* Top Row: Ref, Badges, Party, Financials & Dates, Actions */}
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
                       {/* Ref & Badges */}
-                      <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[130px] lg:shrink-0">
+                      <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[420px] lg:shrink-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
                             {ref}
@@ -618,6 +622,8 @@ export default function ListFinanceOrdersPage() {
                           {activeTab === "pending_finance_approval" || activeTab === "pending_approvals"
                             ? renderPendingApprovalBadge(o)
                             : renderWorkflowStatusBadge(getFinanceOrderTabCategory(o) ?? "open")}
+                          <OrderDueSheetBadge uploaded={o.due_sheet_uploaded} />
+                          <OrderFlagBadge orderId={o._id || o.id} department="finance" />
                         </div>
                       </div>
 

@@ -31,6 +31,8 @@ const {
   findOrderIdsWithAnyPendingApproval,
   isAnyPendingApprovalStatus,
   enrichOrdersWithApprovalPending,
+  enrichOrdersWithDueSheetStatus,
+  enrichOrdersWithFlagStatus,
 } = require('./orderApprovalPending.util');
 const {
   ORDER_LINE_STATUS,
@@ -1061,7 +1063,9 @@ async function list(query = {}, user) {
 
   const mapListedOrders = async (rows) => {
     const plainRows = rows.map((r) => toPlain(r));
-    return enrichOrdersWithApprovalPending(plainRows, getModels());
+    const enrichedPending = await enrichOrdersWithApprovalPending(plainRows, getModels());
+    const enrichedDueSheet = await enrichOrdersWithDueSheetStatus(enrichedPending, getModels());
+    return enrichOrdersWithFlagStatus(enrichedDueSheet, getModels());
   };
 
   if (paginate) {
@@ -1092,7 +1096,10 @@ async function getById(id, user) {
   applyAccessFilter(q, user);
   const row = await getModels().Order.findOne(q).lean();
   if (!row) throw new ApiError(404, 'Order not found');
-  return toPlain(row);
+  const plain = toPlain(row);
+  const enrichedDueSheet = await enrichOrdersWithDueSheetStatus([plain], getModels());
+  const enrichedFlag = await enrichOrdersWithFlagStatus(enrichedDueSheet, getModels());
+  return enrichedFlag[0];
 }
 
 async function resolveNegotiatedRates(orderItems, partyId) {
