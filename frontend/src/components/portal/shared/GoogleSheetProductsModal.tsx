@@ -16,7 +16,10 @@ import {
   FileText,
   RefreshCw,
   Link2,
-  SlidersHorizontal
+  SlidersHorizontal,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown
 } from "lucide-react";
 import {
   useListProductsQuery,
@@ -103,6 +106,10 @@ export function GoogleSheetProductsModal({
   const [realSheetUrl, setRealSheetUrl] = useState("");
   const [copiedScript, setCopiedScript] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+  const [sortConfig, setSortConfig] = useState<{
+    key: keyof ProductRow;
+    direction: "asc" | "desc";
+  } | null>(null);
 
   // Filter panel toggle & criteria states
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -433,7 +440,7 @@ export function GoogleSheetProductsModal({
 
   // Filtered rows for virtual sheet search and filter panel criteria
   const filteredRows = useMemo(() => {
-    let rows = localRows;
+    let rows = [...localRows];
 
     // 1. Text Search Query Filter
     if (searchQuery.trim()) {
@@ -518,6 +525,24 @@ export function GoogleSheetProductsModal({
       });
     }
 
+    // Apply sorting
+    if (sortConfig) {
+      rows.sort((a, b) => {
+        const valA = a[sortConfig.key];
+        const valB = b[sortConfig.key];
+
+        if (valA == null) return sortConfig.direction === "asc" ? 1 : -1;
+        if (valB == null) return sortConfig.direction === "asc" ? -1 : 1;
+
+        const strA = String(valA).toLowerCase();
+        const strB = String(valB).toLowerCase();
+
+        if (strA < strB) return sortConfig.direction === "asc" ? -1 : 1;
+        if (strA > strB) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
     return rows;
   }, [
     localRows,
@@ -531,7 +556,8 @@ export function GoogleSheetProductsModal({
     filterManufacturer,
     filterProductGroup,
     filterProductSubgroup,
-    filterTag
+    filterTag,
+    sortConfig
   ]);
 
   const selectedCount = useMemo(() => {
@@ -1055,23 +1081,60 @@ function onEdit(e) {
                     />
                   </th>
                   <th className="w-16 px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850" style={{ width: 64, minWidth: 64, maxWidth: 64 }}>Del</th>
-                  {COLUMNS.map(col => (
-                    <th
-                      key={col.key}
-                      style={{ width: colWidths[col.key] || 120, minWidth: colWidths[col.key] || 120, maxWidth: colWidths[col.key] || 120 }}
-                      className="px-3 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850 relative group/header"
-                    >
-                      {col.headerLetter}
-                      <span className="block text-[10px] uppercase font-sans text-slate-400 dark:text-slate-500 font-bold tracking-wider mt-0.5 truncate">
-                        {col.label}
-                      </span>
-                      {/* Resize Handle */}
-                      <div
-                        onMouseDown={e => handleResizeStart(col.key, e)}
-                        className="absolute top-0 right-0 bottom-0 w-1 hover:w-1.5 hover:bg-emerald-500 dark:hover:bg-emerald-400 cursor-col-resize active:bg-emerald-600 z-30 transition-all select-none"
-                      />
-                    </th>
-                  ))}
+                  {COLUMNS.map(col => {
+                    const isSortable = col.key === "product_name";
+                    const isSorted = sortConfig?.key === col.key;
+                    const isAsc = sortConfig?.direction === "asc";
+
+                    return (
+                      <th
+                        key={col.key}
+                        style={{ width: colWidths[col.key] || 120, minWidth: colWidths[col.key] || 120, maxWidth: colWidths[col.key] || 120 }}
+                        className={`px-3 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850 relative group/header ${
+                          isSortable ? "cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800" : ""
+                        }`}
+                        onClick={() => {
+                          if (isSortable) {
+                            setSortConfig(prev => {
+                              if (!prev || prev.key !== col.key) {
+                                return { key: col.key, direction: "asc" };
+                              }
+                              if (prev.direction === "asc") {
+                                return { key: col.key, direction: "desc" };
+                              }
+                              return null; // unsorted
+                            });
+                          }
+                        }}
+                      >
+                        <div className="flex items-center justify-center gap-1.5 w-full">
+                          <div className="flex-1 min-w-0">
+                            {col.headerLetter}
+                            <span className="block text-[10px] uppercase font-sans text-slate-400 dark:text-slate-500 font-bold tracking-wider mt-0.5 truncate">
+                              {col.label}
+                            </span>
+                          </div>
+                          {isSortable && (
+                            <span className="shrink-0 text-slate-400 dark:text-slate-555">
+                              {isSorted ? (
+                                isAsc ? <ArrowUp className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> : <ArrowDown className="h-3.5 w-3.5 text-emerald-650 dark:text-emerald-400" />
+                              ) : (
+                                <ArrowUpDown className="h-3.5 w-3.5 opacity-0 group-hover/header:opacity-100 transition duration-150" />
+                              )}
+                            </span>
+                          )}
+                        </div>
+                        {/* Resize Handle */}
+                        <div
+                          onMouseDown={e => {
+                            e.stopPropagation(); // Prevent trigger sort on resize
+                            handleResizeStart(col.key, e);
+                          }}
+                          className="absolute top-0 right-0 bottom-0 w-1 hover:w-1.5 hover:bg-emerald-500 dark:hover:bg-emerald-400 cursor-col-resize active:bg-emerald-600 z-30 transition-all select-none"
+                        />
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
 
