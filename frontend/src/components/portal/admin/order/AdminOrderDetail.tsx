@@ -14,6 +14,7 @@ import TransportsTab from "./components/TransportsTab";
 import OrderDetailsModal from "./components/OrderDetailsModal";
 import PartyDetailsModal from "./components/PartyDetailsModal";
 import { RemindersTab } from "@/components/portal/shared/RemindersTab";
+import { DueSheetTab } from "@/components/portal/shared/DueSheetTab";
 import {
   buildPartyNameById,
   buildPartySraById,
@@ -317,6 +318,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     | "dispatches"
     | "transports"
     | "reminders"
+    | "due_sheet"
   >("approval_items");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
@@ -752,6 +754,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
             {activeTab === "dispatches" && (<DispatchesTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
             {activeTab === "transports" && (<TransportsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
             {activeTab === "reminders" && (<RemindersTab orderId={orderId} />)}
+            {activeTab === "due_sheet" && (<DueSheetTab orderId={orderId} onUploadSuccess={handleRefetch} />)}
           </div>
 
           {/* ── DESKTOP: Footer Tab Nav ── */}
@@ -765,6 +768,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
                 { id: "flags", name: "Flags", count: openFlagsCount, dangerBadge: true },
                 { id: "attachments", name: "Attachments", count: attachmentsList.length },
                 { id: "reminders", name: "Reminders", count: remindersCount },
+                { id: "due_sheet", name: "Due Sheet" },
               ]}
               activeId={activeTab}
               onChange={(id) => setActiveTab(id as typeof activeTab)}
@@ -783,6 +787,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
                   {activeTab === "dispatches" && "Dispatches"}
                   {activeTab === "transports" && "Transports"}
                   {activeTab === "reminders" && "Reminders"}
+                  {activeTab === "due_sheet" && "Due Sheet"}
                 </h2>
                 <button type="button" onClick={() => setMobileTabOpen(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10 transition" aria-label="Close panel">
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -813,6 +818,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
                 {activeTab === "dispatches" && (<DispatchesTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
                 {activeTab === "transports" && (<TransportsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
                 {activeTab === "reminders" && (<RemindersTab orderId={orderId} />)}
+                {activeTab === "due_sheet" && (<DueSheetTab orderId={orderId} onUploadSuccess={handleRefetch} />)}
               </div>
             </div>
           )}
@@ -831,6 +837,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
               { id: "flags" as const, name: "Flags", count: openFlagsCount, dangerBadge: true, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg> },
               { id: "attachments" as const, name: "Files", count: attachmentsList.length, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg> },
               { id: "reminders" as const, name: "Reminders", count: remindersCount, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
+              { id: "due_sheet" as const, name: "Due Sheet", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
             ]).map((tab) => {
               const isActive = activeTab === tab.id && mobileTabOpen;
               return (
