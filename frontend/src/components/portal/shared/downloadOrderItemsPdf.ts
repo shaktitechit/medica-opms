@@ -1,6 +1,3 @@
-import html2canvas from "html2canvas";
-import { jsPDF } from "jspdf";
-
 export type DownloadOrderItemsPdfOptions = {
   /** When false, download is blocked (order must be sales-approved first). */
   salesApproved?: boolean;
@@ -37,6 +34,12 @@ export async function downloadOrderItemsPdf(
   }
 
   await waitForImages(element);
+
+  // Load heavy PDF deps on demand so portal routes do not pull html2canvas into the initial chunk graph.
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import("html2canvas"),
+    import("jspdf"),
+  ]);
 
   const canvas = await html2canvas(element, {
     scale: 2,

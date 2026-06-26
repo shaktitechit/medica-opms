@@ -40,6 +40,14 @@ import {
   Trash2,
   FileText,
   TrendingUp,
+  ShieldCheck,
+  ListChecks,
+  FolderOpen,
+  CheckCircle2,
+  PauseCircle,
+  XCircle,
+  Ban,
+  type LucideIcon,
 } from "lucide-react";
 import {
   OrderFulfillmentPipelineStrip,
@@ -56,6 +64,31 @@ import {
 import { resolveApprovalPending } from "@/components/portal/sales/orderUtils";
 import { OrderFlagBadge } from "@/components/portal/shared/OrderFlagBadge";
 import { OrderDueSheetBadge } from "@/components/portal/shared/OrderDueSheetBadge";
+
+const DATE_FILTER_OPTIONS = [
+  { id: "all", label: "All Time" },
+  { id: "today", label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
+  { id: "last_week", label: "Last 7 Days" },
+  { id: "last_month", label: "Last Month" },
+  { id: "custom", label: "Custom Range" },
+] as const;
+
+const ADMIN_TAB_ICONS: Record<AdminOrderTabCategory, LucideIcon> = {
+  pending_admin_approval: ShieldCheck,
+  pending_approvals: ListChecks,
+  open: FolderOpen,
+  closed: CheckCircle2,
+  on_hold: PauseCircle,
+  rejected: XCircle,
+  cancelled: Ban,
+};
+
+const dateFilterSelectClass =
+  "shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-900 outline-none transition focus:border-purple-600 focus:ring-2 focus:ring-purple-500/20 dark:border-white/10 dark:bg-slate-950 dark:text-slate-100 cursor-pointer";
+
+const dateInputSelectClass =
+  "min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-900 outline-none transition focus:border-purple-600 focus:ring-2 focus:ring-purple-500/20 dark:border-white/10 dark:bg-slate-950 dark:text-slate-100 cursor-pointer";
 
 type OrderRow = {
   _id?: string;
@@ -233,6 +266,9 @@ export default function ListAdminOrdersPage() {
     tabFromUrl && isAdminOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_admin_approval",
   );
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
@@ -302,6 +338,9 @@ export default function ListAdminOrdersPage() {
     setSearchQuery("");
     setActiveTab("pending_admin_approval");
     setPriorityFilter("all");
+    setDateFilter("all");
+    setCustomDateFrom("");
+    setCustomDateTo("");
     setCurrentPage(1);
   }, []);
 
@@ -316,8 +355,48 @@ export default function ListAdminOrdersPage() {
     setCurrentPage(1);
   }, []);
 
+  const handleDateFilterChange = useCallback((val: string) => {
+    setDateFilter(val);
+    setCurrentPage(1);
+  }, []);
+
   // Filtered Orders memo
   const filteredOrders = useMemo(() => {
+    // ── date range helpers ──────────────────────────────────────
+    const toDay = (v: unknown): Date | null => {
+      if (!v) return null;
+      const d = v instanceof Date ? v : new Date(String(v));
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const now = new Date();
+    const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const endOfDay   = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+
+    let dateFrom: Date | null = null;
+    let dateTo:   Date | null = null;
+
+    if (dateFilter === "today") {
+      dateFrom = startOfDay(now);
+      dateTo   = endOfDay(now);
+    } else if (dateFilter === "yesterday") {
+      const y = new Date(now); y.setDate(y.getDate() - 1);
+      dateFrom = startOfDay(y);
+      dateTo   = endOfDay(y);
+    } else if (dateFilter === "last_week") {
+      const w = new Date(now); w.setDate(w.getDate() - 7);
+      dateFrom = startOfDay(w);
+      dateTo   = endOfDay(now);
+    } else if (dateFilter === "last_month") {
+      const m = new Date(now); m.setMonth(m.getMonth() - 1);
+      dateFrom = startOfDay(m);
+      dateTo   = endOfDay(now);
+    } else if (dateFilter === "custom") {
+      if (customDateFrom) dateFrom = startOfDay(new Date(customDateFrom));
+      if (customDateTo)   dateTo   = endOfDay(new Date(customDateTo));
+    }
+    // ────────────────────────────────────────────────────────────
+
     return orders.filter((o) => {
       if (!searchQuery.trim()) {
         if (!orderMatchesAdminTab(o, activeTab)) {
@@ -331,9 +410,17 @@ export default function ListAdminOrdersPage() {
         }
       }
 
+      if (dateFrom || dateTo) {
+        const raw = (o as any).order_date;
+        const d = toDay(raw);
+        if (!d) return false;
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo   && d > dateTo)   return false;
+      }
+
       return true;
     });
-  }, [orders, activeTab, priorityFilter, searchQuery]);
+  }, [orders, activeTab, priorityFilter, searchQuery, dateFilter, customDateFrom, customDateTo]);
 
   // Paginated Orders slice
   const paginatedOrders = useMemo(() => {
@@ -369,7 +456,7 @@ export default function ListAdminOrdersPage() {
   }, [deleteOrder, deleteTarget]);
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       <PortalBusyOverlay active={isLoading} message="Loading orders…" />
       <ConfirmDeleteDraftModal
         orderId={deleteTarget?.id ?? null}
@@ -379,61 +466,55 @@ export default function ListAdminOrdersPage() {
         onConfirm={confirmDeleteDraft}
       />
 
-      {/* Header Banner */}
-      <div className="relative overflow-hidden rounded-2xl border border-purple-500/10 bg-gradient-to-r from-purple-600/5 to-indigo-600/10 p-6 dark:from-purple-500/5 dark:to-indigo-500/5 shadow-sm">
-        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-purple-500/10 blur-2xl pointer-events-none" />
-        <div className="absolute -left-10 -bottom-10 h-32 w-32 rounded-full bg-indigo-500/10 blur-2xl pointer-events-none" />
-
-        <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+      {/* Compact Control Strip */}
+      <div className="relative shrink-0 overflow-hidden rounded-xl border border-purple-500/10 bg-gradient-to-r from-purple-600/5 to-indigo-600/10 px-4 py-2.5 shadow-sm dark:from-purple-500/5 dark:to-indigo-500/5">
+        <div className="relative flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <h1 className="text-sm font-bold tracking-tight text-slate-900 dark:text-slate-50">
               Admin Orders Control
             </h1>
-            <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400 max-w-xl">
-              Supervise all system orders. Monitor workflow status, manage draft orders, and coordinate department assignments.
-            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => refetch()}
               disabled={isFetching}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
               title="Reload orders list"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
               Refresh
             </button>
             <button
               type="button"
               onClick={() => setIsGoogleSheetOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-750 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
-              title="Open spreadsheet view of filtered orders"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
+              title="Open spreadsheet view"
             >
-              <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-              View Sheet
+              <FileText className="h-3 w-3 text-purple-600 dark:text-purple-400" />
+              Sheet
             </button>
             <button
               type="button"
               onClick={() => setIsAnalyticsOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-750 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
-              title="Open visual analytics dashboard"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
+              title="View analytics"
             >
-              <TrendingUp className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-              View Analytics
+              <TrendingUp className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+              Analytics
             </button>
             <Link
               href="/admin"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5"
             >
-              <LayoutDashboard className="h-3.5 w-3.5" />
+              <LayoutDashboard className="h-3 w-3" />
               Dashboard
             </Link>
             <Link
               href="/admin/create-order"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-blue-500/25 transition active:scale-[0.98] dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer"
+              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition active:scale-[0.98] dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-3 w-3" />
               Draft Order
             </Link>
           </div>
@@ -441,116 +522,142 @@ export default function ListAdminOrdersPage() {
       </div>
 
       {partiesQ.isError && (
-        <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/30">
+        <div className="shrink-0 rounded-lg border border-amber-200/50 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-400">
           ⚠️ Party directory failed to load — names may show as shortened IDs.
         </div>
       )}
-        {/* Universal Search Bar */}
-      <div className="relative rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm p-4">
-        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">
-          Universal Search
-        </label>
-        <div className="relative">
-          <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
-            <Search className="h-4 w-4" />
-          </span>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search universally by order # or party name across all tabs..."
-            className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 dark:focus:border-blue-500"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => handleSearchChange("")}
-              className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-655 cursor-pointer"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Horizontal Nav Tabs & Priority Filter */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/10 mt-2 pb-2 md:pb-0">
-        {searchQuery.trim() ? (
-          <div className="flex items-center gap-2.5 py-3">
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Showing <span className="font-bold text-blue-600 dark:text-blue-400">{filteredOrders.length}</span> search results for <span className="italic font-bold text-slate-900 dark:text-slate-100">"{searchQuery}"</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => handleSearchChange("")}
-              className="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer"
-            >
-              <X className="h-3 w-3" />
-              Clear
-            </button>
-          </div>
-        ) : (
-          <nav className="-mb-px flex space-x-6 overflow-x-auto pb-px scrollbar-none" aria-label="Order stages">
-            {ADMIN_ORDER_TABS.map((tab) => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    setCurrentPage(1);
-                  }}
-                  className={`group border-b-2 py-4 px-1 text-sm font-semibold transition whitespace-nowrap inline-flex items-center gap-2 cursor-pointer ${
-                    isActive
-                      ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
-                      : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  {isActive && !isFetching && (
-                    <span className="rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 text-[10px] font-bold">
-                      {filteredOrders.length}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-        )}
-
-        <div className="flex items-center gap-2 self-start md:self-center pb-2 md:pb-0">
-          <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            Priority:
-          </label>
+      {/* Universal Search + Date Filter Panel */}
+      <div className="relative shrink-0 rounded-xl border border-slate-200 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-slate-900 sm:p-4">
+        {/* Mobile / small: search + day/date selects inline */}
+        <div className="flex flex-col gap-2 md:hidden">
           <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
+                <Search className="h-3.5 w-3.5" />
+              </span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Search order # or party…"
+                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-7 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 dark:focus:border-blue-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => handleSearchChange("")}
+                  className="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-655 cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
             <select
-              value={priorityFilter}
-              onChange={(e) => handlePriorityFilterChange(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 cursor-pointer"
+              value={dateFilter}
+              onChange={(e) => handleDateFilterChange(e.target.value)}
+              className={`${dateFilterSelectClass} max-w-[6.75rem]`}
+              aria-label="Order date filter"
             >
-              <option value="all">All Priorities</option>
-              {PRIORITY_OPTIONS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
+              {DATE_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
                 </option>
               ))}
             </select>
-            {(searchQuery || activeTab !== "pending_admin_approval" || priorityFilter !== "all") && (
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-305 pl-1 cursor-pointer"
+          </div>
+          {dateFilter === "custom" && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={customDateFrom}
+                onChange={(e) => { setCustomDateFrom(e.target.value); setCurrentPage(1); }}
+                className={`${dateInputSelectClass} flex-1`}
+                title="From date"
+                aria-label="From date"
+              />
+              <span className="text-[10px] text-slate-400">—</span>
+              <input
+                type="date"
+                value={customDateTo}
+                onChange={(e) => { setCustomDateTo(e.target.value); setCurrentPage(1); }}
+                className={`${dateInputSelectClass} flex-1`}
+                title="To date"
+                aria-label="To date"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Desktop: search + order date inline */}
+        <div className="hidden md:block">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative min-w-0 flex-1">
+              <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                <Search className="h-4 w-4" />
+              </span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Search universally by order # or party name across all tabs..."
+                className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-9 pr-8 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 dark:focus:border-blue-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => handleSearchChange("")}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-655 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <span className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                Order Date
+              </span>
+              <select
+                value={dateFilter}
+                onChange={(e) => handleDateFilterChange(e.target.value)}
+                className={`${dateFilterSelectClass} min-w-[9rem] py-2.5 text-sm`}
+                aria-label="Order date filter"
               >
-                Reset
-              </button>
-            )}
+                {DATE_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              {dateFilter === "custom" && (
+                <>
+                  <input
+                    type="date"
+                    value={customDateFrom}
+                    onChange={(e) => { setCustomDateFrom(e.target.value); setCurrentPage(1); }}
+                    className={`${dateInputSelectClass} py-2.5 text-sm`}
+                    title="From date"
+                    aria-label="From date"
+                  />
+                  <span className="text-xs text-slate-400">—</span>
+                  <input
+                    type="date"
+                    value={customDateTo}
+                    onChange={(e) => { setCustomDateTo(e.target.value); setCurrentPage(1); }}
+                    className={`${dateInputSelectClass} py-2.5 text-sm`}
+                    title="To date"
+                    aria-label="To date"
+                  />
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
+
       {/* Main Grid/Table Card */}
-      <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900">
         {isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
@@ -581,7 +688,42 @@ export default function ListAdminOrdersPage() {
 
         {!isLoading && !isError && filteredOrders.length > 0 && (
           <>
-                        <div className="p-4 flex flex-col gap-3.5 bg-slate-50/10 dark:bg-slate-955/10">
+            {/* Pagination Top Bar */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 py-2.5 border-b border-slate-200/60 dark:border-white/5 bg-slate-50/60 dark:bg-slate-950/15 text-slate-600 dark:text-slate-400 shrink-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs">
+                  Showing <span className="font-semibold text-slate-800 dark:text-slate-200">{startEntry}</span> to{" "}
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">{endEntry}</span> of{" "}
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">{filteredOrders.length}</span> entries
+                </span>
+                <span className="text-slate-350 dark:text-slate-700">|</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] font-medium text-slate-500">Rows per page:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="rounded bg-transparent border-none py-0.5 text-xs font-semibold text-slate-750 focus:ring-0 cursor-pointer dark:text-slate-200"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 self-center sm:self-auto">
+                <button type="button" onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors" title="First Page"><ChevronsLeft className="h-4 w-4" /></button>
+                <button type="button" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors" title="Previous Page"><ChevronLeft className="h-4 w-4" /></button>
+                <span className="text-xs font-semibold px-2">Page {currentPage} of {totalPages || 1}</span>
+                <button type="button" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages || totalPages === 0} className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors" title="Next Page"><ChevronRight className="h-4 w-4" /></button>
+                <button type="button" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages || totalPages === 0} className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors" title="Last Page"><ChevronsRight className="h-4 w-4" /></button>
+              </div>
+            </div>
+
+            {/* Scrollable orders list */}
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
               {paginatedOrders.map((o) => {
                 const id = orderKey(o);
                 const ref =
@@ -732,81 +874,88 @@ export default function ListAdminOrdersPage() {
                 );
               })}
             </div>
-
-            {/* Pagination Navigation Footer */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-t border-slate-200/60 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xs">
-                  Showing <span className="font-semibold text-slate-800 dark:text-slate-200">{startEntry}</span> to{" "}
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">{endEntry}</span> of{" "}
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">{filteredOrders.length}</span> entries
-                </span>
-                <span className="text-slate-350 dark:text-slate-700">|</span>
-                <div className="flex items-center gap-1">
-                  <span className="text-[11px] font-medium text-slate-500">Rows per page:</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => {
-                      setItemsPerPage(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="rounded bg-transparent border-none py-0.5 text-xs font-semibold text-slate-750 focus:ring-0 cursor-pointer dark:text-slate-200"
-                  >
-                    <option value={10}>10</option>
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 self-center sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={currentPage === 1}
-                  className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                  title="First Page"
-                >
-                  <ChevronsLeft className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                  title="Previous Page"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-
-                <span className="text-xs font-semibold px-2">
-                  Page {currentPage} of {totalPages || 1}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setCurrentPage((p) => Math.min(totalPages, p + 1))
-                  }
-                  disabled={currentPage === totalPages || totalPages === 0}
-                  className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                  title="Next Page"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={currentPage === totalPages || totalPages === 0}
-                  className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                  title="Last Page"
-                >
-                  <ChevronsRight className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
           </>
         )}
+      </div>
+
+      {/* ── Bottom Tab Nav + Priority Filter (pinned to view bottom) ── */}
+      <div className="shrink-0 border-t border-slate-200 bg-white/95 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
+        <div className="max-w-screen-2xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          {searchQuery.trim() ? (
+            <div className="flex items-center gap-2.5 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Showing <span className="font-bold text-blue-600 dark:text-blue-400">{filteredOrders.length}</span> result{filteredOrders.length !== 1 ? "s" : ""} for <span className="italic font-bold text-slate-900 dark:text-slate-100">"{searchQuery}"</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => handleSearchChange("")}
+                className="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer"
+              >
+                <X className="h-3 w-3" />
+                Clear
+              </button>
+            </div>
+          ) : (
+            <nav className="flex overflow-x-auto scrollbar-none px-1 sm:px-2" aria-label="Order stages">
+              {ADMIN_ORDER_TABS.map((tab) => {
+                const isActive = activeTab === tab.id;
+                const TabIcon = ADMIN_TAB_ICONS[tab.id];
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => { setActiveTab(tab.id); setCurrentPage(1); }}
+                    title={tab.label}
+                    aria-label={tab.label}
+                    className={`relative inline-flex shrink-0 cursor-pointer items-center gap-1.5 border-t-2 px-2 py-2.5 text-xs font-semibold transition whitespace-nowrap sm:px-3 sm:py-3 md:px-3 ${
+                      isActive
+                        ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
+                        : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    <TabIcon className="h-4 w-4 shrink-0 md:hidden" aria-hidden />
+                    <span className="hidden md:inline">{tab.label}</span>
+                    {isActive && !isFetching && (
+                      <>
+                        <span className="hidden rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 md:inline">
+                          {filteredOrders.length}
+                        </span>
+                        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-1 text-[9px] font-bold text-white md:hidden">
+                          {filteredOrders.length}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+
+          <div className="flex items-center gap-2 px-4 py-2 border-t border-slate-100 sm:border-t-0 dark:border-white/5 shrink-0">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 whitespace-nowrap">
+              Priority
+            </label>
+            <select
+              value={priorityFilter}
+              onChange={(e) => handlePriorityFilterChange(e.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 cursor-pointer"
+            >
+              <option value="all">All</option>
+              {PRIORITY_OPTIONS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+            {(searchQuery || activeTab !== "pending_admin_approval" || priorityFilter !== "all" || dateFilter !== "all") && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 cursor-pointer"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       <GoogleSheetOrdersModal

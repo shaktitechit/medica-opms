@@ -12,23 +12,22 @@ import {
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
-import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
+import { OrderListSearchDatePanel } from "@/components/portal/shared/orderList/OrderListSearchDatePanel";
+import { OrderListPaginationBar } from "@/components/portal/shared/orderList/OrderListPaginationBar";
+import { OrderListBottomTabStrip } from "@/components/portal/shared/orderList/OrderListBottomTabStrip";
+import { orderMatchesDateFilter } from "@/components/portal/shared/orderList/orderListDateFilter";
 import {
   useListPartiesQuery,
   useListOrdersQuery,
   useListUsersQuery,
 } from "@/store/api";
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
-import { Search,
-  X,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
+import {
   RefreshCw,
   LayoutDashboard,
   TrendingUp,
-  TableProperties } from "lucide-react";
+  TableProperties,
+} from "lucide-react";
 import { GoogleSheetOrdersModal } from "@/components/portal/shared/GoogleSheetOrdersModal";
 import { GoogleSheetAnalyticsModal } from "@/components/portal/shared/GoogleSheetAnalyticsModal";
 import {
@@ -126,7 +125,7 @@ function formatDateShort(v: unknown): string {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  }  );
+  });
 }
 
 function formatMoney(v: number): string {
@@ -219,17 +218,17 @@ export default function ListFinanceOrdersPage() {
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
 
-  // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<FinanceOrderTabCategory>(() => {
     if (tabFromUrl === "pending_finance_review") return "pending_finance_approval";
     return tabFromUrl && isFinanceOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_finance_approval";
   });
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
-
-  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
@@ -304,15 +303,16 @@ export default function ListFinanceOrdersPage() {
     [usersQ.data],
   );
 
-  // Dynamic filter reset
   const handleResetFilters = useCallback(() => {
     setSearchQuery("");
     setActiveTab("pending_finance_approval");
     setPriorityFilter("all");
+    setDateFilter("all");
+    setCustomDateFrom("");
+    setCustomDateTo("");
     setCurrentPage(1);
   }, []);
 
-  // Setters that reset page to 1
   const handleSearchChange = useCallback((val: string) => {
     setSearchQuery(val);
     setCurrentPage(1);
@@ -323,7 +323,21 @@ export default function ListFinanceOrdersPage() {
     setCurrentPage(1);
   }, []);
 
-  // Filtered Orders memo
+  const handleDateFilterChange = useCallback((val: string) => {
+    setDateFilter(val);
+    setCurrentPage(1);
+  }, []);
+
+  const handleCustomDateFromChange = useCallback((val: string) => {
+    setCustomDateFrom(val);
+    setCurrentPage(1);
+  }, []);
+
+  const handleCustomDateToChange = useCallback((val: string) => {
+    setCustomDateTo(val);
+    setCurrentPage(1);
+  }, []);
+
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
       if (!searchQuery.trim()) {
@@ -357,11 +371,14 @@ export default function ListFinanceOrdersPage() {
         }
       }
 
+      if (!orderMatchesDateFilter(o as Record<string, unknown>, dateFilter, customDateFrom, customDateTo)) {
+        return false;
+      }
+
       return true;
     });
-  }, [orders, searchQuery, activeTab, priorityFilter, partyNameById]);
+  }, [orders, searchQuery, activeTab, priorityFilter, partyNameById, dateFilter, customDateFrom, customDateTo]);
 
-  // Paginated Orders slice
   const paginatedOrders = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     const end = start + itemsPerPage;
@@ -373,57 +390,58 @@ export default function ListFinanceOrdersPage() {
   const startEntry = filteredOrders.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
   const endEntry = Math.min(currentPage * itemsPerPage, filteredOrders.length);
 
-  return (
-    <div className="space-y-6">
-      <PortalBusyOverlay active={isLoading} message="Loading orders…" />
-      {/* Header Banner */}
-      <div className="relative overflow-hidden rounded-2xl border border-emerald-500/10 bg-gradient-to-r from-emerald-600/5 to-teal-600/10 p-6 dark:from-emerald-500/5 dark:to-teal-500/5 shadow-sm">
-        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-emerald-500/10 blur-2xl pointer-events-none" />
-        <div className="absolute -left-10 -bottom-10 h-32 w-32 rounded-full bg-teal-500/10 blur-2xl pointer-events-none" />
+  const showReset =
+    !!searchQuery ||
+    activeTab !== "pending_finance_approval" ||
+    priorityFilter !== "all" ||
+    dateFilter !== "all";
 
-        <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-400 dark:text-slate-50">
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+      <PortalBusyOverlay active={isLoading} message="Loading orders…" />
+
+      {/* Compact Control Strip */}
+      <div className="relative shrink-0 overflow-hidden rounded-xl border border-emerald-500/10 bg-gradient-to-r from-emerald-600/5 to-teal-600/10 px-4 py-2.5 shadow-sm dark:from-emerald-500/5 dark:to-teal-500/5">
+        <div className="relative flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <h1 className="text-sm font-bold tracking-tight text-slate-900 dark:text-slate-50">
               Finance Orders Review
             </h1>
-            <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400 max-w-xl font-medium">
-              Audit order pricing details, verify customer credit terms, and process pending financial approvals.
-            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setIsSheetOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 hover:text-emerald-900 dark:border-emerald-700/50 dark:bg-emerald-950/40 dark:text-emerald-400 dark:hover:bg-emerald-900/30 cursor-pointer"
+              className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 dark:border-emerald-700/50 dark:bg-emerald-950/40 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
               title="Open spreadsheet view"
             >
-              <TableProperties className="h-3.5 w-3.5" />
-              View Sheet
+              <TableProperties className="h-3 w-3" />
+              Sheet
             </button>
             <button
               type="button"
               onClick={() => setIsAnalyticsOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
-              title="Open visual analytics dashboard"
+              className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5"
+              title="View analytics"
             >
-              <TrendingUp className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-              View Analytics
+              <TrendingUp className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+              Analytics
             </button>
             <button
               type="button"
               onClick={() => refetch()}
               disabled={isFetching}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
+              className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5"
               title="Reload orders list"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
               Refresh
             </button>
             <Link
               href="/finance"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5"
             >
-              <LayoutDashboard className="h-3.5 w-3.5" />
+              <LayoutDashboard className="h-3 w-3" />
               Dashboard
             </Link>
           </div>
@@ -431,117 +449,26 @@ export default function ListFinanceOrdersPage() {
       </div>
 
       {partiesQ.isError && (
-        <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-955/20 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/30">
+        <div className="shrink-0 rounded-lg border border-amber-200/50 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/30 dark:bg-amber-955/20 dark:text-amber-400">
           ⚠️ Party directory failed to load — names may show as shortened IDs.
         </div>
       )}
 
-      {/* Universal Search Bar */}
-      <div className="relative rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm p-4">
-        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">
-          Universal Search
-        </label>
-        <div className="relative">
-          <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
-            <Search className="h-4 w-4" />
-          </span>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search universally by order # or party name across all tabs..."
-            className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 dark:focus:border-blue-500"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => handleSearchChange("")}
-              className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-655 cursor-pointer"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Horizontal Nav Tabs & Priority Filter */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/10 mt-2 pb-2 md:pb-0">
-        {searchQuery.trim() ? (
-          <div className="flex items-center gap-2.5 py-3">
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Showing <span className="font-bold text-blue-600 dark:text-blue-400">{filteredOrders.length}</span> search results for <span className="italic font-bold text-slate-900 dark:text-slate-100">"{searchQuery}"</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => handleSearchChange("")}
-              className="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer"
-            >
-              <X className="h-3 w-3" />
-              Clear
-            </button>
-          </div>
-        ) : (
-          <nav className="-mb-px flex space-x-6 overflow-x-auto pb-px scrollbar-none" aria-label="Order stages">
-            {FINANCE_ORDER_TABS.map((tab) => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    setCurrentPage(1);
-                  }}
-                  className={`group border-b-2 py-4 px-1 text-sm font-semibold transition whitespace-nowrap inline-flex items-center gap-2 cursor-pointer ${
-                    isActive
-                      ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
-                      : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  {isActive && !isFetching && (
-                    <span className="rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 text-[10px] font-bold">
-                      {filteredOrders.length}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-        )}
-
-        <div className="flex items-center gap-2 self-start md:self-center pb-2 md:pb-0">
-          <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            Priority:
-          </label>
-          <div className="flex items-center gap-2">
-            <select
-              value={priorityFilter}
-              onChange={(e) => handlePriorityFilterChange(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 cursor-pointer"
-            >
-              <option value="all">All Priorities</option>
-              {PRIORITY_OPTIONS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-            {(searchQuery || activeTab !== "pending_finance_approval" || priorityFilter !== "all") && (
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-400 pl-1 cursor-pointer"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      <OrderListSearchDatePanel
+        searchQuery={searchQuery}
+        onSearchChange={handleSearchChange}
+        dateFilter={dateFilter}
+        onDateFilterChange={handleDateFilterChange}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        onCustomDateFromChange={handleCustomDateFromChange}
+        onCustomDateToChange={handleCustomDateToChange}
+        searchFocusClass="focus:border-emerald-600 focus:ring-emerald-500/25 dark:focus:border-emerald-500"
+        compact
+      />
 
       {/* Main Grid/Table Card */}
-      <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900">
         {isError && (
           <div className="text-center py-16 px-4">
             <span className="text-2xl">⚠️</span>
@@ -556,7 +483,7 @@ export default function ListFinanceOrdersPage() {
 
         {!isLoading && !isError && filteredOrders.length === 0 && (
           <div className="text-center py-16 px-4">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-950 text-slate-400 text-xl border border-slate-100 dark:border-white/5">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-955 text-slate-400 text-xl border border-slate-100 dark:border-white/5">
               📋
             </div>
             <h3 className="mt-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -572,7 +499,21 @@ export default function ListFinanceOrdersPage() {
 
         {!isLoading && !isError && filteredOrders.length > 0 && (
           <>
-            <div className="p-4 flex flex-col gap-3.5 bg-slate-50/10 dark:bg-slate-955/10">
+            <OrderListPaginationBar
+              startEntry={startEntry}
+              endEntry={endEntry}
+              totalEntries={filteredOrders.length}
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={(val) => {
+                setItemsPerPage(val);
+                setCurrentPage(1);
+              }}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+            />
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
               {paginatedOrders.map((o) => {
                 const id = orderKey(o);
                 const ref =
@@ -607,12 +548,9 @@ export default function ListFinanceOrdersPage() {
                     }}
                     className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 transition-all duration-300 hover:shadow-md hover:border-blue-500/20 dark:border-white/10 dark:bg-slate-900 flex flex-col gap-4 pl-5 animate-fadeIn cursor-pointer"
                   >
-                    {/* Priority Accent Stripe */}
                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${stripeColor}`} />
 
-                    {/* Top Row: Ref, Badges, Party, Financials & Dates, Actions */}
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
-                      {/* Ref & Badges */}
                       <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[420px] lg:shrink-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
@@ -627,7 +565,6 @@ export default function ListFinanceOrdersPage() {
                         </div>
                       </div>
 
-                      {/* Party Title */}
                       <span
                         className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 lg:flex-1 break-words whitespace-normal font-sans"
                         title={partyLabel}
@@ -640,7 +577,6 @@ export default function ListFinanceOrdersPage() {
                         )}
                       </span>
 
-                      {/* Financials & Dates */}
                       <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-8 lg:w-[280px] lg:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
                         <div className="flex flex-col min-w-[90px]">
                           <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -669,7 +605,6 @@ export default function ListFinanceOrdersPage() {
                       </div>
                     </div>
 
-                    {/* Bottom Row: Pipeline */}
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between bg-slate-50/30 px-2 py-1.5 rounded-lg dark:bg-slate-950/5 border border-slate-100/50 dark:border-white/5">
                       <span className="shrink-0 text-slate-400 dark:text-slate-500 font-bold text-[8px] uppercase tracking-wider">
                         Pipeline
@@ -685,82 +620,30 @@ export default function ListFinanceOrdersPage() {
                 );
               })}
             </div>
-
-            {/* Pagination Navigation Footer */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-t border-slate-200/60 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xs">
-                  Showing <span className="font-semibold text-slate-800 dark:text-slate-200">{startEntry}</span> to{" "}
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">{endEntry}</span> of{" "}
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">{filteredOrders.length}</span> entries
-                </span>
-                <span className="text-slate-350 dark:text-slate-700">|</span>
-                <div className="flex items-center gap-1">
-                  <span className="text-[11px] font-medium text-slate-500">Rows per page:</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => {
-                      setItemsPerPage(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="rounded bg-transparent border-none py-0.5 text-xs font-semibold text-slate-700 focus:ring-0 cursor-pointer dark:text-slate-200"
-                  >
-                    <option value={10}>10</option>
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 self-center sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={currentPage === 1}
-                  className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                  title="First Page"
-                >
-                  <ChevronsLeft className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                  title="Previous Page"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-
-                <span className="text-xs font-semibold px-2">
-                  Page {currentPage} of {totalPages || 1}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setCurrentPage((p) => Math.min(totalPages, p + 1))
-                  }
-                  disabled={currentPage === totalPages || totalPages === 0}
-                  className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                  title="Next Page"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={currentPage === totalPages || totalPages === 0}
-                  className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                  title="Last Page"
-                >
-                  <ChevronsRight className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
           </>
         )}
       </div>
+
+      <OrderListBottomTabStrip
+        tabs={FINANCE_ORDER_TABS}
+        activeTab={activeTab}
+        onTabChange={(tabId) => {
+          setActiveTab(tabId as FinanceOrderTabCategory);
+          setCurrentPage(1);
+        }}
+        filteredCount={filteredOrders.length}
+        isFetching={isFetching}
+        searchQuery={searchQuery}
+        onClearSearch={() => handleSearchChange("")}
+        priorityFilter={priorityFilter}
+        onPriorityFilterChange={handlePriorityFilterChange}
+        showReset={showReset}
+        onReset={handleResetFilters}
+        accentActiveClass="border-emerald-600 text-emerald-600 dark:border-emerald-500 dark:text-emerald-400"
+        searchResultAccentClass="text-emerald-600 dark:text-emerald-400"
+        countBadgeClass="bg-emerald-600"
+        compact
+      />
 
       <GoogleSheetOrdersModal
         isOpen={isSheetOpen}
