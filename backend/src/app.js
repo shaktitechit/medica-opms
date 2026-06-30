@@ -9,6 +9,8 @@ const { JSON_BODY_LIMIT } = require('./config/env');
 const { authMiddleware } = require('./middlewares/auth.middleware');
 const { errorMiddleware } = require('./middlewares/error.middleware');
 const { notFound } = require('./middlewares/notFound.middleware');
+const swaggerUi = require('swagger-ui-express');
+const { spec: swaggerDocument } = require('./docs/swagger');
 
 const authRoutes = require('./modules/auth/auth.routes');
 const userRoutes = require('./modules/users/user.routes');
@@ -50,12 +52,16 @@ app.use(authMiddleware);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+// Serve API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
 app.get('/', (_req, res) =>
   res.json({
     ok: true,
     service: 'medica-backend',
     message: 'Use paths under /api — the site root has no SPA.',
     health: '/health',
+    api_docs: '/api-docs',
     examples: {
       login_post: '/api/auth/login',
       orders: '/api/orders',
