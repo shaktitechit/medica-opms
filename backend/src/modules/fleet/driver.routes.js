@@ -10,10 +10,10 @@ const controller = require('./driver.controller');
 
 router.use(requireAuth, requireDepartment('dispatch', 'admin'));
 
-router.get('/deleted', requireSoftDeletePermission, controller.listDeleted);
+router.get('/deleted', controller.listDeleted);
 router.get('/', controller.list);
-router.delete('/:id', requireSoftDeletePermission, controller.softDelete);
-router.post('/:id/restore', requireSoftDeletePermission, controller.restore);
+router.delete('/:id', controller.softDelete);
+router.post('/:id/restore', controller.restore);
 router.get('/:id', controller.get);
 router.post('/', controller.create);
 router.patch('/:id', controller.patch);

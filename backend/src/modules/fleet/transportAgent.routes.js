@@ -10,10 +10,10 @@ const controller = require('./transportAgent.controller');
 
 router.use(requireAuth);
 
-router.get('/deleted', requireDepartment('dispatch', 'admin'), requireSoftDeletePermission, controller.listDeleted);
+router.get('/deleted', requireDepartment('dispatch', 'admin'), controller.listDeleted);
 router.get('/', requireDepartment('dispatch', 'admin', 'sales', 'finance'), controller.list);
-router.delete('/:id', requireDepartment('dispatch', 'admin'), requireSoftDeletePermission, controller.softDelete);
-router.post('/:id/restore', requireDepartment('dispatch', 'admin'), requireSoftDeletePermission, controller.restore);
+router.delete('/:id', requireDepartment('dispatch', 'admin'), controller.softDelete);
+router.post('/:id/restore', requireDepartment('dispatch', 'admin'), controller.restore);
 router.get('/:id', requireDepartment('dispatch', 'admin', 'sales', 'finance'), controller.get);
 router.post('/', requireDepartment('dispatch', 'admin'), controller.create);
 router.patch('/:id', requireDepartment('dispatch', 'admin'), controller.patch);
