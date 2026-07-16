@@ -1,13 +1,45 @@
 import { medicaApi } from "../baseApi";
 import { unwrapEnvelope, type ApiEnvelope } from "../unwrap";
 
+/** Common write fields for create/patch/bulk party payloads. */
+export type PartyWriteBody = {
+  party_type?: string;
+  party_name?: string;
+  contact_person?: string;
+  mobile?: string;
+  email?: string;
+  contacts?: unknown[];
+  gst_no?: string;
+  drug_license_no?: string;
+  billing_address?: Record<string, unknown>;
+  shipping_address?: Record<string, unknown>;
+  district?: string;
+  state?: string;
+  payment_terms?: string;
+  is_active?: boolean;
+  is_featured?: boolean;
+  sra?: boolean;
+  sra_from_date?: string | null;
+  sra_to_date?: string | null;
+  [key: string]: unknown;
+};
+
+export type PartyListParams = {
+  search?: string;
+  type?: string;
+  status?: string;
+  /** Filter featured parties: `"true"` | `"false"` | `"all"` */
+  is_featured?: string;
+  paginate?: string;
+  page?: string;
+  limit?: string;
+  [key: string]: string | undefined;
+};
+
 /** `/api/parties` — soft-delete + restore via RBAC. */
 export const partiesApi = medicaApi.injectEndpoints({
   endpoints: (build) => ({
-    listParties: build.query<
-      unknown,
-      Record<string, string | undefined> | void
-    >({
+    listParties: build.query<unknown, PartyListParams | void>({
       query: (params) => ({
         url: "parties",
         params: { status: "all", ...params },
@@ -15,10 +47,7 @@ export const partiesApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       providesTags: [{ type: "Parties", id: "LIST" }],
     }),
-    listPartiesDeleted: build.query<
-      unknown,
-      Record<string, string | undefined> | void
-    >({
+    listPartiesDeleted: build.query<unknown, PartyListParams | void>({
       query: (params) => ({
         url: "parties/deleted",
         params: params ?? {},
@@ -31,14 +60,14 @@ export const partiesApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       providesTags: (_r, _e, id) => [{ type: "Parties", id }],
     }),
-    createParty: build.mutation<unknown, Record<string, unknown>>({
+    createParty: build.mutation<unknown, PartyWriteBody>({
       query: (body) => ({ url: "parties", method: "POST", body }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       invalidatesTags: ["Parties"],
     }),
     patchParty: build.mutation<
       unknown,
-      { id: string; patch: Record<string, unknown> }
+      { id: string; patch: PartyWriteBody }
     >({
       query: ({ id, patch }) => ({
         url: `parties/${id}`,
@@ -71,7 +100,7 @@ export const partiesApi = medicaApi.injectEndpoints({
         { type: "Parties", id: "DELETED" },
       ],
     }),
-    bulkCreateParty: build.mutation<unknown, Record<string, unknown>[]>({
+    bulkCreateParty: build.mutation<unknown, PartyWriteBody[]>({
       query: (body) => ({ url: "parties/bulk", method: "POST", body }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       invalidatesTags: ["Parties"],
@@ -102,4 +131,3 @@ export const {
   useBulkCreatePartyMutation,
   useBulkDeletePartiesMutation,
 } = partiesApi;
-

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Info } from "lucide-react";
 import {
-  DISPATCH_ORDER_TABS,
+  DISPATCH_CHART_TABS,
   DISPATCH_STATUS_COLORS,
   categorizeOrderForDispatchChart,
   createEmptyDispatchChartBreakdown,
@@ -177,7 +177,7 @@ export default function DispatchOrderVolumeChart({
   );
 
   const activeData = timeframe === "monthly" ? monthlyData : dailyData;
-  const statusKeys = DISPATCH_ORDER_TABS.map((tab) => tab.id);
+  const statusKeys = DISPATCH_CHART_TABS.map((tab) => tab.id);
 
   const maxVal = useMemo(() => {
     const vals = activeData.map((d) => {

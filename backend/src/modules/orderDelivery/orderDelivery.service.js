@@ -10,7 +10,6 @@ const activityService = require('../activity/activity.service');
 const fulfillmentService = require('../orders/orderFulfillment.service');
 const orderQueue = require('../../queues/order.queue');
 const transportService = require('../transport/transport.service');
-const orderReturnService = require('../orderReturn/orderReturn.service');
 const {
   ORDER_STATUS,
   ORDER_WORKFLOW_STAGE,
@@ -100,8 +99,8 @@ async function createDeliveryRecord(body, user, { skipRecalculate = false } = {}
 
 function validateShipmentDeliveryPayload(body) {
   const deliveryType = String(body.delivery_type || '').toLowerCase();
-  if (!['full', 'partial'].includes(deliveryType)) {
-    throw new ApiError(400, 'delivery_type must be full or partial');
+  if (deliveryType !== 'full') {
+    throw new ApiError(400, 'Only full delivery is supported');
   }
   if (!body.order) throw new ApiError(400, 'order is required');
   if (!body.dispatch) throw new ApiError(400, 'dispatch is required');
@@ -111,26 +110,68 @@ function validateShipmentDeliveryPayload(body) {
   const returnItems = Array.isArray(body.return_items) ? body.return_items : [];
 
   const deliveredLines = deliveryItems.filter((item) => Number(item.delivered_quantity) > 0);
-  const returnedLines = returnItems.filter((item) => Number(item.returned_quantity) > 0);
-
-  if (deliveryType === 'full') {
-    if (deliveredLines.length === 0) {
-      throw new ApiError(400, 'Full delivery requires at least one delivered line');
-    }
-    if (returnedLines.length > 0) {
-      throw new ApiError(400, 'Full delivery cannot include return lines');
-    }
-  } else if (deliveredLines.length === 0 && returnedLines.length === 0) {
-    throw new ApiError(400, 'Partial delivery requires delivered and/or returned quantities');
+  if (deliveredLines.length === 0) {
+    throw new ApiError(400, 'Full delivery requires at least one delivered line');
+  }
+  if (returnItems.length > 0) {
+    throw new ApiError(400, 'Full delivery cannot include return lines');
   }
 
-  for (const item of returnedLines) {
-    if (!String(item.return_reason || item.remarks || '').trim()) {
-      throw new ApiError(400, 'Each returned line requires a return reason or remark');
-    }
+  return { deliveryType, deliveredLines };
+}
+
+async function assertFullDeliveryMatchesDispatch(body, deliveredLines) {
+  const { OrderDelivery, OrderDispatch } = getModels();
+  const dispatch = await OrderDispatch.findOne({
+    _id: body.dispatch,
+    order: body.order,
+    deletedAt: null,
+    dispatch_status: { $ne: 'cancelled' },
+  }).lean();
+  if (!dispatch) throw new ApiError(404, 'Order dispatch not found');
+
+  const existingDelivery = await OrderDelivery.exists({
+    dispatch: body.dispatch,
+    transport: body.transport,
+    deletedAt: null,
+  });
+  if (existingDelivery) {
+    throw new ApiError(400, 'A delivery is already recorded for this shipment');
   }
 
-  return { deliveryType, deliveredLines, returnedLines };
+  const expectedByProduct = new Map();
+  for (const item of dispatch.dispatch_items || []) {
+    const productId = String(item.product?._id ?? item.product ?? '');
+    const quantity = Number(item.dispatched_quantity ?? item.dispatch_quantity ?? 0);
+    if (!productId || quantity <= 0) continue;
+    expectedByProduct.set(productId, (expectedByProduct.get(productId) || 0) + quantity);
+  }
+
+  const deliveredByProduct = new Map();
+  for (const item of deliveredLines) {
+    const productId = String(item.product?._id ?? item.product ?? '');
+    const quantity = Number(item.delivered_quantity || 0);
+    if (!productId || quantity <= 0) {
+      throw new ApiError(400, 'Every delivery line requires a product and positive quantity');
+    }
+    deliveredByProduct.set(productId, (deliveredByProduct.get(productId) || 0) + quantity);
+  }
+
+  if (
+    expectedByProduct.size === 0 ||
+    expectedByProduct.size !== deliveredByProduct.size
+  ) {
+    throw new ApiError(400, 'Full delivery must include every dispatched product');
+  }
+
+  for (const [productId, dispatchedQuantity] of expectedByProduct) {
+    if (deliveredByProduct.get(productId) !== dispatchedQuantity) {
+      throw new ApiError(
+        400,
+        `Full delivery quantity must equal dispatched quantity for product ${productId}`,
+      );
+    }
+  }
 }
 
 async function enqueuePostShipmentDeliveryJobs(orderId, userId, extras = {}) {
@@ -168,19 +209,11 @@ async function processPostShipmentDeliveryJob(payload = {}) {
     user,
   );
 
-  if (payload.deliveryType === 'partial' || payload.hasReturns) {
-    await fulfillmentService.syncOrderLineReturnedQuantitiesFromReturns(orderId);
-    // Also sync dispatch item returned_quantity — accumulates ALL OrderReturn records
-    // so previous returns are not overwritten, only the running total is updated
-    await fulfillmentService.syncDispatchDeliveredQuantities(orderId);
-  }
-
   const orderState = await transportService.recalculateOrderShipmentState(orderId, user);
   if (!orderState) return { orderId, skipped: true };
 
-  const workflowAction = payload.deliveryType === 'partial'
-    ? 'partial_delivery'
-    : transportService.workflowActionForShipmentStatus(payload.transportStatus || 'delivered');
+  const workflowAction =
+    transportService.workflowActionForShipmentStatus(payload.transportStatus || 'delivered');
 
   await getModels().OrderWorkflow.create({
     order: orderId,
@@ -196,7 +229,6 @@ async function processPostShipmentDeliveryJob(payload = {}) {
     metadata: {
       transport_shipment_id: String(payload.transportId),
       delivery_id: payload.deliveryId ? String(payload.deliveryId) : undefined,
-      return_id: payload.returnId ? String(payload.returnId) : undefined,
       delivery_type: payload.deliveryType,
       event: 'shipment_delivery_logged',
     },
@@ -211,70 +243,36 @@ async function processPostShipmentDeliveryJob(payload = {}) {
 }
 
 async function logShipmentDelivery(body, user) {
-  const { deliveryType, deliveredLines, returnedLines } = validateShipmentDeliveryPayload(body);
-  const transportStatus = deliveredLines.length > 0 ? 'delivered' : 'returned';
+  const { deliveryType, deliveredLines } = validateShipmentDeliveryPayload(body);
+  await assertFullDeliveryMatchesDispatch(body, deliveredLines);
+  const transportStatus = 'delivered';
 
-  let deliveryDoc = null;
-  if (deliveredLines.length > 0) {
-    deliveryDoc = await createDeliveryRecord({
-      order: body.order,
-      dispatch: body.dispatch,
-      transport: body.transport,
-      delivery_status: 'delivered',
-      delivery_items: deliveredLines,
-      received_by: body.received_by || '',
-      remarks: body.remarks || '',
-      actual_delivery_date: body.actual_delivery_date || new Date().toISOString(),
-      delivered_at: body.delivered_at || new Date().toISOString(),
-    }, user, { skipRecalculate: true });
-  }
-
-  let returnDoc = null;
-  if (returnedLines.length > 0) {
-    returnDoc = await orderReturnService.create({
-      order: body.order,
-      dispatch: body.dispatch,
-      transport: body.transport,
-      delivery: deliveryDoc?._id,
-      return_status: 'pending',
-      return_items: returnedLines.map((item) => ({
-        product: item.product,
-        returned_quantity: Number(item.returned_quantity),
-        return_reason: item.return_reason || item.remarks || 'Customer rejection / Partial delivery',
-        remarks: item.remarks || '',
-        expiry_type: item.expiry_type || 'other',
-        expiry_date: item.expiry_date || undefined,
-      })),
-      remarks: body.return_remarks || body.remarks || 'Returns from partial delivery',
-    }, user, {
-      // Skip post_order_return job — post_shipment_delivery handles order status
-      // + workflow for this flow, avoiding race conditions and duplicate entries.
-      skipPostJob: true,
-    });
-  }
+  const deliveryDoc = await createDeliveryRecord({
+    order: body.order,
+    dispatch: body.dispatch,
+    transport: body.transport,
+    delivery_status: 'delivered',
+    delivery_items: deliveredLines,
+    received_by: body.received_by || '',
+    remarks: body.remarks || '',
+    actual_delivery_date: body.actual_delivery_date || new Date().toISOString(),
+    delivered_at: body.delivered_at || new Date().toISOString(),
+  }, user, { skipRecalculate: true });
 
   await enqueuePostShipmentDeliveryJobs(body.order, user._id, {
     transportId: String(body.transport),
     deliveryType,
     transportStatus,
     statusRemarks: body.status_remarks || '',
-    hasReturns: returnedLines.length > 0,
-    deliveryId: deliveryDoc ? String(deliveryDoc._id) : undefined,
-    returnId: returnDoc?._id ? String(returnDoc._id) : undefined,
+    deliveryId: String(deliveryDoc._id),
   });
 
   return {
-    delivery: deliveryDoc ? toPlain(deliveryDoc.toObject()) : null,
-    order_return: returnDoc || null,
+    delivery: toPlain(deliveryDoc.toObject()),
     queued: true,
     transport_status: transportStatus,
     delivery_type: deliveryType,
   };
-}
-
-async function create(body, user) {
-  const doc = await createDeliveryRecord(body, user);
-  return toPlain(doc.toObject());
 }
 
 async function patch(id, patchBody, user) {
@@ -285,7 +283,6 @@ async function patch(id, patchBody, user) {
   const patch = patchBody || {};
   for (const field of [
     'transport',
-    'delivery_status',
     'delivered_by',
     'received_by',
     'delivery_proof_url',
@@ -298,14 +295,6 @@ async function patch(id, patchBody, user) {
     if (patch[dateField] !== undefined) {
       doc[dateField] = patch[dateField] ? new Date(patch[dateField]) : undefined;
     }
-  }
-
-  if (Array.isArray(patch.delivery_items)) {
-    doc.delivery_items = patch.delivery_items.map(item => ({
-      product: item.product,
-      delivered_quantity: item.delivered_quantity,
-      remarks: item.remarks || '',
-    }));
   }
 
   await doc.save();
@@ -359,7 +348,6 @@ async function restore(id, user) {
 module.exports = {
   list,
   get,
-  create,
   logShipmentDelivery,
   processPostShipmentDeliveryJob,
   patch,

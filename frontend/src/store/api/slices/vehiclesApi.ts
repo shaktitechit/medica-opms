@@ -61,7 +61,7 @@ export const vehiclesApi = medicaApi.injectEndpoints({
       query: (body) => ({ url: "vehicles", method: "POST", body }),
       transformResponse: (raw: ApiEnvelope<VehicleRecord>) =>
         unwrapEnvelope(raw) as VehicleRecord,
-      invalidatesTags: ["Vehicles"],
+      invalidatesTags: [{ type: "Vehicles", id: "LIST" }, "Vehicles"],
     }),
     patchVehicle: build.mutation<
       VehicleRecord,

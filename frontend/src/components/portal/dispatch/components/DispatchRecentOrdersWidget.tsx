@@ -81,41 +81,51 @@ function renderPriorityBadge(priority: string) {
 }
 
 function renderWorkflowStatusBadge(category: DispatchOrderTabCategory) {
-  let bgClass = "";
   const label = DISPATCH_ORDER_TAB_LABELS[category];
+  let bgClass =
+    "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
 
   switch (category) {
-    case "pending_approvals":
+    case "pending_admin_approval":
       bgClass =
-        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
+        "bg-indigo-50 text-indigo-700 ring-indigo-600/10 dark:bg-indigo-955/30 dark:text-indigo-400 dark:ring-indigo-500/25";
       break;
-    case "pending_transport":
+    case "due_sheet_pending":
       bgClass =
-        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
       break;
-    case "pending_delivery":
+    case "pending_finance_approval":
       bgClass =
-        "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-955/30 dark:text-purple-400 dark:ring-purple-500/25";
       break;
-    case "returns_pending":
+    case "pending_account_approval":
       bgClass =
-        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-955/30 dark:text-violet-400 dark:ring-violet-500/25";
       break;
-    case "closed":
+    case "transport_return_pending":
       bgClass =
-        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "open_dispatched":
+      bgClass =
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-955/30 dark:text-teal-400 dark:ring-teal-500/25";
+      break;
+    case "closed_delivered":
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
       break;
     case "on_hold":
       bgClass =
-        "bg-orange-50 text-orange-700 ring-orange-600/10 dark:bg-orange-950/30 dark:text-orange-400 dark:ring-orange-500/25";
+        "bg-orange-50 text-orange-700 ring-orange-600/10 dark:bg-orange-955/30 dark:text-orange-400 dark:ring-orange-500/25";
       break;
     case "cancelled":
       bgClass =
-        "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-slate-950/30 dark:text-slate-400 dark:ring-slate-500/25";
+        "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-slate-955/30 dark:text-slate-400 dark:ring-slate-500/25";
       break;
-    default:
+    case "rejected":
       bgClass =
-        "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-955/30 dark:text-red-400 dark:ring-red-500/25";
+      break;
   }
 
   return (
@@ -352,7 +362,9 @@ export default function DispatchRecentOrdersWidget({
                         {ref.slice(0, 12)}
                       </span>
                       {renderPriorityBadge(pri)}
-                      {renderWorkflowStatusBadge(statusCategory)}
+                      {statusCategory
+                        ? renderWorkflowStatusBadge(statusCategory)
+                        : null}
                     </div>
 
                     {/* Party Title */}

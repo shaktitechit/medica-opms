@@ -275,6 +275,19 @@ async function transitionOrderStatus(params) {
 
 async function processWorkflowJob({ type, payload = {} }) {
   switch (type) {
+    case 'submit_transition': {
+      const orderId = payload.orderId;
+      if (!orderId) throw new Error('submit_transition requires orderId');
+      await transitionOrderStatus({
+        orderId,
+        nextStatus: ORDER_STATUS.SUBMITTED,
+        userId: payload.userId,
+        remarks: payload.remarks,
+        ip_address: payload.ip_address,
+        user_agent: payload.user_agent,
+      });
+      return { orderId };
+    }
     case WORKFLOW_JOB_TYPES.RECOMPUTE_FLAG_AGGREGATES: {
       const orderId = payload.orderId;
       if (!orderId) throw new Error('recompute_flag_aggregates requires orderId');

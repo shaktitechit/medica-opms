@@ -16,7 +16,6 @@ router.post('/log-shipment', requireDepartment('dispatch','account'), controller
 router.delete('/:id', requireDepartment('dispatch','account'), requireSoftDeletePermission, controller.softDelete);
 router.post('/:id/restore', requireDepartment('dispatch'), requireSoftDeletePermission, controller.restore);
 router.get('/:id', requireDepartment('sales', 'finance', 'dispatch','account'), controller.get);
-router.post('/', requireDepartment('dispatch','account'), controller.create);
 router.patch('/:id', requireDepartment('dispatch','account'), controller.patch);
 
 module.exports = router;

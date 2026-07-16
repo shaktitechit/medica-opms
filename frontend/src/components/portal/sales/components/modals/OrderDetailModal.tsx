@@ -15,6 +15,10 @@ import {
   usePatchOrderMutation,
   useTransitionOrderMutation,
 } from "@/store/api";
+import {
+  OrderFulfillmentPipelineStrip,
+  buildListOrderFulfillmentPipeline,
+} from "@/components/portal/shared/FulfillmentCircleStep";
 
 export type OrderDetailModalProps = {
   orderId: string | null;
@@ -222,7 +226,16 @@ export function OrderDetailModal({
 
   const readOnlyItems = useMemo(() => {
     if (!detail || !Array.isArray(detail.order_items)) return [];
-    return detail.order_items as Record<string, unknown>[];
+    return (detail.order_items as Record<string, any>[]).map((item) => {
+      const prod = item.product && typeof item.product === "object" ? item.product : {};
+      return {
+        product_name: prod.product_name ?? item.product_name ?? "—",
+        sku: prod.sku ?? item.sku ?? "",
+        quantity: item.ordered_quantity ?? item.quantity ?? 0,
+        applied_rate_type: item.applied_rate_type ?? "SR",
+        _id: item._id,
+      };
+    });
   }, [detail]);
 
   useEffect(() => {
@@ -470,7 +483,7 @@ export function OrderDetailModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="order-detail-title"
-        className="flex max-h-[min(90dvh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900"
+        className="flex max-h-[min(90dvh,720px)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200/90 px-5 py-4 dark:border-white/10">
@@ -547,6 +560,15 @@ export function OrderDetailModal({
             </button>
           </div>
         </div>
+
+        {detail && !editing && (
+          <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-3 dark:border-white/5 dark:bg-slate-950/20">
+            <OrderFulfillmentPipelineStrip
+              steps={buildListOrderFulfillmentPipeline(detail)}
+              size="sm"
+            />
+          </div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {isFetching && (

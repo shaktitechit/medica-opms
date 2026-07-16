@@ -35,6 +35,7 @@ type ApprovalRecordCardProps = {
   onSendToFinance?: (approvalId: string) => void;
   onSendToAccount?: (approvalId: string) => void;
   onAmend?: (approvalId: string) => void;
+  onApprove?: () => void;
   amendBusy?: boolean;
   amendingApprovalId?: string | null;
   sendToFinanceBusy?: boolean;
@@ -111,6 +112,7 @@ export function ApprovalRecordCard({
   onSendToFinance,
   onSendToAccount,
   onAmend,
+  onApprove,
   amendBusy = false,
   amendingApprovalId = null,
   sendToFinanceBusy = false,
@@ -186,6 +188,12 @@ export function ApprovalRecordCard({
   );
   const accountApprovedAtLabel = formatDate(approval.account_approved_at);
 
+  const salesSubmittedByLabel = resolveUserDisplay(
+    approval.sales_submitted_by,
+    userNameById,
+  );
+  const salesSubmittedAtLabel = formatDate(approval.sales_submitted_at);
+
   const isFinancePortal = portal === "finance";
   const isAccountPortal = portal === "account";
   const accountAssigneeLabel = resolveUserDisplay(
@@ -214,14 +222,12 @@ export function ApprovalRecordCard({
   const isAdminApproved = Boolean(approval.is_admin_approved);
   const isFinanceApproved = Boolean(approval.is_finance_approved);
   const canFinanceApprove =
-    isFinancePortal && isAdminApproved && !isFinanceApproved && !isAmendBlocked;
+    isFinancePortal && !isFinanceApproved && !isAmendBlocked;
   const canFinanceAmend =
     isFinancePortal && isFinanceApproved && !isAmendBlocked;
   const isAccountApproved = Boolean(approval.is_account_approved);
   const canAccountApprove =
     isAccountPortal &&
-    isAdminApproved &&
-    isFinanceApproved &&
     !isAccountApproved &&
     !isAmendBlocked;
   const canAccountAmend =
@@ -232,7 +238,8 @@ export function ApprovalRecordCard({
       ? false
       : approvalStatus === "approved" ||
         approvalStatus === "sent_to_finance" ||
-        Boolean(approval.is_admin_approved);
+        Boolean(approval.is_admin_approved) ||
+        Boolean(approval.is_sales_submited);
   const isAmendingThis = amendBusy && amendingApprovalId === approvalId;
 
   const pdfLines = useMemo((): OrderItemsPdfLine[] => {
@@ -396,8 +403,10 @@ export function ApprovalRecordCard({
         approvalStatus === "sent_to_finance" ||
         approvalStatus === "fully_approved" ||
         approvalStatus === "partially_approved" ||
+        approvalStatus === "pending_review" ||
         Boolean(approval.is_admin_approved) ||
-        Boolean(approval.is_finance_approved)) && (
+        Boolean(approval.is_finance_approved) ||
+        Boolean(approval.is_sales_submited)) && (
         <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -453,6 +462,12 @@ export function ApprovalRecordCard({
               )}
             </div>
             <div className="mt-2 space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+              {(Boolean(approval.is_sales_submited) || Boolean(approval.sales_submitted_by)) && (
+                <p>
+                  <b>Sales:</b> Submitted by <span className="font-medium text-slate-700 dark:text-slate-200">{salesSubmittedByLabel}</span>
+                  {salesSubmittedAtLabel && salesSubmittedAtLabel !== "—" ? <span className="tabular-nums"> at {salesSubmittedAtLabel}</span> : null}
+                </p>
+              )}
               <p>
                 <b>Admin:</b>{" "}
                 {approval.is_admin_approved ? (
@@ -540,6 +555,16 @@ export function ApprovalRecordCard({
               <Download className="h-3.5 w-3.5" />
               {isDownloadingPdf ? "Generating PDF…" : "Download PDF"}
             </button>
+            {onApprove && !approval.is_admin_approved && (
+              <button
+                type="button"
+                onClick={onApprove}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400 cursor-pointer"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Approve Order
+              </button>
+            )}
             {canFinanceApprove && onAmend ? (
               <button
                 type="button"
@@ -737,7 +762,6 @@ export function ApprovalRecordCard({
                   <th className="px-3 py-2 font-medium text-right">Discount</th>
                   <th className="px-3 py-2 font-medium text-right">GST</th>
                   <th className="px-3 py-2 font-medium text-right">Net Total</th>
-                  <th className="px-3 py-2 font-medium">Line Status</th>
                   <th className="px-3 py-2 font-medium">Remarks</th>
                 </tr>
               </thead>
@@ -821,35 +845,6 @@ export function ApprovalRecordCard({
                       </td>
                       <td className="px-3 py-2 text-right font-bold tabular-nums text-slate-900 dark:text-slate-100 bg-slate-50/20 dark:bg-slate-950/20">
                         {lineTotal.toFixed(2)}
-                      </td>
-                      <td
-                        className={`px-3 py-2 font-medium ${lineApprovalBadgeClass(
-                          (() => {
-                            const approvedQty = Number(it.approved_quantity ?? 0);
-                            const orderedQty = Number(it.ordered_quantity ?? 0);
-                            if (approvalStatus === "rejected" || approvedQty <= 0) {
-                              return "rejected";
-                            }
-                            if (approvedQty >= orderedQty) {
-                              return "fully_approved";
-                            }
-                            return "partially_approved";
-                          })()
-                        )}`}
-                      >
-                        {formatStatus(
-                          (() => {
-                            const approvedQty = Number(it.approved_quantity ?? 0);
-                            const orderedQty = Number(it.ordered_quantity ?? 0);
-                            if (approvalStatus === "rejected" || approvedQty <= 0) {
-                              return "rejected";
-                            }
-                            if (approvedQty >= orderedQty) {
-                              return "fully_approved";
-                            }
-                            return "partially_approved";
-                          })()
-                        )}
                       </td>
                       <td
                         className="max-w-[150px] truncate px-3 py-2 italic text-slate-500"

@@ -667,11 +667,11 @@ async function recomputeApprovedQuantitiesFromFinance(orderId) {
 
   const approvedByLine = {};
   const priceByLine = {};
-  for (const approval of approvals) {
-    for (const item of approval.approval_items || []) {
-      if (Number(item.approved_quantity || 0) <= 0) continue;
+  const latestApproval = approvals[0];
+  if (latestApproval) {
+    for (const item of latestApproval.approval_items || []) {
       const key = String(item.order_item_id);
-      approvedByLine[key] = (approvedByLine[key] || 0) + Number(item.approved_quantity || 0);
+      approvedByLine[key] = Number(item.approved_quantity || 0);
       if (item.approved_unit_price != null) {
         priceByLine[key] = Number(item.approved_unit_price);
       }

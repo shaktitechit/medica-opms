@@ -443,104 +443,22 @@ export function computeDepartmentStageBoxes(
         tone: "success",
       };
 
-  const salesApprovalStatus = deriveSalesApprovalStatus(order, totals);
+  const approvalPending = (order.approval_pending || {}) as Record<string, unknown>;
+  const adminPending = approvalPending.admin !== undefined ? Boolean(approvalPending.admin) : !order.is_admin_approved;
+  const financePending = approvalPending.finance !== undefined ? Boolean(approvalPending.finance) : !order.is_finance_approved;
+  const accountPending = approvalPending.account !== undefined ? Boolean(approvalPending.account) : !order.is_account_approved;
 
-  let financeStatus: OrderStatusDimension;
-  if (fas === "rejected") {
-    financeStatus = { key: "rejected", label: "Finance rejected", tone: "danger" };
-  } else if (fas === "full") {
-    financeStatus = {
-      key: "full",
-      label: "Fully finance approved",
-      detail: `${totals.approved} / ${totals.salesApproved} sales-approved qty`,
-      tone: "success",
-    };
-  } else if (fas === "partial" || totals.approved > 0) {
-    financeStatus = {
-      key: "partial",
-      label: "Partially finance approved",
-      detail: `${totals.pendingFinance} qty pending finance`,
-      tone: "warning",
-    };
-  } else if (totals.salesApproved > 0 && stage === "finance_review") {
-    financeStatus = { key: "review", label: "Finance review", tone: "info" };
-  } else if (totals.salesApproved > 0) {
-    financeStatus = {
-      key: "waiting",
-      label: "Awaiting finance",
-      detail: `${totals.salesApproved} qty ready`,
-      tone: "neutral",
-    };
-  } else if (currentIdx > stageIndex("finance_review")) {
-    financeStatus = { key: "done", label: "Finance complete", tone: "success" };
-  } else {
-    financeStatus = { key: "waiting", label: "Awaiting finance", tone: "neutral" };
-  }
+  const salesApprovalStatus: OrderStatusDimension = adminPending
+    ? { key: "pending", label: "Pending", tone: "warning" }
+    : { key: "approved", label: "Approved", tone: "success" };
 
-  let accountStatusDim: OrderStatusDimension;
-  const status = String(order.status || "");
-  const currentAction = String(order.current_action || "");
-  const accountDone =
-    aas === "full" ||
-    ["fully_account_approved", "partially_account_approved"].includes(status) ||
-    currentIdx > stageIndex("account_review") ||
-    ["dispatch_pending", "partial_dispatch_created", "full_dispatch_created", "delivered"].includes(
-      status,
-    ) ||
-    dispatchStatus === "completed" ||
-    dispatchStatus === "partial";
+  const financeStatus: OrderStatusDimension = financePending
+    ? { key: "pending", label: "Pending", tone: "warning" }
+    : { key: "approved", label: "Approved", tone: "success" };
 
-  if (aas === "rejected") {
-    accountStatusDim = { key: "rejected", label: "Account rejected", tone: "danger" };
-  } else if (aas === "full") {
-    accountStatusDim = {
-      key: "full",
-      label: "Fully account approved",
-      detail: `${totals.accountCleared} / ${totals.approved} finance-approved qty`,
-      tone: "success",
-    };
-  } else if (aas === "partial") {
-    accountStatusDim = {
-      key: "partial",
-      label: "Partially account approved",
-      detail: `${totals.pendingAccount} qty pending account`,
-      tone: "warning",
-    };
-  } else if (
-    stage === "account_review" ||
-    status === "account_review" ||
-    currentAction === "sent_to_account"
-  ) {
-    accountStatusDim = {
-      key: "review",
-      label: "Account review",
-      detail: `${totals.approved} qty awaiting account clearance`,
-      tone: "info",
-    };
-  } else if (
-    ["fully_finance_approved", "partially_finance_approved"].includes(status) &&
-    totals.approved > 0
-  ) {
-    accountStatusDim = {
-      key: "waiting",
-      label: "Awaiting send to account",
-      detail: `${totals.approved} finance-approved qty`,
-      tone: "neutral",
-    };
-  } else if (accountDone && totals.accountCleared > 0) {
-    accountStatusDim = {
-      key: "done",
-      label: "Account cleared",
-      detail: `${totals.accountCleared} qty cleared`,
-      tone: "success",
-    };
-  } else {
-    accountStatusDim = {
-      key: "waiting",
-      label: "Awaiting finance clearance",
-      tone: "neutral",
-    };
-  }
+  const accountStatusDim: OrderStatusDimension = accountPending
+    ? { key: "pending", label: "Pending", tone: "warning" }
+    : { key: "approved", label: "Approved", tone: "success" };
 
   const dispatchCap = totals.accountCleared > 0 ? totals.accountCleared : totals.approved;
 

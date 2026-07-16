@@ -365,7 +365,6 @@ export default function CreateOrderPage() {
   const products = useMemo(() => pickList(productsQ.data), [productsQ.data]);
 
   const [partyId, setPartyId] = useState("");
-  const [priority, setPriority] = useState("normal");
   const [expectedDate, setExpectedDate] = useState("");
   const headerDiscount = "0";
   const [remarks, setRemarks] = useState("");
@@ -536,14 +535,18 @@ export default function CreateOrderPage() {
         toast.error("Each line needs quantity ≥ 1.");
         return;
       }
+      if (!expectedDate.trim()) {
+        toast.error("Expected delivery date is required.");
+        return;
+      }
 
       const body = {
         party: partyId,
         order_items: prepared,
         discount_amount: Number(headerDiscount || 0),
-        priority,
+        priority: "normal",
         remarks: remarks.trim() || "",
-        ...(expectedDate ? { expected_delivery_date: expectedDate } : {}),
+        expected_delivery_date: expectedDate,
         assigned_sales_user: (user?._id || user?.id) ? String(user?._id || user?.id) : undefined,
       };
 
@@ -564,7 +567,6 @@ export default function CreateOrderPage() {
       createOrder,
       expectedDate,
       lines,
-      priority,
       remarks,
       router,
       user,
@@ -838,29 +840,13 @@ export default function CreateOrderPage() {
               </header>
 
               <div className="space-y-1">
-                <label htmlFor="co-priority" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Priority
-                </label>
-                <select
-                  id="co-priority"
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="low">Low</option>
-                  <option value="normal">Normal</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
                 <label htmlFor="co-eta" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Expected Delivery
+                  Expected Delivery <span className="text-rose-500">*</span>
                 </label>
                 <input
                   id="co-eta"
                   type="date"
+                  required
                   value={expectedDate}
                   onChange={(e) => setExpectedDate(e.target.value)}
                   className={inputClass}

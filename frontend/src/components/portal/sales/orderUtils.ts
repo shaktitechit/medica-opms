@@ -1,118 +1,126 @@
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import {
+  getOrderWorkflowTabCategory,
+  isDueSheetPending,
+  normalizeWorkflowTabFromUrl,
+  ORDER_WORKFLOW_TAB_LABELS,
+  orderMatchesWorkflowTab,
+  workflowTabQueryParams,
+  type OrderWorkflowTabCategory,
+  isOrderClosed,
+  resolveApprovalPending,
+  hasAnyPendingApproval,
+  pendingApprovalStageLabel,
+  type ApprovalPendingStage,
+  type ApprovalPendingSummary,
+} from "@/components/portal/shared/orderList/orderWorkflowTabs";
+import {
+  buildPendingReturnOrderIds,
+  isTransportOrReturnPending,
+  type AccountOrderCategoryOptions,
+} from "@/components/portal/account/accountOrderUtils";
 
 export type SalesOrderTabCategory =
   | "draft"
-  | "pending_approval"
-  | "open"
-  | "closed"
-  | "on_hold"
-  | "cancelled"
-  | "rejected";
+  | OrderWorkflowTabCategory
+  | "approval_pending"
+  | "transport_return_pending";
 
-export type ApprovalPendingStage = "admin" | "finance" | "account" | null;
+export type SalesOrderCategoryOptions = AccountOrderCategoryOptions;
 
-export type ApprovalPendingSummary = {
-  admin: boolean;
-  finance: boolean;
-  account: boolean;
-  stage: ApprovalPendingStage;
+export { buildPendingReturnOrderIds };
+
+function resolveRefId(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    return String(o._id ?? o.id ?? "");
+  }
+  return String(value);
+}
+
+/** Orders owned by / assigned to this sales user (matches sales dashboard scope). */
+export function filterOrdersForSalesUser(
+  orders: unknown[],
+  user: unknown,
+): unknown[] {
+  const userId = resolveRefId(
+    user && typeof user === "object"
+      ? (user as Record<string, unknown>)._id ??
+          (user as Record<string, unknown>).id
+      : user,
+  );
+  if (!userId) return [];
+
+  return orders.filter((order) => {
+    if (!order || typeof order !== "object") return false;
+    const row = order as Record<string, unknown>;
+    const assignedId = resolveRefId(row.assigned_sales_user);
+    const createdId = resolveRefId(row.created_by);
+    return assignedId === userId || createdId === userId;
+  });
+}
+
+export {
+  isOrderClosed,
+  resolveApprovalPending,
+  hasAnyPendingApproval,
+  pendingApprovalStageLabel,
+  isDueSheetPending,
 };
+export type { ApprovalPendingStage, ApprovalPendingSummary };
 
-/** Order is account/settlement closed (not merely delivered in transit). */
-export function isOrderClosed(order: unknown): boolean {
+/** Admin, due-sheet, finance, or account still outstanding. */
+export function isSalesApprovalPending(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
-  const row = order as Record<string, unknown>;
-  if (row.closed_at != null && row.closed_at !== "") return true;
-  return String(row.status || "").toLowerCase() === "closed";
-}
-
-export function resolveApprovalPending(order: unknown): ApprovalPendingSummary {
-  if (!order || typeof order !== "object") {
-    return { admin: false, finance: false, account: false, stage: null };
-  }
-
-  const row = order as Record<string, unknown>;
-  const fromApi = row.approval_pending;
-  if (fromApi && typeof fromApi === "object") {
-    const pending = fromApi as Record<string, unknown>;
-    const stage = pending.stage;
-    const normalizedStage: ApprovalPendingStage =
-      stage === "admin" || stage === "finance" || stage === "account" ? stage : null;
-    return {
-      admin: Boolean(pending.admin),
-      finance: Boolean(pending.finance),
-      account: Boolean(pending.account),
-      stage: normalizedStage,
-    };
-  }
-
-  const status = deriveOrderWorkflowStatus(row);
-  const adminStatus = String(row.admin_approval_status || "pending");
-  const financeStatus = String(row.finance_approval_status || "pending");
-  const accountStatus = String(row.account_approval_status || "pending");
-
-  const admin =
-    status === "submitted" || adminStatus === "pending" || adminStatus === "partial";
-  const finance =
-    !admin
-    && (status === "finance_review"
-      || status === "sales_approved"
-      || financeStatus === "pending"
-      || financeStatus === "partial");
-  const account =
-    !admin
-    && !finance
-    && (status === "account_review"
-      || accountStatus === "pending"
-      || accountStatus === "partial");
-
-  let stage: ApprovalPendingStage = null;
-  if (admin) stage = "admin";
-  else if (finance) stage = "finance";
-  else if (account) stage = "account";
-
-  return { admin, finance, account, stage };
-}
-
-export function hasAnyPendingApproval(order: unknown): boolean {
-  const pending = resolveApprovalPending(order);
-  return pending.admin || pending.finance || pending.account;
-}
-
-export function pendingApprovalStageLabel(stage: ApprovalPendingStage): string {
-  switch (stage) {
-    case "admin":
-      return "Admin";
-    case "finance":
-      return "Finance";
-    case "account":
-      return "Account";
-    default:
-      return "Approval";
-  }
+  const workflowCat = getOrderWorkflowTabCategory(order);
+  return (
+    workflowCat === "pending_admin_approval" ||
+    workflowCat === "due_sheet_pending" ||
+    workflowCat === "pending_finance_approval" ||
+    workflowCat === "pending_account_approval"
+  );
 }
 
 /**
- * Sales list tab bucket:
- * - draft — not yet submitted
- * - pending_approval — awaiting admin, finance, or account clearance
- * - open — submitted and still active (not closed / on hold / rejected / cancelled / pending approval)
- * - closed — status closed or closed_at set
- * - on_hold / rejected / cancelled — terminal workflow states
+ * Sales list tab bucket — draft, combined approval pending,
+ * open/dispatch, transport/return, and terminal states.
+ *
+ * Transport/return (dispatch pipeline + pending returns) wins over open/dispatch
+ * so the two buckets stay mutually exclusive — same as admin/dispatch portals.
  */
-export function getOrderTabCategory(order: unknown): SalesOrderTabCategory {
-  if (!order || typeof order !== "object") return "open";
+export function getOrderTabCategory(
+  order: unknown,
+  options?: SalesOrderCategoryOptions,
+): SalesOrderTabCategory {
+  if (!order || typeof order !== "object") return "open_dispatched";
   const row = order as Record<string, unknown>;
   const status = deriveOrderWorkflowStatus(row);
 
   if (status === "draft") return "draft";
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-  if (status === "finance_rejected") return "rejected";
-  if (isOrderClosed(row)) return "closed";
-  if (hasAnyPendingApproval(row)) return "pending_approval";
 
-  return "open";
+  const workflowCat = getOrderWorkflowTabCategory(order);
+
+  // Terminal buckets before transport so on-hold/cancelled/rejected stay put.
+  if (workflowCat === "on_hold") return "on_hold";
+  if (workflowCat === "cancelled") return "cancelled";
+  if (workflowCat === "rejected") return "rejected";
+
+  if (isTransportOrReturnPending(order, options)) return "transport_return_pending";
+
+  if (!workflowCat) return "open_dispatched";
+
+  if (
+    workflowCat === "pending_admin_approval" ||
+    workflowCat === "due_sheet_pending" ||
+    workflowCat === "pending_finance_approval" ||
+    workflowCat === "pending_account_approval"
+  ) {
+    return "approval_pending";
+  }
+
+  // open_dispatched / closed_delivered
+  return workflowCat;
 }
 
 export const SALES_ORDER_TABS: ReadonlyArray<{
@@ -120,13 +128,98 @@ export const SALES_ORDER_TABS: ReadonlyArray<{
   label: string;
 }> = [
   { id: "draft", label: "Draft" },
-  { id: "pending_approval", label: "Pending Approval" },
-  { id: "open", label: "Open" },
-  { id: "closed", label: "Closed" },
+  { id: "all", label: "All Orders" },
+  { id: "approval_pending", label: "Approval Pending" },
+  { id: "open_dispatched", label: "Open/Dispatch Pending" },
+  { id: "transport_return_pending", label: "Transport/Return Pending" },
+  { id: "closed_delivered", label: "Closed/Delivered" },
   { id: "on_hold", label: "On Hold" },
-  { id: "rejected", label: "Rejected" },
   { id: "cancelled", label: "Cancelled" },
+  { id: "rejected", label: "Rejected" },
 ];
+
+export const SALES_ORDER_TAB_LABELS: Record<SalesOrderTabCategory, string> = {
+  draft: "Draft",
+  ...ORDER_WORKFLOW_TAB_LABELS,
+  approval_pending: "Approval Pending",
+  transport_return_pending: "Transport/Return Pending",
+};
+
+export function orderMatchesSalesTab(
+  order: unknown,
+  tab: SalesOrderTabCategory,
+  options?: SalesOrderCategoryOptions,
+): boolean {
+  if (!order || typeof order !== "object") return false;
+
+  if (tab === "draft") {
+    return deriveOrderWorkflowStatus(order as Record<string, unknown>) === "draft";
+  }
+  if (tab === "all") return true;
+
+  if (tab === "approval_pending") {
+    return isSalesApprovalPending(order);
+  }
+
+  if (tab === "transport_return_pending") {
+    return getOrderTabCategory(order, options) === "transport_return_pending";
+  }
+
+  if (tab === "open_dispatched") {
+    return getOrderTabCategory(order, options) === "open_dispatched";
+  }
+
+  return orderMatchesWorkflowTab(order, tab);
+}
+
+export function salesTabQueryParams(
+  tab: SalesOrderTabCategory,
+): Record<string, string | undefined> {
+  if (tab === "draft") return { status: "draft" };
+  if (tab === "all") return {};
+  if (tab === "approval_pending") {
+    return { exclude_status: "draft,on_hold,cancelled,finance_rejected" };
+  }
+  if (tab === "transport_return_pending") {
+    return { exclude_status: "draft,on_hold,cancelled,finance_rejected" };
+  }
+  return workflowTabQueryParams(tab);
+}
+
+export function normalizeSalesTabFromUrl(
+  value: string | null,
+  defaultTab: SalesOrderTabCategory = "all",
+): SalesOrderTabCategory {
+  if (!value) return defaultTab;
+  if (value === "draft") return "draft";
+  if (
+    value === "pending_approval" ||
+    value === "pending_approvals" ||
+    value === "pending_admin_approval" ||
+    value === "due_sheet_pending" ||
+    value === "pending_finance_approval" ||
+    value === "pending_account_approval"
+  ) {
+    return "approval_pending";
+  }
+  if (
+    value === "transport_pending" ||
+    value === "returns_pending" ||
+    value === "pending_transport" ||
+    value === "pending_delivery"
+  ) {
+    return "transport_return_pending";
+  }
+  if (isSalesOrderTabCategory(value)) return value;
+  const workflowDefault: OrderWorkflowTabCategory =
+    defaultTab === "draft" ||
+    defaultTab === "approval_pending" ||
+    defaultTab === "transport_return_pending"
+      ? "all"
+      : defaultTab;
+  const normalized = normalizeWorkflowTabFromUrl(value, workflowDefault);
+  return isSalesOrderTabCategory(normalized) ? normalized : defaultTab;
+}
 
 export type SalesOrderStats = Record<
   SalesOrderTabCategory,
@@ -135,16 +228,21 @@ export type SalesOrderStats = Record<
 
 export function createEmptySalesOrderStats(): SalesOrderStats {
   return Object.fromEntries(
-    SALES_ORDER_TABS.map(({ id }) => [id, { count: 0, quantity: 0 }]),
+    Object.keys(SALES_ORDER_TAB_LABELS).map((id) => [id, { count: 0, quantity: 0 }]),
   ) as SalesOrderStats;
 }
 
 /** Aggregate order counts and line quantities by sales tab bucket. */
-export function computeSalesOrderStats(orders: unknown[]): SalesOrderStats {
+export function computeSalesOrderStats(
+  orders: unknown[],
+  options?: SalesOrderCategoryOptions,
+): SalesOrderStats {
   const stats = createEmptySalesOrderStats();
 
   for (const order of orders) {
-    const cat = getOrderTabCategory(order);
+    if (!order || typeof order !== "object") continue;
+
+    const cat = getOrderTabCategory(order, options);
     const row = order as { order_items?: unknown[] };
     const items = Array.isArray(row.order_items) ? row.order_items : [];
     let orderQty = 0;
@@ -152,6 +250,11 @@ export function computeSalesOrderStats(orders: unknown[]): SalesOrderStats {
       const line = item as { ordered_quantity?: unknown; quantity?: unknown };
       orderQty += Number(line.ordered_quantity ?? line.quantity ?? 0);
     }
+
+    // "All Orders" is the full sales portfolio (including drafts).
+    stats.all.count += 1;
+    stats.all.quantity += orderQty;
+
     stats[cat].count += 1;
     stats[cat].quantity += orderQty;
   }
@@ -162,3 +265,89 @@ export function computeSalesOrderStats(orders: unknown[]): SalesOrderStats {
 export function isSalesOrderTabCategory(value: string): value is SalesOrderTabCategory {
   return SALES_ORDER_TABS.some((tab) => tab.id === value);
 }
+
+export const SALES_CHART_TABS = SALES_ORDER_TABS.filter((tab) => tab.id !== "all");
+
+export const SALES_STATUS_COLORS: Record<
+  SalesOrderTabCategory,
+  { fill: string; hover: string; dot: string; label: string }
+> = {
+  draft: {
+    fill: "fill-slate-400/85 dark:fill-slate-500/60",
+    hover: "fill-slate-500 dark:fill-slate-400",
+    dot: "bg-slate-400 dark:bg-slate-500",
+    label: "Draft",
+  },
+  all: {
+    fill: "fill-slate-500/85 dark:fill-slate-500/60",
+    hover: "fill-slate-600 dark:fill-slate-400",
+    dot: "bg-slate-500 dark:bg-slate-400",
+    label: "All Orders",
+  },
+  approval_pending: {
+    fill: "fill-indigo-500/85 dark:fill-indigo-500/60",
+    hover: "fill-indigo-600 dark:fill-indigo-400",
+    dot: "bg-indigo-500 dark:bg-indigo-400",
+    label: "Approval Pending",
+  },
+  pending_admin_approval: {
+    fill: "fill-indigo-500/85 dark:fill-indigo-500/60",
+    hover: "fill-indigo-600 dark:fill-indigo-400",
+    dot: "bg-indigo-500 dark:bg-indigo-400",
+    label: "Admin Pending",
+  },
+  due_sheet_pending: {
+    fill: "fill-orange-500/85 dark:fill-orange-500/60",
+    hover: "fill-orange-600 dark:fill-orange-400",
+    dot: "bg-orange-500 dark:bg-orange-400",
+    label: "Due Sheet Pending",
+  },
+  pending_finance_approval: {
+    fill: "fill-purple-500/85 dark:fill-purple-500/60",
+    hover: "fill-purple-600 dark:fill-purple-400",
+    dot: "bg-purple-500 dark:bg-purple-400",
+    label: "Finance Pending",
+  },
+  pending_account_approval: {
+    fill: "fill-violet-500/85 dark:fill-violet-500/60",
+    hover: "fill-violet-600 dark:fill-violet-400",
+    dot: "bg-violet-500 dark:bg-violet-400",
+    label: "Account Pending",
+  },
+  open_dispatched: {
+    fill: "fill-teal-500/85 dark:fill-teal-500/60",
+    hover: "fill-teal-600 dark:fill-teal-400",
+    dot: "bg-teal-500 dark:bg-teal-400",
+    label: "Open/Dispatch Pending",
+  },
+  transport_return_pending: {
+    fill: "fill-amber-500/85 dark:fill-amber-500/60",
+    hover: "fill-amber-600 dark:fill-amber-400",
+    dot: "bg-amber-500 dark:bg-amber-400",
+    label: "Transport/Return Pending",
+  },
+  closed_delivered: {
+    fill: "fill-emerald-500/85 dark:fill-emerald-550/60",
+    hover: "fill-emerald-600 dark:fill-emerald-400",
+    dot: "bg-emerald-500 dark:bg-emerald-450",
+    label: "Closed/Delivered",
+  },
+  on_hold: {
+    fill: "fill-amber-500/85 dark:fill-amber-500/60",
+    hover: "fill-amber-600 dark:fill-amber-400",
+    dot: "bg-amber-500 dark:bg-amber-450",
+    label: "On Hold",
+  },
+  rejected: {
+    fill: "fill-red-500/85 dark:fill-red-550/60",
+    hover: "fill-red-600 dark:fill-red-400",
+    dot: "bg-red-500 dark:bg-red-450",
+    label: "Rejected",
+  },
+  cancelled: {
+    fill: "fill-rose-500/85 dark:fill-rose-500/60",
+    hover: "fill-rose-600 dark:fill-rose-450",
+    dot: "bg-rose-500 dark:bg-rose-400",
+    label: "Cancelled",
+  },
+};

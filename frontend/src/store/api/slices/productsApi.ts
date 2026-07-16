@@ -1,13 +1,45 @@
 import { medicaApi } from "../baseApi";
 import { unwrapEnvelope, type ApiEnvelope } from "../unwrap";
 
+/** Common write fields for create/patch/bulk product payloads. */
+export type ProductWriteBody = {
+  product_name?: string;
+  generic_name?: string | null;
+  aliases?: string[];
+  sku?: string | null;
+  product_group?: string | null;
+  product_subgroup?: string | null;
+  brand?: string | null;
+  manufacturer?: string | null;
+  unit?: string;
+  base_price?: number;
+  minimum_sale_rate?: number;
+  mrp?: number | null;
+  gst_percent?: number;
+  warranty_months?: number;
+  description?: string;
+  tags?: string[];
+  is_active?: boolean;
+  is_featured?: boolean;
+  [key: string]: unknown;
+};
+
+export type ProductListParams = {
+  search?: string;
+  group?: string;
+  status?: string;
+  /** Filter featured products: `"true"` | `"false"` | `"all"` */
+  is_featured?: string;
+  paginate?: string;
+  page?: string;
+  limit?: string;
+  [key: string]: string | undefined;
+};
+
 /** `/api/products` — manage catalog + trash. */
 export const productsApi = medicaApi.injectEndpoints({
   endpoints: (build) => ({
-    listProducts: build.query<
-      unknown,
-      Record<string, string | undefined> | void
-    >({
+    listProducts: build.query<unknown, ProductListParams | void>({
       query: (params) => ({
         url: "products",
         params: params ?? {},
@@ -17,7 +49,7 @@ export const productsApi = medicaApi.injectEndpoints({
     }),
     listProductsDeleted: build.query<
       unknown,
-      Record<string, string | undefined> | void
+      ProductListParams | void
     >({
       query: (params) => ({
         url: "products/deleted",
@@ -31,14 +63,14 @@ export const productsApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       providesTags: (_r, _e, id) => [{ type: "Products", id }],
     }),
-    createProduct: build.mutation<unknown, Record<string, unknown>>({
+    createProduct: build.mutation<unknown, ProductWriteBody>({
       query: (body) => ({ url: "products", method: "POST", body }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       invalidatesTags: ["Products"],
     }),
     patchProduct: build.mutation<
       unknown,
-      { id: string; patch: Record<string, unknown> }
+      { id: string; patch: ProductWriteBody }
     >({
       query: ({ id, patch }) => ({
         url: `products/${id}`,
@@ -71,7 +103,7 @@ export const productsApi = medicaApi.injectEndpoints({
         { type: "Products", id: "DELETED" },
       ],
     }),
-    bulkCreateProduct: build.mutation<unknown, Array<Record<string, unknown>>>({
+    bulkCreateProduct: build.mutation<unknown, ProductWriteBody[]>({
       query: (body) => ({
         url: "products/bulk",
         method: "POST",

@@ -27,6 +27,7 @@ const PATCHABLE_KEYS = Object.freeze([
   'payment_terms',
   'legacy_customer',
   'is_active',
+  'is_featured',
   'sra',
   'sra_from_date',
   'sra_to_date',
@@ -88,6 +89,10 @@ function sanitizePatch(patch) {
         out[k] = parseDateOrNull(v);
         continue;
       }
+      if (k === 'is_active' || k === 'is_featured' || k === 'sra') {
+        out[k] = Boolean(v);
+        continue;
+      }
       out[k] = v;
     }
   }
@@ -131,6 +136,15 @@ async function list(query = {}) {
       mongoFilter.is_active = { $ne: false };
     } else if (status === 'inactive') {
       mongoFilter.is_active = false;
+    }
+  }
+
+  if (query.is_featured != null && query.is_featured !== '' && query.is_featured !== 'all') {
+    const featuredRaw = String(query.is_featured).toLowerCase();
+    if (featuredRaw === 'true' || featuredRaw === '1') {
+      mongoFilter.is_featured = true;
+    } else if (featuredRaw === 'false' || featuredRaw === '0') {
+      mongoFilter.is_featured = { $ne: true };
     }
   }
 
@@ -198,6 +212,7 @@ async function create(body, user) {
     payment_terms: body.payment_terms != null ? String(body.payment_terms).trim() : '',
     legacy_customer: body.legacy_customer || undefined,
     is_active: body.is_active !== false,
+    is_featured: body.is_featured === true,
     sra: Boolean(body.sra),
     sra_from_date: parseDateOrNull(body.sra_from_date),
     sra_to_date: parseDateOrNull(body.sra_to_date),
@@ -316,6 +331,7 @@ async function bulkCreate(items, user) {
       payment_terms: item.payment_terms != null ? String(item.payment_terms).trim() : '',
       legacy_customer: item.legacy_customer || undefined,
       is_active: item.is_active !== false,
+      is_featured: item.is_featured === true,
       sra: Boolean(item.sra),
       sra_from_date: parseDateOrNull(item.sra_from_date),
       sra_to_date: parseDateOrNull(item.sra_to_date),
@@ -405,6 +421,10 @@ async function syncFromGoogleSheet(row) {
   const typeRaw = row.party_type ? String(row.party_type).trim().toLowerCase() : undefined;
   const activeRaw = row.is_active ?? row.active;
   const isActive = activeRaw !== undefined ? (String(activeRaw).toLowerCase() === 'true' || activeRaw === true || activeRaw === '1' || activeRaw === 1) : undefined;
+  const featuredRaw = row.is_featured ?? row.featured;
+  const isFeatured = featuredRaw !== undefined
+    ? (String(featuredRaw).toLowerCase() === 'true' || featuredRaw === true || featuredRaw === '1' || featuredRaw === 1)
+    : undefined;
   const sraRaw = row.sra;
   const isSra = sraRaw !== undefined ? (String(sraRaw).toLowerCase() === 'true' || sraRaw === true || sraRaw === '1' || sraRaw === 1) : undefined;
 
@@ -423,6 +443,7 @@ async function syncFromGoogleSheet(row) {
   if (row.payment_terms) payload.payment_terms = String(row.payment_terms).trim();
 
   if (isActive !== undefined) payload.is_active = isActive;
+  if (isFeatured !== undefined) payload.is_featured = isFeatured;
   if (isSra !== undefined) payload.sra = isSra;
   
   const sraFromDateRaw = row.sra_from_date || row.sra_start || row.sra_start_date;

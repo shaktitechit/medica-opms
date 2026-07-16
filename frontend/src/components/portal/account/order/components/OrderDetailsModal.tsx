@@ -26,7 +26,7 @@ export default function OrderDetailsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
-      <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col font-sans">
+      <div className="w-full max-w-4xl rounded-xl border border-slate-200 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col font-sans">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
             Order Details

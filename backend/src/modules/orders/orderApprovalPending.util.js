@@ -51,12 +51,10 @@ function buildApprovalPendingQuery(stage) {
     return q;
   }
   if (stage === PENDING_APPROVAL_STAGES.FINANCE) {
-    q.is_admin_approved = true;
     q.is_finance_approved = false;
     return q;
   }
   if (stage === PENDING_APPROVAL_STAGES.ACCOUNT) {
-    q.is_finance_approved = true;
     q.is_account_approved = false;
     return q;
   }
@@ -113,8 +111,8 @@ function resolveOrderApprovalPending(approvalDocs = [], order = {}) {
   const active = (approvalDocs || []).filter((doc) => !isApprovalRejected(doc));
 
   const adminPendingFromApprovals = active.some((doc) => !doc.is_admin_approved);
-  const financePending = active.some((doc) => doc.is_admin_approved && !doc.is_finance_approved);
-  const accountPending = active.some((doc) => doc.is_finance_approved && !doc.is_account_approved);
+  const financePending = active.some((doc) => !doc.is_finance_approved);
+  const accountPending = active.some((doc) => !doc.is_account_approved);
 
   const status = String(order.status || '');
   const adminApprovalStatus = String(order.admin_approval_status || APPROVAL_STATUS.PENDING);
@@ -123,7 +121,7 @@ function resolveOrderApprovalPending(approvalDocs = [], order = {}) {
     || adminApprovalStatus === APPROVAL_STATUS.PENDING
     || adminApprovalStatus === APPROVAL_STATUS.PARTIAL;
 
-  const adminPending = adminPendingFromApprovals || adminPendingFromOrder;
+  const adminPending = (adminPendingFromApprovals || adminPendingFromOrder) && status === ORDER_STATUS.SUBMITTED;
 
   let stage = null;
   if (adminPending) stage = PENDING_APPROVAL_STAGES.ADMIN;

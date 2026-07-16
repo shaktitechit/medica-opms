@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-
+import { OrderDetailModal } from "@/components/portal/sales/components/modals/OrderDetailModal";
 import {
   buildPartyNameById,
   buildPartySraById,
@@ -21,9 +21,7 @@ import {
   useListPartiesQuery,
   useListOrdersQuery,
   useListOrderReturnsQuery,
-  useListUsersQuery,
 } from "@/store/api";
-import { buildUserNameById } from "@/components/portal/shared/userDisplay";
 import { RefreshCw, LayoutDashboard } from "lucide-react";
 import {
   OrderFulfillmentPipelineStrip,
@@ -31,13 +29,16 @@ import {
 } from "@/components/portal/shared/FulfillmentCircleStep";
 import {
   DISPATCH_ORDER_TABS,
+  DISPATCH_ORDER_TAB_LABELS,
   buildPendingReturnOrderIds,
+  dispatchTabQueryParams,
   getDispatchOrderTabCategory,
-  isDispatchOrderTabCategory,
+  normalizeDispatchTabFromUrl,
   orderMatchesDispatchTab,
   pendingApprovalStageLabel,
   type DispatchOrderTabCategory,
 } from "../dispatchOrderUtils";
+import { ORDER_PRIORITY_TABS } from "@/components/portal/shared/orderList/orderWorkflowTabs";
 import { resolveApprovalPending } from "@/components/portal/sales/orderUtils";
 import { OrderFlagBadge } from "@/components/portal/shared/OrderFlagBadge";
 
@@ -129,48 +130,50 @@ function formatMoney(v: number): string {
 }
 
 function renderWorkflowStatusBadge(category: DispatchOrderTabCategory) {
-  let label = "";
-  let bgClass = "";
+  const label = DISPATCH_ORDER_TAB_LABELS[category];
+  let bgClass =
+    "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
   switch (category) {
-    case "pending_approvals":
-      label = "Pending Approvals";
+    case "pending_admin_approval":
       bgClass =
-        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
+        "bg-indigo-50 text-indigo-700 ring-indigo-600/10 dark:bg-indigo-955/30 dark:text-indigo-400 dark:ring-indigo-500/25";
       break;
-    case "pending_transport":
-      label = "Pending Transport";
+    case "due_sheet_pending":
       bgClass =
-        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
       break;
-    case "pending_delivery":
-      label = "Pending Delivery";
+    case "pending_finance_approval":
       bgClass =
-        "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-955/30 dark:text-purple-400 dark:ring-purple-500/25";
       break;
-    case "returns_pending":
-      label = "Pending Returns";
+    case "pending_account_approval":
       bgClass =
-        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-955/30 dark:text-violet-400 dark:ring-violet-500/25";
       break;
-    case "closed":
-      label = "Closed";
+    case "open_dispatched":
       bgClass =
-        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-955/30 dark:text-teal-400 dark:ring-teal-500/25";
+      break;
+    case "transport_return_pending":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "closed_delivered":
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
       break;
     case "on_hold":
-      label = "On Hold";
       bgClass =
-        "bg-orange-50 text-orange-700 ring-orange-600/10 dark:bg-orange-950/30 dark:text-orange-400 dark:ring-orange-500/25";
+        "bg-orange-50 text-orange-700 ring-orange-600/10 dark:bg-orange-955/30 dark:text-orange-400 dark:ring-orange-500/25";
       break;
     case "cancelled":
-      label = "Cancelled";
       bgClass =
-        "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-slate-950/30 dark:text-slate-400 dark:ring-slate-500/25";
+        "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-slate-955/30 dark:text-slate-400 dark:ring-slate-500/25";
       break;
-    default:
-      label = category;
+    case "rejected":
       bgClass =
-        "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-955/30 dark:text-red-400 dark:ring-red-500/25";
+      break;
   }
 
   return (
@@ -210,10 +213,13 @@ export default function ListDispatchOrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
+  const viewBy = searchParams.get("by") === "priority" ? "priority" : "workflow";
+  const defaultTab: DispatchOrderTabCategory =
+    viewBy === "priority" ? "all" : "transport_return_pending";
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<DispatchOrderTabCategory>(
-    tabFromUrl && isDispatchOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_transport",
+  const [activeTab, setActiveTab] = useState<DispatchOrderTabCategory>(() =>
+    tabFromUrl ? normalizeDispatchTabFromUrl(tabFromUrl) : defaultTab,
   );
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
@@ -221,19 +227,19 @@ export default function ListDispatchOrdersPage() {
   const [customDateTo, setCustomDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [viewOrderId, setViewOrderId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (tabFromUrl && isDispatchOrderTabCategory(tabFromUrl)) {
-      setActiveTab(tabFromUrl);
-      setCurrentPage(1);
-    }
-  }, [tabFromUrl]);
+    setActiveTab(tabFromUrl ? normalizeDispatchTabFromUrl(tabFromUrl) : defaultTab);
+    setPriorityFilter("all");
+    setCurrentPage(1);
+  }, [tabFromUrl, defaultTab]);
 
   const queryParams = useMemo(() => {
     const base: Record<string, string | undefined> = {};
 
-    if (!searchQuery.trim() && activeTab === "pending_approvals") {
-      base.status = "pending_approval";
+    if (!searchQuery.trim()) {
+      Object.assign(base, dispatchTabQueryParams(activeTab));
     }
 
     if (searchQuery.trim()) {
@@ -245,7 +251,6 @@ export default function ListDispatchOrdersPage() {
   const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery(queryParams);
   const { data: returnsData } = useListOrderReturnsQuery({});
   const partiesQ = useListPartiesQuery({});
-  const usersQ = useListUsersQuery({});
 
   const pendingReturnOrderIds = useMemo(
     () => buildPendingReturnOrderIds(pickList(returnsData)),
@@ -272,20 +277,15 @@ export default function ListDispatchOrdersPage() {
     [partiesQ.data],
   );
 
-  const userNameById = useMemo(
-    () => buildUserNameById(usersQ.data),
-    [usersQ.data],
-  );
-
   const handleResetFilters = useCallback(() => {
     setSearchQuery("");
-    setActiveTab("pending_transport");
+    setActiveTab(defaultTab);
     setPriorityFilter("all");
     setDateFilter("all");
     setCustomDateFrom("");
     setCustomDateTo("");
     setCurrentPage(1);
-  }, []);
+  }, [defaultTab]);
 
   const handleSearchChange = useCallback((val: string) => {
     setSearchQuery(val);
@@ -383,9 +383,15 @@ export default function ListDispatchOrdersPage() {
 
   const showReset =
     !!searchQuery ||
-    activeTab !== "pending_transport" ||
+    activeTab !== defaultTab ||
     priorityFilter !== "all" ||
     dateFilter !== "all";
+
+  const isPendingTab =
+    activeTab === "pending_admin_approval" ||
+    activeTab === "due_sheet_pending" ||
+    activeTab === "pending_finance_approval" ||
+    activeTab === "pending_account_approval";
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden font-sans">
@@ -485,140 +491,174 @@ export default function ListDispatchOrdersPage() {
               onPageChange={setCurrentPage}
             />
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-              {paginatedOrders.map((o) => {
-                const id = orderKey(o);
-                const ref =
-                  typeof o.order_no === "string"
-                    ? o.order_no
-                    : typeof o.order_number === "string"
-                      ? o.order_number
-                      : id || "—";
-                const total = Number(o.grand_total ?? o.total ?? 0);
-                const pri = typeof o.priority === "string" ? o.priority : "normal";
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50 dark:border-white/5 dark:bg-slate-900/50">
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Order No</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Party</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Grand Total</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Created</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Expected Delivery</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Priority</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                  {paginatedOrders.map((o) => {
+                    const id = orderKey(o);
+                    const ref =
+                      typeof o.order_no === "string"
+                        ? o.order_no
+                        : typeof o.order_number === "string"
+                          ? o.order_number
+                          : id || "—";
+                    const total = Number(o.grand_total ?? o.total ?? 0);
+                    const pri = typeof o.priority === "string" ? o.priority : "normal";
 
-                const partyLabel = resolveOrderCounterparty(
-                  o as Record<string, unknown>,
-                  partyNameById,
-                );
+                    const partyLabel = resolveOrderCounterparty(
+                      o as Record<string, unknown>,
+                      partyNameById,
+                    );
 
-                const orderDateStr = formatDateShort(
-                  (o as any).order_date ?? (o as any).created_at ?? (o as any).createdAt,
-                );
-                const expectedDeliveryStr = formatDateShort((o as any).expected_delivery_date);
+                    const orderDateStr = formatDateShort((o as any).order_date ?? (o as any).created_at ?? (o as any).createdAt);
+                    const expectedDeliveryStr = formatDateShort((o as any).expected_delivery_date);
 
-                let stripeColor = "bg-slate-350 dark:bg-slate-700";
-                if (pri === "urgent") stripeColor = "bg-rose-500";
-                else if (pri === "high") stripeColor = "bg-amber-500";
-                else if (pri === "normal") stripeColor = "bg-blue-500";
-
-                return (
-                  <div
-                    key={id || ref}
-                    onClick={() => {
-                      if (id) {
-                        router.push(`/dispatch/order/${id}`);
-                      }
-                    }}
-                    className="relative flex cursor-pointer flex-col gap-4 overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 pl-5 transition-all duration-300 animate-fadeIn hover:border-amber-500/20 hover:shadow-md dark:border-white/10 dark:bg-slate-900"
-                  >
-                    <div className={`absolute bottom-0 left-0 top-0 w-1.5 ${stripeColor}`} />
-
-                    <div className="flex w-full flex-col justify-between gap-4 border-b border-slate-100/60 pb-3 dark:border-white/5 lg:flex-row lg:items-center">
-                      <div className="flex items-center justify-between lg:w-[420px] lg:shrink-0 lg:justify-start lg:gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
-                            {ref}
-                          </span>
-                          {renderPriorityBadge(pri)}
-                          {activeTab === "pending_approvals"
-                            ? renderPendingApprovalBadge(o)
-                            : renderWorkflowStatusBadge(
-                                getDispatchOrderTabCategory(o, categoryOptions),
-                              )}
-                          <OrderFlagBadge orderId={o._id || o.id} department="dispatch" />
-                        </div>
-                      </div>
-
-                      <span
-                        className="flex items-center gap-1.5 break-words text-xs font-semibold text-slate-800 dark:text-slate-200 lg:flex-1"
-                        title={partyLabel}
+                    return (
+                      <tr
+                        key={id || ref}
+                        className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                        onClick={() => {
+                          if (id) {
+                            router.push(`/dispatch/order/${id}`);
+                          }
+                        }}
                       >
-                        <span>{partyLabel}</span>
-                        {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
-                          <span className="inline-flex shrink-0 items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400">
-                            SRA
+                        <td className="px-4 py-3 whitespace-nowrap font-mono font-bold">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (id) setViewOrderId(id);
+                            }}
+                            className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-bold hover:underline"
+                          >
+                            {ref}
+                          </button>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <OrderFlagBadge orderId={o._id || o.id} department="dispatch" />
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-semibold text-slate-800 dark:text-slate-200 break-words">
+                            {partyLabel}
                           </span>
-                        )}
-                      </span>
-
-                      <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-500 dark:text-slate-400 sm:flex sm:items-center sm:gap-8 lg:w-[280px] lg:shrink-0">
-                        <div className="flex min-w-[90px] flex-col">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                            Grand Total
-                          </span>
-                          <span className="mt-0.5 text-xs font-bold tabular-nums text-slate-900 dark:text-slate-50">
-                            ₹{formatMoney(Number.isFinite(total) ? total : 0)}
-                          </span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                            Created
-                          </span>
-                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
-                            {orderDateStr}
-                          </span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                            Expected Delivery
-                          </span>
-                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
-                            {expectedDeliveryStr}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-1 rounded-lg border border-slate-100/50 bg-slate-50/30 px-2 py-1.5 dark:border-white/5 dark:bg-slate-955/5 sm:flex-row sm:items-center sm:justify-between">
-                      <span className="shrink-0 text-[8px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        Pipeline
-                      </span>
-                      <div className="min-w-0 overflow-x-auto">
-                        <OrderFulfillmentPipelineStrip
-                          steps={buildListOrderFulfillmentPipeline(o as Record<string, unknown>)}
-                          size="xs"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                          {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
+                            <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400">
+                              SRA
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-900 dark:text-slate-50 tabular-nums">
+                          ₹{formatMoney(Number.isFinite(total) ? total : 0)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-slate-500 dark:text-slate-400 tabular-nums">
+                          {orderDateStr}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-slate-500 dark:text-slate-400 tabular-nums">
+                          {expectedDeliveryStr}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {renderPriorityBadge(pri)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {isPendingTab
+                            ? renderPendingApprovalBadge(o)
+                            : renderWorkflowStatusBadge(getDispatchOrderTabCategory(o, categoryOptions) ?? "open_dispatched")}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (id) setViewOrderId(id);
+                              }}
+                              className="rounded border border-slate-200 hover:bg-slate-50 hover:text-slate-900 px-2 py-1 text-slate-700 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5 transition font-semibold"
+                            >
+                              View
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </>
         )}
       </div>
 
-      <OrderListBottomTabStrip
-        tabs={DISPATCH_ORDER_TABS}
-        activeTab={activeTab}
-        onTabChange={(tabId) => {
-          setActiveTab(tabId as DispatchOrderTabCategory);
-          setCurrentPage(1);
-        }}
-        filteredCount={filteredOrders.length}
-        isFetching={isFetching}
-        searchQuery={searchQuery}
-        onClearSearch={() => handleSearchChange("")}
-        priorityFilter={priorityFilter}
-        onPriorityFilterChange={handlePriorityFilterChange}
-        showReset={showReset}
-        onReset={handleResetFilters}
-        accentActiveClass="border-amber-600 text-amber-600 dark:border-amber-500 dark:text-amber-400"
-        searchResultAccentClass="text-amber-600 dark:text-amber-400"
-        countBadgeClass="bg-amber-600"
-        compact
-      />
+      {viewBy === "priority" ? (
+        <OrderListBottomTabStrip
+          tabs={ORDER_PRIORITY_TABS}
+          activeTab={priorityFilter}
+          onTabChange={(tabId) => {
+            setPriorityFilter(tabId);
+            setCurrentPage(1);
+          }}
+          filteredCount={filteredOrders.length}
+          isFetching={isFetching}
+          searchQuery={searchQuery}
+          onClearSearch={() => handleSearchChange("")}
+          priorityFilter={activeTab}
+          onPriorityFilterChange={(val) => {
+            setActiveTab(val as DispatchOrderTabCategory);
+            setCurrentPage(1);
+          }}
+          filterLabel="Workflow"
+          filterOptions={DISPATCH_ORDER_TABS.map((tab) => ({
+            value: tab.id,
+            label: tab.label,
+          }))}
+          showReset={showReset}
+          onReset={handleResetFilters}
+          accentActiveClass="border-amber-600 text-amber-600 dark:border-amber-500 dark:text-amber-400"
+          searchResultAccentClass="text-amber-600 dark:text-amber-400"
+          countBadgeClass="bg-amber-600"
+          compact
+        />
+      ) : (
+        <OrderListBottomTabStrip
+          tabs={DISPATCH_ORDER_TABS}
+          activeTab={activeTab}
+          onTabChange={(tabId) => {
+            setActiveTab(tabId as DispatchOrderTabCategory);
+            setCurrentPage(1);
+          }}
+          filteredCount={filteredOrders.length}
+          isFetching={isFetching}
+          searchQuery={searchQuery}
+          onClearSearch={() => handleSearchChange("")}
+          priorityFilter={priorityFilter}
+          onPriorityFilterChange={handlePriorityFilterChange}
+          showReset={showReset}
+          onReset={handleResetFilters}
+          accentActiveClass="border-amber-600 text-amber-600 dark:border-amber-500 dark:text-amber-400"
+          searchResultAccentClass="text-amber-600 dark:text-amber-400"
+          countBadgeClass="bg-amber-600"
+          compact
+        />
+      )}
+      {viewOrderId && (
+        <OrderDetailModal
+          orderId={viewOrderId}
+          partyNameById={partyNameById}
+          onClose={() => setViewOrderId(null)}
+        />
+      )}
     </div>
   );
 }

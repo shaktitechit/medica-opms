@@ -42,18 +42,32 @@ const APPROVAL_NF = 'Order approval not found';
 
 const ADMIN_REVIEW_STATUSES = new Set(['submitted', 'on_hold']);
 const ADMIN_CREATE_STATUSES = new Set([
+  'draft',
   'submitted',
   'on_hold',
   'sales_approved',
   'finance_review',
   'partially_finance_approved',
+  'finance_approved',
+  'fully_finance_approved',
+  'account_review',
+  'partially_account_approved',
+  'fully_account_approved',
+  'account_approved',
 ]);
 const APPROVE_FROM_STATUSES = new Set([
+  'draft',
   'submitted',
   'on_hold',
   'sales_approved',
   'finance_review',
   'partially_finance_approved',
+  'finance_approved',
+  'fully_finance_approved',
+  'account_review',
+  'partially_account_approved',
+  'fully_account_approved',
+  'account_approved',
 ]);
 /** Only transition order → sales_approved on first admin sign-off from sales queue. */
 const ADMIN_APPROVE_TRANSITION_STATUSES = new Set(['submitted', 'on_hold']);
@@ -130,7 +144,7 @@ function buildApprovalItemOverrideLookup(bodyItems = []) {
     if (lineId && lineId !== 'undefined') {
       byLineId.set(lineId, item);
     }
-    const productId = String(item.product?._id || item.product || '').trim();
+    const productId = String(item.product?._id || item.product || '').trim().toLowerCase();
     if (productId) {
       byProduct.set(productId, item);
     }
@@ -140,7 +154,7 @@ function buildApprovalItemOverrideLookup(bodyItems = []) {
 
 function resolveOverrideForLine(line, lookup) {
   const lineId = String(line.order_item_id ?? line._id ?? '').trim();
-  const productId = String(line.product?._id || line.product || '').trim();
+  const productId = String(line.product?._id || line.product || '').trim().toLowerCase();
   return lookup.byLineId.get(lineId) || (productId ? lookup.byProduct.get(productId) : null) || null;
 }
 
@@ -149,13 +163,13 @@ function resolveApprovalItemLineIds(order, bodyItems = []) {
   const lineIds = new Set((order.order_items || []).map((line) => String(line._id)));
   const byProduct = new Map();
   for (const line of order.order_items || []) {
-    const pid = String(line.product?._id || line.product || '');
+    const pid = String(line.product?._id || line.product || '').trim().toLowerCase();
     if (pid) byProduct.set(pid, String(line._id));
   }
   return bodyItems.map((item) => {
     const rawId = String(item.order_item_id || '');
     if (rawId && lineIds.has(rawId)) return item;
-    const productId = String(item.product || '');
+    const productId = String(item.product?._id || item.product || '').trim().toLowerCase();
     const resolved = productId ? byProduct.get(productId) : null;
     if (!resolved) return item;
     return { ...item, order_item_id: resolved };
@@ -460,6 +474,7 @@ async function list(query = {}) {
     .populate('admin_amended_by', 'name username email')
     .populate('account_approved_by', 'name username email')
     .populate('assigned_account_user', 'name username email')
+    .populate('sales_submitted_by', 'name username email')
     .sort({ createdAt: -1 })
     .lean();
   const enriched = await enrichAccountAmendmentMeta(rows.map((row) => toPlain(row)));
@@ -477,6 +492,7 @@ async function get(id) {
     .populate('admin_amended_by', 'name username email')
     .populate('account_approved_by', 'name username email')
     .populate('assigned_account_user', 'name username email')
+    .populate('sales_submitted_by', 'name username email')
     .lean();
   if (!row) throw new ApiError(404, APPROVAL_NF);
   const [enriched] = await enrichAccountAmendmentMeta([toPlain(row)]);
@@ -488,13 +504,7 @@ async function createAdminApproval(body, user) {
   let order = await Order.findById(body.order);
   if (!order) throw new ApiError(404, 'Order not found');
 
-  const currentStatus = order.status || 'draft';
-  if (!ADMIN_CREATE_STATUSES.has(currentStatus)) {
-    throw new ApiError(
-      400,
-      `Admin approval can only be created when order is submitted, on hold, or sales approved (current: ${currentStatus})`,
-    );
-  }
+
 
   if (Array.isArray(body.order_items) && body.order_items.length > 0) {
     order = await syncOrderItemsForAdminApproval(body.order, body.order_items, user);
@@ -524,6 +534,8 @@ async function createAdminApproval(body, user) {
   );
   const rateSummary = summarizeRateChecks(approvalItems);
 
+  const isSales = user && (user.department === 'sales' || user.role === 'sales');
+
   let doc = await OrderApproval.findOne({ order: body.order, deletedAt: null });
   if (doc) {
     doc.revision_number = 1;
@@ -537,9 +549,14 @@ async function createAdminApproval(body, user) {
     doc.hold_reason = body.hold_reason || '';
     doc.reviewed_by = user._id;
     doc.reviewed_at = new Date();
-    doc.is_admin_approved = false;
-    doc.is_finance_approved = false;
-    doc.is_account_approved = false;
+    if (!isSales) {
+      doc.is_admin_approved = false;
+    }
+    if (isSales) {
+      doc.is_sales_submited = true;
+      doc.sales_submitted_by = user._id;
+      doc.sales_submitted_at = new Date();
+    }
     await doc.save();
   } else {
     doc = await OrderApproval.create({
@@ -558,6 +575,11 @@ async function createAdminApproval(body, user) {
       reviewed_by: user._id,
       reviewed_at: new Date(),
       created_by: user._id,
+      ...(isSales ? {
+        is_sales_submited: true,
+        sales_submitted_by: user._id,
+        sales_submitted_at: new Date(),
+      } : {}),
     });
   }
 
@@ -616,8 +638,28 @@ async function createAdminApproval(body, user) {
     }
   }
 
+  if (body.approve_finance_only === true) {
+    await decideFinance(doc._id, 'approved', { ...body, replace_snapshot: true }, user);
+    const finalPop = await OrderApproval.findById(doc._id)
+      .populate('approval_items.product', 'product_name sku')
+      .lean();
+    return toPlain(addDerivedStatus(finalPop));
+  }
+
+  if (body.approve_account_only === true) {
+    await decideAccount(doc._id, 'approved', { ...body, replace_snapshot: true }, user, { bypassSequence: true });
+    const finalPop = await OrderApproval.findById(doc._id)
+      .populate('approval_items.product', 'product_name sku')
+      .lean();
+    return toPlain(addDerivedStatus(finalPop));
+  }
+
   if (body.approve_immediately === true) {
-    return approve(doc._id, { ...body, replace_snapshot: true }, user);
+    await approve(doc._id, { ...body, replace_snapshot: true }, user);
+    const finalPop = await OrderApproval.findById(doc._id)
+      .populate('approval_items.product', 'product_name sku')
+      .lean();
+    return toPlain(addDerivedStatus(finalPop));
   }
 
   const populated = await OrderApproval.findById(doc._id)
@@ -705,6 +747,9 @@ async function createFinanceApproval(body, user) {
 
 async function create(body, user) {
   const dept = user.department;
+  if (body.approve_immediately === true || body.replace_snapshot === true) {
+    return createAdminApproval(body, user);
+  }
   if (dept === 'finance' || dept === 'account') {
     return createFinanceApproval(body, user);
   } else {
@@ -794,13 +839,12 @@ async function recomputeApprovedQuantitiesFromAdmin(orderId) {
   const approvedByLine = {};
   const priceByLine = {};
   const approvedMetaByLine = {};
-  for (const approval of approvals) {
-    for (const item of approval.approval_items || []) {
-      if (isLineFullyRejected(item)) continue;
+  const latestApproval = approvals[0];
+  if (latestApproval) {
+    for (const item of latestApproval.approval_items || []) {
       const qty = Number(item.approved_quantity || 0);
-      if (qty <= 0) continue;
       const key = String(item.order_item_id);
-      approvedByLine[key] = (approvedByLine[key] || 0) + qty;
+      approvedByLine[key] = qty;
       if (item.approved_unit_price != null) {
         priceByLine[key] = Number(item.approved_unit_price);
       }
@@ -808,8 +852,8 @@ async function recomputeApprovedQuantitiesFromAdmin(orderId) {
         applied_rate_type: item.applied_rate_type,
         pricing_reference: item.pricing_reference,
         manual_price_override: item.manual_price_override,
-        approved_by: approval.approved_by,
-        approved_at: approval.approved_at,
+        approved_by: latestApproval.approved_by,
+        approved_at: latestApproval.approved_at,
         free_quantity: item.free_quantity,
         discount_percent: item.discount_percent,
         discount_amount: item.discount_amount,
@@ -1001,6 +1045,60 @@ function finalizeFinanceOverrideApproval(doc, user) {
   doc.is_admin_approved = true;
   doc.admin_approved_by = doc.admin_approved_by || doc.approved_by || user._id;
   doc.admin_approved_at = doc.admin_approved_at || doc.approved_at || now;
+  if (!doc.approved_by) doc.approved_by = user._id;
+  if (!doc.approved_at) doc.approved_at = now;
+
+  doc.approved_total_amount = (doc.approval_items || []).reduce(
+    (sum, item) => sum + Number(item.approved_total_amount || 0),
+    0,
+  );
+  doc.ordered_total_amount = (doc.approval_items || []).reduce(
+    (sum, item) => sum + Number(item.ordered_total_amount || 0),
+    0,
+  );
+  doc.rejected_total_amount = 0;
+}
+
+function finalizeFinanceOverrideApprovalIsolated(doc, user) {
+  const now = new Date();
+  doc.approval_items = (doc.approval_items || []).filter(
+    (item) => Number(item.approved_quantity || 0) > 0,
+  );
+
+  for (const item of doc.approval_items) {
+    alignApprovalItemForFinanceOverride(item);
+  }
+
+  doc.is_finance_approved = true;
+  doc.finance_approved_by = doc.finance_approved_by || user._id;
+  doc.finance_approved_at = doc.finance_approved_at || now;
+  if (!doc.approved_by) doc.approved_by = user._id;
+  if (!doc.approved_at) doc.approved_at = now;
+
+  doc.approved_total_amount = (doc.approval_items || []).reduce(
+    (sum, item) => sum + Number(item.approved_total_amount || 0),
+    0,
+  );
+  doc.ordered_total_amount = (doc.approval_items || []).reduce(
+    (sum, item) => sum + Number(item.ordered_total_amount || 0),
+    0,
+  );
+  doc.rejected_total_amount = 0;
+}
+
+function finalizeAccountOverrideApproval(doc, user) {
+  const now = new Date();
+  doc.approval_items = (doc.approval_items || []).filter(
+    (item) => Number(item.approved_quantity || 0) > 0,
+  );
+
+  for (const item of doc.approval_items) {
+    alignApprovalItemForFinanceOverride(item);
+  }
+
+  doc.is_account_approved = true;
+  doc.account_approved_by = doc.account_approved_by || user._id;
+  doc.account_approved_at = doc.account_approved_at || now;
   if (!doc.approved_by) doc.approved_by = user._id;
   if (!doc.approved_at) doc.approved_at = now;
 
@@ -1362,6 +1460,25 @@ async function decideFinance(id, decision, body, user) {
   const doc = await OrderApproval.findOne({ _id: id, deletedAt: null });
   if (!doc) throw new ApiError(404, APPROVAL_NF);
 
+  const parentOrder = await Order.findById(doc.order).lean();
+  if (parentOrder && Array.isArray(doc.approval_items)) {
+    for (const item of doc.approval_items) {
+      const orderLine = (parentOrder.order_items || []).find(
+        (line) => String(line._id) === String(item.order_item_id)
+      );
+      if (orderLine) {
+        item.approved_quantity = Number(orderLine.approved_quantity ?? orderLine.ordered_quantity ?? 0);
+        item.ordered_quantity = Number(orderLine.ordered_quantity ?? 0);
+        item.approved_unit_price = Number(orderLine.unit_price ?? 0);
+        item.ordered_unit_price = Number(orderLine.unit_price ?? 0);
+        item.free_quantity = Number(orderLine.free_quantity ?? 0);
+        item.discount_percent = Number(orderLine.discount_percent ?? 0);
+        item.discount_amount = Number(orderLine.discount_amount ?? 0);
+        item.gst_percent = Number(orderLine.gst_percent ?? 0);
+      }
+    }
+  }
+
   const isRejected = decision === 'rejected';
   if (isRejected && !(body?.rejection_reason || doc.rejection_reason)) {
     throw new ApiError(400, 'Finance rejection must include rejection_reason');
@@ -1395,10 +1512,14 @@ async function decideFinance(id, decision, body, user) {
     doc.rejected_total_amount = doc.ordered_total_amount;
     doc.approved_total_amount = 0;
   } else {
-    if (body?.approved_total_amount !== undefined) {
-      doc.approved_total_amount = Number(body.approved_total_amount);
-      doc.rejected_total_amount = doc.ordered_total_amount - doc.approved_total_amount;
-    }
+    const calculatedApprovedTotal = (doc.approval_items || []).reduce(
+      (sum, item) => sum + Number(item.approved_total_amount || 0),
+      0,
+    );
+    doc.approved_total_amount = body?.approved_total_amount != null
+      ? Number(body.approved_total_amount)
+      : calculatedApprovedTotal;
+    doc.rejected_total_amount = doc.ordered_total_amount - doc.approved_total_amount;
   }
 
   await doc.save();
@@ -1432,14 +1553,17 @@ async function decideFinance(id, decision, body, user) {
       ? 'finance_rejected'
       : (allApproved ? 'fully_finance_approved' : 'partially_finance_approved');
 
-    await workflowService.transitionOrderStatus({
-      orderId: order._id,
-      nextStatus,
-      userId: user._id,
-      remarks: body?.approval_notes || body?.rejection_reason || '',
-      rejectionReason: isRejected ? (body?.rejection_reason || doc.rejection_reason) : undefined,
-      _systemCall: true,
-    });
+    const isPastFinance = ['finance_approved', 'fully_finance_approved', 'partially_finance_approved', 'account_review', 'account_approved', 'fully_account_approved', 'partially_account_approved', 'dispatched', 'delivered', 'closed', 'cancelled'].includes(order.status);
+    if (!isPastFinance) {
+      await workflowService.transitionOrderStatus({
+        orderId: order._id,
+        nextStatus,
+        userId: user._id,
+        remarks: body?.approval_notes || body?.rejection_reason || '',
+        rejectionReason: isRejected ? (body?.rejection_reason || doc.rejection_reason) : undefined,
+        _systemCall: true,
+      });
+    }
 
     if (isApprovedOrPartial) {
       const orderAfterTransition = await Order.findById(order._id);
@@ -1489,11 +1613,30 @@ async function decideAccount(id, decision, body, user, options = {}) {
   const doc = await OrderApproval.findOne({ _id: id, deletedAt: null });
   if (!doc) throw new ApiError(404, APPROVAL_NF);
 
-  if (!doc.is_finance_approved) {
+  if (!options.bypassSequence && !doc.is_finance_approved) {
     throw new ApiError(400, 'Finance approval must be completed before account decision');
   }
-  if (!doc.is_admin_approved) {
+  if (!options.bypassSequence && !doc.is_admin_approved) {
     throw new ApiError(400, 'Admin approval must be completed before account decision');
+  }
+
+  const parentOrder = await Order.findById(doc.order).lean();
+  if (parentOrder && Array.isArray(doc.approval_items)) {
+    for (const item of doc.approval_items) {
+      const orderLine = (parentOrder.order_items || []).find(
+        (line) => String(line._id) === String(item.order_item_id)
+      );
+      if (orderLine) {
+        item.approved_quantity = Number(orderLine.approved_quantity ?? orderLine.ordered_quantity ?? 0);
+        item.ordered_quantity = Number(orderLine.ordered_quantity ?? 0);
+        item.approved_unit_price = Number(orderLine.unit_price ?? 0);
+        item.ordered_unit_price = Number(orderLine.unit_price ?? 0);
+        item.free_quantity = Number(orderLine.free_quantity ?? 0);
+        item.discount_percent = Number(orderLine.discount_percent ?? 0);
+        item.discount_amount = Number(orderLine.discount_amount ?? 0);
+        item.gst_percent = Number(orderLine.gst_percent ?? 0);
+      }
+    }
   }
 
   const isRejected = decision === 'rejected';
@@ -1519,9 +1662,21 @@ async function decideAccount(id, decision, body, user, options = {}) {
   doc.account_approved_by = isRejected ? undefined : user._id;
   doc.account_approved_at = isRejected ? undefined : new Date();
   doc.rejected_by = isRejected ? user._id : undefined;
-  doc.rejected_at = isRejected ? new Date() : undefined;
   if (body?.approval_notes !== undefined) doc.approval_notes = body.approval_notes;
   if (body?.rejection_reason !== undefined) doc.rejection_reason = body.rejection_reason;
+  if (isRejected || finalStatus === 'rejected') {
+    doc.rejected_total_amount = doc.ordered_total_amount;
+    doc.approved_total_amount = 0;
+  } else {
+    const calculatedApprovedTotal = (doc.approval_items || []).reduce(
+      (sum, item) => sum + Number(item.approved_total_amount || 0),
+      0,
+    );
+    doc.approved_total_amount = body?.approved_total_amount != null
+      ? Number(body.approved_total_amount)
+      : calculatedApprovedTotal;
+    doc.rejected_total_amount = doc.ordered_total_amount - doc.approved_total_amount;
+  }
 
   await doc.save();
 
@@ -1549,14 +1704,17 @@ async function decideAccount(id, decision, body, user, options = {}) {
       ? 'account_rejected'
       : (allApproved ? 'fully_account_approved' : 'partially_account_approved');
 
-    await workflowService.transitionOrderStatus({
-      orderId: order._id,
-      nextStatus,
-      userId: user._id,
-      remarks: body?.approval_notes || body?.rejection_reason || '',
-      rejectionReason: isRejected ? (body?.rejection_reason || doc.rejection_reason) : undefined,
-      _systemCall: true,
-    });
+    const isPastAccount = ['account_approved', 'fully_account_approved', 'partially_account_approved', 'dispatched', 'delivered', 'closed', 'cancelled'].includes(order.status);
+    if (!isPastAccount) {
+      await workflowService.transitionOrderStatus({
+        orderId: order._id,
+        nextStatus,
+        userId: user._id,
+        remarks: body?.approval_notes || body?.rejection_reason || '',
+        rejectionReason: isRejected ? (body?.rejection_reason || doc.rejection_reason) : undefined,
+        _systemCall: true,
+      });
+    }
 
     if (isApprovedOrPartial) {
       const orderAfterTransition = await Order.findById(order._id);
@@ -1641,16 +1799,7 @@ async function sendToFinance(id, body, user) {
   const order = await Order.findById(doc.order);
   if (!order) throw new ApiError(404, 'Order not found');
 
-  const currentStatus = order.status || 'draft';
-  if (
-    derivedDoc.approval_status === 'approved'
-    && !SEND_TO_FINANCE_ORDER_STATUSES.has(currentStatus)
-  ) {
-    throw new ApiError(
-      400,
-      `Order must be sales or finance approved before sending to finance (current: ${currentStatus})`,
-    );
-  }
+
 
   const financeAssigneeId = body?.assigned_finance_user
     ? String(body.assigned_finance_user)
@@ -1712,13 +1861,7 @@ async function sendToAccount(id, body, user) {
   const order = await Order.findById(doc.order);
   if (!order) throw new ApiError(404, 'Order not found');
 
-  const currentStatus = order.status || 'draft';
-  if (!SEND_TO_ACCOUNT_ORDER_STATUSES.has(currentStatus)) {
-    throw new ApiError(
-      400,
-      `Order must be finance-approved before sending to account (current: ${currentStatus})`,
-    );
-  }
+
 
   const accountAssigneeId = body?.assigned_account_user
     ? String(body.assigned_account_user)
@@ -1833,12 +1976,7 @@ async function amendByAccount(id, body, user) {
   const doc = await OrderApproval.findOne({ _id: id, deletedAt: null });
   if (!doc) throw new ApiError(404, APPROVAL_NF);
 
-  if (!doc.is_admin_approved) {
-    throw new ApiError(400, 'Admin approval must be completed before account review');
-  }
-  if (!doc.is_finance_approved) {
-    throw new ApiError(400, 'Finance approval must be completed before account review');
-  }
+
 
   const dispatchExists = await OrderDispatch.exists({
     order: doc.order,
@@ -1884,15 +2022,12 @@ async function amendByAccount(id, body, user) {
   );
 
   await syncOrderLinesFromFinanceAmendment(order, doc, rateByLine, { removedLineIds });
-  finalizeFinanceOverrideApproval(doc, user);
+  recalcCommercials(order);
+  normalizeOrderWorkflowFields(order);
+  order.markModified('order_items');
+  await order.save();
 
-  doc.is_finance_approved = true;
-  if (!doc.finance_approved_by && doc.approved_by) {
-    doc.finance_approved_by = doc.approved_by;
-  }
-  if (!doc.finance_approved_at && doc.approved_at) {
-    doc.finance_approved_at = doc.approved_at;
-  }
+  finalizeAccountOverrideApproval(doc, user);
 
   const rateSummary = summarizeRateChecks(doc.approval_items || []);
   doc.rates_reviewed = rateSummary.rates_reviewed;
@@ -1941,7 +2076,7 @@ async function amendByAccount(id, body, user) {
   return decideAccount(id, 'approved', {
     approval_notes: note,
     approved_total_amount: doc.approved_total_amount,
-  }, user);
+  }, user, { bypassSequence: true });
 }
 
 async function amendByFinance(id, body, user) {
@@ -1949,9 +2084,7 @@ async function amendByFinance(id, body, user) {
   const doc = await OrderApproval.findOne({ _id: id, deletedAt: null });
   if (!doc) throw new ApiError(404, APPROVAL_NF);
 
-  if (!doc.is_admin_approved) {
-    throw new ApiError(400, 'Admin approval must be completed before finance review');
-  }
+
 
   const dispatchExists = await OrderDispatch.exists({
     order: doc.order,
@@ -1988,7 +2121,12 @@ async function amendByFinance(id, body, user) {
   );
 
   await syncOrderLinesFromFinanceAmendment(order, doc, rateByLine, { removedLineIds });
-  finalizeFinanceOverrideApproval(doc, user);
+  recalcCommercials(order);
+  normalizeOrderWorkflowFields(order);
+  order.markModified('order_items');
+  await order.save();
+
+  finalizeFinanceOverrideApprovalIsolated(doc, user);
 
   const rateSummary = summarizeRateChecks(doc.approval_items || []);
   doc.rates_reviewed = rateSummary.rates_reviewed;
@@ -2359,135 +2497,6 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
     approval_notes: note,
     approved_total_amount: doc.approved_total_amount,
   }, user, options);
-}
-
-/**
- * Resolve all finance release batches on an order that still have dispatch/return work.
- * Used before account settle & close.
- */
-async function resolvePendingReleaseApprovalsForOrder(orderId, user, options = {}) {
-  const { OrderApproval, OrderDispatch } = getModels();
-  const { aggregateDispatchReturnsByOrderLine } = require('../../utils/returnSettlement');
-
-  await reopenResolvedDispatchReleasesForOrder(orderId);
-
-  const dispatches = await OrderDispatch.find({
-    order: orderId,
-    deletedAt: null,
-    dispatch_status: { $ne: 'cancelled' },
-  }).lean();
-
-  const approvalIds = [
-    ...new Set(
-      dispatches
-        .map((dispatch) => String(dispatch.finance_approval?._id ?? dispatch.finance_approval ?? ''))
-        .filter(Boolean),
-    ),
-  ];
-
-  const resolved = [];
-  const skipped = [];
-  const note =
-    options.amendment_notes ||
-    options.remarks ||
-    'Resolved release clearance during account settle & close';
-
-  for (const approvalId of approvalIds) {
-    const doc = await OrderApproval.findOne({ _id: approvalId, deletedAt: null });
-    if (!doc) {
-      skipped.push(approvalId);
-      continue;
-    }
-    if (!doc.is_finance_approved || !doc.is_account_approved) {
-      skipped.push(approvalId);
-      continue;
-    }
-
-    const releaseDispatches = dispatches.filter(
-      (row) => String(row.finance_approval?._id ?? row.finance_approval ?? '') === approvalId,
-    );
-    const returnsByLine = aggregateDispatchReturnsByOrderLine(releaseDispatches);
-    const dispatchedByLine = aggregateDispatchedQtyForRelease(releaseDispatches);
-    const hasNewReturnWork = releaseHasUnsettledDispatchReturns(doc.approval_items, returnsByLine);
-    const hasRemaining = (doc.approval_items || []).some((item) => {
-      const key = String(item.order_item_id);
-      return Number(item.approved_quantity || 0) > (dispatchedByLine.get(key) || 0);
-    });
-
-    if (doc.dispatch_release_resolved && !hasNewReturnWork && !hasRemaining) {
-      skipped.push(approvalId);
-      continue;
-    }
-
-    if (doc.dispatch_release_resolved && (hasNewReturnWork || hasRemaining)) {
-      doc.dispatch_release_resolved = false;
-      await doc.save();
-    }
-
-    try {
-      await resolvePartialDispatchByAccount(
-        approvalId,
-        { amendment_notes: note },
-        user,
-        options,
-      );
-      resolved.push(approvalId);
-    } catch (err) {
-      if (
-        err instanceof ApiError &&
-        err.statusCode === 400 &&
-        String(err.message).includes('No remaining clearance or warehouse returns')
-      ) {
-        skipped.push(approvalId);
-        continue;
-      }
-      throw err;
-    }
-  }
-
-  return { resolved, skipped };
-}
-
-/**
- * Mark all finance release batches with dispatches as resolved when an order is closed.
- */
-async function finalizeDispatchReleasesOnOrderClose(orderId, user) {
-  const { OrderApproval, OrderDispatch } = getModels();
-
-  const dispatches = await OrderDispatch.find({
-    order: orderId,
-    deletedAt: null,
-    dispatch_status: { $ne: 'cancelled' },
-  }).lean();
-
-  const approvalIds = [
-    ...new Set(
-      dispatches
-        .map((dispatch) => String(dispatch.finance_approval?._id ?? dispatch.finance_approval ?? ''))
-        .filter(Boolean),
-    ),
-  ];
-
-  if (approvalIds.length === 0) {
-    return { updated: 0 };
-  }
-
-  const result = await OrderApproval.updateMany(
-    {
-      _id: { $in: approvalIds },
-      deletedAt: null,
-      dispatch_release_resolved: { $ne: true },
-    },
-    {
-      $set: {
-        dispatch_release_resolved: true,
-        dispatch_release_resolved_by: user._id,
-        dispatch_release_resolved_at: new Date(),
-      },
-    },
-  );
-
-  return { updated: result.modifiedCount };
 }
 
 async function amend(id, body, user) {
@@ -2895,6 +2904,18 @@ async function reopenResolvedDispatchReleasesForOrder(orderId, dispatchId) {
   return { reopened: result.modifiedCount };
 }
 
+async function processOrderApprovalJob({ type, payload = {} }) {
+  switch (type) {
+    case 'create_order_approval': {
+      const { body, user } = payload;
+      if (!body || !body.order) throw new Error('create_order_approval requires body.order');
+      return createAdminApproval(body, user);
+    }
+    default:
+      throw new Error(`Unknown order approval job type: ${type}`);
+  }
+}
+
 module.exports = {
   list,
   get,
@@ -2907,11 +2928,11 @@ module.exports = {
   amendByFinance,
   amendByAccount,
   resolvePartialDispatchByAccount,
-  resolvePendingReleaseApprovalsForOrder,
   reopenResolvedDispatchReleasesForOrder,
-  finalizeDispatchReleasesOnOrderClose,
   amend,
   listDeleted,
   softDelete,
   restore,
+  syncOrderItemsForAdminApproval,
+  processOrderApprovalJob,
 };

@@ -71,28 +71,30 @@ function DepartmentBox({ box }: { box: DepartmentStageBox }) {
         </p>
       ) : null}
 
-      <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2 dark:border-white/10">
-        <div>
-          <div className="text-[9px] font-medium uppercase text-slate-400">Done</div>
-          <div className="text-sm font-bold tabular-nums text-slate-900 dark:text-slate-100">
-            {box.completedQty}
+      {["dispatch", "delivery", "return"].includes(String(box.id || "").toLowerCase()) ? (
+        <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2 dark:border-white/10">
+          <div>
+            <div className="text-[9px] font-medium uppercase text-slate-400">Done</div>
+            <div className="text-sm font-bold tabular-nums text-slate-900 dark:text-slate-100">
+              {box.completedQty}
+            </div>
+            <div className="text-[9px] text-slate-500">{box.progressLabel}</div>
           </div>
-          <div className="text-[9px] text-slate-500">{box.progressLabel}</div>
-        </div>
-        <div>
-          <div className="text-[9px] font-medium uppercase text-slate-400">Remaining</div>
-          <div
-            className={`text-sm font-bold tabular-nums ${
-              box.remainingQty > 0
-                ? "text-amber-700 dark:text-amber-400"
-                : "text-emerald-700 dark:text-emerald-400"
-            }`}
-          >
-            {box.remainingQty}
+          <div>
+            <div className="text-[9px] font-medium uppercase text-slate-400">Remaining</div>
+            <div
+              className={`text-sm font-bold tabular-nums ${
+                box.remainingQty > 0
+                  ? "text-amber-700 dark:text-amber-400"
+                  : "text-emerald-700 dark:text-emerald-400"
+              }`}
+            >
+              {box.remainingQty}
+            </div>
+            <div className="text-[9px] text-slate-500">of {box.totalQty} cap</div>
           </div>
-          <div className="text-[9px] text-slate-500">of {box.totalQty} cap</div>
         </div>
-      </div>
+      ) : null}
 
       {box.action ? (
         <div className="mt-2 border-t border-slate-100 pt-2 dark:border-white/10">
@@ -121,28 +123,12 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
         <thead className="bg-slate-50/90 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-950/50 dark:text-slate-400">
           <tr>
             <th className="px-3 py-2">Item</th>
-            <th className="px-3 py-2 text-right">Ordered</th>
             <th className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-400">
-              Sales approved
-            </th>
-            <th className="px-3 py-2 text-right text-indigo-700 dark:text-indigo-400">
-              Finance approved
-            </th>
-            <th className="px-3 py-2 text-right text-teal-700 dark:text-teal-400">
-              Account cleared
+              Approved
             </th>
             <th className="px-3 py-2 text-right">Dispatched</th>
             <th className="px-3 py-2 text-right">Delivered</th>
             <th className="px-3 py-2 text-right text-rose-700 dark:text-rose-400">Returned</th>
-            <th className="px-3 py-2 text-right text-amber-700 dark:text-amber-400">
-              Pending sales approval
-            </th>
-            <th className="px-3 py-2 text-right text-sky-700 dark:text-sky-400">
-              Pending finance
-            </th>
-            <th className="px-3 py-2 text-right text-teal-700 dark:text-teal-400">
-              Pending account
-            </th>
             <th className="px-3 py-2 text-right text-blue-700 dark:text-blue-400">Pending dispatch</th>
             <th className="px-3 py-2 text-right text-violet-700 dark:text-violet-400">Pending delivery</th>
             <th className="px-3 py-2 text-right text-orange-700 dark:text-orange-400">Pending return</th>
@@ -161,29 +147,13 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
                   </span>
                 ) : null}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums">{line.ordered}</td>
               <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-700 dark:text-emerald-400">
-                {line.salesApproved}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium text-indigo-700 dark:text-indigo-400">
-                {line.approved}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium text-teal-700 dark:text-teal-400">
                 {line.accountCleared}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">{line.dispatched}</td>
               <td className="px-3 py-2 text-right tabular-nums">{line.delivered}</td>
               <td className="px-3 py-2 text-right tabular-nums font-medium text-rose-700 dark:text-rose-400">
                 {line.returned}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium text-amber-700 dark:text-amber-400">
-                {line.pendingAdmin}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium text-sky-700 dark:text-sky-400">
-                {line.pendingFinance}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium text-teal-700 dark:text-teal-400">
-                {line.pendingAccount}
               </td>
               <td className="px-3 py-2 text-right tabular-nums font-medium text-blue-700 dark:text-blue-400">
                 {line.pendingDispatch}

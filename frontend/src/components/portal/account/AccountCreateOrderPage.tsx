@@ -41,6 +41,7 @@ import {
   useListUsersQuery,
 } from "@/store/api";
 import type { CheckOrderRatesItem } from "@/store/api/slices/partyOrderProductsRateApi";
+import { contactsFromParty } from "@/lib/partyContacts";
 import { useAppSelector } from "@/store";
 
 const inputClass =
@@ -529,7 +530,6 @@ export default function AccountCreateOrderPage() {
   const salesUsers = useMemo(() => pickList(salesUsersQ.data), [salesUsersQ.data]);
 
   const [partyId, setPartyId] = useState("");
-  const [priority, setPriority] = useState("normal");
   const [expectedDate, setExpectedDate] = useState("");
   const headerDiscount = "0";
   const [remarks, setRemarks] = useState("");
@@ -831,6 +831,10 @@ export default function AccountCreateOrderPage() {
         toast.error("Please negotiate all items before submitting the order.");
         return;
       }
+      if (!expectedDate.trim()) {
+        toast.error("Expected delivery date is required.");
+        return;
+      }
       const prepared = lines
         .filter((l) => l.productId)
         .map((l) => ({
@@ -886,26 +890,61 @@ export default function AccountCreateOrderPage() {
         toast.error("Discount percent must be between 0 and 100.");
         return;
       }
-      const body = {
-        party: partyId,
-        order_items: prepared,
-        discount_amount: Number(headerDiscount || 0),
-        priority,
-        remarks: remarks.trim() || "",
-        submit_on_create: true,
-        submit_remarks: "Initial submission upon creation",
-        ...(expectedDate ? { expected_delivery_date: expectedDate } : {}),
-        assigned_account_user: (user?._id || user?.id) ? String(user?._id || user?.id) : undefined,
-        assigned_sales_user: assignedSales,
-      };
       try {
+        const approvalItems = prepared.map((l) => {
+          return {
+            product: l.product,
+            ordered_quantity: l.ordered_quantity,
+            approved_quantity: l.ordered_quantity,
+            approved_unit_price: l.unit_price,
+            ordered_unit_price: l.unit_price,
+            free_quantity: l.free_quantity,
+            discount_percent: l.discount_percent,
+            discount_amount: l.discount_amount,
+            gst_percent: l.gst_percent,
+            applied_rate_type: l.applied_rate_type,
+            approved_total_amount: l.total_amount,
+            approval_status: "fully_approved",
+            remarks: l.remarks,
+          };
+        });
+
+        const selectedParty = parties.find((p) => String(p._id ?? p.id ?? "") === String(partyId));
+        const partyContacts = contactsFromParty(selectedParty);
+        const selectedContacts: string[] = [];
+        const selectedContactNames: string[] = [];
+        const firstWithPhone = partyContacts.find((c) => c.phone.trim());
+        if (firstWithPhone) {
+          selectedContacts.push(firstWithPhone.phone.trim());
+          selectedContactNames.push(firstWithPhone.name.trim());
+        }
+
+        const body = {
+          party: partyId,
+          order_items: prepared,
+          discount_amount: Number(headerDiscount || 0),
+          priority: "normal",
+          remarks: remarks.trim() || "",
+          submit_on_create: true,
+          submit_remarks: "Initial submission upon creation",
+          expected_delivery_date: expectedDate,
+          assigned_account_user: (user?._id || user?.id) ? String(user?._id || user?.id) : undefined,
+          assigned_sales_user: assignedSales,
+          approve_account_only: true,
+          approval_notes: "Initial approval on account order creation",
+          approved_total_amount: liveSummary.total,
+          approval_items: approvalItems,
+          contact_number: selectedContacts,
+          contact_name: selectedContactNames,
+        };
+
         const data = (await createOrder(body).unwrap()) as any;
         const orderNo = String(data?.order_no ?? "");
 
         toast.success(
           orderNo
-            ? `Order ${orderNo} created — submission is processing`
-            : "Order created — submission is processing",
+            ? `Order ${orderNo} created and fully cleared successfully`
+            : "Order created and fully cleared successfully",
         );
         router.push("/account/orders");
       } catch (rejected) {
@@ -917,12 +956,13 @@ export default function AccountCreateOrderPage() {
       createOrder,
       expectedDate,
       lines,
-      priority,
       remarks,
       router,
       assignedSales,
       user,
       allItemsNegotiated,
+      parties,
+      liveSummary,
     ],
   );
 
@@ -987,30 +1027,14 @@ export default function AccountCreateOrderPage() {
                 )}
               </div>
 
-              <div className="space-y-1 sm:col-span-1 lg:col-span-1">
-                <label htmlFor="co-priority" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Priority
-                </label>
-                <select
-                  id="co-priority"
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="low">Low</option>
-                  <option value="normal">Normal</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
-                </select>
-              </div>
-
-              <div className="space-y-1 sm:col-span-1 lg:col-span-3">
+              <div className="space-y-1 sm:col-span-2 lg:col-span-4">
                 <label htmlFor="co-eta" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Expected delivery
+                  Expected delivery <span className="text-rose-500">*</span>
                 </label>
                 <input
                   id="co-eta"
                   type="date"
+                  required
                   value={expectedDate}
                   onChange={(e) => setExpectedDate(e.target.value)}
                   className={inputClass}

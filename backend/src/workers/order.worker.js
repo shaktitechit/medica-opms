@@ -28,6 +28,14 @@ function start() {
     logger.error(`[Order Worker] Job ${job ? job.id : 'unknown'} failed: ${err.message}`);
   });
 
+  worker.on('completed', (job, result) => {
+    if (job?.data?.type === 'sync_order_priorities') {
+      logger.info(
+        `[Order Worker] Priority sync scanned=${result?.scanned ?? 0} updated=${result?.updated ?? 0}`,
+      );
+    }
+  });
+
   return worker;
 }
 

@@ -134,40 +134,29 @@ function mappingMatchesProductSearch(
   return haystack.some((value) => String(value ?? "").toLowerCase().includes(q));
 }
 
-type PartyOrderTabCategory = Exclude<
-  AdminOrderTabCategory,
-  "pending_admin_approval" | "pending_approvals"
->;
+type PartyOrderTabCategory = Exclude<AdminOrderTabCategory, "pending_admin_approval">;
 type PartyOrderStageTab = "all" | PartyOrderTabCategory;
 
 const PARTY_ORDER_TABS: ReadonlyArray<{ id: PartyOrderStageTab; label: string }> = [
   { id: "all", label: "All Orders" },
   ...ADMIN_ORDER_TABS.filter(
     (tab): tab is { id: PartyOrderTabCategory; label: string } =>
-      tab.id !== "pending_admin_approval" && tab.id !== "pending_approvals",
+      tab.id !== "pending_admin_approval",
   ).map(({ id, label }) => ({
     id,
     label:
-      id === "open"
+      id === "open_dispatched"
         ? "Open Orders"
-        : id === "closed"
+        : id === "closed_delivered"
           ? "Closed Orders"
           : label,
   })),
 ];
 
 function getFinancePartyOrderTabCategory(order: unknown): PartyOrderTabCategory | null {
-  if (!order || typeof order !== "object") return null;
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-
-  if (status === "draft") return null;
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-  if (status === "finance_rejected") return "rejected";
-  if (isOrderClosed(row)) return "closed";
-
-  return "open";
+  const cat = getAdminOrderTabCategory(order);
+  if (!cat || cat === "pending_admin_approval") return null;
+  return cat;
 }
 
 function getPartyOrderTabCategory(order: unknown, portal: string): PartyOrderTabCategory | null {
@@ -176,10 +165,7 @@ function getPartyOrderTabCategory(order: unknown, portal: string): PartyOrderTab
   }
 
   const cat = getAdminOrderTabCategory(order);
-  if (!cat) return null;
-  if (cat === "pending_admin_approval" || cat === "pending_approvals") {
-    return "open";
-  }
+  if (!cat || cat === "pending_admin_approval") return null;
   return cat;
 }
 
@@ -314,9 +300,9 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
 
       const cat = getPartyOrderTabCategory(o, portal);
       if (!cat) return;
-      if (cat === "open" || cat === "on_hold") {
+      if (cat === "open_dispatched" || cat === "on_hold") {
         openCount++;
-      } else if (cat === "closed") {
+      } else if (cat === "closed_delivered") {
         closedCount++;
       }
 
@@ -341,14 +327,9 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
   }, [allPartyOrders, portal]);
 
   const tabCounts = useMemo(() => {
-    const counts: Record<PartyOrderStageTab, number> = {
-      all: 0,
-      open: 0,
-      closed: 0,
-      on_hold: 0,
-      rejected: 0,
-      cancelled: 0,
-    };
+    const counts = Object.fromEntries(
+      PARTY_ORDER_TABS.map(({ id }) => [id, 0]),
+    ) as Record<PartyOrderStageTab, number>;
 
     allPartyOrders.forEach((o) => {
       if (orderPriorityFilter !== "all" && (o.priority || "").toLowerCase() !== orderPriorityFilter.toLowerCase()) {
@@ -538,6 +519,11 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
               ) : (
                 <span className="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400 text-xs font-medium bg-slate-100 dark:bg-white/5 px-2 py-0.5 rounded-full">
                   <span className="h-1.5 w-1.5 rounded-full bg-slate-400" /> Inactive
+                </span>
+              )}
+              {p.is_featured === true && (
+                <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 text-xs font-semibold bg-amber-50 dark:bg-amber-500/10 px-2 py-0.5 rounded-full">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-600 dark:bg-amber-400" /> Featured
                 </span>
               )}
             </div>

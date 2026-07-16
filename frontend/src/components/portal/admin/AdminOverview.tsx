@@ -3,91 +3,86 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useAdminTabAlertOverride } from "./AdminTabAlert";
-import OrderVolumeChart from "./AdminOrderVolumeChart";
 import AdminOverviewWidgets from "./AdminOverviewWidgets";
-import AdminRecentOrdersWidget from "./AdminRecentOrdersWidget";
-import { computeAdminOrderStats } from "./adminOrderUtils";
-import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import AdminMonthlyPerformanceChart from "./components/AdminMonthlyPerformanceChart";
+import AdminPartyLeaderboard from "./components/AdminPartyLeaderboard";
+import AdminProductLeaderboard from "./components/AdminProductLeaderboard";
+import AdminSalesLeaderboard from "./components/AdminSalesLeaderboard";
+import FeaturedProductSalesUserTable from "./components/FeaturedProductSalesUserTable";
+import FeaturedProductFeaturePartyTable from "./components/FeaturedProductFeaturePartyTable";
+import {
+  buildPendingReturnOrderIds,
+  computeAdminOrderStats,
+} from "./adminOrderUtils";
 import {
   useGetDashboardAdminQuery,
+  useListOrderReturnsQuery,
   useListOrdersQuery,
   useListPartiesQuery,
+  useListUsersQuery,
 } from "@/store/api";
 import { OverviewFlagsWidget } from "@/components/portal/shared/OverviewFlagsWidget";
 import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import {
   buildPartyNameById,
-  buildPartySraById,
+  pickList,
 } from "@/components/portal/sales/partyDisplay";
+import { buildUserNameById } from "@/components/portal/shared/userDisplay";
 import {
   FilePlus,
-  ClipboardList,
-  Users,
-  Package,
   RefreshCw,
-  ArrowRight,
-  Info,
 } from "lucide-react";
 
 export default function AdminOverview() {
-  // 1. Redux State & Hooks
   const user = useAppSelector((state) => state.auth.user);
   const userName =
     typeof user?.name === "string" ? user.name : "System Administrator";
 
   const {
-    data: kpiData,
     isFetching: isKpiFetching,
-    isError: isKpiError,
     refetch: refetchKpi,
   } = useGetDashboardAdminQuery();
 
   const {
     data: ordersData,
     isFetching: isOrdersFetching,
-    isError: isOrdersError,
     refetch: refetchOrders,
   } = useListOrdersQuery({});
 
   const { data: partiesData } = useListPartiesQuery({});
+  const { data: usersData } = useListUsersQuery({ department: "sales" });
+  const { data: returnsData } = useListOrderReturnsQuery({});
 
-
-
-  // 2. Data processing
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
-  const orderStats = useMemo(() => computeAdminOrderStats(orders), [orders]);
+  const pendingReturnOrderIds = useMemo(
+    () => buildPendingReturnOrderIds(pickList(returnsData)),
+    [returnsData],
+  );
+
+  const categoryOptions = useMemo(
+    () => ({ pendingReturnOrderIds }),
+    [pendingReturnOrderIds],
+  );
+
+  const orderStats = useMemo(
+    () => computeAdminOrderStats(orders, categoryOptions),
+    [orders, categoryOptions],
+  );
 
   useAdminTabAlertOverride(orderStats.pending_admin_approval.count);
-
-  const totalOrdersCount = useMemo(() => {
-    return orders.filter((o) => deriveOrderWorkflowStatus(o) !== "draft").length;
-  }, [orders]);
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
     [partiesData],
   );
 
-  const partySraById = useMemo(
-    () => buildPartySraById(partiesData),
-    [partiesData],
+  const userNameById = useMemo(
+    () => buildUserNameById(usersData),
+    [usersData],
   );
 
-  const recentOrders = useMemo(() => {
-    return [...orders]
-      .sort((a, b) => {
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTime - aTime; // descending (newest first)
-      })
-      .slice(0, 3);
-  }, [orders]);
-
-
-
-  // Combined refresh triggers rotation animation
   const [isRefreshing, setIsRefreshing] = useState(false);
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -106,17 +101,6 @@ export default function AdminOverview() {
   const isAnyLoading =
     isKpiFetching || isOrdersFetching || isRefreshing;
 
-  // Compute stats for visualization (e.g. order mix)
-  const pendingAdminPercent =
-    totalOrdersCount > 0 ? (orderStats.pending_admin_approval.count / totalOrdersCount) * 100 : 0;
-  const pendingApprovalsPercent =
-    totalOrdersCount > 0 ? (orderStats.pending_approvals.count / totalOrdersCount) * 100 : 0;
-  const openPercent = totalOrdersCount > 0 ? (orderStats.open.count / totalOrdersCount) * 100 : 0;
-  const closedPercent = totalOrdersCount > 0 ? (orderStats.closed.count / totalOrdersCount) * 100 : 0;
-  const onHoldPercent = totalOrdersCount > 0 ? (orderStats.on_hold.count / totalOrdersCount) * 100 : 0;
-  const rejectedPercent = totalOrdersCount > 0 ? (orderStats.rejected.count / totalOrdersCount) * 100 : 0;
-  const cancelledPercent = totalOrdersCount > 0 ? (orderStats.cancelled.count / totalOrdersCount) * 100 : 0;
-
   return (
     <div className="space-y-8 pb-10">
       {/* HEADER SECTION */}
@@ -134,12 +118,14 @@ export default function AdminOverview() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <OverviewFlagsWidget currentDepartment="admin" variant="headerButton" />
+
           <button
             type="button"
             onClick={handleRefresh}
             disabled={isAnyLoading}
-            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
           >
             <RefreshCw
               className={`h-4 w-4 text-slate-500 dark:text-slate-400 ${isAnyLoading ? "animate-spin" : ""
@@ -159,238 +145,43 @@ export default function AdminOverview() {
       </div>
 
       {/* KPI METRICS WIDGETS */}
-      <AdminOverviewWidgets orders={orders} isOrdersFetching={isOrdersFetching} />
+      <AdminOverviewWidgets
+        orders={orders}
+        isOrdersFetching={isOrdersFetching}
+        categoryOptions={categoryOptions}
+      />
 
-      {/* ANALYTICS CHART SECTION */}
-      <OrderVolumeChart orders={orders} isOrdersFetching={isOrdersFetching} />
+      <AdminMonthlyPerformanceChart
+        orders={orders}
+        isOrdersFetching={isOrdersFetching}
+      />
 
-      {/* QUICK ACTIONS GRID */}
-      <div className="space-y-3">
-        <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-          Management Controls
-        </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Link
-            href="/admin/create-order"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-blue-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-blue-50 p-2 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400">
-                <FilePlus className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-150">
-                Create Order Draft
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
-                Start order draft with specific salesmen and party records.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-medium text-blue-600 dark:text-blue-400 font-sans">
-              Create Order
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          <Link
-            href="/admin/orders"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-violet-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-violet-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-violet-50 p-2 text-violet-600 dark:bg-violet-950/30 dark:text-violet-400">
-                <ClipboardList className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-150">
-                System Orders
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
-                Access order index, details, history, delete items, or force updates.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-medium text-violet-600 dark:text-violet-400 font-sans">
-              View pipeline
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          <Link
-            href="/admin/parties"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-teal-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-teal-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-teal-50 p-2 text-teal-600 dark:bg-teal-950/30 dark:text-teal-400">
-                <Users className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-150">
-                Party directory
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
-                Add counterparty profiles, billing contacts, and account settings.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-medium text-teal-600 dark:text-teal-400 font-sans">
-              Manage profiles
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          <Link
-            href="/admin/products"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-amber-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-amber-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/30 dark:text-amber-450">
-                <Package className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-150">
-                Product Inventory
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
-                Browse catalogue item rates, product descriptions, packaging, and details.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-medium text-amber-650 dark:text-amber-450 font-sans">
-              Browse inventory
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        <AdminProductLeaderboard
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        />
+        <AdminPartyLeaderboard
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+          partyNameById={partyNameById}
+        />
+        <AdminSalesLeaderboard
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+          userNameById={userNameById}
+        />
       </div>
 
-      {/* TWO COLUMN GRID: RECENT ORDERS & STATS / FLAGS */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* RECENT ORDERS FEED */}
-        <AdminRecentOrdersWidget
-          recentOrders={recentOrders}
+      <div className="space-y-6">
+        <FeaturedProductSalesUserTable
+          orders={orders}
           isOrdersFetching={isOrdersFetching}
-          isOrdersError={isOrdersError}
-          partyNameById={partyNameById}
-          partySraById={partySraById}
         />
-
-        {/* SIDE COLUMN: STATS & SYSTEM FLAGS */}
-        <div className="space-y-6">
-          {/* STATS VISUALIZATION PANEL */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900">
-            <h3 className="font-bold text-slate-900 dark:text-slate-100">
-              System Order Distribution
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Breakdown of system-wide statuses in pipeline
-            </p>
-
-            <div className="mt-4">
-              {isOrdersFetching ? (
-                <div className="h-6 w-full animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
-              ) : totalOrdersCount > 0 ? (
-                <div className="space-y-4">
-                  {/* Stacked Segmented Progress Bar */}
-                  <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                    <div
-                      className="bg-purple-500 transition-all duration-500"
-                      style={{ width: `${pendingAdminPercent}%` }}
-                      title={`Pending Admin Approval: ${orderStats.pending_admin_approval.count}`}
-                    />
-                    <div
-                      className="bg-violet-500 transition-all duration-500"
-                      style={{ width: `${pendingApprovalsPercent}%` }}
-                      title={`Pending Approvals (all depts): ${orderStats.pending_approvals.count}`}
-                    />
-                    <div
-                      className="bg-blue-500 transition-all duration-500"
-                      style={{ width: `${openPercent}%` }}
-                      title={`Open: ${orderStats.open.count}`}
-                    />
-                    <div
-                      className="bg-emerald-500 transition-all duration-500"
-                      style={{ width: `${closedPercent}%` }}
-                      title={`Closed: ${orderStats.closed.count}`}
-                    />
-                    <div
-                      className="bg-amber-500 transition-all duration-500"
-                      style={{ width: `${onHoldPercent}%` }}
-                      title={`On Hold: ${orderStats.on_hold.count}`}
-                    />
-                    <div
-                      className="bg-red-500 transition-all duration-500"
-                      style={{ width: `${rejectedPercent}%` }}
-                      title={`Rejected: ${orderStats.rejected.count}`}
-                    />
-                    <div
-                      className="bg-rose-500 transition-all duration-500"
-                      style={{ width: `${cancelledPercent}%` }}
-                      title={`Cancelled: ${orderStats.cancelled.count}`}
-                    />
-                  </div>
-
-                  {/* Legend Grid */}
-                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] font-medium pt-1">
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
-                      <span className="h-2 w-2 rounded-full bg-purple-500 shrink-0" />
-                      <span>Pending Admin:</span>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {orderStats.pending_admin_approval.count} ({pendingAdminPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
-                      <span className="h-2 w-2 rounded-full bg-violet-500 shrink-0" />
-                      <span>Pending Approvals:</span>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {orderStats.pending_approvals.count} ({pendingApprovalsPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
-                      <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" />
-                      <span>Open:</span>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {orderStats.open.count} ({openPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                      <span>Closed:</span>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {orderStats.closed.count} ({closedPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
-                      <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
-                      <span>On Hold:</span>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {orderStats.on_hold.count} ({onHoldPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
-                      <span className="h-2 w-2 rounded-full bg-red-500 shrink-0" />
-                      <span>Rejected:</span>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {orderStats.rejected.count} ({rejectedPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-455">
-                      <span className="h-2 w-2 rounded-full bg-rose-500 shrink-0" />
-                      <span>Cancelled:</span>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 ml-auto">
-                        {orderStats.cancelled.count} ({cancelledPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 rounded-lg bg-slate-50 p-4 text-xs text-slate-500 dark:bg-slate-950/20 dark:text-slate-400">
-                  <Info className="h-4 w-4 text-slate-400 shrink-0" />
-                  No order data to visualize. Start by logging an order in the console.
-                </div>
-              )}
-            </div>
-          </div>
-          <OverviewFlagsWidget currentDepartment="admin" />
-        </div>
+        <FeaturedProductFeaturePartyTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        />
       </div>
     </div>
   );

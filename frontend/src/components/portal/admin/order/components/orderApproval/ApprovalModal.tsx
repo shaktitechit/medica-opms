@@ -24,6 +24,10 @@ import {
   type MapOrderLinePriceSuccess,
   type MapOrderLinePriceTarget,
 } from "@/components/portal/shared/MapOrderLinePriceModal";
+import {
+  largeModalBackdropClass,
+  largeModalPanelClass,
+} from "@/components/portal/shared/modalLayout";
 
 type ApprovalLineStatus =
   | "fully_approved"
@@ -469,8 +473,8 @@ export function ApprovalModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-55 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900">
+    <div className={`${largeModalBackdropClass} z-55`}>
+      <div className={largeModalPanelClass}>
         <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4 dark:border-white/5">
           <div>
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">

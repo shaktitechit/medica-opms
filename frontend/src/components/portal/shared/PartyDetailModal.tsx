@@ -62,6 +62,7 @@ type PartyState = {
   state: string;
   payment_terms: string;
   is_active: boolean;
+  is_featured: boolean;
   sra: boolean;
   sra_from_date: string;
   sra_to_date: string;
@@ -93,6 +94,7 @@ const defaultPartyState = (): PartyState => ({
   state: "",
   payment_terms: "",
   is_active: true,
+  is_featured: false,
   sra: false,
   sra_from_date: "",
   sra_to_date: "",
@@ -167,6 +169,7 @@ export function PartyDetailModal({
         state: stringField(p.state),
         payment_terms: stringField(p.payment_terms),
         is_active: p.is_active !== false,
+        is_featured: p.is_featured === true,
         sra: p.sra === true,
         sra_from_date: toDateString(p.sra_from_date),
         sra_to_date: toDateString(p.sra_to_date),
@@ -265,7 +268,8 @@ export function PartyDetailModal({
         if (!valsEqual(form.district, pObj.district)) patch.district = form.district;
         if (!valsEqual(form.state, pObj.state)) patch.state = form.state;
         if (!valsEqual(form.payment_terms, pObj.payment_terms)) patch.payment_terms = form.payment_terms;
-        if (form.is_active !== pObj.is_active) patch.is_active = form.is_active;
+        if (form.is_active !== (pObj.is_active !== false)) patch.is_active = form.is_active;
+        if (form.is_featured !== (pObj.is_featured === true)) patch.is_featured = form.is_featured;
         if (form.sra !== pObj.sra) patch.sra = form.sra;
         const nextFromDate = form.sra ? (form.sra_from_date || null) : null;
         if (!valsEqual(nextFromDate, pObj.sra_from_date ? toDateString(pObj.sra_from_date) : null)) {
@@ -513,6 +517,20 @@ export function PartyDetailModal({
                   />
                   <label htmlFor="party-active" className="text-sm font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
                     Is Active Profile
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="party-featured"
+                    className="h-4 w-4 rounded border-slate-300 bg-white text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950 cursor-pointer"
+                    checked={form.is_featured}
+                    onChange={(e) => setForm((f) => ({ ...f, is_featured: e.target.checked }))}
+                    disabled={isSaving}
+                  />
+                  <label htmlFor="party-featured" className="text-sm font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                    Featured Party
                   </label>
                 </div>
 

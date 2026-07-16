@@ -73,6 +73,7 @@ type ProductState = {
   aliases: string; // Comma separated
   tags: string; // Comma separated
   is_active: boolean;
+  is_featured: boolean;
 };
 
 const defaultProductState = (): ProductState => ({
@@ -93,6 +94,7 @@ const defaultProductState = (): ProductState => ({
   aliases: "",
   tags: "",
   is_active: true,
+  is_featured: false,
 });
 
 export function ProductDetailModal({
@@ -141,6 +143,7 @@ export function ProductDetailModal({
         aliases: als,
         tags: tgs,
         is_active: p.is_active !== false,
+        is_featured: p.is_featured === true,
       });
     } else if (create) {
       setForm(defaultProductState());
@@ -214,6 +217,7 @@ export function ProductDetailModal({
       aliases: aliasesArr,
       tags: tagsArr,
       is_active: form.is_active,
+      is_featured: form.is_featured,
     };
 
     try {
@@ -255,7 +259,8 @@ export function ProductDetailModal({
           patch.tags = tagsArr;
         }
 
-        if (form.is_active !== pObj.is_active) patch.is_active = form.is_active;
+        if (form.is_active !== (pObj.is_active !== false)) patch.is_active = form.is_active;
+        if (form.is_featured !== (pObj.is_featured === true)) patch.is_featured = form.is_featured;
 
         if (Object.keys(patch).length === 0) {
           toast.info("No modifications detected");
@@ -536,18 +541,33 @@ export function ProductDetailModal({
                 />
               </div>
 
-              <div className="flex items-center gap-2 mt-7">
-                <input
-                  type="checkbox"
-                  id="pm-active"
-                  className="h-4 w-4 rounded border-slate-300 bg-white text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950"
-                  checked={form.is_active}
-                  onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
-                  disabled={isSaving}
-                />
-                <label htmlFor="pm-active" className="text-sm font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
-                  Is Catalog Active
-                </label>
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mt-7">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="pm-active"
+                    className="h-4 w-4 rounded border-slate-300 bg-white text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950"
+                    checked={form.is_active}
+                    onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
+                    disabled={isSaving}
+                  />
+                  <label htmlFor="pm-active" className="text-sm font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                    Is Catalog Active
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="pm-featured"
+                    className="h-4 w-4 rounded border-slate-300 bg-white text-blue-600 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950"
+                    checked={form.is_featured}
+                    onChange={(e) => setForm((f) => ({ ...f, is_featured: e.target.checked }))}
+                    disabled={isSaving}
+                  />
+                  <label htmlFor="pm-featured" className="text-sm font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                    Featured Product
+                  </label>
+                </div>
               </div>
             </div>
           )}

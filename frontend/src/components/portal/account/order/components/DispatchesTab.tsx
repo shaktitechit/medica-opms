@@ -352,7 +352,6 @@ export function DispatchesTab({
                   <div className="space-y-6">
                     {group.dispatches.map((disp: any) => {
               const dispId = String(disp._id ?? disp.id ?? "");
-              const dispatchStatus = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
               const dispatchItems = Array.isArray(disp.dispatch_items) ? disp.dispatch_items : disp.items || [];
 
               const packedByVal = disp.packed_by;
@@ -404,17 +403,6 @@ export function DispatchesTab({
                             Release: {typeof disp.finance_approval === "object" ? disp.finance_approval.approval_no : disp.finance_approval}
                           </span>
                         )}
-                        <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            dispatchStatus === "cancelled"
-                              ? "bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400"
-                              : dispatchStatus === "fully_dispatched"
-                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400"
-                              : "bg-blue-50 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400"
-                          }`}
-                        >
-                          {dispatchStatus.replace(/_/g, " ")}
-                        </span>
                       </div>
                       <p className="mt-1 text-xs text-slate-500">
                         Dispatch Date: {formatDate(disp.dispatched_at ?? disp.dispatch_date)}

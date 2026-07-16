@@ -107,6 +107,9 @@ export function ApprovalTab({ orderId, detail }: ApprovalTabProps) {
               const accountApprovedByLabel = resolveUserDisplay(app.account_approved_by, userNameById);
               const accountApprovedAtLabel = formatDate(app.account_approved_at);
 
+              const salesSubmittedByLabel = resolveUserDisplay(app.sales_submitted_by, userNameById);
+              const salesSubmittedAtLabel = formatDate(app.sales_submitted_at);
+
               const items = Array.isArray(app.approval_items) ? (app.approval_items as Record<string, unknown>[]) : [];
 
               return (
@@ -167,6 +170,12 @@ export function ApprovalTab({ orderId, detail }: ApprovalTabProps) {
                       </div>
 
                       <div className="mt-2 space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        {Boolean(app.is_sales_submited) && (
+                          <p>
+                            <b>Sales:</b> Submitted by <span className="font-medium text-slate-700 dark:text-slate-200">{salesSubmittedByLabel}</span>
+                            {salesSubmittedAtLabel !== "—" ? <span className="tabular-nums"> at {salesSubmittedAtLabel}</span> : null}
+                          </p>
+                        )}
                         <p>
                           <b>Admin:</b>{" "}
                           {app.is_admin_approved ? (
@@ -202,13 +211,12 @@ export function ApprovalTab({ orderId, detail }: ApprovalTabProps) {
                       </h4>
                       <div className="overflow-x-auto rounded-lg border border-slate-200/90 dark:border-white/10">
                         <table className="w-full min-w-[700px] text-left font-sans text-xs">
-                          <thead className="bg-slate-50 dark:bg-slate-950">
+                          <thead className="bg-slate-50 dark:bg-slate-955">
                             <tr>
                               <th className="px-3 py-2 font-medium">Product</th>
                               <th className="px-3 py-2 font-medium">Rate Type</th>
                               <th className="px-3 py-2 font-medium text-right">Batch Qty</th>
                               <th className="px-3 py-2 font-medium text-right">Approve Qty</th>
-                              <th className="px-3 py-2 font-medium">Line Status</th>
                               <th className="px-3 py-2 font-medium">Remarks</th>
                             </tr>
                           </thead>
@@ -266,11 +274,6 @@ export function ApprovalTab({ orderId, detail }: ApprovalTabProps) {
                                         </span>
                                       ) : null}
                                     </div>
-                                  </td>
-                                  <td
-                                    className={`px-3 py-2 font-medium ${lineApprovalBadgeClass(lineStatus)}`}
-                                  >
-                                    {formatStatus(lineStatus)}
                                   </td>
                                   <td
                                     className="max-w-[180px] truncate px-3 py-2 italic text-slate-500 dark:text-slate-450"

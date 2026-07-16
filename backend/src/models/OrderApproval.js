@@ -16,6 +16,9 @@ const orderApprovalSchema = new mongoose.Schema(
     rejected_total_amount: { type: Number, default: 0 },
 
     // Decisions/Signatures for Sales/Admin
+    is_sales_submited: { type: Boolean, default: false },
+    sales_submitted_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    sales_submitted_at: Date,
     is_admin_approved: { type: Boolean, default: false },
     admin_approved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     admin_approved_at: Date,

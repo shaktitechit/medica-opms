@@ -64,35 +64,21 @@ const extendedPaths = {
       responses: stdResponses.getList,
     },
   },
-  '/api/orders/{id}/close-with-returns': {
+  '/api/orders/{id}/close': {
     post: {
       tags: ['orders'],
-      summary: 'Account close after returns (legacy sync path)',
-      description: 'Department: **account**, **admin**, or **super_admin**. Applies returned quantities and closes order.',
-      security: [{ bearerAuth: [] }],
-      parameters: idPath,
-      requestBody: {
-        content: {
-          'application/json': {
-            schema: { $ref: '#/components/schemas/OrderSettleClose' },
-          },
-        },
-      },
-      responses: stdResponses.mutate,
-    },
-  },
-  '/api/orders/{id}/settle-and-close': {
-    post: {
-      tags: ['orders'],
-      summary: 'Account settle & close',
+      summary: 'Close order',
       description:
-        'Resolves pending finance releases, settles dispatch returns, recalculates commercials, closes order. May queue async job.',
+        'Marks the order status as closed and workflow stage as completed without changing quantities, approvals, returns, or commercial totals.',
       security: [{ bearerAuth: [] }],
       parameters: idPath,
       requestBody: {
         content: {
           'application/json': {
-            schema: { $ref: '#/components/schemas/OrderSettleClose' },
+            schema: {
+              type: 'object',
+              properties: { remarks: { type: 'string' } },
+            },
           },
         },
       },
@@ -267,21 +253,44 @@ const extendedPaths = {
       security: [{ bearerAuth: [] }],
       responses: stdResponses.getList,
     },
-    post: {
-      tags: ['order-deliveries'],
-      summary: 'Create delivery record',
-      security: [{ bearerAuth: [] }],
-      requestBody: { content: { 'application/json': { schema: { $ref: '#/components/schemas/OrderDeliveryCreate' } } } },
-      responses: stdResponses.mutate,
-    },
   },
   '/api/order-deliveries/log-shipment': {
     post: {
       tags: ['order-deliveries'],
-      summary: 'Log shipment delivery outcome',
-      description: 'Creates delivery and optional return records; enqueues background jobs.',
+      summary: 'Log full shipment delivery',
+      description:
+        'Creates a full delivery record. Every dispatched product and quantity must be included; partial delivery and return lines are rejected.',
       security: [{ bearerAuth: [] }],
-      requestBody: { content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } },
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['order', 'dispatch', 'transport', 'delivery_type', 'delivery_items'],
+              properties: {
+                order: { type: 'string' },
+                dispatch: { type: 'string' },
+                transport: { type: 'string' },
+                delivery_type: { type: 'string', enum: ['full'] },
+                delivery_items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['product', 'delivered_quantity'],
+                    properties: {
+                      product: { type: 'string' },
+                      delivered_quantity: { type: 'number', minimum: 0 },
+                      remarks: { type: 'string' },
+                    },
+                  },
+                },
+                received_by: { type: 'string' },
+                remarks: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
       responses: stdResponses.mutate,
     },
   },
@@ -640,38 +649,6 @@ const extendedPaths = {
 };
 
 const extendedSchemas = {
-  OrderSettleClose: {
-    type: 'object',
-    properties: {
-      remarks: { type: 'string' },
-      amendment_notes: { type: 'string' },
-      extra_charges: { type: 'number', minimum: 0 },
-      penalty_amount: { type: 'number', minimum: 0 },
-      damage_charge: { type: 'number', minimum: 0 },
-    },
-  },
-  OrderDeliveryCreate: {
-    type: 'object',
-    required: ['order', 'dispatch', 'delivery_items'],
-    properties: {
-      order: { type: 'string' },
-      dispatch: { type: 'string' },
-      transport: { type: 'string' },
-      delivery_status: { type: 'string', enum: ['pending', 'delivered', 'failed', 'returned'] },
-      delivery_items: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            product: { type: 'string' },
-            delivered_quantity: { type: 'number', minimum: 0 },
-            remarks: { type: 'string' },
-          },
-        },
-      },
-      remarks: { type: 'string' },
-    },
-  },
   OrderReturnCreate: {
     type: 'object',
     required: ['order', 'return_items'],

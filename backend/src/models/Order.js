@@ -17,7 +17,7 @@ const ORDER_LIFECYCLE_STATUS = [
   "active",
   "partially_fulfilled",
   "fulfilled",
-  "closed", // legacy only — new settlement close uses fulfilled + status closed
+  "closed", // legacy lifecycle value; terminal state is represented by status=closed
   "cancelled",
   "on_hold",
 ];
@@ -239,6 +239,10 @@ const orderSchema = new mongoose.Schema(
 
     expected_delivery_date: Date,
 
+    /**
+     * Derived from expected_delivery_date on save / API read:
+     * >10 days → low, 5–10 → normal, 3–4 → high, ≤2 / past → urgent.
+     */
     priority: {
       type: String,
       enum: ["low", "normal", "high", "urgent"],
@@ -263,10 +267,9 @@ const orderSchema = new mongoose.Schema(
     /* ----- Status (three layers) -----
      * lifecycle_status — business outcome (draft → active → partially_fulfilled → fulfilled)
      * workflow_stage   — owning department / pipeline stage
-     * status           — workflow queue position (terminal settlement: closed)
+     * status           — workflow queue position (terminal state: closed)
      *
-     * Account settle & close sets:
-     *   lifecycle_status = fulfilled
+     * Account close sets:
      *   workflow_stage   = completed
      *   status           = closed
      *   closed_at        = timestamp

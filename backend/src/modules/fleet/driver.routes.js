@@ -8,7 +8,7 @@ const { requireAuth, requireSoftDeletePermission } = require('../../middlewares/
 const { requireDepartment } = require('../../middlewares/dept.middleware');
 const controller = require('./driver.controller');
 
-router.use(requireAuth, requireDepartment('dispatch', 'admin'));
+router.use(requireAuth, requireDepartment('dispatch', 'admin','account','finance'));
 
 router.get('/deleted', controller.listDeleted);
 router.get('/', controller.list);

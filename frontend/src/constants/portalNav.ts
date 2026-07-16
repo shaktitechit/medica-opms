@@ -13,60 +13,105 @@ export const PORTALS = [
 
 export type PortalKey = (typeof PORTALS)[number];
 
+export type PortalNavChild = {
+  label: string;
+  /** Query string appended to the parent href (e.g. "by=workflow"). */
+  query: string;
+  /** Matches a key from `NAV_ICON_MAP` in `NavIcon.tsx`. */
+  icon: string;
+};
+
 export type PortalNavLeaf = {
   /** URL segments after `/portal` (none = overview at `/portal`). */
   segments: readonly string[];
   label: string;
   /** Matches a key from `NAV_ICON_MAP` in `NavIcon.tsx`. */
   icon: string;
+  /** Dropdown sub-items; first child is the default view. */
+  children?: readonly PortalNavChild[];
 };
 
 export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
   admin: [
     { segments: [], label: "Overview", icon: "LayoutDashboard" },
-    { segments: ["orders"], label: "Orders", icon: "ClipboardList" },
+    {
+      segments: ["orders"],
+      label: "Order Master",
+      icon: "ClipboardList",
+      children: [
+        { label: "Orders by Workflow", query: "by=workflow", icon: "GanttChart" },
+        { label: "Orders by Priority", query: "by=priority", icon: "Flag" },
+      ],
+    },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
-    { segments: ["parties"], label: "Parties", icon: "Users" },
-    { segments: ["products"], label: "Products", icon: "Package" },
+    { segments: ["parties"], label: "Party Master", icon: "Users" },
+    { segments: ["products"], label: "Product Master", icon: "Package" },
+    { segments: ["transport-agents"], label: "Transport Agent Master", icon: "Building2" },
   ],
   sales: [
     { segments: [], label: "Overview", icon: "LayoutDashboard" },
-    { segments: ["orders"], label: "Orders", icon: "ClipboardList" },
+    {
+      segments: ["orders"],
+      label: "Order Master",
+      icon: "ClipboardList",
+      children: [
+        { label: "Orders by Workflow", query: "by=workflow", icon: "GanttChart" },
+        { label: "Orders by Priority", query: "by=priority", icon: "Flag" },
+      ],
+    },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
   ],
   finance: [
     { segments: [], label: "Overview", icon: "LayoutDashboard" },
     {
       segments: ["orders"],
-      label: "Orders",
+      label: "Order Master",
       icon: "ClipboardCheck",
+      children: [
+        { label: "Orders by Workflow", query: "by=workflow", icon: "GanttChart" },
+        { label: "Orders by Priority", query: "by=priority", icon: "Flag" },
+      ],
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
-    { segments: ["parties"], label: "Parties", icon: "Users" },
-    { segments: ["products"], label: "Products", icon: "Package" },
+    { segments: ["parties"], label: "Party Master", icon: "Users" },
+    { segments: ["products"], label: "Product Master", icon: "Package" },
+    { segments: ["transport-agents"], label: "Transport Agent Master", icon: "Building2" },
   ],
   account: [
     { segments: [], label: "Overview", icon: "LayoutDashboard" },
     {
       segments: ["orders"],
-      label: "Orders",
+      label: "Order Master",
       icon: "ClipboardCheck",
+      children: [
+        { label: "Orders by Workflow", query: "by=workflow", icon: "GanttChart" },
+        { label: "Orders by Priority", query: "by=priority", icon: "Flag" },
+      ],
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
-    { segments: ["parties"], label: "Parties", icon: "Users" },
-    { segments: ["products"], label: "Products", icon: "Package" },
+    { segments: ["parties"], label: "Party Master", icon: "Users" },
+    { segments: ["products"], label: "Product Master", icon: "Package" },
+    { segments: ["transport-agents"], label: "Transport Agent Master", icon: "Building2" },
   ],
   dispatch: [
     { segments: [], label: "Overview", icon: "LayoutDashboard" },
-    { segments: ["orders"], label: "Orders", icon: "Inbox" },
+    {
+      segments: ["orders"],
+      label: "Order Master",
+      icon: "Inbox",
+      children: [
+        { label: "Orders by Workflow", query: "by=workflow", icon: "GanttChart" },
+        { label: "Orders by Priority", query: "by=priority", icon: "Flag" },
+      ],
+    },
     { segments: ["transport-agents"], label: "Transport Agents", icon: "Building2" },
   ],
   super_admin: [
     { segments: [], label: "Overview", icon: "LayoutDashboard" },
     { segments: ["orders"], label: "All Orders", icon: "ClipboardList" },
     { segments: ["users"], label: "Users", icon: "Users" },
-    { segments: ["parties"], label: "Parties", icon: "Building2" },
-    { segments: ["products"], label: "Products", icon: "Package" },
+    { segments: ["parties"], label: "Party Master", icon: "Building2" },
+    { segments: ["products"], label: "Product Master", icon: "Package" },
   ],
 };
 

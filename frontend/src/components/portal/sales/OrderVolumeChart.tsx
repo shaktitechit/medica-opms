@@ -5,7 +5,9 @@ import { Info } from "lucide-react";
 import {
   createEmptySalesOrderStats,
   getOrderTabCategory,
-  SALES_ORDER_TABS,
+  SALES_CHART_TABS,
+  SALES_STATUS_COLORS,
+  type SalesOrderCategoryOptions,
   type SalesOrderTabCategory,
   type SalesOrderStats,
 } from "./orderUtils";
@@ -13,59 +15,16 @@ import {
 interface OrderVolumeChartProps {
   orders: any[];
   isOrdersFetching: boolean;
+  categoryOptions?: SalesOrderCategoryOptions;
 }
 
-const CHART_CATEGORY_KEYS = SALES_ORDER_TABS.map((tab) => tab.id);
+const CHART_CATEGORY_KEYS = SALES_CHART_TABS.map((tab) => tab.id);
 
-const STATUS_COLORS: Record<
-  SalesOrderTabCategory,
-  { fill: string; hover: string; dot: string; label: string }
-> = {
-  draft: {
-    fill: "fill-slate-400/85 dark:fill-slate-500/60",
-    hover: "fill-slate-500 dark:fill-slate-400",
-    dot: "bg-slate-400 dark:bg-slate-500",
-    label: "Draft",
-  },
-  pending_approval: {
-    fill: "fill-purple-500/85 dark:fill-purple-500/60",
-    hover: "fill-purple-600 dark:fill-purple-400",
-    dot: "bg-purple-500 dark:bg-purple-400",
-    label: "Pending Approval",
-  },
-  open: {
-    fill: "fill-blue-500/85 dark:fill-blue-500/60",
-    hover: "fill-blue-600 dark:fill-blue-400",
-    dot: "bg-blue-500 dark:bg-blue-400",
-    label: "Open",
-  },
-  closed: {
-    fill: "fill-emerald-500/85 dark:fill-emerald-550/60",
-    hover: "fill-emerald-600 dark:fill-emerald-400",
-    dot: "bg-emerald-500 dark:bg-emerald-450",
-    label: "Closed",
-  },
-  on_hold: {
-    fill: "fill-amber-500/85 dark:fill-amber-500/60",
-    hover: "fill-amber-600 dark:fill-amber-400",
-    dot: "bg-amber-500 dark:bg-amber-450",
-    label: "On Hold",
-  },
-  rejected: {
-    fill: "fill-red-500/85 dark:fill-red-550/60",
-    hover: "fill-red-600 dark:fill-red-400",
-    dot: "bg-red-500 dark:bg-red-450",
-    label: "Rejected",
-  },
-  cancelled: {
-    fill: "fill-rose-500/85 dark:fill-rose-500/60",
-    hover: "fill-rose-600 dark:fill-rose-450",
-    dot: "bg-rose-500 dark:bg-rose-400",
-    label: "Cancelled",
-  },
-};
-
-export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolumeChartProps) {
+export default function OrderVolumeChart({
+  orders,
+  isOrdersFetching,
+  categoryOptions,
+}: OrderVolumeChartProps) {
   const [showMetric, setShowMetric] = useState<"orders" | "quantities">("orders");
   const [timeframe, setTimeframe] = useState<"monthly" | "daily">("monthly");
   const [hoveredBarIndex, setHoveredBarIndex] = useState<number | null>(null);
@@ -102,7 +61,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const bucket = months.find((m) => m.key === key);
       if (bucket) {
-        const cat = getOrderTabCategory(o);
+        const cat = getOrderTabCategory(o, categoryOptions);
         bucket.ordersCount++;
         bucket.breakdown[cat].count++;
         const items = Array.isArray(o.order_items) ? o.order_items : [];
@@ -116,7 +75,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
     });
 
     return months;
-  }, [orders]);
+  }, [orders, categoryOptions]);
 
   const dailyData = useMemo(() => {
     type ChartBucket = {
@@ -148,7 +107,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const bucket = days.find((day) => day.key === key);
       if (bucket) {
-        const cat = getOrderTabCategory(o);
+        const cat = getOrderTabCategory(o, categoryOptions);
         bucket.ordersCount++;
         bucket.breakdown[cat].count++;
         const items = Array.isArray(o.order_items) ? o.order_items : [];
@@ -162,7 +121,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
     });
 
     return days;
-  }, [orders]);
+  }, [orders, categoryOptions]);
 
   const activeData = timeframe === "monthly" ? monthlyData : dailyData;
 
@@ -250,7 +209,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
       {/* Legend */}
       <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-100/50 pb-3 dark:border-white/5">
         {CHART_CATEGORY_KEYS.map((key) => {
-          const colorInfo = STATUS_COLORS[key];
+          const colorInfo = SALES_STATUS_COLORS[key];
           return (
             <div key={key} className="flex items-center gap-1.5">
               <span className={`h-2.5 w-2.5 rounded-full ${colorInfo.dot}`} />
@@ -339,7 +298,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
                     const segmentY = currentY - segmentHeight;
                     currentY = segmentY;
 
-                    const colorInfo = STATUS_COLORS[statusKey];
+                    const colorInfo = SALES_STATUS_COLORS[statusKey];
 
                     return (
                       <rect
@@ -387,7 +346,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
                     const segmentVal = showMetric === "orders" ? stats.count : stats.quantity;
                     return {
                       key,
-                      label: STATUS_COLORS[key].label,
+                      label: SALES_STATUS_COLORS[key].label,
                       val: segmentVal,
                     };
                   })
@@ -423,7 +382,7 @@ export default function OrderVolumeChart({ orders, isOrdersFetching }: OrderVolu
 
                     {activeBreakdowns.map((ab, idx) => {
                       const lineY = tooltipY + 26 + idx * 12;
-                      const colorInfo = STATUS_COLORS[ab.key];
+                      const colorInfo = SALES_STATUS_COLORS[ab.key];
                       return (
                         <g key={ab.key}>
                           <circle cx={x - 48} cy={lineY - 3} r={3} className={colorInfo.hover} />

@@ -50,6 +50,8 @@ const partySchema = new mongoose.Schema(
     /** Trace import from legacy Customer document during migration */
     legacy_customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", unique: true, sparse: true },
     is_active: { type: Boolean, default: true },
+    /** Highlighted / featured party for catalogs and dashboards */
+    is_featured: { type: Boolean, default: false, index: true },
     sra: { type: Boolean, default: false },
     sra_from_date: { type: Date, default: null },
     sra_to_date: { type: Date, default: null },
@@ -61,5 +63,6 @@ const partySchema = new mongoose.Schema(
 
 partySchema.index({ party_name: 1 });
 partySchema.index({ gst_no: 1 }, { sparse: true });
+partySchema.index({ is_featured: 1, is_active: 1 });
 
 export default mongoose.models.Party || mongoose.model("Party", partySchema);

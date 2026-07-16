@@ -6,6 +6,8 @@ import { getOrderListTabIcon } from "./orderListTabIcons";
 
 type TabItem = { id: string; label: string };
 
+type FilterOption = { value: string; label: string };
+
 type OrderListBottomTabStripProps = {
   tabs: readonly TabItem[];
   activeTab: string;
@@ -16,6 +18,10 @@ type OrderListBottomTabStripProps = {
   onClearSearch: () => void;
   priorityFilter: string;
   onPriorityFilterChange: (value: string) => void;
+  /** Label for the right-corner select (defaults to "Priority"). */
+  filterLabel?: string;
+  /** Options for the right-corner select (defaults to All + priority levels). */
+  filterOptions?: readonly FilterOption[];
   showReset?: boolean;
   onReset?: () => void;
   accentActiveClass?: string;
@@ -37,6 +43,8 @@ export function OrderListBottomTabStrip({
   onClearSearch,
   priorityFilter,
   onPriorityFilterChange,
+  filterLabel = "Priority",
+  filterOptions,
   showReset = false,
   onReset,
   accentActiveClass = defaultAccent,
@@ -107,19 +115,29 @@ export function OrderListBottomTabStrip({
 
         <div className={`flex shrink-0 items-center gap-2 border-t border-slate-100 px-4 dark:border-white/5 sm:border-t-0 ${filterPy}`}>
           <label className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-            Priority
+            {filterLabel}
           </label>
           <select
             value={priorityFilter}
             onChange={(e) => onPriorityFilterChange(e.target.value)}
             className="cursor-pointer rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100"
           >
-            <option value="all">All</option>
-            {PRIORITY_OPTIONS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
+            {filterOptions ? (
+              filterOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="all">All</option>
+                {PRIORITY_OPTIONS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </>
+            )}
           </select>
           {showReset && onReset && (
             <button

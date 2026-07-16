@@ -100,7 +100,18 @@ async function list({
       q.$or = driverClauses;
     }
   }
-  const rows = await getModels().TransportShipment.find(q).sort({ createdAt: -1 }).lean();
+  const rows = await getModels()
+    .TransportShipment.find(q)
+    .populate({
+      path: 'order',
+      select: 'order_no party customer',
+      populate: [
+        { path: 'party', select: 'party_name' },
+        { path: 'customer', select: 'party_name' },
+      ],
+    })
+    .sort({ createdAt: -1 })
+    .lean();
   return rows.map(toPlain);
 }
 

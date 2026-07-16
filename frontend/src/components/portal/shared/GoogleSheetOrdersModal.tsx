@@ -13,8 +13,9 @@ import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
   orderMatchesAdminTab,
+  adminTabQueryParams,
   ADMIN_ORDER_TABS,
-  type AdminOrderTabCategory
+  type AdminOrderTabCategory,
 } from "@/components/portal/admin/adminOrderUtils";
 import {
   useListOrdersQuery,
@@ -163,35 +164,10 @@ export function GoogleSheetOrdersModal({
     const base: Record<string, string | undefined> = {};
 
     if (activeSheetTab !== "all") {
-      switch (activeSheetTab) {
-        case "pending_admin_approval":
-          base.status = "pending_review";
-          break;
-        case "pending_finance_approval":
-          base.status = "pending_finance_review";
-          break;
-        case "pending_account_approval":
-          base.status = "pending_account_review";
-          break;
-        case "pending_approvals":
-          base.status = "pending_approval";
-          break;
-        case "on_hold":
-          base.status = "on_hold";
-          break;
-        case "cancelled":
-          base.status = "cancelled";
-          break;
-        case "rejected":
-          base.status = "finance_rejected";
-          break;
-        case "open":
-          base.exclude_status = "draft,submitted,on_hold,cancelled,finance_rejected";
-          break;
-        case "closed":
-          base.status = "closed";
-          break;
-      }
+      Object.assign(
+        base,
+        adminTabQueryParams(activeSheetTab as AdminOrderTabCategory),
+      );
     }
     return base;
   }, [activeSheetTab]);
@@ -452,15 +428,9 @@ export function GoogleSheetOrdersModal({
 
     // 0. Bottom Sheet Tab Category Filter
     if (activeSheetTab !== "all") {
-      // pending_finance_approval and pending_account_approval are pre-filtered by
-      // the backend queryParams, so no extra client-side filter is needed for them.
-      const adminOnlyTabs = new Set([
-        "pending_admin_approval", "pending_approvals", "open",
-        "closed", "on_hold", "cancelled", "rejected"
-      ]);
-      if (adminOnlyTabs.has(activeSheetTab)) {
-        rows = rows.filter(r => orderMatchesAdminTab(r.raw, activeSheetTab as any));
-      }
+      rows = rows.filter((r) =>
+        orderMatchesAdminTab(r.raw, activeSheetTab as AdminOrderTabCategory),
+      );
     }
 
     // 1. Text Search Filter
@@ -1164,69 +1134,59 @@ export function GoogleSheetOrdersModal({
             
               {/* Tab list */}
               <div className="flex items-center h-full relative top-[1px]">
-                <button
-                  onClick={() => setActiveSheetTab("all")}
-                  className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold cursor-pointer transition ${
-                    activeSheetTab === "all"
-                      ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
-                      : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
-                  }`}
-                >
-                  All Orders
-                </button>
+                {ADMIN_ORDER_TABS.filter(
+                  (tab) => portal === "admin" || tab.id !== "pending_admin_approval",
+                ).flatMap((tab) => {
+                  const tabBtn = (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveSheetTab(tab.id)}
+                      className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
+                        activeSheetTab === tab.id
+                          ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
+                          : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
 
-                {/* Portal-specific pending tab */}
-                {portal === "finance" && (
-                  <button
-                    onClick={() => setActiveSheetTab("pending_finance_approval")}
-                    className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
-                      activeSheetTab === "pending_finance_approval"
-                        ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
-                        : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    Pending Finance Approval
-                  </button>
-                )}
-                {portal === "account" && (
-                  <button
-                    onClick={() => setActiveSheetTab("pending_account_approval")}
-                    className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
-                      activeSheetTab === "pending_account_approval"
-                        ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
-                        : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    Pending Account Approval
-                  </button>
-                )}
-                {portal === "admin" && (
-                  <button
-                    onClick={() => setActiveSheetTab("pending_admin_approval")}
-                    className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
-                      activeSheetTab === "pending_admin_approval"
-                        ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
-                        : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    Pending Admin Approval
-                  </button>
-                )}
+                  // Insert portal-specific pending tab right after All Orders
+                  if (tab.id === "all" && portal === "finance") {
+                    return [
+                      tabBtn,
+                      <button
+                        key="pending_finance_approval"
+                        onClick={() => setActiveSheetTab("pending_finance_approval")}
+                        className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
+                          activeSheetTab === "pending_finance_approval"
+                            ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
+                            : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
+                        }`}
+                      >
+                        Pending Finance Approval
+                      </button>,
+                    ];
+                  }
+                  if (tab.id === "all" && portal === "account") {
+                    return [
+                      tabBtn,
+                      <button
+                        key="pending_account_approval"
+                        onClick={() => setActiveSheetTab("pending_account_approval")}
+                        className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
+                          activeSheetTab === "pending_account_approval"
+                            ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
+                            : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
+                        }`}
+                      >
+                        Pending Account Approval
+                      </button>,
+                    ];
+                  }
 
-                {/* Common tabs shared across all portals */}
-                {ADMIN_ORDER_TABS.filter(tab => tab.id !== "pending_admin_approval").map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveSheetTab(tab.id)}
-                    className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
-                      activeSheetTab === tab.id
-                        ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
-                        : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+                  return [tabBtn];
+                })}
               </div>
             </div>
 

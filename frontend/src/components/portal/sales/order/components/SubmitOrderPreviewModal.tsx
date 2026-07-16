@@ -1,6 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
+import {
+  largeModalBackdropClass,
+  largeModalPanelClass,
+} from "@/components/portal/shared/modalLayout";
 
 type SubmitOrderPreviewModalProps = {
   isOpen: boolean;
@@ -66,8 +70,8 @@ export default function SubmitOrderPreviewModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
-      <div className="flex w-full max-w-4xl max-h-[90vh] flex-col rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900">
+    <div className={largeModalBackdropClass}>
+      <div className={largeModalPanelClass}>
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-white/5">
           <div>
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">

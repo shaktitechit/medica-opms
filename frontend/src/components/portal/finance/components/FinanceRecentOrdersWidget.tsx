@@ -18,6 +18,7 @@ import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifec
 import {
   FINANCE_ORDER_TAB_LABELS,
   getFinanceOrderTabCategory,
+  type FinanceOrderCategoryOptions,
   type FinanceOrderTabCategory,
 } from "../financeOrderUtils";
 
@@ -27,6 +28,7 @@ interface FinanceRecentOrdersWidgetProps {
   isOrdersError: boolean;
   partyNameById: Map<string, string>;
   partySraById?: Map<string, boolean>;
+  categoryOptions?: FinanceOrderCategoryOptions;
 }
 
 function formatMoney(v: number): string {
@@ -82,19 +84,35 @@ function renderWorkflowStatusBadge(category: FinanceOrderTabCategory) {
   const label = FINANCE_ORDER_TAB_LABELS[category];
 
   switch (category) {
+    case "all":
+      bgClass =
+        "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+      break;
+    case "pending_admin_approval":
+      bgClass =
+        "bg-indigo-50 text-indigo-700 ring-indigo-600/10 dark:bg-indigo-950/30 dark:text-indigo-400 dark:ring-indigo-500/25";
+      break;
+    case "due_sheet_pending":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
     case "pending_finance_approval":
       bgClass =
         "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
       break;
-    case "pending_approvals":
+    case "pending_account_approval":
       bgClass =
         "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
       break;
-    case "open":
+    case "open_dispatched":
       bgClass =
         "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
       break;
-    case "closed":
+    case "transport_return_pending":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "closed_delivered":
       bgClass =
         "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
       break;
@@ -128,6 +146,7 @@ export default function FinanceRecentOrdersWidget({
   isOrdersError,
   partyNameById,
   partySraById,
+  categoryOptions,
 }: FinanceRecentOrdersWidgetProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -318,7 +337,7 @@ export default function FinanceRecentOrdersWidget({
 
               const orderDateStr = formatDateShort(o.order_date ?? o.created_at ?? o.createdAt);
               const expectedDeliveryStr = formatDateShort(o.expected_delivery_date);
-              const statusCategory = getFinanceOrderTabCategory(o);
+              const statusCategory = getFinanceOrderTabCategory(o, categoryOptions);
 
               let stripeColor = "bg-slate-350 dark:bg-slate-700";
               if (pri === "urgent") stripeColor = "bg-rose-500";
@@ -342,7 +361,7 @@ export default function FinanceRecentOrdersWidget({
                         {ref.slice(0, 12)}
                       </span>
                       {renderPriorityBadge(pri)}
-                      {renderWorkflowStatusBadge(statusCategory ?? "open")}
+                      {renderWorkflowStatusBadge(statusCategory ?? "open_dispatched")}
                     </div>
 
                     {/* Party Title */}

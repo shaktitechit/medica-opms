@@ -2,21 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Suspense } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { normalizeDepartment, portalSegmentLabel } from "@/constants/dashboardAccess";
 import { MedicaLogo } from "@/components/MedicaLogo";
 import { RoleBasedMenu } from "./RoleBasedMenu";
 import { useShellNav } from "./shell-nav-context";
-import { useDesktopSidebarCollapsed } from "./useDesktopSidebarCollapsed";
 import { useAppSelector } from "@/store";
 
 type SidebarProps = { portal: string };
 
 export function Sidebar({ portal }: SidebarProps) {
   const pathname = usePathname();
-  const { mobileNavOpen, closeMobileNav } = useShellNav();
-  const [desktopCollapsed, setDesktopCollapsed] = useDesktopSidebarCollapsed();
+  const { mobileNavOpen, closeMobileNav, desktopCollapsed, setDesktopCollapsed } =
+    useShellNav();
   const user = useAppSelector((s) => s.auth.user);
   const userDeptRaw =
     user && typeof user === "object" ? (user as { department?: string }).department : "";
@@ -78,11 +78,13 @@ export function Sidebar({ portal }: SidebarProps) {
         </button>
       </div>
 
-      <RoleBasedMenu
-        portal={portal}
-        onNavigate={closeMobileNav}
-        desktopCollapsed={desktopCollapsed}
-      />
+      <Suspense fallback={null}>
+        <RoleBasedMenu
+          portal={portal}
+          onNavigate={closeMobileNav}
+          desktopCollapsed={desktopCollapsed}
+        />
+      </Suspense>
 
       <div className="mt-auto hidden shrink-0 border-t border-slate-200/90 dark:border-white/10 lg:flex">
         <button

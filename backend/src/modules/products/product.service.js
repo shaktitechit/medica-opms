@@ -30,6 +30,7 @@ const PATCHABLE_KEYS = Object.freeze([
   'description',
   'tags',
   'is_active',
+  'is_featured',
 ]);
 
 function coerceNonNegNumber(raw, label) {
@@ -124,7 +125,7 @@ function sanitizePatch(patch) {
       continue;
     }
 
-    if (k === 'is_active') {
+    if (k === 'is_active' || k === 'is_featured') {
       out[k] = Boolean(v);
     }
   }
@@ -162,6 +163,15 @@ async function list(query = {}) {
       mongoFilter.is_active = { $ne: false };
     } else if (query.status === 'inactive') {
       mongoFilter.is_active = false;
+    }
+  }
+
+  if (query.is_featured != null && query.is_featured !== '' && query.is_featured !== 'all') {
+    const featuredRaw = String(query.is_featured).toLowerCase();
+    if (featuredRaw === 'true' || featuredRaw === '1') {
+      mongoFilter.is_featured = true;
+    } else if (featuredRaw === 'false' || featuredRaw === '0') {
+      mongoFilter.is_featured = { $ne: true };
     }
   }
 
@@ -231,6 +241,7 @@ async function create(body, user) {
     minimum_sale_rate: minSaleRate,
     gst_percent: gstPercent,
     is_active: body.is_active !== false,
+    is_featured: body.is_featured === true,
   };
 
   const desc = body.description != null ? String(body.description).trim() : '';
@@ -369,6 +380,7 @@ async function bulkCreate(items, user) {
       minimum_sale_rate: minSaleRate,
       gst_percent: gstPercent,
       is_active: item.is_active !== false,
+      is_featured: item.is_featured === true,
     };
 
     if (item.description != null && String(item.description).trim()) {
@@ -477,6 +489,10 @@ async function syncFromGoogleSheet(row) {
   const unitRaw = row.unit ? String(row.unit).trim().toLowerCase() : undefined;
   const activeRaw = row.is_active ?? row.active;
   const isActive = activeRaw !== undefined ? (String(activeRaw).toLowerCase() === 'true' || activeRaw === true || activeRaw === '1' || activeRaw === 1) : undefined;
+  const featuredRaw = row.is_featured ?? row.featured;
+  const isFeatured = featuredRaw !== undefined
+    ? (String(featuredRaw).toLowerCase() === 'true' || featuredRaw === true || featuredRaw === '1' || featuredRaw === 1)
+    : undefined;
 
   const payload = {};
   if (row.product_name || row.name) payload.product_name = String(row.product_name || row.name).trim();
@@ -513,6 +529,7 @@ async function syncFromGoogleSheet(row) {
   }
 
   if (isActive !== undefined) payload.is_active = isActive;
+  if (isFeatured !== undefined) payload.is_featured = isFeatured;
 
   if (doc) {
     for (const [k, v] of Object.entries(payload)) {

@@ -9,6 +9,10 @@ import {
 } from "@/store/api";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
+import {
+  largeModalBackdropClass,
+  largeModalPanelClass,
+} from "@/components/portal/shared/modalLayout";
 
 interface CreateReturnModalProps {
   open: boolean;
@@ -227,8 +231,8 @@ export function CreateReturnModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1.5px]">
-      <div className="w-full max-w-5xl rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900 flex flex-col max-h-[90vh]">
+    <div className={largeModalBackdropClass}>
+      <div className={largeModalPanelClass}>
         <header className="px-6 py-4 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
           <div>
             <h3 className="text-base font-bold text-slate-900 dark:text-slate-550 dark:text-slate-50 font-sans">

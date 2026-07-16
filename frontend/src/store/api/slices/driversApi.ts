@@ -57,7 +57,7 @@ export const driversApi = medicaApi.injectEndpoints({
       query: (body) => ({ url: "drivers", method: "POST", body }),
       transformResponse: (raw: ApiEnvelope<DriverRecord>) =>
         unwrapEnvelope(raw) as DriverRecord,
-      invalidatesTags: ["Drivers"],
+      invalidatesTags: [{ type: "Drivers", id: "LIST" }, "Drivers"],
     }),
     patchDriver: build.mutation<
       DriverRecord,

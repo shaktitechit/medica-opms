@@ -17,15 +17,18 @@ export function useDesktopSidebarCollapsed(): [
   boolean,
   SetCollapsed,
 ] {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
     try {
-      if (
-        typeof window !== "undefined" &&
-        localStorage.getItem(COLLAPSED_KEY) === "1"
-      ) {
-        setCollapsed(true);
+      if (typeof window !== "undefined") {
+        const stored = localStorage.getItem(COLLAPSED_KEY);
+        // If never set before, keep the default (true = collapsed).
+        // If explicitly stored, honour the stored value.
+        if (stored === "0") {
+          setCollapsed(false);
+        }
+        // stored === "1" or null → stay collapsed (default)
       }
     } catch {
       /* ignore */

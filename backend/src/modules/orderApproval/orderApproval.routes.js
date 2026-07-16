@@ -10,11 +10,11 @@ const controller = require('./orderApproval.controller');
 
 router.use(requireAuth);
 
-router.get('/deleted', requireDepartment('admin', 'super_admin', 'finance'), requireSoftDeletePermission, controller.listDeleted);
+router.get('/deleted', requireDepartment('sales', 'admin', 'super_admin', 'finance', 'account'), requireSoftDeletePermission, controller.listDeleted);
 router.get('/', controller.list);
-router.post('/', requireDepartment('admin', 'super_admin', 'finance'), controller.create);
+router.post('/', requireDepartment('sales', 'admin', 'super_admin', 'finance', 'account'), controller.create);
 router.get('/:id', controller.get);
-router.patch('/:id', requireDepartment('admin', 'super_admin', 'finance'), controller.patch);
+router.patch('/:id', requireDepartment('sales', 'admin', 'super_admin', 'finance', 'account'), controller.patch);
 router.post('/:id/approve', requireDepartment('admin', 'super_admin', 'finance', 'account'), controller.approve);
 router.post('/:id/reject', requireDepartment('admin', 'super_admin', 'finance', 'account'), controller.reject);
 router.post('/:id/send-to-finance', requireDepartment('admin', 'super_admin'), controller.sendToFinance);

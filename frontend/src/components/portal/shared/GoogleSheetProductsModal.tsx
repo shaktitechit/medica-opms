@@ -55,6 +55,7 @@ type ProductRow = {
   tags?: string[] | string;
   description?: string;
   is_active: boolean;
+  is_featured: boolean;
 };
 
 type SelectedCell = {
@@ -79,7 +80,8 @@ const COLUMNS: { key: keyof ProductRow; label: string; headerLetter: string; rea
   { key: "aliases", label: "Aliases", headerLetter: "N", type: "text" },
   { key: "tags", label: "Tags", headerLetter: "O", type: "text" },
   { key: "description", label: "Description", headerLetter: "P", type: "text" },
-  { key: "is_active", label: "Active", headerLetter: "Q", type: "boolean" }
+  { key: "is_active", label: "Active", headerLetter: "Q", type: "boolean" },
+  { key: "is_featured", label: "Featured", headerLetter: "R", type: "boolean" },
 ];
 
 function pickList(raw: unknown): unknown[] {
@@ -114,6 +116,7 @@ export function GoogleSheetProductsModal({
   // Filter panel toggle & criteria states
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [filterActiveStatus, setFilterActiveStatus] = useState<"all" | "active" | "inactive">("all");
+  const [filterFeaturedStatus, setFilterFeaturedStatus] = useState<"all" | "featured" | "not_featured">("all");
   const [filterGstRate, setFilterGstRate] = useState<string>("all");
   const [filterUnit, setFilterUnit] = useState<string>("all");
   const [filterMinPrice, setFilterMinPrice] = useState<string>("");
@@ -186,6 +189,7 @@ export function GoogleSheetProductsModal({
   const hasActiveFilters = useMemo(() => {
     return (
       filterActiveStatus !== "all" ||
+      filterFeaturedStatus !== "all" ||
       filterGstRate !== "all" ||
       filterUnit !== "all" ||
       filterMinPrice.trim() !== "" ||
@@ -198,6 +202,7 @@ export function GoogleSheetProductsModal({
     );
   }, [
     filterActiveStatus,
+    filterFeaturedStatus,
     filterGstRate,
     filterUnit,
     filterMinPrice,
@@ -211,6 +216,7 @@ export function GoogleSheetProductsModal({
 
   const handleClearFilters = () => {
     setFilterActiveStatus("all");
+    setFilterFeaturedStatus("all");
     setFilterGstRate("all");
     setFilterUnit("all");
     setFilterMinPrice("");
@@ -242,6 +248,7 @@ export function GoogleSheetProductsModal({
     tags: 150,
     description: 200,
     is_active: 80,
+    is_featured: 90,
   });
 
   const handleResizeStart = (colKey: string, e: React.MouseEvent) => {
@@ -466,6 +473,12 @@ export function GoogleSheetProductsModal({
       rows = rows.filter(r => r.is_active === wantActive);
     }
 
+    // 2b. Featured Status Filter
+    if (filterFeaturedStatus !== "all") {
+      const wantFeatured = filterFeaturedStatus === "featured";
+      rows = rows.filter(r => (r.is_featured === true) === wantFeatured);
+    }
+
     // 3. GST Rate Filter
     if (filterGstRate !== "all") {
       const gstVal = parseFloat(filterGstRate);
@@ -548,6 +561,7 @@ export function GoogleSheetProductsModal({
     localRows,
     searchQuery,
     filterActiveStatus,
+    filterFeaturedStatus,
     filterGstRate,
     filterUnit,
     filterMinPrice,
@@ -641,6 +655,7 @@ function onEdit(e) {
     if (key === "base_price" || key === "price") key = "base_price";
     if (key === "gst_" || key === "gst_rate") key = "gst_percent";
     if (key === "active") key = "is_active";
+    if (key === "featured") key = "is_featured";
     if (key === "minimum_sale_rate" || key === "min_sale_rate" || key === "min_rate") key = "minimum_sale_rate";
     if (key === "warranty_months" || key === "warranty") key = "warranty_months";
     
@@ -882,6 +897,20 @@ function onEdit(e) {
                           <option value="all">All statuses</option>
                           <option value="active">Active Only</option>
                           <option value="inactive">Inactive Only</option>
+                        </select>
+                      </div>
+
+                      {/* Featured select */}
+                      <div>
+                        <label className="block font-medium text-slate-500 dark:text-slate-400 mb-1">Featured</label>
+                        <select
+                          value={filterFeaturedStatus}
+                          onChange={e => setFilterFeaturedStatus(e.target.value as any)}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                        >
+                          <option value="all">All products</option>
+                          <option value="featured">Featured Only</option>
+                          <option value="not_featured">Not Featured</option>
                         </select>
                       </div>
 
@@ -1211,10 +1240,11 @@ function onEdit(e) {
                                       type="checkbox"
                                       checked={!!cellVal}
                                       onChange={e => {
+                                        const key = col.key;
                                         setLocalRows(prev =>
-                                          prev.map(r => r._id === row._id ? { ...r, is_active: e.target.checked } : r)
+                                          prev.map(r => r._id === row._id ? { ...r, [key]: e.target.checked } : r)
                                         );
-                                        saveCell(row._id, "is_active", e.target.checked);
+                                        saveCell(row._id, key, e.target.checked);
                                       }}
                                       className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-offset-transparent cursor-pointer"
                                     />
@@ -1377,6 +1407,7 @@ function onEdit(e) {
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Tags</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Description</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Active</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Featured</div>
                   </div>
                   <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-1">
                     * Asterisks denote fields required by the database engine.
@@ -1423,6 +1454,7 @@ function onEdit(e) {
     if (key === "base_price" || key === "price") key = "base_price";
     if (key === "gst_" || key === "gst_rate") key = "gst_percent";
     if (key === "active") key = "is_active";
+    if (key === "featured") key = "is_featured";
     if (key === "minimum_sale_rate" || key === "min_sale_rate" || key === "min_rate") key = "minimum_sale_rate";
     if (key === "warranty_months" || key === "warranty") key = "warranty_months";
     

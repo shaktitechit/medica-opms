@@ -16,12 +16,12 @@ import {
   Route,
   Search,
   X,
-  ChevronLeft,
-  ChevronRight,
   RefreshCw,
   Phone,
   Scale,
   Key,
+  Download,
+  FileSpreadsheet,
 } from "lucide-react";
 
 import { mutationRejectedMessage, mutationSuccessCopy } from "@/lib/mutationMessages";
@@ -43,6 +43,15 @@ import { TransportAgentDetailModal } from "./modals/TransportAgentDetailModal";
 import { AddTransportAgentDocumentModal } from "./modals/AddTransportAgentDocumentModal";
 import { ConfirmDeleteTransportAgentModal } from "./modals/ConfirmDeleteTransportAgentModal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
+import { OrderListPaginationBar } from "@/components/portal/shared/orderList/OrderListPaginationBar";
+import {
+  DATE_FILTER_OPTIONS,
+  orderMatchesDateFilter,
+} from "@/components/portal/shared/orderList/orderListDateFilter";
+import {
+  downloadTablePdf,
+  downloadTableXlsx,
+} from "@/components/portal/shared/exportTableDownloads";
 
 // Modals for Drivers & Vehicles
 import { DriverDetailModal } from "./modals/DriverDetailModal";
@@ -73,13 +82,93 @@ function pickList(raw: unknown): unknown[] {
 }
 
 function idFromRef(ref: unknown): string {
-  if (typeof ref === "string") return ref.trim();
-  if (ref && typeof ref === "object") {
+  if (ref == null || ref === "") return "";
+  if (typeof ref === "string" || typeof ref === "number") return String(ref).trim();
+  if (typeof ref === "object") {
     const o = ref as Record<string, unknown>;
-    return String(o._id ?? o.id ?? "").trim();
+    // Prefer explicit ids; some payloads only expose nested agent fields after populate.
+    const direct = o._id ?? o.id;
+    if (direct != null && typeof direct !== "object") return String(direct).trim();
+    if (direct && typeof direct === "object") {
+      const nested = direct as Record<string, unknown>;
+      const nestedId = nested._id ?? nested.id;
+      if (nestedId != null) return String(nestedId).trim();
+    }
   }
   return "";
 }
+
+function asRecordList(raw: unknown): Record<string, unknown>[] {
+  if (Array.isArray(raw)) return raw as Record<string, unknown>[];
+  return pickList(raw) as Record<string, unknown>[];
+}
+
+/** Keep rows that belong to this agent; if ref is missing, trust the API filter. */
+function belongsToTransportAgent(row: Record<string, unknown>, agentId: string): boolean {
+  if (!agentId) return false;
+  const refId = idFromRef(row.transport_agent);
+  if (!refId) return true;
+  return refId === agentId;
+}
+
+function orderNoFromTransport(tr: Record<string, unknown>): string {
+  const order = tr.order;
+  if (order && typeof order === "object") {
+    const o = order as Record<string, unknown>;
+    const no = o.order_no ?? o.order_number;
+    if (typeof no === "string" && no.trim()) return no.trim();
+  }
+  return "";
+}
+
+function partyNameFromTransport(tr: Record<string, unknown>): string {
+  const order = tr.order;
+  if (!order || typeof order !== "object") return "";
+  const o = order as Record<string, unknown>;
+  for (const key of ["party", "customer"] as const) {
+    const ref = o[key];
+    if (ref && typeof ref === "object") {
+      const name = (ref as Record<string, unknown>).party_name;
+      if (typeof name === "string" && name.trim()) return name.trim();
+    }
+  }
+  if (typeof o.party_name === "string" && o.party_name.trim()) return o.party_name.trim();
+  return "";
+}
+
+function vehicleNoFromTransport(tr: Record<string, unknown>): string {
+  const v = tr.vehicle_number ?? tr.vehicle_no;
+  return typeof v === "string" ? v.trim() : v != null ? String(v).trim() : "";
+}
+
+function driverNameFromTransport(tr: Record<string, unknown>): string {
+  const d = tr.driver_name;
+  return typeof d === "string" ? d.trim() : d != null ? String(d).trim() : "";
+}
+
+function shipmentStatusFromTransport(tr: Record<string, unknown>): string {
+  return String(tr.shipment_status ?? tr.status ?? "created").toLowerCase();
+}
+
+const SHIPMENT_STATUS_FILTER_OPTIONS = [
+  { value: "all", label: "All Statuses" },
+  { value: "created", label: "Created" },
+  { value: "transporter_assigned", label: "Transporter Assigned" },
+  { value: "vehicle_assigned", label: "Vehicle Assigned" },
+  { value: "pickup_pending", label: "Pickup Pending" },
+  { value: "picked_up", label: "Picked Up" },
+  { value: "in_transit", label: "In Transit" },
+  { value: "out_for_delivery", label: "Out for Delivery" },
+  { value: "delivered", label: "Delivered" },
+  { value: "delivery_failed", label: "Delivery Failed" },
+  { value: "returned", label: "Returned" },
+] as const;
+
+const transportFilterSelectClass =
+  "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:border-blue-600 dark:border-white/10 dark:bg-slate-950 dark:text-slate-100";
+
+const transportDateInputClass =
+  "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 outline-none focus:border-blue-600 dark:border-white/10 dark:bg-slate-950 dark:text-slate-100";
 
 function formatDateReadOnly(dateVal: unknown): string {
   if (!dateVal) return "—";
@@ -168,9 +257,13 @@ function shipmentStatusBadge(status: string) {
 
 export type TransportAgentDetailPageProps = {
   id: string;
+  portalHome?: string;
 };
 
-export default function TransportAgentDetailPage({ id }: TransportAgentDetailPageProps) {
+export default function TransportAgentDetailPage({
+  id,
+  portalHome = "/dispatch",
+}: TransportAgentDetailPageProps) {
   const router = useRouter();
   
   // Modals visibility states
@@ -183,7 +276,7 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
   const [driverSearchQuery, setDriverSearchQuery] = useState("");
   const [driverStatusFilter, setDriverStatusFilter] = useState("all");
   const [driverCurrentPage, setDriverCurrentPage] = useState(1);
-  const [driverItemsPerPage] = useState(10);
+  const [driverItemsPerPage, setDriverItemsPerPage] = useState(10);
   const [driverCreateOpen, setDriverCreateOpen] = useState(false);
   const [driverEditId, setDriverEditId] = useState<string | null>(null);
   const [driverDeleteTarget, setDriverDeleteTarget] = useState<{ id: string; label: string } | null>(null);
@@ -193,10 +286,23 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
   const [vehicleStatusFilter, setVehicleStatusFilter] = useState("all");
   const [vehicleOwnershipFilter, setVehicleOwnershipFilter] = useState("all");
   const [vehicleCurrentPage, setVehicleCurrentPage] = useState(1);
-  const [vehicleItemsPerPage] = useState(10);
+  const [vehicleItemsPerPage, setVehicleItemsPerPage] = useState(10);
   const [vehicleCreateOpen, setVehicleCreateOpen] = useState(false);
   const [vehicleEditId, setVehicleEditId] = useState<string | null>(null);
   const [vehicleDeleteTarget, setVehicleDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+
+  // Transports Tab State
+  const [transportSearchQuery, setTransportSearchQuery] = useState("");
+  const [transportPartyFilter, setTransportPartyFilter] = useState("all");
+  const [transportStatusFilter, setTransportStatusFilter] = useState("all");
+  const [transportVehicleFilter, setTransportVehicleFilter] = useState("all");
+  const [transportDriverFilter, setTransportDriverFilter] = useState("all");
+  const [transportDateFilter, setTransportDateFilter] = useState("all");
+  const [transportCustomDateFrom, setTransportCustomDateFrom] = useState("");
+  const [transportCustomDateTo, setTransportCustomDateTo] = useState("");
+  const [transportCurrentPage, setTransportCurrentPage] = useState(1);
+  const [transportItemsPerPage, setTransportItemsPerPage] = useState(10);
+  const [isExportingTransports, setIsExportingTransports] = useState(false);
 
   // API Queries & Mutations
   const { data, isLoading, isFetching, isError, refetch } = useGetTransportAgentQuery(id, { skip: !id });
@@ -209,25 +315,35 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
   const attachments = useMemo(() => pickList(attachmentsData), [attachmentsData]);
 
   // Fetch Drivers belonging to this transport agent
-  const { data: driversData, isFetching: driversFetching, refetch: refetchDrivers } = useListDriversQuery(
+  const {
+    data: driversData,
+    isFetching: driversFetching,
+    isError: driversError,
+    refetch: refetchDrivers,
+  } = useListDriversQuery(
     { transport_agent: id },
-    { skip: !id }
+    { skip: !id, refetchOnMountOrArgChange: true },
   );
-  const drivers = useMemo(() => pickList(driversData) as any[], [driversData]);
+  const drivers = useMemo(() => asRecordList(driversData), [driversData]);
 
   // Fetch Vehicles belonging to this transport agent
-  const { data: vehiclesData, isFetching: vehiclesFetching, refetch: refetchVehicles } = useListVehiclesQuery(
+  const {
+    data: vehiclesData,
+    isFetching: vehiclesFetching,
+    isError: vehiclesError,
+    refetch: refetchVehicles,
+  } = useListVehiclesQuery(
     { transport_agent: id },
-    { skip: !id }
+    { skip: !id, refetchOnMountOrArgChange: true },
   );
-  const vehicles = useMemo(() => pickList(vehiclesData) as any[], [vehiclesData]);
+  const vehicles = useMemo(() => asRecordList(vehiclesData), [vehiclesData]);
 
   // Fetch Transports belonging to this transport agent
   const { data: transportsData, isFetching: transportsFetching, refetch: refetchTransports } = useListTransportsQuery(
     { transport_agent: id },
-    { skip: !id }
+    { skip: !id, refetchOnMountOrArgChange: true },
   );
-  const transports = useMemo(() => pickList(transportsData) as any[], [transportsData]);
+  const transports = useMemo(() => asRecordList(transportsData), [transportsData]);
 
   // Mutations
   const [deleteTransportAgent, { isLoading: isDeleting }] = useDeleteTransportAgentMutation();
@@ -237,22 +353,22 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
   const [deleteDriver, { isLoading: isDeletingDriver }] = useDeleteDriverMutation();
   const [deleteVehicle, { isLoading: isDeletingVehicle }] = useDeleteVehicleMutation();
 
-  // Drivers Filter Logic
+  // Drivers Filter Logic — API already scopes by transport_agent; only drop clear mismatches.
   const filteredDrivers = useMemo(() => {
     return drivers.filter((d) => {
-      if (idFromRef(d.transport_agent) !== id) return false;
+      if (!belongsToTransportAgent(d, id)) return false;
 
       if (driverStatusFilter !== "all") {
-        const dStatus = (d.status || "available").toLowerCase();
+        const dStatus = String(d.status || "available").toLowerCase();
         if (dStatus !== driverStatusFilter) return false;
       }
 
       if (!driverSearchQuery.trim()) return true;
       const q = driverSearchQuery.toLowerCase();
-      const name = (d.name || "").toLowerCase();
-      const code = (d.driver_code || "").toLowerCase();
-      const phone = (d.phone || "").toLowerCase();
-      const lic = (d.license_no || "").toLowerCase();
+      const name = String(d.name || "").toLowerCase();
+      const code = String(d.driver_code || "").toLowerCase();
+      const phone = String(d.phone || "").toLowerCase();
+      const lic = String(d.license_no || "").toLowerCase();
 
       return (
         name.includes(q) ||
@@ -263,25 +379,25 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
     });
   }, [drivers, id, driverSearchQuery, driverStatusFilter]);
 
-  // Vehicles Filter Logic
+  // Vehicles Filter Logic — same membership rule as drivers.
   const filteredVehicles = useMemo(() => {
     return vehicles.filter((v) => {
-      if (idFromRef(v.transport_agent) !== id) return false;
+      if (!belongsToTransportAgent(v, id)) return false;
 
       if (vehicleStatusFilter !== "all") {
-        const statusStr = (v.status || "available").toLowerCase();
+        const statusStr = String(v.status || "available").toLowerCase();
         if (statusStr !== vehicleStatusFilter) return false;
       }
 
       if (vehicleOwnershipFilter !== "all") {
-        const ownershipStr = (v.ownership_type || "owned").toLowerCase();
+        const ownershipStr = String(v.ownership_type || "owned").toLowerCase();
         if (ownershipStr !== vehicleOwnershipFilter) return false;
       }
 
       if (!vehicleSearchQuery.trim()) return true;
       const q = vehicleSearchQuery.toLowerCase();
-      const num = (v.vehicle_no || "").toLowerCase();
-      const type = (v.vehicle_type || "").toLowerCase();
+      const num = String(v.vehicle_no || "").toLowerCase();
+      const type = String(v.vehicle_type || "").toLowerCase();
       const makeModel = `${v.make ?? ""} ${v.model ?? ""}`.toLowerCase();
 
       return num.includes(q) || type.includes(q) || makeModel.includes(q);
@@ -292,10 +408,10 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
   const paginatedDrivers = useMemo(() => {
     const start = (driverCurrentPage - 1) * driverItemsPerPage;
     const end = start + driverItemsPerPage;
-    return filteredDrivers.slice(start, end);
+    return filteredDrivers.slice(start, end) as any[];
   }, [filteredDrivers, driverCurrentPage, driverItemsPerPage]);
 
-  const driverTotalPages = Math.ceil(filteredDrivers.length / driverItemsPerPage);
+  const driverTotalPages = Math.max(1, Math.ceil(filteredDrivers.length / driverItemsPerPage));
   const driverStartEntry = filteredDrivers.length > 0 ? (driverCurrentPage - 1) * driverItemsPerPage + 1 : 0;
   const driverEndEntry = Math.min(driverCurrentPage * driverItemsPerPage, filteredDrivers.length);
 
@@ -303,18 +419,138 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
   const paginatedVehicles = useMemo(() => {
     const start = (vehicleCurrentPage - 1) * vehicleItemsPerPage;
     const end = start + vehicleItemsPerPage;
-    return filteredVehicles.slice(start, end);
+    return filteredVehicles.slice(start, end) as any[];
   }, [filteredVehicles, vehicleCurrentPage, vehicleItemsPerPage]);
 
-  const vehicleTotalPages = Math.ceil(filteredVehicles.length / vehicleItemsPerPage);
+  const vehicleTotalPages = Math.max(1, Math.ceil(filteredVehicles.length / vehicleItemsPerPage));
   const vehicleStartEntry = filteredVehicles.length > 0 ? (vehicleCurrentPage - 1) * vehicleItemsPerPage + 1 : 0;
   const vehicleEndEntry = Math.min(vehicleCurrentPage * vehicleItemsPerPage, filteredVehicles.length);
+
+  const transportPartyOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const tr of transports) {
+      const name = partyNameFromTransport(tr);
+      if (name) names.add(name);
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [transports]);
+
+  const transportVehicleOptions = useMemo(() => {
+    const nums = new Set<string>();
+    for (const tr of transports) {
+      const num = vehicleNoFromTransport(tr);
+      if (num) nums.add(num);
+    }
+    return Array.from(nums).sort((a, b) => a.localeCompare(b));
+  }, [transports]);
+
+  const transportDriverOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const tr of transports) {
+      const name = driverNameFromTransport(tr);
+      if (name) names.add(name);
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [transports]);
+
+  const transportFiltersActive =
+    transportSearchQuery.trim() !== "" ||
+    transportPartyFilter !== "all" ||
+    transportStatusFilter !== "all" ||
+    transportVehicleFilter !== "all" ||
+    transportDriverFilter !== "all" ||
+    transportDateFilter !== "all";
+
+  const resetTransportFilters = useCallback(() => {
+    setTransportSearchQuery("");
+    setTransportPartyFilter("all");
+    setTransportStatusFilter("all");
+    setTransportVehicleFilter("all");
+    setTransportDriverFilter("all");
+    setTransportDateFilter("all");
+    setTransportCustomDateFrom("");
+    setTransportCustomDateTo("");
+    setTransportCurrentPage(1);
+  }, []);
+
+  const filteredTransports = useMemo(() => {
+    return transports.filter((tr) => {
+      if (transportPartyFilter !== "all") {
+        if (partyNameFromTransport(tr) !== transportPartyFilter) return false;
+      }
+
+      if (transportStatusFilter !== "all") {
+        if (shipmentStatusFromTransport(tr) !== transportStatusFilter) return false;
+      }
+
+      if (transportVehicleFilter !== "all") {
+        if (vehicleNoFromTransport(tr) !== transportVehicleFilter) return false;
+      }
+
+      if (transportDriverFilter !== "all") {
+        if (driverNameFromTransport(tr) !== transportDriverFilter) return false;
+      }
+
+      if (
+        !orderMatchesDateFilter(
+          { order_date: tr.dispatch_date },
+          transportDateFilter,
+          transportCustomDateFrom,
+          transportCustomDateTo,
+        )
+      ) {
+        return false;
+      }
+
+      if (!transportSearchQuery.trim()) return true;
+      const q = transportSearchQuery.toLowerCase().trim();
+      const haystack = [
+        tr.shipment_no,
+        orderNoFromTransport(tr),
+        partyNameFromTransport(tr),
+        shipmentStatusFromTransport(tr).replace(/_/g, " "),
+        vehicleNoFromTransport(tr),
+        driverNameFromTransport(tr),
+        tr.lr_number,
+        tr.tracking_number,
+        tr.eway_bill_no,
+      ]
+        .map((v) => String(v ?? "").toLowerCase())
+        .join(" ");
+      return haystack.includes(q);
+    });
+  }, [
+    transports,
+    transportSearchQuery,
+    transportPartyFilter,
+    transportStatusFilter,
+    transportVehicleFilter,
+    transportDriverFilter,
+    transportDateFilter,
+    transportCustomDateFrom,
+    transportCustomDateTo,
+  ]);
+
+  // Transport pagination slicing
+  const paginatedTransports = useMemo(() => {
+    const start = (transportCurrentPage - 1) * transportItemsPerPage;
+    const end = start + transportItemsPerPage;
+    return filteredTransports.slice(start, end) as any[];
+  }, [filteredTransports, transportCurrentPage, transportItemsPerPage]);
+
+  const transportTotalPages = Math.max(1, Math.ceil(filteredTransports.length / transportItemsPerPage));
+  const transportStartEntry =
+    filteredTransports.length > 0 ? (transportCurrentPage - 1) * transportItemsPerPage + 1 : 0;
+  const transportEndEntry = Math.min(
+    transportCurrentPage * transportItemsPerPage,
+    filteredTransports.length,
+  );
 
   const handleDelete = useCallback(async () => {
     try {
       await deleteTransportAgent(id).unwrap();
       toast.success(mutationSuccessCopy("deleteTransportAgent"));
-      router.push("/dispatch/transport-agents");
+      router.push(`${portalHome}/transport-agents`);
     } catch (rejected) {
       toast.error(mutationRejectedMessage(rejected));
     }
@@ -346,7 +582,7 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
       <div className="mx-auto max-w-md py-20 text-center">
         <div className="text-4xl">⚠️</div>
         <h2 className="mt-4 text-lg font-bold text-slate-900 dark:text-slate-100">Transport agent not found</h2>
-        <Link href="/dispatch/transport-agents" className="mt-6 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+        <Link href={`${portalHome}/transport-agents`} className="mt-6 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
           <ArrowLeft className="h-4 w-4" />
           Back to transport agents
         </Link>
@@ -360,6 +596,83 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
 
   const agentName = stringField(detail.agent_name) || "Transport Agent";
   const agentCode = stringField(detail.agent_code);
+
+  const transportExportColumns = [
+    { key: "shipment_no", label: "Shipment", width: 1.2 },
+    { key: "order_no", label: "Order No", width: 1.1 },
+    { key: "party", label: "Party", width: 1.6 },
+    { key: "status", label: "Status", width: 1.2 },
+    { key: "vehicle", label: "Vehicle", width: 1.1 },
+    { key: "driver", label: "Driver", width: 1.2 },
+    { key: "weight", label: "Weight", width: 0.9 },
+    { key: "dispatch_date", label: "Dispatch Date", width: 1.1 },
+  ] as const;
+
+  const buildTransportExportRows = () =>
+    filteredTransports.map((tr) => {
+      const weight =
+        tr.weight != null ? `${tr.weight} ${tr.weight_unit || "Kg"}` : "";
+      return {
+        shipment_no: String(tr.shipment_no ?? ""),
+        order_no: orderNoFromTransport(tr),
+        party: partyNameFromTransport(tr),
+        status: shipmentStatusFromTransport(tr).replace(/_/g, " "),
+        vehicle: vehicleNoFromTransport(tr),
+        driver: driverNameFromTransport(tr),
+        weight,
+        dispatch_date: formatDateReadOnly(tr.dispatch_date),
+      };
+    });
+
+  const transportExportFilenameBase = () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const slug = (agentCode || agentName || "agent")
+      .replace(/[^\w.-]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 40);
+    return `transport-shipments_${slug}_${stamp}`;
+  };
+
+  const handleDownloadTransportsXlsx = () => {
+    if (filteredTransports.length === 0) {
+      toast.error("No shipments to export.");
+      return;
+    }
+    try {
+      downloadTableXlsx({
+        filename: transportExportFilenameBase(),
+        sheetName: "Shipments",
+        title: `Transport Shipments — ${agentName}`,
+        columns: [...transportExportColumns],
+        rows: buildTransportExportRows(),
+      });
+      toast.success("XLSX downloaded.");
+    } catch {
+      toast.error("Failed to download XLSX.");
+    }
+  };
+
+  const handleDownloadTransportsPdf = async () => {
+    if (filteredTransports.length === 0) {
+      toast.error("No shipments to export.");
+      return;
+    }
+    setIsExportingTransports(true);
+    try {
+      await downloadTablePdf({
+        filename: transportExportFilenameBase(),
+        title: `Transport Shipments — ${agentName}`,
+        subtitle: `${agentCode ? `${agentCode} · ` : ""}${filteredTransports.length} shipment${filteredTransports.length === 1 ? "" : "s"} · Exported ${new Date().toLocaleString()}`,
+        columns: [...transportExportColumns],
+        rows: buildTransportExportRows(),
+      });
+      toast.success("PDF downloaded.");
+    } catch {
+      toast.error("Failed to download PDF.");
+    } finally {
+      setIsExportingTransports(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 pb-12">
@@ -491,7 +804,7 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/dispatch/transport-agents" className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-55 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300">
+            <Link href={`${portalHome}/transport-agents`} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-55 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300">
               <ArrowLeft className="h-3.5 w-3.5" />
               All agents
             </Link>
@@ -774,13 +1087,40 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
                 <div className="flex justify-center py-10">
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
                 </div>
+              ) : driversError ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-6 text-center dark:border-rose-900/40 dark:bg-rose-950/20">
+                  <p className="text-sm font-semibold text-rose-700 dark:text-rose-400">
+                    Failed to load drivers
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void refetchDrivers()}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:bg-slate-900 dark:text-rose-300"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Retry
+                  </button>
+                </div>
               ) : filteredDrivers.length === 0 ? (
                 <p className="text-sm text-slate-500 dark:text-slate-400 py-6 text-center rounded-lg border border-dashed border-slate-200 dark:border-white/10">
                   No drivers found.
                 </p>
               ) : (
-                <div className="space-y-4">
-                  <div className="divide-y divide-slate-100 dark:divide-white/5 border border-slate-200/60 dark:border-white/10 rounded-lg overflow-hidden bg-white dark:bg-slate-900">
+                <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200/60 bg-white dark:border-white/10 dark:bg-slate-900">
+                  <OrderListPaginationBar
+                    startEntry={driverStartEntry}
+                    endEntry={driverEndEntry}
+                    totalEntries={filteredDrivers.length}
+                    itemsPerPage={driverItemsPerPage}
+                    onItemsPerPageChange={(value) => {
+                      setDriverItemsPerPage(value);
+                      setDriverCurrentPage(1);
+                    }}
+                    currentPage={driverCurrentPage}
+                    totalPages={driverTotalPages}
+                    onPageChange={setDriverCurrentPage}
+                  />
+                  <div className="divide-y divide-slate-100 dark:divide-white/5">
                     {paginatedDrivers.map((d) => {
                       const driverId = d._id ?? d.id;
                       const code = d.driver_code ?? "—";
@@ -851,36 +1191,6 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
                       );
                     })}
                   </div>
-
-                  {/* Driver Pagination Footer */}
-                  {driverTotalPages > 1 && (
-                    <div className="flex items-center justify-between px-2 py-1 text-xs text-slate-550 bg-slate-50/50 p-2 rounded-lg dark:bg-slate-950/20">
-                      <span>
-                        Showing {driverStartEntry}–{driverEndEntry} of {filteredDrivers.length}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          disabled={driverCurrentPage === 1}
-                          onClick={() => setDriverCurrentPage((p) => Math.max(1, p - 1))}
-                          className="p-1 rounded border border-slate-200 bg-white disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 hover:bg-slate-50"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" />
-                        </button>
-                        <span className="px-2">
-                          {driverCurrentPage} / {driverTotalPages}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={driverCurrentPage === driverTotalPages}
-                          onClick={() => setDriverCurrentPage((p) => Math.min(driverTotalPages, p + 1))}
-                          className="p-1 rounded border border-slate-200 bg-white disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 hover:bg-slate-50"
-                        >
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -985,13 +1295,40 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
                 <div className="flex justify-center py-10">
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
                 </div>
+              ) : vehiclesError ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-6 text-center dark:border-rose-900/40 dark:bg-rose-950/20">
+                  <p className="text-sm font-semibold text-rose-700 dark:text-rose-400">
+                    Failed to load vehicles
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void refetchVehicles()}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:bg-slate-900 dark:text-rose-300"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Retry
+                  </button>
+                </div>
               ) : filteredVehicles.length === 0 ? (
                 <p className="text-sm text-slate-500 dark:text-slate-400 py-6 text-center rounded-lg border border-dashed border-slate-200 dark:border-white/10">
                   No vehicles found.
                 </p>
               ) : (
-                <div className="space-y-4">
-                  <div className="divide-y divide-slate-100 dark:divide-white/5 border border-slate-200/60 dark:border-white/10 rounded-lg overflow-hidden bg-white dark:bg-slate-900">
+                <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200/60 bg-white dark:border-white/10 dark:bg-slate-900">
+                  <OrderListPaginationBar
+                    startEntry={vehicleStartEntry}
+                    endEntry={vehicleEndEntry}
+                    totalEntries={filteredVehicles.length}
+                    itemsPerPage={vehicleItemsPerPage}
+                    onItemsPerPageChange={(value) => {
+                      setVehicleItemsPerPage(value);
+                      setVehicleCurrentPage(1);
+                    }}
+                    currentPage={vehicleCurrentPage}
+                    totalPages={vehicleTotalPages}
+                    onPageChange={setVehicleCurrentPage}
+                  />
+                  <div className="divide-y divide-slate-100 dark:divide-white/5">
                     {paginatedVehicles.map((v) => {
                       const vehicleId = v._id ?? v.id;
                       const num = v.vehicle_no ?? "Unnamed Vehicle";
@@ -1065,36 +1402,6 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
                       );
                     })}
                   </div>
-
-                  {/* Vehicle Pagination Footer */}
-                  {vehicleTotalPages > 1 && (
-                    <div className="flex items-center justify-between px-2 py-1 text-xs text-slate-500 bg-slate-50/50 p-2 rounded-lg dark:bg-slate-955/20">
-                      <span>
-                        Showing {vehicleStartEntry}–{vehicleEndEntry} of {filteredVehicles.length}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          disabled={vehicleCurrentPage === 1}
-                          onClick={() => setVehicleCurrentPage((p) => Math.max(1, p - 1))}
-                          className="p-1 rounded border border-slate-200 bg-white disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 hover:bg-slate-50"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" />
-                        </button>
-                        <span className="px-2">
-                          {vehicleCurrentPage} / {vehicleTotalPages}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={vehicleCurrentPage === vehicleTotalPages}
-                          onClick={() => setVehicleCurrentPage((p) => Math.min(vehicleTotalPages, p + 1))}
-                          className="p-1 rounded border border-slate-200 bg-white disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 hover:bg-slate-50"
-                        >
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -1103,9 +1410,188 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
           {/* Transports Content */}
           {activeTab === "transports" ? (
             <div className="space-y-4">
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                Shipments assigned to this transport agent.
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Shipments assigned to this transport agent.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadTransportsPdf()}
+                    disabled={filteredTransports.length === 0 || isExportingTransports}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {isExportingTransports ? "Generating PDF…" : "Download PDF"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadTransportsXlsx}
+                    disabled={filteredTransports.length === 0 || isExportingTransports}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                    Download XLSX
+                  </button>
+                </div>
+              </div>
+
+              {/* Transport Filters */}
+              <div className="space-y-2 rounded-lg border border-slate-150 bg-slate-50/50 p-3 dark:border-white/5 dark:bg-slate-955/20">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="relative min-w-[200px] flex-1">
+                    <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                      <Search className="h-4 w-4" />
+                    </span>
+                    <input
+                      type="text"
+                      value={transportSearchQuery}
+                      onChange={(e) => {
+                        setTransportSearchQuery(e.target.value);
+                        setTransportCurrentPage(1);
+                      }}
+                      placeholder="Search by shipment, order #, party, vehicle, driver..."
+                      className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-9 pr-8 text-xs text-slate-900 outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-650/30 dark:border-white/10 dark:bg-slate-950 dark:text-slate-50"
+                    />
+                    {transportSearchQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTransportSearchQuery("");
+                          setTransportCurrentPage(1);
+                        }}
+                        className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <select
+                    value={transportPartyFilter}
+                    onChange={(e) => {
+                      setTransportPartyFilter(e.target.value);
+                      setTransportCurrentPage(1);
+                    }}
+                    className={`${transportFilterSelectClass} min-w-[9rem] max-w-[14rem]`}
+                    aria-label="Filter by party"
+                  >
+                    <option value="all">All Parties</option>
+                    {transportPartyOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={transportStatusFilter}
+                    onChange={(e) => {
+                      setTransportStatusFilter(e.target.value);
+                      setTransportCurrentPage(1);
+                    }}
+                    className={`${transportFilterSelectClass} min-w-[9rem]`}
+                    aria-label="Filter by status"
+                  >
+                    {SHIPMENT_STATUS_FILTER_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={transportVehicleFilter}
+                    onChange={(e) => {
+                      setTransportVehicleFilter(e.target.value);
+                      setTransportCurrentPage(1);
+                    }}
+                    className={`${transportFilterSelectClass} min-w-[8rem]`}
+                    aria-label="Filter by vehicle"
+                  >
+                    <option value="all">All Vehicles</option>
+                    {transportVehicleOptions.map((num) => (
+                      <option key={num} value={num}>
+                        {num}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={transportDriverFilter}
+                    onChange={(e) => {
+                      setTransportDriverFilter(e.target.value);
+                      setTransportCurrentPage(1);
+                    }}
+                    className={`${transportFilterSelectClass} min-w-[8rem] max-w-[12rem]`}
+                    aria-label="Filter by driver"
+                  >
+                    <option value="all">All Drivers</option>
+                    {transportDriverOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={transportDateFilter}
+                    onChange={(e) => {
+                      setTransportDateFilter(e.target.value);
+                      setTransportCurrentPage(1);
+                    }}
+                    className={`${transportFilterSelectClass} min-w-[8rem]`}
+                    aria-label="Filter by dispatch date"
+                  >
+                    {DATE_FILTER_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.id === "all" ? "All Dispatch Dates" : opt.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  {transportFiltersActive ? (
+                    <button
+                      type="button"
+                      onClick={resetTransportFilters}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                    >
+                      Reset Filters
+                    </button>
+                  ) : null}
+                </div>
+
+                {transportDateFilter === "custom" ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Dispatch date
+                    </span>
+                    <input
+                      type="date"
+                      value={transportCustomDateFrom}
+                      onChange={(e) => {
+                        setTransportCustomDateFrom(e.target.value);
+                        setTransportCurrentPage(1);
+                      }}
+                      className={transportDateInputClass}
+                      title="From date"
+                      aria-label="Dispatch date from"
+                    />
+                    <span className="text-[10px] text-slate-400">—</span>
+                    <input
+                      type="date"
+                      value={transportCustomDateTo}
+                      onChange={(e) => {
+                        setTransportCustomDateTo(e.target.value);
+                        setTransportCurrentPage(1);
+                      }}
+                      className={transportDateInputClass}
+                      title="To date"
+                      aria-label="Dispatch date to"
+                    />
+                  </div>
+                ) : null}
+              </div>
 
               {transportsFetching ? (
                 <div className="flex justify-center py-10">
@@ -1115,12 +1601,32 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
                 <p className="text-sm text-slate-500 dark:text-slate-400 py-6 text-center rounded-lg border border-dashed border-slate-200 dark:border-white/10">
                   No transport shipments linked to this agent yet.
                 </p>
+              ) : filteredTransports.length === 0 ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400 py-6 text-center rounded-lg border border-dashed border-slate-200 dark:border-white/10">
+                  No shipments match the current filters.
+                </p>
               ) : (
-                <div className="overflow-x-auto rounded-lg ring-1 ring-slate-200/90 dark:ring-white/10">
-                  <table className="w-full min-w-[720px] text-left text-xs">
+                <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200/90 dark:border-white/10">
+                  <OrderListPaginationBar
+                    startEntry={transportStartEntry}
+                    endEntry={transportEndEntry}
+                    totalEntries={filteredTransports.length}
+                    itemsPerPage={transportItemsPerPage}
+                    onItemsPerPageChange={(value) => {
+                      setTransportItemsPerPage(value);
+                      setTransportCurrentPage(1);
+                    }}
+                    currentPage={transportCurrentPage}
+                    totalPages={transportTotalPages}
+                    onPageChange={setTransportCurrentPage}
+                  />
+                  <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] text-left text-xs">
                     <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                       <tr>
                         <th className="px-3 py-2.5">Shipment</th>
+                        <th className="px-3 py-2.5">Order No</th>
+                        <th className="px-3 py-2.5">Party</th>
                         <th className="px-3 py-2.5">Status</th>
                         <th className="px-3 py-2.5">Vehicle</th>
                         <th className="px-3 py-2.5">Driver</th>
@@ -1130,18 +1636,35 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                      {transports.map((tr) => {
+                      {paginatedTransports.map((tr) => {
                         const trId = idFromRef(tr._id ?? tr.id);
                         const shipmentNo = tr.shipment_no ?? "—";
                         const shipmentStatus = tr.shipment_status ?? tr.status ?? "created";
                         const vehicleNumber = tr.vehicle_number ?? tr.vehicle_no ?? "—";
                         const dName = tr.driver_name ?? "—";
                         const orderId = idFromRef(tr.order);
+                        const orderNo = orderNoFromTransport(tr);
+                        const partyName = partyNameFromTransport(tr);
 
                         return (
                           <tr key={trId || shipmentNo} className="bg-white dark:bg-slate-900">
                             <td className="px-3 py-3 font-semibold text-slate-900 dark:text-slate-100">
                               {shipmentNo}
+                            </td>
+                            <td className="px-3 py-3 whitespace-nowrap font-mono font-bold text-slate-800 dark:text-slate-200">
+                              {orderId && orderNo ? (
+                                <Link
+                                  href={`${portalHome}/order/${orderId}`}
+                                  className="text-blue-600 hover:underline dark:text-blue-400"
+                                >
+                                  {orderNo}
+                                </Link>
+                              ) : (
+                                orderNo || "—"
+                              )}
+                            </td>
+                            <td className="px-3 py-3 font-semibold text-slate-800 dark:text-slate-200 max-w-[14rem]">
+                              <span className="line-clamp-2 break-words">{partyName || "—"}</span>
                             </td>
                             <td className="px-3 py-3">
                               {shipmentStatusBadge(shipmentStatus)}
@@ -1161,7 +1684,7 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
                             <td className="px-3 py-3 text-right">
                               {orderId ? (
                                 <Link
-                                  href={`/dispatch/order/${orderId}`}
+                                  href={`${portalHome}/order/${orderId}`}
                                   className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
                                 >
                                   View order
@@ -1176,6 +1699,7 @@ export default function TransportAgentDetailPage({ id }: TransportAgentDetailPag
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
             </div>

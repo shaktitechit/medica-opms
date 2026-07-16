@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, UserCheck, DollarSign, Package, Truck, ArrowRight } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, ArrowRight } from "lucide-react";
 import { resolveOrderCounterparty, checkOrderPartySra } from "@/components/portal/sales/partyDisplay";
-import { computeDepartmentStageBoxes } from "@/components/portal/shared/orderDepartmentStages";
-import { FulfillmentCircleStep } from "@/components/portal/shared/FulfillmentCircleStep";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
-import { getAdminOrderTabCategory } from "./adminOrderUtils";
+import { getAdminOrderTabCategory, ADMIN_ORDER_TAB_LABELS } from "./adminOrderUtils";
 
 interface AdminRecentOrdersWidgetProps {
   recentOrders: unknown[];
@@ -31,7 +30,7 @@ function renderPriorityBadge(priority: string) {
   const p = String(priority).toLowerCase();
   if (p === "urgent") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-950/30 dark:text-rose-455/90 dark:ring-rose-500/25">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
         Urgent
       </span>
     );
@@ -45,7 +44,7 @@ function renderPriorityBadge(priority: string) {
   }
   if (p === "normal") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-950/30 dark:text-blue-455/90 dark:ring-blue-500/20">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
         Normal
       </span>
     );
@@ -57,54 +56,55 @@ function renderPriorityBadge(priority: string) {
   );
 }
 
-function renderWorkflowStatusBadge(status: string) {
-  let label = "";
-  let bgClass = "";
-  switch (status) {
-    case "pending_admin_approval":
-      label = "Pending Admin";
-      bgClass =
-        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
-      break;
-    case "pending_approvals":
-      label = "Pending Approvals";
-      bgClass =
-        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
-      break;
-    case "open":
-      label = "Open";
-      bgClass =
-        "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
-      break;
-    case "closed":
-      label = "Closed";
-      bgClass =
-        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
-      break;
-    case "on_hold":
-      label = "On Hold";
-      bgClass =
-        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
-      break;
-    case "rejected":
-      label = "Rejected";
-      bgClass =
-        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-950/30 dark:text-red-400 dark:ring-red-500/25";
-      break;
-    case "cancelled":
-      label = "Cancelled";
-      bgClass =
-        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
-      break;
+function renderWorkflowStatusBadge(category: string) {
+  const label = ADMIN_ORDER_TAB_LABELS[category as keyof typeof ADMIN_ORDER_TAB_LABELS] ?? category;
+  let bgClass =
+    "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+  switch (category) {
     case "draft":
-      label = "Draft";
       bgClass =
         "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
       break;
-    default:
-      label = status;
+    case "pending_admin_approval":
       bgClass =
-        "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+        "bg-indigo-50 text-indigo-700 ring-indigo-600/10 dark:bg-indigo-955/30 dark:text-indigo-400 dark:ring-indigo-500/25";
+      break;
+    case "due_sheet_pending":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "pending_finance_approval":
+      bgClass =
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-955/30 dark:text-purple-400 dark:ring-purple-500/25";
+      break;
+    case "pending_account_approval":
+      bgClass =
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-955/30 dark:text-violet-400 dark:ring-violet-500/25";
+      break;
+    case "open_dispatched":
+      bgClass =
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
+      break;
+    case "transport_return_pending":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "closed_delivered":
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+      break;
+    case "on_hold":
+      bgClass =
+        "bg-orange-50 text-orange-700 ring-orange-600/10 dark:bg-orange-955/30 dark:text-orange-400 dark:ring-orange-500/25";
+      break;
+    case "cancelled":
+      bgClass =
+        "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-slate-955/30 dark:text-slate-400 dark:ring-slate-500/25";
+      break;
+    case "rejected":
+      bgClass =
+        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-955/30 dark:text-red-400 dark:ring-red-500/25";
+      break;
   }
 
   return (
@@ -118,13 +118,9 @@ function renderWorkflowStatusBadge(status: string) {
 
 function adminStatusLabel(order: unknown): string {
   const cat = getAdminOrderTabCategory(order);
-  if (cat) {
-    if (cat === "pending_admin_approval") return "pending_admin_approval";
-    if (cat === "pending_approvals") return "pending_approvals";
-    return cat;
-  }
+  if (cat) return cat;
   if (deriveOrderWorkflowStatus(order) === "draft") return "draft";
-  return "open";
+  return "open_dispatched";
 }
 
 export default function AdminRecentOrdersWidget({
@@ -134,6 +130,8 @@ export default function AdminRecentOrdersWidget({
   partyNameById,
   partySraById,
 }: AdminRecentOrdersWidgetProps) {
+  const router = useRouter();
+
   return (
     <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900">
       <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-white/5">
@@ -166,7 +164,7 @@ export default function AdminRecentOrdersWidget({
         )}
 
         {isOrdersError && (
-          <div className="flex items-center gap-2 rounded-lg bg-rose-50 p-4 text-xs text-rose-800 dark:bg-rose-950/20 dark:text-rose-450 my-4">
+          <div className="flex items-center gap-2 rounded-lg bg-rose-50 p-4 text-xs text-rose-800 dark:bg-rose-955/20 dark:text-rose-455 my-4">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             Could not fetch recent orders. Please check your credentials or network.
           </div>
@@ -179,7 +177,7 @@ export default function AdminRecentOrdersWidget({
             </p>
             <Link
               href="/admin/create-order"
-              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:bg-blue-900/30"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-100 dark:bg-blue-955/30 dark:text-blue-400 dark:hover:bg-blue-900/30"
             >
               Create first system order
               <ArrowRight className="h-3 w-3" />
@@ -188,131 +186,68 @@ export default function AdminRecentOrdersWidget({
         )}
 
         {!isOrdersFetching && !isOrdersError && recentOrders.length > 0 && (
-          <div className="flex flex-col gap-3.5">
-            {recentOrders.map((o) => {
-              const row = o as Record<string, unknown>;
-              const id =
-                row._id != null ? String(row._id) : row.id != null ? String(row.id) : "";
-              const ref =
-                (typeof row.order_no === "string" && row.order_no) ||
-                (typeof row.order_number === "string" && row.order_number) ||
-                id ||
-                "—";
-              const pri = typeof row.priority === "string" ? row.priority : "normal";
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/50 dark:border-white/5 dark:bg-slate-900/50">
+                  <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Order No</th>
+                  <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Party</th>
+                  <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Expected Delivery</th>
+                  <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Priority</th>
+                  <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                {recentOrders.map((o) => {
+                  const row = o as Record<string, unknown>;
+                  const id = row._id != null ? String(row._id) : row.id != null ? String(row.id) : "";
+                  const ref =
+                    (typeof row.order_no === "string" && row.order_no) ||
+                    (typeof row.order_number === "string" && row.order_number) ||
+                    id ||
+                    "—";
+                  const pri = typeof row.priority === "string" ? row.priority : "normal";
 
-              const deptBoxes = computeDepartmentStageBoxes(row, null);
-              const adminBox = deptBoxes.find((b) => b.id === "admin");
-              const financeBox = deptBoxes.find((b) => b.id === "finance");
-              const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-              const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
+                  const partyLabel = resolveOrderCounterparty(row, partyNameById);
+                  const expectedDeliveryStr = formatDateShort(row.expected_delivery_date);
 
-              const orderItems = Array.isArray(row.order_items) ? row.order_items : [];
-              const orderedQty = Math.max(
-                1,
-                orderItems.reduce((acc: number, item: unknown) => {
-                  const line = item as { ordered_quantity?: unknown; quantity?: unknown };
-                  return acc + (Number(line.ordered_quantity ?? line.quantity) || 0);
-                }, 0),
-              );
-
-              const partyLabel = resolveOrderCounterparty(row, partyNameById);
-              const orderDateStr = formatDateShort(
-                row.order_date ?? row.created_at ?? row.createdAt,
-              );
-              const expectedDeliveryStr = formatDateShort(row.expected_delivery_date);
-
-              let stripeColor = "bg-slate-350 dark:bg-slate-700";
-              if (pri === "urgent") stripeColor = "bg-rose-500";
-              else if (pri === "high") stripeColor = "bg-amber-500";
-              else if (pri === "normal") stripeColor = "bg-blue-500";
-
-              return (
-                <Link
-                  key={id || ref}
-                  href={`/admin/order/${id}`}
-                  className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 transition-all duration-300 hover:shadow-md hover:border-blue-500/20 dark:border-white/10 dark:bg-slate-900 flex flex-col gap-4 pl-5 cursor-pointer"
-                >
-                  <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${stripeColor}`} />
-
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
-                    <div className="flex items-center gap-2 flex-wrap sm:w-[130px] sm:shrink-0">
-                      <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
-                        {ref.slice(0, 12)}
-                      </span>
-                      {renderPriorityBadge(pri)}
-                      {renderWorkflowStatusBadge(adminStatusLabel(o))}
-                    </div>
-
-                    <span
-                      className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 sm:flex-1 break-words whitespace-normal font-sans"
-                      title={partyLabel}
+                  return (
+                    <tr
+                      key={id || ref}
+                      onClick={() => {
+                        if (id) {
+                          router.push(`/admin/order/${id}`);
+                        }
+                      }}
+                      className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors cursor-pointer"
                     >
-                      <span>{partyLabel}</span>
-                      {checkOrderPartySra(row, partySraById) && (
-                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
-                          SRA
+                      <td className="px-4 py-3 whitespace-nowrap font-mono font-bold text-blue-600 hover:underline dark:text-blue-400">
+                        {ref.slice(0, 12)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-slate-800 dark:text-slate-200 break-words">
+                          {partyLabel}
                         </span>
-                      )}
-                    </span>
-
-                    <div className="grid grid-cols-2 sm:flex sm:items-center sm:gap-6 sm:w-[180px] sm:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
-                      <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                          Order Date
-                        </span>
-                        <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-350">
-                          {orderDateStr}
-                        </span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                          Expected Delivery
-                        </span>
-                        <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-350">
-                          {expectedDeliveryStr}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-950/5 border border-slate-100/50 dark:border-white/5">
-                    <span className="text-slate-400 dark:text-slate-500 font-bold text-[9px] uppercase tracking-wider">
-                      Fulfillment Pipeline
-                    </span>
-                    <div className="flex items-center gap-4 sm:gap-6">
-                      <FulfillmentCircleStep
-                        label="Admin"
-                        status={adminBox?.status}
-                        completed={adminBox?.completedQty}
-                        total={orderedQty}
-                        icon={UserCheck}
-                      />
-                      <FulfillmentCircleStep
-                        label="Finance"
-                        status={financeBox?.status}
-                        completed={financeBox?.completedQty}
-                        total={orderedQty}
-                        icon={DollarSign}
-                      />
-                      <FulfillmentCircleStep
-                        label="Dispatch"
-                        status={dispatchBox?.status}
-                        completed={dispatchBox?.completedQty}
-                        total={orderedQty}
-                        icon={Package}
-                      />
-                      <FulfillmentCircleStep
-                        label="Delivery"
-                        status={deliveryBox?.status}
-                        completed={deliveryBox?.completedQty}
-                        total={orderedQty}
-                        icon={Truck}
-                      />
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
+                        {checkOrderPartySra(row, partySraById) && (
+                          <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400">
+                            SRA
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-500 dark:text-slate-400 tabular-nums">
+                        {expectedDeliveryStr}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {renderPriorityBadge(pri)}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {renderWorkflowStatusBadge(adminStatusLabel(o))}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

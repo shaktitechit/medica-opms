@@ -14,6 +14,8 @@ export type FinalOrderStatementPdfLine = {
   approved: string;
   dispatched: string;
   delivered: string;
+  returned: string;
+  net: string;
   unitPrice: string;
   rateType: string;
   gstPercent: string;
@@ -26,6 +28,8 @@ export type FinalOrderStatementPdfTotals = {
   approved: string;
   dispatched: string;
   delivered: string;
+  returned: string;
+  net: string;
   gstAmount: string;
   grandTotal: string;
 };
@@ -161,6 +165,8 @@ export function FinalOrderStatementPdfTemplate({
             <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Appr</th>
             <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Disp</th>
             <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Deliv</th>
+            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Ret</th>
+            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Net</th>
             <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Rate</th>
             <th style={{ ...pdfThCompactStyle, textAlign: "center" }}>Type</th>
             <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>GST%</th>
@@ -184,6 +190,10 @@ export function FinalOrderStatementPdfTemplate({
               <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.approved}</td>
               <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.dispatched}</td>
               <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.delivered}</td>
+              <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.returned}</td>
+              <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 600 }}>
+                {line.net}
+              </td>
               <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.unitPrice}</td>
               <td style={{ ...pdfTdCompactStyle, textAlign: "center" }}>{line.rateType}</td>
               <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.gstPercent}</td>
@@ -208,6 +218,12 @@ export function FinalOrderStatementPdfTemplate({
             </td>
             <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
               {quantityTotals.delivered}
+            </td>
+            <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
+              {quantityTotals.returned}
+            </td>
+            <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
+              {quantityTotals.net}
             </td>
             <td colSpan={3} style={pdfTdCompactStyle} />
             <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
@@ -255,6 +271,10 @@ export function FinalOrderStatementPdfTemplate({
             <tr>
               <td style={{ padding: "3px 0", color: "#1e40af" }}>Delivered</td>
               <td style={{ padding: "3px 0", fontWeight: 600 }}>{quantityTotals.delivered}</td>
+              <td style={{ padding: "3px 0", color: "#1e40af" }}>Returns</td>
+              <td style={{ padding: "3px 0", fontWeight: 600 }}>{quantityTotals.returned}</td>
+              <td style={{ padding: "3px 0", color: "#1e40af" }}>Net</td>
+              <td style={{ padding: "3px 0", fontWeight: 600 }}>{quantityTotals.net}</td>
             </tr>
           </tbody>
         </table>

@@ -24,6 +24,8 @@ import {
   useListOrderReturnsQuery,
   useListOrderApprovalsQuery,
   useTransitionOrderMutation,
+  useCloseOrderMutation,
+  useReopenOrderMutation,
   useListFlagsQuery,
   useListAttachmentsQuery,
   useGetOrderFulfillmentQuery,
@@ -40,9 +42,8 @@ import { DispatchesTab } from "./components/DispatchesTab";
 import { TransportsTab } from "./components/TransportsTab";
 import { DeliveriesTab } from "./components/DeliveriesTab";
 import { ReturnsTab } from "./components/ReturnsTab";
-import { CloseAccountOrderModal } from "./components/CloseAccountOrderModal";
 import { isOrderClosed } from "@/components/portal/sales/orderUtils";
-import { canSettleAccountOrder } from "@/components/portal/shared/returnSettlement";
+import { canCloseAccountOrder, hasPendingReturns } from "@/components/portal/shared/returnSettlement";
 import { ApprovalTab } from "./components/ApprovalTab";
 import {
   filterAccountApprovalsForUser,
@@ -52,7 +53,7 @@ import {
 
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
-import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
+import { ItemFulfillmentDetailsModal } from "@/components/portal/shared/ItemFulfillmentDetailsModal";
 import {
   OrderFulfillmentPipelineStrip,
   buildOrderFulfillmentPipelineSteps,
@@ -246,6 +247,8 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     useTransitionOrderMutation();
   const [transitioningTo, setTransitioningTo] = useState<string | null>(null);
   const [transitionRemarks, setTransitionRemarks] = useState("");
+  const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
+  const [closeRemarks, setCloseRemarks] = useState("");
 
   const [activeTab, setActiveTab] = useState<
     | "approvals"
@@ -303,9 +306,44 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     if (!dueSheetsQ.isUninitialized) void dueSheetsQ.refetch();
   }, [refetch, fulfillmentQ, attachQ, dispatchesQ, transportsQ, deliveriesQ, returnsQ, approvalsQ, remindersQ, dueSheetsQ]);
 
-  const onSettleAndCloseSuccess = useCallback(async () => {
-    handleRefetch();
-  }, [handleRefetch]);
+  const [closeOrder, { isLoading: isClosingOrder }] =
+    useCloseOrderMutation();
+  const [reopenOrder, { isLoading: isReopeningOrder }] =
+    useReopenOrderMutation();
+
+  const handleCloseOrder = useCallback(async () => {
+    try {
+      await closeOrder({
+        id: orderId,
+        body: {
+          remarks: closeRemarks.trim() || undefined,
+        },
+      }).unwrap();
+      toast.success("Order closed successfully");
+      setIsCloseConfirmOpen(false);
+      setCloseRemarks("");
+      handleRefetch();
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }, [orderId, closeRemarks, closeOrder, handleRefetch]);
+
+  const handleReopenOrder = useCallback(async () => {
+    try {
+      await reopenOrder({
+        id: orderId,
+        body: {
+          remarks: closeRemarks.trim() || undefined,
+        },
+      }).unwrap();
+      toast.success("Order reopened successfully");
+      setIsCloseConfirmOpen(false);
+      setCloseRemarks("");
+      handleRefetch();
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }, [orderId, closeRemarks, reopenOrder, handleRefetch]);
 
   // Handle order transition
   const handleTransition = useCallback(
@@ -422,8 +460,6 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
   const [isPartyDetailsModalOpen, setIsPartyDetailsModalOpen] = useState(false);
   const [isFinalStatementOpen, setIsFinalStatementOpen] = useState(false);
-  const [isCloseSettleOpen, setIsCloseSettleOpen] = useState(false);
-
   const orderIsAccountClosed = useMemo(() => isOrderClosed(detail), [detail]);
 
   const hasDispatchReleases = useMemo(
@@ -431,9 +467,11 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     [accountApprovals, dispatches],
   );
 
-  const canSettleOrder = useMemo(() => canSettleAccountOrder(detail), [detail]);
+  const canCloseOrder = useMemo(() => canCloseAccountOrder(detail), [detail]);
 
-  const canActivateSettleClose = hasDispatchReleases && canSettleOrder;
+  const hasUnreceivedReturns = useMemo(() => hasPendingReturns(returns), [returns]);
+
+  const canActivateClose = hasDispatchReleases && canCloseOrder && !hasUnreceivedReturns;
 
   // Can this user perform actions?
   const canPerformAction = useMemo(() => {
@@ -449,7 +487,7 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
     );
   }, [detail, status]);
 
-  const busy = isSubmitting;
+  const busy = isSubmitting || isClosingOrder || isReopeningOrder;
 
   if (isError || (!isLoading && !detail)) {
     return (
@@ -530,49 +568,14 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {/* Item Fulfillment Details Modal */}
-      {isFulfillmentModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-4xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5 font-sans">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-                Item Fulfillment Details
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsFulfillmentModalOpen(false)}
-                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
-              >
-                <span className="sr-only">Close</span>
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="mt-4 overflow-y-auto flex-1 pr-1">
-              <OrderDepartmentFulfillmentPanel
-                order={detail}
-                fulfillmentSnapshot={fulfillmentSnapshot}
-                returns={returns}
-                dispatches={dispatches}
-                showDepartmentBoxes={false}
-                showItemsTable={true}
-              />
-            </div>
-
-            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3 dark:border-white/5">
-              <button
-                type="button"
-                onClick={() => setIsFulfillmentModalOpen(false)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer font-sans"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ItemFulfillmentDetailsModal
+        isOpen={isFulfillmentModalOpen}
+        onClose={() => setIsFulfillmentModalOpen(false)}
+        order={detail}
+        fulfillmentSnapshot={fulfillmentSnapshot}
+        returns={returns}
+        dispatches={dispatches}
+      />
 
       <OrderDetailsModal
         isOpen={isOrderDetailsModalOpen}
@@ -597,15 +600,61 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
         onClose={() => setIsFinalStatementOpen(false)}
       />
 
-      {isCloseSettleOpen && (
-        <CloseAccountOrderModal
-          orderId={orderId}
-          detail={detail}
-          approvals={accountApprovals}
-          dispatches={dispatches}
-          onClose={() => setIsCloseSettleOpen(false)}
-          onSuccess={onSettleAndCloseSuccess}
-        />
+      {/* Close/reopen order confirmation */}
+      {isCloseConfirmOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
+              {orderIsAccountClosed ? "Re-open Order" : "Close Order"}
+            </h3>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              Are you sure you want to {orderIsAccountClosed ? "re-open" : "close"} order{" "}
+              <span className="font-mono font-semibold">{orderNo}</span>?{" "}
+              {orderIsAccountClosed
+                ? "This will return the order to the dispatch stage."
+                : "This will mark its status as closed and workflow stage as completed."}
+            </p>
+            <div className="mt-4">
+              <label className={labelClass}>Remarks (optional)</label>
+              <textarea
+                value={closeRemarks}
+                onChange={(e) => setCloseRemarks(e.target.value)}
+                rows={2}
+                className={`mt-1.5 ${inputClass}`}
+                placeholder={orderIsAccountClosed ? "Add re-open remarks..." : "Add closure remarks..."}
+              />
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCloseConfirmOpen(false);
+                  setCloseRemarks("");
+                }}
+                disabled={isClosingOrder || isReopeningOrder}
+                className={btnSecondaryClass}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void (orderIsAccountClosed ? handleReopenOrder() : handleCloseOrder())
+                }
+                disabled={isClosingOrder || isReopeningOrder}
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+              >
+                {isReopeningOrder
+                  ? "Re-opening…"
+                  : isClosingOrder
+                    ? "Closing…"
+                    : orderIsAccountClosed
+                      ? "Confirm Re-open"
+                      : "Confirm Close"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
 
@@ -685,21 +734,23 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
             {/* ── Action buttons bar ── */}
             <div className="mt-2 border-t border-slate-100 pt-2 dark:border-white/10">
               <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 font-sans font-medium">
-                {!orderIsAccountClosed && (
-                  <button
-                    type="button"
-                    disabled={!canActivateSettleClose || busy}
-                    onClick={() => setIsCloseSettleOpen(true)}
-                    title={
-                      !hasDispatchReleases
-                        ? "Record dispatch against a finance release to enable settle & close"
-                        : undefined
-                    }
-                    className="rounded-md bg-emerald-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98] dark:bg-emerald-500 dark:hover:bg-emerald-400 disabled:hover:bg-emerald-600"
-                  >
-                    Settle & Close
-                  </button>
-                )}
+                <button
+                  type="button"
+                  disabled={(!orderIsAccountClosed && !canActivateClose) || busy}
+                  onClick={() => setIsCloseConfirmOpen(true)}
+                  title={
+                    orderIsAccountClosed
+                      ? "Re-open this order at the dispatch stage"
+                      : !hasDispatchReleases
+                        ? "Record dispatch against a finance release to enable close"
+                        : hasUnreceivedReturns
+                          ? "All returns must be received at warehouse before closing"
+                          : undefined
+                  }
+                  className="rounded-md bg-emerald-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98] dark:bg-emerald-500 dark:hover:bg-emerald-400 disabled:hover:bg-emerald-600"
+                >
+                  {orderIsAccountClosed ? "Re-open" : "Close"}
+                </button>
                 {status !== "on_hold" && (
                   <button type="button" disabled={!canPerformAction || busy} onClick={() => setTransitioningTo("on_hold")} className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Hold</button>
                 )}

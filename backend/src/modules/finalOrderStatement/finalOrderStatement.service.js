@@ -12,6 +12,10 @@ function num(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function round2(value) {
+  return Math.round((num(value) + Number.EPSILON) * 100) / 100;
+}
+
 function refId(value) {
   if (value == null) return '';
   if (typeof value === 'object') return String(value._id ?? value.id ?? '');
@@ -48,9 +52,19 @@ function buildLineStatement(line) {
   const approved = num(line.approved_quantity);
   const dispatched = num(line.dispatched_quantity);
   const returned = num(line.returned_quantity);
-  const netDelivered = num(line.delivered_quantity);
-  const grossDelivered = netDelivered + returned;
+  const delivered = num(line.delivered_quantity);
+  const netDelivered = Math.max(0, delivered - returned);
   const cancelled = num(line.cancelled_quantity);
+
+  // Amounts are settled on the net delivered quantity (delivered minus returns).
+  const unitPrice = num(line.unit_price);
+  const discountPercent = num(line.discount_percent);
+  const gstPercent = num(line.gst_percent);
+  const grossAmount = round2(netDelivered * unitPrice);
+  const discountAmount = round2((grossAmount * discountPercent) / 100);
+  const taxableAmount = round2(grossAmount - discountAmount);
+  const gstAmount = round2((taxableAmount * gstPercent) / 100);
+  const totalAmount = round2(taxableAmount + gstAmount);
 
   return {
     order_item_id: refId(line._id),
@@ -65,17 +79,18 @@ function buildLineStatement(line) {
     sales_approved_quantity: salesApproved,
     approved_quantity: approved,
     dispatched_quantity: dispatched,
-    gross_delivered_quantity: grossDelivered,
+    delivered_quantity: delivered,
     returned_quantity: returned,
     net_delivered_quantity: netDelivered,
     cancelled_quantity: cancelled,
-    unit_price: num(line.unit_price),
+    unit_price: unitPrice,
     applied_rate_type: line.applied_rate_type || 'MANUAL',
-    discount_percent: num(line.discount_percent),
-    discount_amount: num(line.discount_amount),
-    taxable_amount: num(line.taxable_amount),
-    gst_amount: num(line.gst_amount),
-    total_amount: num(line.total_amount),
+    discount_percent: discountPercent,
+    discount_amount: discountAmount,
+    gross_amount: grossAmount,
+    taxable_amount: taxableAmount,
+    gst_amount: gstAmount,
+    total_amount: totalAmount,
     line_status: line.line_status || 'active',
     remarks: line.remarks || '',
   };
@@ -88,7 +103,7 @@ function buildQuantitySummary(lines) {
       acc.sales_approved += line.sales_approved_quantity;
       acc.approved += line.approved_quantity;
       acc.dispatched += line.dispatched_quantity;
-      acc.gross_delivered += line.gross_delivered_quantity;
+      acc.delivered += line.delivered_quantity;
       acc.returned += line.returned_quantity;
       acc.net_delivered += line.net_delivered_quantity;
       acc.cancelled += line.cancelled_quantity;
@@ -99,7 +114,7 @@ function buildQuantitySummary(lines) {
       sales_approved: 0,
       approved: 0,
       dispatched: 0,
-      gross_delivered: 0,
+      delivered: 0,
       returned: 0,
       net_delivered: 0,
       cancelled: 0,
@@ -107,22 +122,44 @@ function buildQuantitySummary(lines) {
   );
 }
 
-function buildFinancialSummary(order) {
-  const lineDiscountTotal = (order.order_items || []).reduce(
-    (sum, line) => sum + num(line.discount_amount),
-    0,
+function buildFinancialSummary(order, lines) {
+  const subtotal = round2(
+    lines.reduce((sum, line) => sum + line.gross_amount, 0),
+  );
+  const lineDiscountTotal = round2(
+    lines.reduce((sum, line) => sum + line.discount_amount, 0),
+  );
+  const taxableAmount = round2(
+    lines.reduce((sum, line) => sum + line.taxable_amount, 0),
+  );
+  const gstAmount = round2(
+    lines.reduce((sum, line) => sum + line.gst_amount, 0),
+  );
+
+  const headerDiscount = num(order.discount_amount);
+  const extraCharges = num(order.extra_charges);
+  const penaltyAmount = num(order.penalty_amount);
+  const damageCharge = num(order.damage_charge);
+
+  const grandTotal = round2(
+    taxableAmount +
+      gstAmount -
+      headerDiscount +
+      extraCharges +
+      penaltyAmount +
+      damageCharge,
   );
 
   return {
-    subtotal: num(order.subtotal),
-    header_discount_amount: num(order.discount_amount),
+    subtotal,
+    header_discount_amount: headerDiscount,
     line_discount_total: lineDiscountTotal,
-    taxable_amount: num(order.taxable_amount),
-    gst_amount: num(order.gst_amount),
-    extra_charges: num(order.extra_charges),
-    penalty_amount: num(order.penalty_amount),
-    damage_charge: num(order.damage_charge),
-    grand_total: num(order.grand_total),
+    taxable_amount: taxableAmount,
+    gst_amount: gstAmount,
+    extra_charges: extraCharges,
+    penalty_amount: penaltyAmount,
+    damage_charge: damageCharge,
+    grand_total: grandTotal,
     payment_status: order.payment_status || 'unpaid',
   };
 }
@@ -194,7 +231,7 @@ async function generateForOrder(orderId) {
 
   const lines = (plain.order_items || []).map((line) => buildLineStatement(line));
   const quantitySummary = buildQuantitySummary(lines);
-  const financialSummary = buildFinancialSummary(plain);
+  const financialSummary = buildFinancialSummary(plain, lines);
 
   return {
     statement_no: statementNo(plain),

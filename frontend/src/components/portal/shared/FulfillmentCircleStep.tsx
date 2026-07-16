@@ -7,6 +7,7 @@ import type { DepartmentStageBox } from "./orderDepartmentStages";
 import { computeDepartmentStageBoxes } from "./orderDepartmentStages";
 
 export function FulfillmentCircleStep({
+  id,
   label,
   status,
   completed = 0,
@@ -14,6 +15,7 @@ export function FulfillmentCircleStep({
   icon: Icon,
   size = "default",
 }: {
+  id?: string;
   label: string;
   status: OrderStatusDimension | undefined;
   completed?: number;
@@ -29,7 +31,10 @@ export function FulfillmentCircleStep({
   const strokeWidth = extraSmall ? 1.5 : compact ? 2 : 2.5;
   const circumference = 2 * Math.PI * radius;
   const safeTotal = Math.max(total, 1);
-  const progressRatio = Math.min(1, Math.max(0, completed / safeTotal));
+  const isApprovalStep = id && ["admin", "finance", "account"].includes(id.toLowerCase());
+  const progressRatio = isApprovalStep
+    ? (status.tone === "success" ? 1 : 0)
+    : Math.min(1, Math.max(0, completed / safeTotal));
   const dashOffset = circumference * (1 - progressRatio);
 
   let strokeColor = "stroke-slate-300 dark:stroke-slate-700";
@@ -64,11 +69,12 @@ export function FulfillmentCircleStep({
     ringColor = "ring-blue-500/20 dark:ring-blue-500/10";
   }
 
-  const tooltipText = useMemo(
-    () =>
-      `${label}: ${status.label} (${completed}/${total} qty${status.detail ? ` · ${status.detail}` : ""})`,
-    [label, status.label, status.detail, completed, total],
-  );
+  const tooltipText = useMemo(() => {
+    if (isApprovalStep) {
+      return `${label}: ${status.label}${status.detail ? ` · ${status.detail}` : ""}`;
+    }
+    return `${label}: ${status.label} (${completed}/${total} qty${status.detail ? ` · ${status.detail}` : ""})`;
+  }, [isApprovalStep, label, status.label, status.detail, completed, total]);
 
   return (
     <div
@@ -111,27 +117,45 @@ export function FulfillmentCircleStep({
         />
       </div>
       <span
-        className={`font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 text-center ${
+        className={`font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-center ${
           extraSmall
-            ? "mt-0.5 text-[6px] leading-none"
+            ? "mt-0.5 text-[8px] leading-none"
             : compact
-              ? "mt-0.5 text-[7px] leading-none"
-              : "mt-1 text-[9px]"
+              ? "mt-0.5 text-[9px] leading-none"
+              : "mt-1 text-[11px]"
         }`}
       >
         {label}
       </span>
-      <span
-        className={`font-bold tracking-tight ${quantityColor} ${
-          extraSmall
-            ? "text-[7px] leading-none"
-            : compact
+      {isApprovalStep ? (
+        <span
+          className={`font-bold tracking-tight ${
+            status.tone === "success"
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-slate-600 dark:text-slate-300"
+          } ${
+            extraSmall
               ? "text-[8px] leading-none"
-              : "text-[10px]"
-        }`}
-      >
-        {completed}/{total}
-      </span>
+              : compact
+                ? "text-[9px] leading-none"
+                : "text-[11px]"
+          }`}
+        >
+          {status.label}
+        </span>
+      ) : (
+        <span
+          className={`font-extrabold tracking-tight ${quantityColor} ${
+            extraSmall
+              ? "text-[9px] leading-none"
+              : compact
+                ? "text-[10px] leading-none"
+                : "text-[12px]"
+          }`}
+        >
+          {completed}/{total}
+        </span>
+      )}
     </div>
   );
 }
@@ -242,8 +266,8 @@ export function OrderFulfillmentPipelineStrip({
   const visible = steps.filter((step) => step.status);
   const arrowClass =
     size === "xs"
-      ? "px-0 text-[7px] font-semibold text-slate-300 dark:text-slate-600"
-      : "px-0.5 text-[9px] font-semibold text-slate-300 dark:text-slate-600";
+      ? "px-0 text-[9px] font-bold text-slate-300 dark:text-slate-600"
+      : "px-0.5 text-[11px] font-bold text-slate-300 dark:text-slate-600";
 
   if (visible.length === 0) return null;
 
@@ -258,6 +282,7 @@ export function OrderFulfillmentPipelineStrip({
         <Fragment key={step.id}>
           {index > 0 ? <span className={arrowClass}>→</span> : null}
           <FulfillmentCircleStep
+            id={step.id}
             size={size}
             label={step.label}
             status={step.status}

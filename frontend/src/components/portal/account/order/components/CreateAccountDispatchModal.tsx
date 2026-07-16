@@ -12,6 +12,10 @@ import {
   isFullyClearedApproval,
   summarizeReleaseDispatchState,
 } from "./accountDispatchAvailability";
+import {
+  largeModalBackdropClass,
+  largeModalPanelClass,
+} from "@/components/portal/shared/modalLayout";
 
 type CreateAccountDispatchModalProps = {
   open: boolean;
@@ -284,8 +288,8 @@ export function CreateAccountDispatchModal({
   const orderNo = String(detail?.order_no ?? detail?.order_number ?? orderId);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-      <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900">
+    <div className={largeModalBackdropClass}>
+      <div className={largeModalPanelClass}>
         <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4 dark:border-white/5">
           <div>
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">

@@ -5,21 +5,26 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ConfirmDeleteDraftModal } from "@/components/portal/sales/components/modals/ConfirmDeleteDraftModal";
+import { OrderDetailModal } from "@/components/portal/sales/components/modals/OrderDetailModal";
 import {
   buildPartyNameById,
   buildPartySraById,
   checkOrderPartySra,
+  pickList,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
+  buildPendingReturnOrderIds,
   getOrderTabCategory,
   isSalesOrderTabCategory,
   pendingApprovalStageLabel,
   resolveApprovalPending,
+  SALES_ORDER_TAB_LABELS,
   SALES_ORDER_TABS,
+  salesTabQueryParams,
   type SalesOrderTabCategory,
 } from "@/components/portal/sales/orderUtils";
 import {
@@ -37,6 +42,7 @@ import {
 import { toast } from "@/lib/toast";
 import {
   useDeleteOrderMutation,
+  useListOrderReturnsQuery,
   useListPartiesQuery,
   useListOrdersQuery,
 } from "@/store/api";
@@ -121,44 +127,63 @@ function renderPriorityBadge(priority: string) {
 }
 
 function renderWorkflowStatusBadge(status: string) {
-  let label = "";
-  let bgClass = "";
+  const label =
+    SALES_ORDER_TAB_LABELS[status as keyof typeof SALES_ORDER_TAB_LABELS] ??
+    status;
+  let bgClass =
+    "bg-slate-50 text-slate-700 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
   switch (status) {
     case "draft":
-      label = "Draft";
-      bgClass = "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
+      bgClass =
+        "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
       break;
-    case "pending_approval":
-      label = "Pending Approval";
-      bgClass = "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
+    case "approval_pending":
+    case "pending_admin_approval":
+      bgClass =
+        "bg-indigo-50 text-indigo-700 ring-indigo-600/10 dark:bg-indigo-950/30 dark:text-indigo-400 dark:ring-indigo-500/25";
       break;
-    case "open":
-      label = "Open";
-      bgClass = "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
+    case "due_sheet_pending":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
       break;
-    case "closed":
-      label = "Closed";
-      bgClass = "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+    case "pending_finance_approval":
+      bgClass =
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
+      break;
+    case "pending_account_approval":
+      bgClass =
+        "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
+      break;
+    case "open_dispatched":
+      bgClass =
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
+      break;
+    case "transport_return_pending":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "closed_delivered":
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
       break;
     case "on_hold":
-      label = "On Hold";
-      bgClass = "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
       break;
     case "rejected":
-      label = "Rejected";
-      bgClass = "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-955/30 dark:text-red-400 dark:ring-red-500/25";
+      bgClass =
+        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-950/30 dark:text-red-400 dark:ring-red-500/25";
       break;
     case "cancelled":
-      label = "Cancelled";
-      bgClass = "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25";
+      bgClass =
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
       break;
-    default:
-      label = status;
-      bgClass = "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
   }
 
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
+    >
       {label}
     </span>
   );
@@ -196,13 +221,14 @@ export default function ListMyOrdersPage() {
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<SalesOrderTabCategory>(() =>
-    tabFromUrl && isSalesOrderTabCategory(tabFromUrl) ? tabFromUrl : "open",
+    tabFromUrl && isSalesOrderTabCategory(tabFromUrl) ? tabFromUrl : "draft",
   );
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
   const [customDateFrom, setCustomDateFrom] = useState("");
   const [customDateTo, setCustomDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [viewOrderId, setViewOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     if (tabFromUrl && isSalesOrderTabCategory(tabFromUrl)) {
@@ -215,30 +241,7 @@ export default function ListMyOrdersPage() {
     const base: Record<string, string | undefined> = {};
 
     if (!searchQuery.trim()) {
-      switch (activeTab) {
-        case "draft":
-          base.status = "draft";
-          break;
-        case "pending_approval":
-          base.status = "pending_approval";
-          break;
-        case "on_hold":
-          base.status = "on_hold";
-          break;
-        case "cancelled":
-          base.status = "cancelled";
-          break;
-        case "rejected":
-          base.status = "finance_rejected";
-          break;
-        case "open":
-          // Broad fetch; client excludes closed / terminal buckets
-          base.exclude_status = "draft,on_hold,cancelled,finance_rejected";
-          break;
-        case "closed":
-          base.status = "closed";
-          break;
-      }
+      Object.assign(base, salesTabQueryParams(activeTab));
     }
 
     if (searchQuery.trim()) {
@@ -248,12 +251,23 @@ export default function ListMyOrdersPage() {
   }, [activeTab, searchQuery]);
 
   const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery(queryParams);
+  const { data: returnsData } = useListOrderReturnsQuery({});
   const partiesQ = useListPartiesQuery({});
 
   // Pagination State
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const orders = useMemo(() => pickOrders(data) as OrderRow[], [data]);
+
+  const pendingReturnOrderIds = useMemo(
+    () => buildPendingReturnOrderIds(pickList(returnsData)),
+    [returnsData],
+  );
+
+  const categoryOptions = useMemo(
+    () => ({ pendingReturnOrderIds }),
+    [pendingReturnOrderIds],
+  );
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesQ.data),
@@ -267,14 +281,14 @@ export default function ListMyOrdersPage() {
 
   const showReset =
     searchQuery.trim() !== "" ||
-    activeTab !== "open" ||
+    activeTab !== "draft" ||
     priorityFilter !== "all" ||
     dateFilter !== "all";
 
   // Dynamic filter reset
   const handleResetFilters = useCallback(() => {
     setSearchQuery("");
-    setActiveTab("open");
+    setActiveTab("draft");
     setPriorityFilter("all");
     setDateFilter("all");
     setCustomDateFrom("");
@@ -319,7 +333,10 @@ export default function ListMyOrdersPage() {
     return orders.filter((o) => {
       // Filter by active tab only if search is not active (universal search)
       if (!searchQuery.trim()) {
-        if (getOrderTabCategory(o) !== activeTab) {
+        if (
+          activeTab !== "all" &&
+          getOrderTabCategory(o, categoryOptions) !== activeTab
+        ) {
           return false;
         }
       }
@@ -344,7 +361,16 @@ export default function ListMyOrdersPage() {
 
       return true;
     });
-  }, [orders, activeTab, priorityFilter, searchQuery, dateFilter, customDateFrom, customDateTo]);
+  }, [
+    orders,
+    activeTab,
+    categoryOptions,
+    priorityFilter,
+    searchQuery,
+    dateFilter,
+    customDateFrom,
+    customDateTo,
+  ]);
 
   // Paginated Orders slice
   const paginatedOrders = useMemo(() => {
@@ -503,147 +529,122 @@ export default function ListMyOrdersPage() {
               totalPages={totalPages}
               onPageChange={setCurrentPage}
             />
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50 dark:border-white/5 dark:bg-slate-900/50">
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Order No</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Party</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Order Date</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Expected Delivery</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Priority</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                  {paginatedOrders.map((o) => {
+                    const id = orderKey(o);
+                    const ref =
+                      typeof o.order_no === "string"
+                        ? o.order_no
+                        : typeof o.order_number === "string"
+                          ? o.order_number
+                          : id || "—";
+                    
+                    const pri = typeof o.priority === "string" ? o.priority : "normal";
+                    const statusRaw = deriveOrderWorkflowStatus(o) || "draft";
+                    const isDraftRow = statusRaw === "draft";
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
-              {paginatedOrders.map((o) => {
-                const id = orderKey(o);
-                const ref =
-                  typeof o.order_no === "string"
-                    ? o.order_no
-                    : typeof o.order_number === "string"
-                      ? o.order_number
-                      : id || "—";
-                
-                const pri = typeof o.priority === "string" ? o.priority : "normal";
-                 const statusRaw = deriveOrderWorkflowStatus(o) || "draft";
-                 const isDraftRow = statusRaw === "draft";
+                    const partyLabel = resolveOrderCounterparty(
+                      o as Record<string, unknown>,
+                      partyNameById,
+                    );
 
-                 const partyLabel = resolveOrderCounterparty(
-                   o as Record<string, unknown>,
-                   partyNameById,
-                 );
+                    const orderDateStr = formatDateShort((o as any).order_date ?? (o as any).created_at ?? (o as any).createdAt);
+                    const expectedDeliveryStr = formatDateShort((o as any).expected_delivery_date);
 
-                const orderDateStr = formatDateShort((o as any).order_date ?? (o as any).created_at ?? (o as any).createdAt);
-                const expectedDeliveryStr = formatDateShort((o as any).expected_delivery_date);
-
-                let stripeColor = "bg-slate-350 dark:bg-slate-700";
-                if (pri === "urgent") stripeColor = "bg-rose-500";
-                else if (pri === "high") stripeColor = "bg-amber-500";
-                else if (pri === "normal") stripeColor = "bg-blue-500";
-
-                return (
-                  <div
-                    key={id || ref}
-                    onClick={() => {
-                      if (id) {
-                        router.push(`/sales/order/${id}`);
-                      }
-                    }}
-                    className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 transition-all duration-300 hover:shadow-md hover:border-blue-500/20 dark:border-white/10 dark:bg-slate-900 flex flex-col gap-4 pl-5 animate-fadeIn cursor-pointer"
-                  >
-                    {/* Priority Accent Stripe */}
-                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${stripeColor}`} />
-
-                    {/* Top Row: Ref, Badges, Party, Dates, Actions */}
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
-                      {/* Ref & Badges */}
-                      <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[130px] lg:shrink-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-550 dark:text-slate-50">
-                            {ref}
-                          </span>
-                          {renderPriorityBadge(pri)}
-                          {activeTab === "pending_approval"
-                            ? renderPendingApprovalBadge(o)
-                            : renderWorkflowStatusBadge(getOrderTabCategory(o))}
-                        </div>
-
-                        {/* Mobile Actions (hidden on lg and up) */}
-                        {isDraftRow && id ? (
-                          <div className="flex items-center gap-2 lg:hidden">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteTarget({ id, label: ref });
-                              }}
-                              disabled={isDeletingOrder}
-                              className="inline-flex items-center justify-center rounded border border-slate-200 hover:border-rose-350 p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                              title="Delete Draft Order"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {/* Party Title */}
-                      <span
-                        className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 lg:flex-1 break-words whitespace-normal"
-                        title={partyLabel}
+                    return (
+                      <tr
+                        key={id || ref}
+                        className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                        onClick={() => {
+                          if (id) {
+                            router.push(`/sales/order/${id}`);
+                          }
+                        }}
                       >
-                        <span>{partyLabel}</span>
-                        {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
-                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
-                            SRA
-                          </span>
-                        )}
-                      </span>
-
-                      {/* Financials & Dates */}
-                      <div className="grid grid-cols-2 sm:flex sm:items-center sm:gap-8 lg:w-[200px] lg:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
-                        <div className="flex flex-col">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                            Order Date
-                          </span>
-                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
-                            {orderDateStr}
-                          </span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                            Expected Delivery
-                          </span>
-                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
-                            {expectedDeliveryStr}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Desktop Actions (hidden on lg and below) */}
-                      <div className="hidden lg:flex lg:items-center lg:gap-2 lg:w-[40px] lg:shrink-0 lg:justify-end">
-                        {isDraftRow && id ? (
+                        <td className="px-4 py-3 whitespace-nowrap font-mono font-bold">
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setDeleteTarget({ id, label: ref });
+                              if (id) setViewOrderId(id);
                             }}
-                            disabled={isDeletingOrder}
-                            className="inline-flex items-center justify-center rounded-lg border border-slate-200 hover:border-rose-350 p-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                            title="Delete Draft Order"
+                            className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-bold hover:underline"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            {ref}
                           </button>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {/* Bottom Row: Pipeline */}
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between bg-slate-50/30 px-2 py-1.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5">
-                      <span className="shrink-0 text-slate-400 dark:text-slate-500 font-bold text-[8px] uppercase tracking-wider">
-                        Pipeline
-                      </span>
-                      <div className="min-w-0 overflow-x-auto">
-                        <OrderFulfillmentPipelineStrip
-                          steps={buildListOrderFulfillmentPipeline(o as Record<string, unknown>)}
-                          size="xs"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-semibold text-slate-800 dark:text-slate-200 break-words">
+                            {partyLabel}
+                          </span>
+                          {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
+                            <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400">
+                              SRA
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-slate-500 dark:text-slate-400 tabular-nums">
+                          {orderDateStr}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-slate-500 dark:text-slate-400 tabular-nums">
+                          {expectedDeliveryStr}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {renderPriorityBadge(pri)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {activeTab === "approval_pending"
+                            ? renderPendingApprovalBadge(o)
+                            : renderWorkflowStatusBadge(
+                                getOrderTabCategory(o, categoryOptions),
+                              )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (id) setViewOrderId(id);
+                              }}
+                              className="rounded border border-slate-200 hover:bg-slate-50 hover:text-slate-900 px-2 py-1 text-slate-700 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5 transition font-semibold"
+                            >
+                              View
+                            </button>
+                            {isDraftRow && id && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTarget({ id, label: ref });
+                                }}
+                                disabled={isDeletingOrder}
+                                className="inline-flex items-center justify-center rounded border border-slate-200 hover:border-rose-350 p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                                title="Delete Draft Order"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </>
         )}
@@ -662,6 +663,14 @@ export default function ListMyOrdersPage() {
         showReset={showReset}
         onReset={handleResetFilters}
       />
+
+      {viewOrderId && (
+        <OrderDetailModal
+          orderId={viewOrderId}
+          partyNameById={partyNameById}
+          onClose={() => setViewOrderId(null)}
+        />
+      )}
     </div>
   );
 }

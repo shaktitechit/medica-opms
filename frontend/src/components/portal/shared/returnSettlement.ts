@@ -210,7 +210,7 @@ export function filterReturnsReceivedAtWarehouse(
   return returns.filter((r) => isReturnReceivedAtWarehouse(r.return_status));
 }
 
-export function canSettleAccountOrder(detail: Record<string, unknown> | null): boolean {
+export function canCloseAccountOrder(detail: Record<string, unknown> | null): boolean {
   if (!detail) return false;
   const lifecycle = String(detail.lifecycle_status ?? "").toLowerCase();
   if (lifecycle === "cancelled" || String(detail.status ?? "").toLowerCase() === "closed" || Boolean(detail.closed_at)) {

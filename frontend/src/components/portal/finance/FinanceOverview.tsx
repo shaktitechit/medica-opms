@@ -1,32 +1,36 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useFinanceTabAlertOverride } from "./FinanceTabAlert";
-import FinanceOrderVolumeChart from "./components/FinanceOrderVolumeChart";
 import FinanceOverviewWidgets from "./components/FinanceOverviewWidgets";
-import FinanceRecentOrdersWidget from "./components/FinanceRecentOrdersWidget";
-import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
-import { computeFinanceOrderStats } from "./financeOrderUtils";
+import FinanceMonthlyPerformanceChart from "./components/FinanceMonthlyPerformanceChart";
+import FinancePartyLeaderboard from "./components/FinancePartyLeaderboard";
+import FinanceProductLeaderboard from "./components/FinanceProductLeaderboard";
+import FinanceSalesLeaderboard from "./components/FinanceSalesLeaderboard";
+import FinanceFeaturedProductSalesUserTable from "./components/FinanceFeaturedProductSalesUserTable";
+import FinanceFeaturedProductFeaturePartyTable from "./components/FinanceFeaturedProductFeaturePartyTable";
+import {
+  buildPendingReturnOrderIds,
+  computeFinanceOrderStats,
+} from "./financeOrderUtils";
 import {
   useGetDashboardFinanceQuery,
+  useListOrderReturnsQuery,
   useListOrdersQuery,
   useListPartiesQuery,
+  useListUsersQuery,
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
 import { OverviewFlagsWidget } from "@/components/portal/shared/OverviewFlagsWidget";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { buildPartyNameById, buildPartySraById } from "@/components/portal/sales/partyDisplay";
 import {
-  ClipboardCheck,
-  Users,
-  Package,
+  buildPartyNameById,
+  pickList,
+} from "@/components/portal/sales/partyDisplay";
+import { buildUserNameById } from "@/components/portal/shared/userDisplay";
+import {
   RefreshCw,
-  ArrowRight,
-  Info,
 } from "lucide-react";
-
-
 
 export default function FinanceOverview() {
   const user = useAppSelector((state) => state.auth.user);
@@ -34,59 +38,48 @@ export default function FinanceOverview() {
     typeof user?.name === "string" ? user.name : "Finance Specialist";
 
   const {
-    data: kpiData,
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardFinanceQuery();
 
-  const financeKpi = kpiData as { queue_size?: number; awaiting_finance?: number } | undefined;
-
   const {
     data: ordersData,
     isFetching: isOrdersFetching,
-    isError: isOrdersError,
     refetch: refetchOrders,
   } = useListOrdersQuery({});
 
+  const { data: returnsData } = useListOrderReturnsQuery({});
   const { data: partiesData } = useListPartiesQuery({});
-
-
+  const { data: usersData } = useListUsersQuery({ department: "sales" });
 
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
-  const orderStats = useMemo(() => computeFinanceOrderStats(orders), [orders]);
+  const pendingReturnOrderIds = useMemo(
+    () => buildPendingReturnOrderIds(pickList(returnsData)),
+    [returnsData],
+  );
+
+  const categoryOptions = useMemo(
+    () => ({ pendingReturnOrderIds }),
+    [pendingReturnOrderIds],
+  );
+
+  const orderStats = useMemo(
+    () => computeFinanceOrderStats(orders, categoryOptions),
+    [orders, categoryOptions],
+  );
 
   useFinanceTabAlertOverride(orderStats.pending_finance_approval.count);
-
-  const totalOrdersCount = useMemo(() => {
-    return orders.filter((o) => deriveOrderWorkflowStatus(o) !== "draft").length;
-  }, [orders]);
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
     [partiesData],
   );
 
-  const partySraById = useMemo(
-    () => buildPartySraById(partiesData),
-    [partiesData],
+  const userNameById = useMemo(
+    () => buildUserNameById(usersData),
+    [usersData],
   );
-
-
-
-  // Retrieve the 3 most recent orders that require finance review (or generally in pipeline)
-  const recentOrders = useMemo(() => {
-    return [...orders]
-      .filter((o) => deriveOrderWorkflowStatus(o) !== "draft")
-      .sort((a, b) => {
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTime - aTime;
-      })
-      .slice(0, 3);
-  }, [orders]);
-
-
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const handleRefresh = async () => {
@@ -106,16 +99,6 @@ export default function FinanceOverview() {
   const isAnyLoading =
     isKpiFetching || isOrdersFetching || isRefreshing;
 
-  const pendingFinanceApprovalPercent =
-    totalOrdersCount > 0 ? (orderStats.pending_finance_approval.count / totalOrdersCount) * 100 : 0;
-  const pendingApprovalsPercent =
-    totalOrdersCount > 0 ? (orderStats.pending_approvals.count / totalOrdersCount) * 100 : 0;
-  const openPercent = totalOrdersCount > 0 ? (orderStats.open.count / totalOrdersCount) * 100 : 0;
-  const closedPercent = totalOrdersCount > 0 ? (orderStats.closed.count / totalOrdersCount) * 100 : 0;
-  const onHoldPercent = totalOrdersCount > 0 ? (orderStats.on_hold.count / totalOrdersCount) * 100 : 0;
-  const rejectedPercent = totalOrdersCount > 0 ? (orderStats.rejected.count / totalOrdersCount) * 100 : 0;
-  const cancelledPercent = totalOrdersCount > 0 ? (orderStats.cancelled.count / totalOrdersCount) * 100 : 0;
-
   return (
     <div className="space-y-8 pb-10 font-sans">
       {/* HEADER SECTION */}
@@ -126,14 +109,16 @@ export default function FinanceOverview() {
           </h1>
           <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400 font-sans">
             Welcome,{" "}
-            <span className="font-semibold text-emerald-600 dark:text-emerald-405">
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400">
               {userName}
             </span>{" "}
             (Finance). Review cashflow audits and department clearance flags.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <OverviewFlagsWidget currentDepartment="finance" variant="headerButton" />
+
           <button
             type="button"
             onClick={handleRefresh}
@@ -149,217 +134,43 @@ export default function FinanceOverview() {
       </div>
 
       {/* KPI METRICS WIDGETS */}
-      <FinanceOverviewWidgets orders={orders} isOrdersFetching={isOrdersFetching} />
+      <FinanceOverviewWidgets
+        orders={orders}
+        isOrdersFetching={isOrdersFetching}
+        categoryOptions={categoryOptions}
+      />
 
-      {/* ANALYTICS CHART SECTION */}
-      <FinanceOrderVolumeChart orders={orders} isOrdersFetching={isOrdersFetching} />
+      <FinanceMonthlyPerformanceChart
+        orders={orders}
+        isOrdersFetching={isOrdersFetching}
+      />
 
-      {/* QUICK ACTIONS GRID */}
-      <div className="space-y-3">
-        <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 font-sans">
-          Finance Management Controls
-        </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Link
-            href="/finance/orders"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-emerald-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-emerald-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400">
-                <ClipboardCheck className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-150">
-                Orders Review
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
-                Approve, hold, or reject incoming orders awaiting billing clearance.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-semibold text-emerald-650 dark:text-emerald-400">
-              Audit queue
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          <Link
-            href="/finance/parties"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-teal-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-teal-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-teal-50 p-2 text-teal-600 dark:bg-teal-950/30 dark:text-teal-400">
-                <Users className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-155">
-                Client directory
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
-                Verify credit terms, check outstandings, and audit party balance profiles.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-semibold text-teal-650 dark:text-teal-400 font-sans">
-              Manage counterparties
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          <Link
-            href="/finance/products"
-            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-amber-500/40 hover:bg-slate-50/50 dark:border-white/10 dark:bg-slate-900 dark:hover:border-amber-500/40 dark:hover:bg-slate-800/40"
-          >
-            <div>
-              <div className="inline-flex rounded-lg bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/30 dark:text-amber-450">
-                <Package className="h-5 w-5" />
-              </div>
-              <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-155">
-                Product Pricing
-              </h4>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
-                Browse catalog catalog pricing rates, tax parameters, and item descriptions.
-              </p>
-            </div>
-            <div className="mt-4 flex items-center text-xs font-semibold text-amber-650 dark:text-amber-450 font-sans">
-              Browse inventory
-              <ArrowRight className="ml-1 h-3 w-3 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-        </div>
-      </div>
-
-      {/* TWO COLUMN GRID: RECENT ORDERS & STATS / FLAGS */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* RECENT ORDERS FEED */}
-        <FinanceRecentOrdersWidget
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        <FinanceProductLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
-          isOrdersError={isOrdersError}
-          partyNameById={partyNameById}
-          partySraById={partySraById}
         />
+        <FinancePartyLeaderboard
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+          partyNameById={partyNameById}
+        />
+        <FinanceSalesLeaderboard
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+          userNameById={userNameById}
+        />
+      </div>
 
-        {/* SIDE COLUMN: STATS & SYSTEM FLAGS */}
-        <div className="space-y-6">
-          {/* STATS VISUALIZATION PANEL */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900">
-            <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
-              Order Pipeline Share
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-sans">
-              Breakdown of system-wide statuses from finance perspective
-            </p>
-
-            <div className="mt-4 font-sans">
-              {isOrdersFetching ? (
-                <div className="h-6 w-full animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
-              ) : totalOrdersCount > 0 ? (
-                <div className="space-y-4">
-                  {/* Stacked Segmented Progress Bar */}
-                  <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                    <div
-                      className="bg-purple-500 transition-all duration-500"
-                      style={{ width: `${pendingFinanceApprovalPercent}%` }}
-                      title={`Pending Finance Approval: ${orderStats.pending_finance_approval.count}`}
-                    />
-                    <div
-                      className="bg-violet-500 transition-all duration-500"
-                      style={{ width: `${pendingApprovalsPercent}%` }}
-                      title={`Pending Approvals (all depts): ${orderStats.pending_approvals.count}`}
-                    />
-                    <div
-                      className="bg-teal-500 transition-all duration-500"
-                      style={{ width: `${openPercent}%` }}
-                      title={`Open: ${orderStats.open.count}`}
-                    />
-                    <div
-                      className="bg-emerald-500 transition-all duration-500"
-                      style={{ width: `${closedPercent}%` }}
-                      title={`Closed: ${orderStats.closed.count}`}
-                    />
-                    <div
-                      className="bg-amber-500 transition-all duration-500"
-                      style={{ width: `${onHoldPercent}%` }}
-                      title={`On Hold: ${orderStats.on_hold.count}`}
-                    />
-                    <div
-                      className="bg-red-500 transition-all duration-500"
-                      style={{ width: `${rejectedPercent}%` }}
-                      title={`Rejected: ${orderStats.rejected.count}`}
-                    />
-                    <div
-                      className="bg-rose-500 transition-all duration-500"
-                      style={{ width: `${cancelledPercent}%` }}
-                      title={`Cancelled: ${orderStats.cancelled.count}`}
-                    />
-                  </div>
-
-                  {/* Legend Grid */}
-                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] font-medium pt-1 font-sans">
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-purple-500 shrink-0" />
-                      <span>Pending Finance:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.pending_finance_approval.count} ({pendingFinanceApprovalPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-violet-500 shrink-0" />
-                      <span>Pending Approvals:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.pending_approvals.count} ({pendingApprovalsPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-teal-500 shrink-0" />
-                      <span>Open:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.open.count} ({openPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                      <span>Closed:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.closed.count} ({closedPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
-                      <span>On Hold:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.on_hold.count} ({onHoldPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-red-500 shrink-0" />
-                      <span>Rejected:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.rejected.count} ({rejectedPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="h-2 w-2 rounded-full bg-rose-500 shrink-0" />
-                      <span>Cancelled:</span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto font-mono">
-                        {orderStats.cancelled.count} ({cancelledPercent.toFixed(0)}%)
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 rounded-lg bg-slate-50 p-4 text-xs text-slate-500 dark:bg-slate-950/20 dark:text-slate-400">
-                  <Info className="h-4 w-4 text-slate-400 shrink-0" />
-                  No order data to visualize.
-                </div>
-              )}
-            </div>
-          </div>
-          <OverviewFlagsWidget currentDepartment="finance" />
-        </div>
+      <div className="space-y-6">
+        <FinanceFeaturedProductSalesUserTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        />
+        <FinanceFeaturedProductFeaturePartyTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        />
       </div>
     </div>
   );

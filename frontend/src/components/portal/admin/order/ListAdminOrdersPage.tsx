@@ -5,10 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ConfirmDeleteDraftModal } from "@/components/portal/sales/components/modals/ConfirmDeleteDraftModal";
+import { OrderDetailModal } from "@/components/portal/sales/components/modals/OrderDetailModal";
 import {
   buildPartyNameById,
   buildPartySraById,
   checkOrderPartySra,
+  pickList,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
@@ -26,6 +28,7 @@ import {
   useDeleteOrderMutation,
   useListPartiesQuery,
   useListOrdersQuery,
+  useListOrderReturnsQuery,
 } from "@/store/api";
 import {
   Search,
@@ -40,25 +43,23 @@ import {
   Trash2,
   FileText,
   TrendingUp,
-  ShieldCheck,
-  ListChecks,
-  FolderOpen,
-  CheckCircle2,
-  PauseCircle,
-  XCircle,
-  Ban,
   type LucideIcon,
 } from "lucide-react";
 import {
   OrderFulfillmentPipelineStrip,
   buildListOrderFulfillmentPipeline,
 } from "@/components/portal/shared/FulfillmentCircleStep";
+import { OrderListBottomTabStrip } from "@/components/portal/shared/orderList/OrderListBottomTabStrip";
+import { ORDER_PRIORITY_TABS } from "@/components/portal/shared/orderList/orderWorkflowTabs";
 import {
   getAdminOrderTabCategory,
-  isAdminOrderTabCategory,
+  normalizeAdminTabFromUrl,
   orderMatchesAdminTab,
   pendingApprovalStageLabel,
+  adminTabQueryParams,
+  buildPendingReturnOrderIds,
   ADMIN_ORDER_TABS,
+  ADMIN_ORDER_TAB_LABELS,
   type AdminOrderTabCategory,
 } from "@/components/portal/admin/adminOrderUtils";
 import { resolveApprovalPending } from "@/components/portal/sales/orderUtils";
@@ -73,16 +74,6 @@ const DATE_FILTER_OPTIONS = [
   { id: "last_month", label: "Last Month" },
   { id: "custom", label: "Custom Range" },
 ] as const;
-
-const ADMIN_TAB_ICONS: Record<AdminOrderTabCategory, LucideIcon> = {
-  pending_admin_approval: ShieldCheck,
-  pending_approvals: ListChecks,
-  open: FolderOpen,
-  closed: CheckCircle2,
-  on_hold: PauseCircle,
-  rejected: XCircle,
-  cancelled: Ban,
-};
 
 const dateFilterSelectClass =
   "shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-900 outline-none transition focus:border-purple-600 focus:ring-2 focus:ring-purple-500/20 dark:border-white/10 dark:bg-slate-950 dark:text-slate-100 cursor-pointer";
@@ -170,54 +161,51 @@ function formatMoney(v: number): string {
   });
 }
 
-function renderWorkflowStatusBadge(status: string) {
-  let label = "";
-  let bgClass = "";
-  switch (status) {
+function renderWorkflowStatusBadge(category: AdminOrderTabCategory) {
+  const label = ADMIN_ORDER_TAB_LABELS[category];
+  let bgClass =
+    "bg-slate-50 text-slate-700 ring-slate-600/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+  switch (category) {
     case "pending_admin_approval":
-      label = "Pending Admin";
+      bgClass =
+        "bg-indigo-50 text-indigo-700 ring-indigo-600/10 dark:bg-indigo-950/30 dark:text-indigo-400 dark:ring-indigo-500/25";
+      break;
+    case "due_sheet_pending":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "pending_finance_approval":
       bgClass =
         "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
       break;
-    case "pending_approvals":
-      label = "Pending Approvals";
+    case "pending_account_approval":
       bgClass =
         "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-950/30 dark:text-violet-400 dark:ring-violet-500/25";
       break;
-    case "draft":
-      label = "Draft";
+    case "open_dispatched":
       bgClass =
-        "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
       break;
-    case "open":
-      label = "Open";
+    case "transport_return_pending":
       bgClass =
-        "bg-blue-50 text-blue-700 ring-blue-600/10 dark:bg-blue-950/30 dark:text-blue-400 dark:ring-blue-500/25";
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
       break;
-    case "closed":
-      label = "Closed";
+    case "closed_delivered":
       bgClass =
-        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
       break;
     case "on_hold":
-      label = "On Hold";
       bgClass =
-        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
       break;
     case "rejected":
-      label = "Rejected";
       bgClass =
-        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-955/30 dark:text-red-400 dark:ring-red-500/25";
+        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-950/30 dark:text-red-400 dark:ring-red-500/25";
       break;
     case "cancelled":
-      label = "Cancelled";
       bgClass =
-        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25";
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
       break;
-    default:
-      label = status;
-      bgClass =
-        "bg-slate-50 text-slate-655 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
   }
 
   return (
@@ -257,54 +245,35 @@ export default function ListAdminOrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
+  const viewBy = searchParams.get("by") === "priority" ? "priority" : "workflow";
+  const defaultTab: AdminOrderTabCategory =
+    viewBy === "priority" ? "all" : "pending_admin_approval";
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
   const [isGoogleSheetOpen, setIsGoogleSheetOpen] = useState(false);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminOrderTabCategory>(() =>
-    tabFromUrl && isAdminOrderTabCategory(tabFromUrl) ? tabFromUrl : "pending_admin_approval",
+    tabFromUrl ? normalizeAdminTabFromUrl(tabFromUrl) : defaultTab,
   );
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
   const [customDateFrom, setCustomDateFrom] = useState("");
   const [customDateTo, setCustomDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [viewOrderId, setViewOrderId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (tabFromUrl && isAdminOrderTabCategory(tabFromUrl)) {
-      setActiveTab(tabFromUrl);
-      setCurrentPage(1);
-    }
-  }, [tabFromUrl]);
+    setActiveTab(tabFromUrl ? normalizeAdminTabFromUrl(tabFromUrl) : defaultTab);
+    setPriorityFilter("all");
+    setCurrentPage(1);
+  }, [tabFromUrl, defaultTab]);
 
   const queryParams = useMemo(() => {
     const base: Record<string, string | undefined> = {};
 
     if (!searchQuery.trim()) {
-      switch (activeTab) {
-        case "pending_admin_approval":
-          base.status = "pending_review";
-          break;
-        case "pending_approvals":
-          base.status = "pending_approval";
-          break;
-        case "on_hold":
-          base.status = "on_hold";
-          break;
-        case "cancelled":
-          base.status = "cancelled";
-          break;
-        case "rejected":
-          base.status = "finance_rejected";
-          break;
-        case "open":
-          base.exclude_status = "draft,submitted,on_hold,cancelled,finance_rejected";
-          break;
-        case "closed":
-          base.status = "closed";
-          break;
-      }
+      Object.assign(base, adminTabQueryParams(activeTab));
     }
 
     if (searchQuery.trim()) {
@@ -314,7 +283,18 @@ export default function ListAdminOrdersPage() {
   }, [activeTab, searchQuery]);
 
   const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery(queryParams);
+  const { data: returnsData } = useListOrderReturnsQuery({});
   const partiesQ = useListPartiesQuery({});
+
+  const pendingReturnOrderIds = useMemo(
+    () => buildPendingReturnOrderIds(pickList(returnsData)),
+    [returnsData],
+  );
+
+  const categoryOptions = useMemo(
+    () => ({ pendingReturnOrderIds }),
+    [pendingReturnOrderIds],
+  );
 
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
@@ -336,13 +316,13 @@ export default function ListAdminOrdersPage() {
   // Dynamic filter reset
   const handleResetFilters = useCallback(() => {
     setSearchQuery("");
-    setActiveTab("pending_admin_approval");
+    setActiveTab(defaultTab);
     setPriorityFilter("all");
     setDateFilter("all");
     setCustomDateFrom("");
     setCustomDateTo("");
     setCurrentPage(1);
-  }, []);
+  }, [defaultTab]);
 
   // Setters that reset page to 1
   const handleSearchChange = useCallback((val: string) => {
@@ -399,7 +379,7 @@ export default function ListAdminOrdersPage() {
 
     return orders.filter((o) => {
       if (!searchQuery.trim()) {
-        if (!orderMatchesAdminTab(o, activeTab)) {
+        if (!orderMatchesAdminTab(o, activeTab, categoryOptions)) {
           return false;
         }
       }
@@ -420,7 +400,7 @@ export default function ListAdminOrdersPage() {
 
       return true;
     });
-  }, [orders, activeTab, priorityFilter, searchQuery, dateFilter, customDateFrom, customDateTo]);
+  }, [orders, activeTab, categoryOptions, priorityFilter, searchQuery, dateFilter, customDateFrom, customDateTo]);
 
   // Paginated Orders slice
   const paginatedOrders = useMemo(() => {
@@ -433,6 +413,18 @@ export default function ListAdminOrdersPage() {
 
   const startEntry = filteredOrders.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
   const endEntry = Math.min(currentPage * itemsPerPage, filteredOrders.length);
+
+  const showReset =
+    !!searchQuery ||
+    activeTab !== defaultTab ||
+    priorityFilter !== "all" ||
+    dateFilter !== "all";
+
+  const isPendingTab =
+    activeTab === "pending_admin_approval" ||
+    activeTab === "due_sheet_pending" ||
+    activeTab === "pending_finance_approval" ||
+    activeTab === "pending_account_approval";
 
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
@@ -722,241 +714,178 @@ export default function ListAdminOrdersPage() {
               </div>
             </div>
 
-            {/* Scrollable orders list */}
-            <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
-              {paginatedOrders.map((o) => {
-                const id = orderKey(o);
-                const ref =
-                  typeof o.order_no === "string"
-                    ? o.order_no
-                    : typeof o.order_number === "string"
-                      ? o.order_number
-                      : id || "—";
-                const total = Number(o.grand_total ?? o.total ?? 0);
-                const pri = typeof o.priority === "string" ? o.priority : "normal";
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50 dark:border-white/5 dark:bg-slate-900/50">
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Order No</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Party</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Grand Total</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Created</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Expected Delivery</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Priority</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-3 font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                  {paginatedOrders.map((o) => {
+                    const id = orderKey(o);
+                    const ref =
+                      typeof o.order_no === "string"
+                        ? o.order_no
+                        : typeof o.order_number === "string"
+                          ? o.order_number
+                          : id || "—";
+                    const total = Number(o.grand_total ?? o.total ?? 0);
+                    const pri = typeof o.priority === "string" ? o.priority : "normal";
 
-                const partyLabel = resolveOrderCounterparty(
-                  o as Record<string, unknown>,
-                  partyNameById,
-                );
+                    const partyLabel = resolveOrderCounterparty(
+                      o as Record<string, unknown>,
+                      partyNameById,
+                    );
 
-                const statusRaw = deriveOrderWorkflowStatus(o) || "draft";
-                const isDraftRow = statusRaw === "draft";
-                const orderDateStr = formatDateShort((o as any).order_date ?? (o as any).created_at ?? (o as any).createdAt);
-                const expectedDeliveryStr = formatDateShort((o as any).expected_delivery_date);
+                    const statusRaw = deriveOrderWorkflowStatus(o) || "draft";
+                    const isDraftRow = statusRaw === "draft";
+                    const orderDateStr = formatDateShort((o as any).order_date ?? (o as any).created_at ?? (o as any).createdAt);
+                    const expectedDeliveryStr = formatDateShort((o as any).expected_delivery_date);
 
-                let stripeColor = "bg-slate-350 dark:bg-slate-700";
-                if (pri === "urgent") stripeColor = "bg-rose-500";
-                else if (pri === "high") stripeColor = "bg-amber-500";
-                else if (pri === "normal") stripeColor = "bg-blue-500";
-
-                return (
-                  <div
-                    key={id || ref}
-                    onClick={() => {
-                      if (id) {
-                        router.push(`/admin/order/${id}`);
-                      }
-                    }}
-                    className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 transition-all duration-300 hover:shadow-md hover:border-blue-500/20 dark:border-white/10 dark:bg-slate-900 flex flex-col gap-4 pl-5 animate-fadeIn cursor-pointer"
-                  >
-                    {/* Priority Accent Stripe */}
-                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${stripeColor}`} />
-
-                    {/* Top Row: Ref, Badges, Party, Financials & Dates, Actions */}
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
-                      {/* Ref & Badges */}
-                      <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[420px] lg:shrink-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
-                            {ref}
-                          </span>
-                          {renderPriorityBadge(pri)}
-                          {activeTab === "pending_admin_approval" || activeTab === "pending_approvals"
-                            ? renderPendingApprovalBadge(o)
-                            : renderWorkflowStatusBadge(getAdminOrderTabCategory(o) ?? "open")}
-                          <OrderDueSheetBadge uploaded={o.due_sheet_uploaded} />
-                          <OrderFlagBadge orderId={o._id || o.id} department="admin" />
-                        </div>
-
-                        {/* Mobile Actions (hidden on lg and up) */}
-                        {isDraftRow && id ? (
-                          <div className="flex items-center gap-2 lg:hidden">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteTarget({ id, label: ref });
-                              }}
-                              disabled={isDeletingOrder}
-                              className="inline-flex items-center justify-center rounded border border-slate-200 hover:border-rose-350 p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                              title="Delete Draft Order"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {/* Party Title */}
-                      <span
-                        className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 lg:flex-1 break-words whitespace-normal"
-                        title={partyLabel}
+                    return (
+                      <tr
+                        key={id || ref}
+                        className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                        onClick={() => {
+                          if (id) {
+                            router.push(`/admin/order/${id}`);
+                          }
+                        }}
                       >
-                        <span>{partyLabel}</span>
-                        {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
-                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
-                            SRA
-                          </span>
-                        )}
-                      </span>
-
-                      {/* Financials & Dates */}
-                      <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-8 lg:w-[280px] lg:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
-                        <div className="flex flex-col min-w-[90px]">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                            Grand Total
-                          </span>
-                          <span className="mt-0.5 font-bold tabular-nums text-slate-900 dark:text-slate-50 text-xs">
-                            ₹{formatMoney(Number.isFinite(total) ? total : 0)}
-                          </span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                            Created
-                          </span>
-                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
-                            {orderDateStr}
-                          </span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                            Expected Delivery
-                          </span>
-                          <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
-                            {expectedDeliveryStr}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Desktop Actions (hidden on lg and below) */}
-                      <div className="hidden lg:flex lg:items-center lg:gap-2 lg:w-[40px] lg:shrink-0 lg:justify-end">
-                        {isDraftRow && id ? (
+                        <td className="px-4 py-3 whitespace-nowrap font-mono font-bold">
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setDeleteTarget({ id, label: ref });
+                              if (id) setViewOrderId(id);
                             }}
-                            disabled={isDeletingOrder}
-                            className="inline-flex items-center justify-center rounded-lg border border-slate-200 hover:border-rose-350 p-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                            title="Delete Draft Order"
+                            className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-bold hover:underline"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            {ref}
                           </button>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {/* Bottom Row: Pipeline */}
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between bg-slate-50/30 px-2 py-1.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5">
-                      <span className="shrink-0 text-slate-400 dark:text-slate-500 font-bold text-[8px] uppercase tracking-wider">
-                        Pipeline
-                      </span>
-                      <div className="min-w-0 overflow-x-auto">
-                        <OrderFulfillmentPipelineStrip
-                          steps={buildListOrderFulfillmentPipeline(o as Record<string, unknown>)}
-                          size="xs"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <OrderDueSheetBadge uploaded={o.due_sheet_uploaded} />
+                            <OrderFlagBadge orderId={o._id || o.id} department="admin" />
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-semibold text-slate-800 dark:text-slate-200 break-words">
+                            {partyLabel}
+                          </span>
+                          {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
+                            <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400">
+                              SRA
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-900 dark:text-slate-50 tabular-nums">
+                          ₹{formatMoney(Number.isFinite(total) ? total : 0)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-slate-500 dark:text-slate-400 tabular-nums">
+                          {orderDateStr}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-slate-500 dark:text-slate-400 tabular-nums">
+                          {expectedDeliveryStr}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {renderPriorityBadge(pri)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {isPendingTab
+                            ? renderPendingApprovalBadge(o)
+                            : renderWorkflowStatusBadge(getAdminOrderTabCategory(o, categoryOptions) ?? "open_dispatched")}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (id) setViewOrderId(id);
+                              }}
+                              className="rounded border border-slate-200 hover:bg-slate-50 hover:text-slate-900 px-2 py-1 text-slate-700 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5 transition font-semibold"
+                            >
+                              View
+                            </button>
+                            {isDraftRow && id && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTarget({ id, label: ref });
+                                }}
+                                disabled={isDeletingOrder}
+                                className="inline-flex items-center justify-center rounded border border-slate-200 hover:border-rose-350 p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                                title="Delete Draft Order"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </>
         )}
       </div>
 
-      {/* ── Bottom Tab Nav + Priority Filter (pinned to view bottom) ── */}
-      <div className="shrink-0 border-t border-slate-200 bg-white/95 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
-        <div className="max-w-screen-2xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between">
-          {searchQuery.trim() ? (
-            <div className="flex items-center gap-2.5 px-4 py-3">
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Showing <span className="font-bold text-blue-600 dark:text-blue-400">{filteredOrders.length}</span> result{filteredOrders.length !== 1 ? "s" : ""} for <span className="italic font-bold text-slate-900 dark:text-slate-100">"{searchQuery}"</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => handleSearchChange("")}
-                className="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer"
-              >
-                <X className="h-3 w-3" />
-                Clear
-              </button>
-            </div>
-          ) : (
-            <nav className="flex overflow-x-auto scrollbar-none px-1 sm:px-2" aria-label="Order stages">
-              {ADMIN_ORDER_TABS.map((tab) => {
-                const isActive = activeTab === tab.id;
-                const TabIcon = ADMIN_TAB_ICONS[tab.id];
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => { setActiveTab(tab.id); setCurrentPage(1); }}
-                    title={tab.label}
-                    aria-label={tab.label}
-                    className={`relative inline-flex shrink-0 cursor-pointer items-center gap-1.5 border-t-2 px-2 py-2.5 text-xs font-semibold transition whitespace-nowrap sm:px-3 sm:py-3 md:px-3 ${
-                      isActive
-                        ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
-                        : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    <TabIcon className="h-4 w-4 shrink-0 md:hidden" aria-hidden />
-                    <span className="hidden md:inline">{tab.label}</span>
-                    {isActive && !isFetching && (
-                      <>
-                        <span className="hidden rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 md:inline">
-                          {filteredOrders.length}
-                        </span>
-                        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-1 text-[9px] font-bold text-white md:hidden">
-                          {filteredOrders.length}
-                        </span>
-                      </>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-          )}
-
-          <div className="flex items-center gap-2 px-4 py-2 border-t border-slate-100 sm:border-t-0 dark:border-white/5 shrink-0">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 whitespace-nowrap">
-              Priority
-            </label>
-            <select
-              value={priorityFilter}
-              onChange={(e) => handlePriorityFilterChange(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 cursor-pointer"
-            >
-              <option value="all">All</option>
-              {PRIORITY_OPTIONS.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </select>
-            {(searchQuery || activeTab !== "pending_admin_approval" || priorityFilter !== "all" || dateFilter !== "all") && (
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 cursor-pointer"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      {viewBy === "priority" ? (
+        <OrderListBottomTabStrip
+          tabs={ORDER_PRIORITY_TABS}
+          activeTab={priorityFilter}
+          onTabChange={(tabId) => {
+            setPriorityFilter(tabId);
+            setCurrentPage(1);
+          }}
+          filteredCount={filteredOrders.length}
+          isFetching={isFetching}
+          searchQuery={searchQuery}
+          onClearSearch={() => handleSearchChange("")}
+          priorityFilter={activeTab}
+          onPriorityFilterChange={(val) => {
+            setActiveTab(val as AdminOrderTabCategory);
+            setCurrentPage(1);
+          }}
+          filterLabel="Workflow"
+          filterOptions={ADMIN_ORDER_TABS.map((tab) => ({
+            value: tab.id,
+            label: tab.label,
+          }))}
+          showReset={showReset}
+          onReset={handleResetFilters}
+          compact
+        />
+      ) : (
+        <OrderListBottomTabStrip
+          tabs={ADMIN_ORDER_TABS}
+          activeTab={activeTab}
+          onTabChange={(tabId) => {
+            setActiveTab(tabId as AdminOrderTabCategory);
+            setCurrentPage(1);
+          }}
+          filteredCount={filteredOrders.length}
+          isFetching={isFetching}
+          searchQuery={searchQuery}
+          onClearSearch={() => handleSearchChange("")}
+          priorityFilter={priorityFilter}
+          onPriorityFilterChange={handlePriorityFilterChange}
+          showReset={showReset}
+          onReset={handleResetFilters}
+          compact
+        />
+      )}
 
       <GoogleSheetOrdersModal
         isOpen={isGoogleSheetOpen}
@@ -970,6 +899,14 @@ export default function ListAdminOrdersPage() {
         partyNameById={partyNameById}
         portal="admin"
       />
+
+      {viewOrderId && (
+        <OrderDetailModal
+          orderId={viewOrderId}
+          partyNameById={partyNameById}
+          onClose={() => setViewOrderId(null)}
+        />
+      )}
     </div>
   );
 }

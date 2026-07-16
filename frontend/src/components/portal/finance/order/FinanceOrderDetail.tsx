@@ -8,6 +8,7 @@ import {
   buildPartyNameById,
   buildPartySraById,
   checkOrderPartySra,
+  pickList as pickPartyList,
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import {
@@ -33,8 +34,15 @@ import {
   useListOrderApprovalsQuery,
   useGetOrderFulfillmentQuery,
   useListOrderDueSheetsQuery,
+  useListOrderReturnsQuery,
   useListRemindersQuery,
 } from "@/store/api";
+import {
+  buildPendingReturnOrderIds,
+  FINANCE_ORDER_TAB_LABELS,
+  getFinanceOrderTabCategory,
+  type FinanceOrderTabCategory,
+} from "@/components/portal/finance/financeOrderUtils";
 
 import { FlagsTab } from "./components/FlagsTab";
 import AttachmentsTab from "./components/AttachmentsTab";
@@ -50,7 +58,7 @@ import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifec
 import {
   computeFinanceApprovalCapabilities,
 } from "@/components/portal/shared/financeApprovalStatus";
-import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
+import { ItemFulfillmentDetailsModal } from "@/components/portal/shared/ItemFulfillmentDetailsModal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import {
   OrderFulfillmentPipelineStrip,
@@ -118,6 +126,52 @@ function readId(value: unknown): string {
   return String(row._id ?? row.id ?? "");
 }
 
+function renderWorkflowStatusBadge(category: FinanceOrderTabCategory | null) {
+  if (!category) return null;
+  const label = FINANCE_ORDER_TAB_LABELS[category] ?? category;
+  let bgClass =
+    "bg-slate-50 text-slate-700 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10";
+  switch (category) {
+    case "open_dispatched":
+      bgClass =
+        "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
+      break;
+    case "transport_return_pending":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "pending_finance_approval":
+      bgClass =
+        "bg-purple-50 text-purple-700 ring-purple-600/10 dark:bg-purple-950/30 dark:text-purple-400 dark:ring-purple-500/25";
+      break;
+    case "closed_delivered":
+      bgClass =
+        "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-500/25";
+      break;
+    case "on_hold":
+      bgClass =
+        "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "rejected":
+      bgClass =
+        "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-950/30 dark:text-red-400 dark:ring-red-500/25";
+      break;
+    case "cancelled":
+      bgClass =
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
+      break;
+    default:
+      break;
+  }
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 function renderPriorityBadge(priority: string) {
   const p = String(priority || "normal").toLowerCase();
   if (p === "urgent") {
@@ -162,9 +216,17 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
   const dueSheetsQ = useListOrderDueSheetsQuery({ order: orderId });
   const remindersQ = useListRemindersQuery({ order: orderId });
   const reminders = remindersQ.data || [];
+  const { data: returnsData } = useListOrderReturnsQuery({});
   const adminApprovalsQ = useListOrderApprovalsQuery(
     { order: orderId, assigned_finance_user: currentUserId },
     { skip: !orderId || !currentUserId },
+  );
+
+  const categoryOptions = useMemo(
+    () => ({
+      pendingReturnOrderIds: buildPendingReturnOrderIds(pickPartyList(returnsData)),
+    }),
+    [returnsData],
   );
 
   const adminApprovalsCount = useMemo(() => {
@@ -187,6 +249,10 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
       ? (data as Record<string, unknown>)
       : null;
   const status = deriveOrderWorkflowStatus(detail);
+  const workflowTabCategory = useMemo(
+    () => getFinanceOrderTabCategory(detail, categoryOptions),
+    [detail, categoryOptions],
+  );
 
   const fulfillmentSnapshot = useMemo(
     () =>
@@ -704,47 +770,12 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {/* Item Fulfillment Details Modal */}
-      {isFulfillmentModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-4xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5 font-sans">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-555 dark:text-slate-50">
-                Item Fulfillment Details
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsFulfillmentModalOpen(false)}
-                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
-              >
-                <span className="sr-only">Close</span>
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="mt-4 overflow-y-auto flex-1 pr-1">
-              <OrderDepartmentFulfillmentPanel
-                order={detail}
-                fulfillmentSnapshot={fulfillmentSnapshot}
-                showDepartmentBoxes={false}
-                showItemsTable={true}
-              />
-            </div>
-
-            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3 dark:border-white/5">
-              <button
-                type="button"
-                onClick={() => setIsFulfillmentModalOpen(false)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer font-sans"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ItemFulfillmentDetailsModal
+        isOpen={isFulfillmentModalOpen}
+        onClose={() => setIsFulfillmentModalOpen(false)}
+        order={detail}
+        fulfillmentSnapshot={fulfillmentSnapshot}
+      />
 
       <OrderDetailsModal
         isOpen={isOrderDetailsModalOpen}
@@ -792,6 +823,9 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                     </h1>
                     <span className="shrink-0">
                       {renderPriorityBadge(typeof detail.priority === "string" ? detail.priority : "normal")}
+                    </span>
+                    <span className="shrink-0">
+                      {renderWorkflowStatusBadge(workflowTabCategory)}
                     </span>
                   </div>
 

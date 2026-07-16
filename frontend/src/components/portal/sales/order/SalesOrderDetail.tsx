@@ -8,7 +8,7 @@ import {
   useGetOrderQuery,
   useListFlagsQuery,
   useGetOrderHistoryQuery,
-  useTransitionOrderMutation,
+  useSubmitOrderMutation,
   useListAttachmentsQuery,
   useListUsersQuery,
   useListPartiesQuery,
@@ -17,6 +17,7 @@ import {
 } from "@/store/api";
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
+import { contactsFromParty } from "@/lib/partyContacts";
 
 import {
   buildPartyNameById,
@@ -25,7 +26,7 @@ import {
   resolveOrderCounterparty,
 } from "@/components/portal/sales/partyDisplay";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
-import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
+import { ItemFulfillmentDetailsModal } from "@/components/portal/shared/ItemFulfillmentDetailsModal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import {
   OrderFulfillmentPipelineStrip,
@@ -156,7 +157,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
 
   const [activeTab, setActiveTab] = useState<
     "flags" | "attachments" | "dispatches" | "transports" | "approvals"
-  >("dispatches");
+  >("approvals");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
   const [isSubmitPreviewOpen, setIsSubmitPreviewOpen] = useState(false);
@@ -230,7 +231,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
 
   const fulfillmentQ = useGetOrderFulfillmentQuery(orderId);
 
-  const [transitionOrder] = useTransitionOrderMutation();
+  const [submitOrder] = useSubmitOrderMutation();
 
   const detail =
     data && typeof data === "object"
@@ -349,11 +350,84 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
     }
     setIsSubmittingOrder(true);
     try {
-      await transitionOrder({
+      const orderItemsPayload = readOnlyItems.map((line) => {
+        const item: Record<string, unknown> = {
+          product: detailRefId(line.product),
+          product_name: String(line.product_name ?? "—"),
+          sku: typeof line.sku === "string" ? line.sku : "",
+          ordered_quantity: Number(line.ordered_quantity ?? line.quantity ?? 0),
+          free_quantity: Number(line.free_quantity ?? line.free_qty ?? 0),
+          unit_price: Number(line.unit_price ?? 0),
+          discount_percent: Number(line.discount_percent ?? 0),
+          discount_amount: Number(line.discount_amount ?? 0),
+          gst_percent: Number(line.gst_percent ?? 18),
+          applied_rate_type: !line.applied_rate_type || line.applied_rate_type === "MANUAL" ? "SR" : String(line.applied_rate_type),
+          remarks: typeof line.remarks === "string" ? line.remarks.trim() : "",
+        };
+        const id = line._id ?? line.id;
+        if (id) {
+          item._id = String(id);
+        }
+        return item;
+      });
+
+      const getLineTotal = (line: any) => {
+        const qty = Number(line.ordered_quantity ?? line.quantity ?? 0);
+        const unitPrice = Number(line.unit_price ?? 0);
+        const gross = qty * unitPrice;
+        let discount = Number(line.discount_amount ?? 0);
+        const discPercent = Number(line.discount_percent ?? 0);
+        if (discPercent > 0) {
+          discount = (gross * discPercent) / 100;
+        }
+        const taxable = Math.max(0, gross - discount);
+        const gst = (taxable * Number(line.gst_percent ?? 0)) / 100;
+        return taxable + gst;
+      };
+
+      const approvedTotal = readOnlyItems.reduce((sum, line) => sum + getLineTotal(line), 0);
+
+      const approvalItems = readOnlyItems.map((line) => {
+        const item: Record<string, unknown> = {
+          product: detailRefId(line.product),
+          ordered_quantity: Number(line.ordered_quantity ?? line.quantity ?? 0),
+          approved_quantity: Number(line.ordered_quantity ?? line.quantity ?? 0),
+          approved_unit_price: Number(line.unit_price ?? 0),
+          ordered_unit_price: Number(line.unit_price ?? 0),
+          free_quantity: Number(line.free_quantity ?? line.free_qty ?? 0),
+          discount_percent: Number(line.discount_percent ?? 0),
+          discount_amount: Number(line.discount_amount ?? 0),
+          gst_percent: Number(line.gst_percent ?? 18),
+          applied_rate_type: !line.applied_rate_type || line.applied_rate_type === "MANUAL" ? "SR" : String(line.applied_rate_type),
+          approved_total_amount: getLineTotal(line),
+          approval_status: "fully_approved",
+          remarks: typeof line.remarks === "string" ? line.remarks.trim() : "",
+        };
+        const id = line._id ?? line.id;
+        if (id) {
+          item.order_item_id = String(id);
+        }
+        return item;
+      });
+
+      const partyContacts = contactsFromParty(partyDetailQ.data);
+      const selectedContacts: string[] = [];
+      const selectedContactNames: string[] = [];
+      const firstWithPhone = partyContacts.find((c) => c.phone.trim());
+      if (firstWithPhone) {
+        selectedContacts.push(firstWithPhone.phone.trim());
+        selectedContactNames.push(firstWithPhone.name.trim());
+      }
+
+      await submitOrder({
         id: orderId,
         body: {
-          next_status: "submitted",
+          order_items: orderItemsPayload,
           remarks: submitRemarks.trim() || undefined,
+          approved_total_amount: approvedTotal,
+          approval_items: approvalItems,
+          contact_number: selectedContacts,
+          contact_name: selectedContactNames,
         },
       }).unwrap();
 
@@ -366,7 +440,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
     } finally {
       setIsSubmittingOrder(false);
     }
-  }, [orderId, submitRemarks, readOnlyItems.length, transitionOrder, handleRefetch]);
+  }, [orderId, submitRemarks, readOnlyItems, partyDetailQ.data, submitOrder, handleRefetch]);
 
   if (isError || (!isLoading && !detail)) {
     return (
@@ -411,46 +485,12 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
         isSubmitting={isSubmittingOrder}
       />
 
-      {isFulfillmentModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-4xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-                Item Fulfillment Details
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsFulfillmentModalOpen(false)}
-                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
-              >
-                <span className="sr-only">Close</span>
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="mt-4 overflow-y-auto flex-1 pr-1">
-              <OrderDepartmentFulfillmentPanel
-                order={detail}
-                fulfillmentSnapshot={fulfillmentSnapshot}
-                showDepartmentBoxes={false}
-                showItemsTable={true}
-              />
-            </div>
-
-            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3 dark:border-white/5">
-              <button
-                type="button"
-                onClick={() => setIsFulfillmentModalOpen(false)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ItemFulfillmentDetailsModal
+        isOpen={isFulfillmentModalOpen}
+        onClose={() => setIsFulfillmentModalOpen(false)}
+        order={detail}
+        fulfillmentSnapshot={fulfillmentSnapshot}
+      />
 
       {isOrderItemsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
@@ -496,7 +536,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
 
       {isOrderDetailsModalOpen && detail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-2xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
+          <div className="w-full max-w-4xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
               <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
                 Order Details

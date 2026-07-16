@@ -27,23 +27,23 @@ exports.update = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.update(req.params.id, req.body, req.user) });
 });
 
-exports.closeWithReturns = asyncHandler(async (req, res) => {
-  if (!['account', 'admin', 'super_admin'].includes(req.user.department)) {
-    throw new ApiError(403, 'Only account can close orders after returns');
+exports.closeOrder = asyncHandler(async (req, res) => {
+  if (!['account', 'admin', 'super_admin', 'dispatch'].includes(req.user.department)) {
+    throw new ApiError(403, 'Only account or dispatch can close orders');
   }
   res.json({
     success: true,
-    data: await service.closeWithReturns(req.params.id, req.body || {}, req.user),
+    data: await service.closeOrder(req.params.id, req.body || {}, req.user),
   });
 });
 
-exports.settleAndCloseOrder = asyncHandler(async (req, res) => {
-  if (!['account', 'admin', 'super_admin'].includes(req.user.department)) {
-    throw new ApiError(403, 'Only account can settle and close orders after returns');
+exports.reopenOrder = asyncHandler(async (req, res) => {
+  if (!['account', 'admin', 'super_admin', 'dispatch'].includes(req.user.department)) {
+    throw new ApiError(403, 'Only account or dispatch can reopen orders');
   }
   res.json({
     success: true,
-    data: await service.settleAndCloseOrder(req.params.id, req.body || {}, req.user),
+    data: await service.reopenOrder(req.params.id, req.body || {}, req.user),
   });
 });
 
@@ -100,4 +100,20 @@ exports.softDelete = asyncHandler(async (req, res) => {
 
 exports.restore = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.restore(req.params.id, req.user) });
+});
+
+exports.submit = asyncHandler(async (req, res) => {
+  if (!['sales', 'admin', 'finance', 'account'].includes(req.user.department)) {
+    throw new ApiError(403, 'Only sales, admin, finance, or account can submit orders');
+  }
+  const data = await service.submitOrder(
+    req.params.id,
+    req.body || {},
+    req.user,
+    {
+      ip: req.ip,
+      ua: req.get('User-Agent'),
+    }
+  );
+  res.json({ success: true, data });
 });

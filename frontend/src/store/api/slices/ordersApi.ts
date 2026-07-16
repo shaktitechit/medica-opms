@@ -130,46 +130,59 @@ export const ordersApi = medicaApi.injectEndpoints({
         { type: "Order", id: arg.id },
       ],
     }),
-    closeOrderWithReturns: build.mutation<
+    submitOrder: build.mutation<
       unknown,
-      {
-        id: string;
-        body: {
-          return_id?: string;
-          extra_charges?: number;
-          penalty_amount?: number;
-          damage_charge?: number;
-          remarks?: string;
-        };
-      }
+      { id: string; body: Record<string, unknown> }
     >({
       query: ({ id, body }) => ({
-        url: `orders/${id}/close-with-returns`,
+        url: `orders/${id}/submit`,
         method: "POST",
         body,
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       invalidatesTags: (_r, _e, arg) => [
         ...orderEntityTags(arg.id),
-        { type: "Order", id: "RETURN_LIST" },
+        "Approvals",
+        "OrderApprovals",
+        "FinanceQueue",
+        "FinanceSummary",
+        { type: "Order", id: arg.id },
       ],
     }),
-    settleAndCloseOrder: build.mutation<
+    closeOrder: build.mutation<
       unknown,
       {
         id: string;
         body: {
-          return_id?: string;
-          extra_charges?: number;
-          penalty_amount?: number;
-          damage_charge?: number;
           remarks?: string;
-          amendment_notes?: string;
         };
       }
     >({
       query: ({ id, body }) => ({
-        url: `orders/${id}/settle-and-close`,
+        url: `orders/${id}/close`,
+        method: "POST",
+        body,
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: (_r, _e, arg) => [
+        ...orderEntityTags(arg.id),
+        "Approvals",
+        "OrderApprovals",
+        "Dispatch",
+        { type: "Order", id: "RETURN_LIST" },
+      ],
+    }),
+    reopenOrder: build.mutation<
+      unknown,
+      {
+        id: string;
+        body: {
+          remarks?: string;
+        };
+      }
+    >({
+      query: ({ id, body }) => ({
+        url: `orders/${id}/reopen`,
         method: "POST",
         body,
       }),
@@ -205,6 +218,7 @@ export const {
   useDeleteOrderMutation,
   useRestoreOrderMutation,
   useTransitionOrderMutation,
-  useCloseOrderWithReturnsMutation,
-  useSettleAndCloseOrderMutation,
+  useSubmitOrderMutation,
+  useCloseOrderMutation,
+  useReopenOrderMutation,
 } = ordersApi;

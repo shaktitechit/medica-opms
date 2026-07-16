@@ -48,7 +48,7 @@ export function Topbar({ portal }: TopbarProps) {
   const label = portal.charAt(0).toUpperCase() + portal.slice(1);
 
   return (
-    <header className={`${showRemindersModal ? "z-[100]" : "z-[25]"} flex shrink-0 items-center gap-2 border-b border-slate-200/90 bg-white px-3 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] backdrop-blur-md dark:border-white/10 dark:bg-slate-950 sm:gap-3 sm:px-4 sm:py-3 md:px-6`}>
+    <header className={`${showRemindersModal ? "z-[100]" : "z-[50]"} relative flex shrink-0 items-center gap-2 border-b border-slate-200/90 bg-white px-3 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] backdrop-blur-md dark:border-white/10 dark:bg-slate-950 sm:gap-3 sm:px-4 sm:py-3 md:px-6`}>
       <button
         type="button"
         className="-ml-0.5 inline-flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-800 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 lg:hidden dark:text-slate-100 dark:hover:bg-white/10"

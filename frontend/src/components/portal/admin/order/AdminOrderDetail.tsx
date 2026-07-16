@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 
 import { FlagsTab } from "./components/FlagsTab";
 import AttachmentsTab from "./components/AttachmentsTab";
-import OrderItemsTab from "./components/OrderItemsTab";
 import { ApprovalTab } from "@/components/portal/admin/order/components/orderApproval/ApprovalTab";
 import DispatchesTab from "./components/DispatchesTab";
 import TransportsTab from "./components/TransportsTab";
@@ -43,7 +42,7 @@ import {
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { withAdminApprovalQuantities } from "@/components/portal/shared/orderAdminApprovalDisplay";
-import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
+import { ItemFulfillmentDetailsModal } from "@/components/portal/shared/ItemFulfillmentDetailsModal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import {
   OrderFulfillmentPipelineStrip,
@@ -313,13 +312,12 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
   const [activeTab, setActiveTab] = useState<
     | "flags"
     | "attachments"
-    | "approval_items"
     | "admin_approvals"
     | "dispatches"
     | "transports"
     | "reminders"
     | "due_sheet"
-  >("approval_items");
+  >("admin_approvals");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
   const attachmentsQ = useListAttachmentsQuery({ entity_type: "order", entity_id: orderId });
@@ -600,47 +598,12 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
         </div>
       )}
 
-      {/* Item Fulfillment Details Modal */}
-      {isFulfillmentModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-4xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-550 dark:text-slate-50">
-                Item Fulfillment Details
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsFulfillmentModalOpen(false)}
-                className="rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 p-1 cursor-pointer"
-              >
-                <span className="sr-only">Close</span>
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="mt-4 overflow-y-auto flex-1 pr-1">
-              <OrderDepartmentFulfillmentPanel
-                order={detail}
-                fulfillmentSnapshot={fulfillmentSnapshot}
-                showDepartmentBoxes={false}
-                showItemsTable={true}
-              />
-            </div>
-
-            <div className="mt-5 flex justify-end border-t border-slate-100 pt-3 dark:border-white/5">
-              <button
-                type="button"
-                onClick={() => setIsFulfillmentModalOpen(false)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ItemFulfillmentDetailsModal
+        isOpen={isFulfillmentModalOpen}
+        onClose={() => setIsFulfillmentModalOpen(false)}
+        order={detail}
+        fulfillmentSnapshot={fulfillmentSnapshot}
+      />
 
       <OrderDetailsModal
         isOpen={isOrderDetailsModalOpen}
@@ -732,15 +695,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
           <div className="hidden md:block flex-1 min-h-0 overflow-y-auto pr-1">
             {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} currentDepartment="admin" refetchOrder={handleRefetch} />)}
             {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isFetching} onUploadSuccess={handleRefetch} />)}
-            {activeTab === "approval_items" && (
-              <OrderItemsTab
-                detail={detail}
-                status={status}
-                readOnlyItems={readOnlyItems}
-                refetchOrder={handleRefetch}
-                partyLabel={custLabel}
-              />
-            )}
             {activeTab === "admin_approvals" && (
               <ApprovalTab
                 orderId={orderId}
@@ -761,7 +715,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
           <div className="hidden md:block mb-0 flex-shrink-0 border-t border-slate-100 dark:border-white/5 bg-slate-50/95 dark:bg-slate-955/90 backdrop-blur-md px-2 pt-1.5 pb-0 [&_nav]:pb-0">
             <OrderDetailTabsNav className="!mb-0 !rounded-none !border-0 !bg-transparent !p-0"
               tabs={[
-                { id: "approval_items", name: "Order Items", count: orderKpis.totalLines },
                 { id: "admin_approvals", name: "Order Approval", count: adminApprovalsCount },
                 { id: "dispatches", name: "Dispatches" },
                 { id: "transports", name: "Transports" },
@@ -782,7 +735,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
                 <h2 className="text-sm font-bold text-slate-900 dark:text-slate-50">
                   {activeTab === "flags" && "Flags"}
                   {activeTab === "attachments" && "Attachments"}
-                  {activeTab === "approval_items" && "Order Items"}
                   {activeTab === "admin_approvals" && "Order Approval"}
                   {activeTab === "dispatches" && "Dispatches"}
                   {activeTab === "transports" && "Transports"}
@@ -796,15 +748,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
               <div className="flex-1 overflow-y-auto p-4 pb-24">
                 {activeTab === "flags" && (<FlagsTab orderId={orderId} flagsQ={flagsQ} rawFlags={rawFlags} formatDate={formatDate} userNameById={userNameById} currentDepartment="admin" refetchOrder={handleRefetch} />)}
                 {activeTab === "attachments" && (<AttachmentsTab orderId={orderId} attachments={attachmentsList} isLoading={attachmentsQ.isFetching} onUploadSuccess={handleRefetch} />)}
-                {activeTab === "approval_items" && (
-                  <OrderItemsTab
-                    detail={detail}
-                    status={status}
-                    readOnlyItems={readOnlyItems}
-                    refetchOrder={handleRefetch}
-                    partyLabel={custLabel}
-                  />
-                )}
                 {activeTab === "admin_approvals" && (
                   <ApprovalTab
                     orderId={orderId}
@@ -830,7 +773,6 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
         <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 dark:border-white/10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2">
           <nav className="flex items-stretch justify-around">
             {([
-              { id: "approval_items" as const, name: "Items", count: orderKpis.totalLines, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9h6m-6 4h6" /></svg> },
               { id: "admin_approvals" as const, name: "Approval", count: adminApprovalsCount, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg> },
               { id: "dispatches" as const, name: "Dispatch", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg> },
               { id: "transports" as const, name: "Transport", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2.556-2.556M13 16H9m4 0h2m2 0h.01M13 16V6m0 0h3l3 4v6h-1M6 16H5m8-10H5" /></svg> },

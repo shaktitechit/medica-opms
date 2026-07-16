@@ -181,6 +181,15 @@ const productSchema = new mongoose.Schema(
       index: true,
     },
 
+    /**
+     * Highlighted / featured product for catalogs and dashboards
+     */
+    is_featured: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
     deletedAt: {
       type: Date,
       default: null,
@@ -233,6 +242,11 @@ productSchema.index({
 productSchema.index({
   is_active: 1,
   deletedAt: 1,
+});
+
+productSchema.index({
+  is_featured: 1,
+  is_active: 1,
 });
 
 /* -------------------------------------------------------

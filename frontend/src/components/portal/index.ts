@@ -33,12 +33,12 @@ export { default as AccountCreateOrderPage } from "./account/AccountCreateOrderP
 
 export { default as DispatchOverview } from "./dispatch/DispatchOverview";
 export { default as ListDispatchOrdersPage } from "./dispatch/order/ListDispatchOrdersPage";
-export { default as ListDriversPage } from "./dispatch/ListDriversPage";
-export { default as ListVehiclesPage } from "./dispatch/ListVehiclesPage";
-export { default as DriverDetailPage } from "./dispatch/DriverDetailPage";
-export { default as VehicleDetailPage } from "./dispatch/VehicleDetailPage";
-export { default as ListTransportAgentsPage } from "./dispatch/ListTransportAgentsPage";
-export { default as TransportAgentDetailPage } from "./dispatch/TransportAgentDetailPage";
+export { default as ListDriversPage } from "./shared/ListDriversPage";
+export { default as ListVehiclesPage } from "./shared/ListVehiclesPage";
+export { default as DriverDetailPage } from "./shared/DriverDetailPage";
+export { default as VehicleDetailPage } from "./shared/VehicleDetailPage";
+export { default as ListTransportAgentsPage } from "./shared/ListTransportAgentsPage";
+export { default as TransportAgentDetailPage } from "./shared/TransportAgentDetailPage";
 
 // Super Admin portal pages
 export { default as SuperAdminOverview } from "./super_admin/SuperAdminOverview";

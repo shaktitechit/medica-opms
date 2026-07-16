@@ -26,10 +26,11 @@ router.get('/:id', requirePermissions('orders:read', '*'), controller.get);
 
 router.patch('/:id', controller.update);
 
-router.post('/:id/close-with-returns', controller.closeWithReturns);
-router.post('/:id/settle-and-close', controller.settleAndCloseOrder);
+router.post('/:id/close', controller.closeOrder);
+router.post('/:id/reopen', controller.reopenOrder);
 router.post('/:id/close-after-full-delivery', controller.closeAfterFullDelivery);
 
+router.post('/:id/submit', requirePermissions('orders:write', '*'), controller.submit);
 router.post('/:id/transition', controller.transition);
 
 module.exports = router;

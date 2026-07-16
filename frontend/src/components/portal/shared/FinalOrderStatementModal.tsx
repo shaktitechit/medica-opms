@@ -104,7 +104,9 @@ export default function FinalOrderStatementModal({
       ordered: String(num(line.ordered_quantity)),
       approved: String(num(line.approved_quantity)),
       dispatched: String(num(line.dispatched_quantity)),
-      delivered: String(num(line.net_delivered_quantity)),
+      delivered: String(num(line.delivered_quantity)),
+      returned: String(num(line.returned_quantity)),
+      net: String(num(line.net_delivered_quantity)),
       unitPrice: pdfMoney(num(line.unit_price)),
       rateType: formatRateType(line.applied_rate_type),
       gstPercent: formatGstPercent(line.gst_percent),
@@ -165,7 +167,9 @@ export default function FinalOrderStatementModal({
                 ordered: String(num(qty.ordered)),
                 approved: String(num(qty.approved)),
                 dispatched: String(num(qty.dispatched)),
-                delivered: String(num(qty.net_delivered)),
+                delivered: String(num(qty.delivered)),
+                returned: String(num(qty.returned)),
+                net: String(num(qty.net_delivered)),
                 gstAmount: pdfMoney(totalLineGst || num(fin.gst_amount)),
                 grandTotal: pdfMoney(num(fin.grand_total)),
               }}
@@ -308,6 +312,8 @@ export default function FinalOrderStatementModal({
                       <th className="px-3 py-2.5 text-center">Approved</th>
                       <th className="px-3 py-2.5 text-center">Dispatched</th>
                       <th className="px-3 py-2.5 text-center">Delivered</th>
+                      <th className="px-3 py-2.5 text-center">Returns</th>
+                      <th className="px-3 py-2.5 text-center">Net</th>
                       <th className="px-3 py-2.5 text-right">Rate</th>
                       <th className="px-3 py-2.5 text-center">Rate Type</th>
                       <th className="px-3 py-2.5 text-center">GST %</th>
@@ -332,6 +338,12 @@ export default function FinalOrderStatementModal({
                         <td className="px-3 py-2.5 text-center tabular-nums">{num(line.ordered_quantity)}</td>
                         <td className="px-3 py-2.5 text-center tabular-nums">{num(line.approved_quantity)}</td>
                         <td className="px-3 py-2.5 text-center tabular-nums">{num(line.dispatched_quantity)}</td>
+                        <td className="px-3 py-2.5 text-center tabular-nums">
+                          {num(line.delivered_quantity)}
+                        </td>
+                        <td className="px-3 py-2.5 text-center tabular-nums text-rose-600 dark:text-rose-400">
+                          {num(line.returned_quantity)}
+                        </td>
                         <td className="px-3 py-2.5 text-center tabular-nums font-semibold">
                           {num(line.net_delivered_quantity)}
                         </td>
@@ -361,6 +373,12 @@ export default function FinalOrderStatementModal({
                       <td className="px-3 py-2.5 text-center tabular-nums">{num(qty.ordered)}</td>
                       <td className="px-3 py-2.5 text-center tabular-nums">{num(qty.approved)}</td>
                       <td className="px-3 py-2.5 text-center tabular-nums">{num(qty.dispatched)}</td>
+                      <td className="px-3 py-2.5 text-center tabular-nums">
+                        {num(qty.delivered)}
+                      </td>
+                      <td className="px-3 py-2.5 text-center tabular-nums text-rose-600 dark:text-rose-400">
+                        {num(qty.returned)}
+                      </td>
                       <td className="px-3 py-2.5 text-center tabular-nums font-semibold">
                         {num(qty.net_delivered)}
                       </td>

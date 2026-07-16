@@ -45,6 +45,8 @@ const {
   ORDER_JOB_TYPES,
   normalizeFinanceApprovalStatus,
   normalizeWorkflowStage,
+  deriveOrderPriorityFromExpectedDeliveryDate,
+  applyDerivedPriorityToOrder,
 } = require('./order.constants');
 const {
   ASSIGNED_USER_ORDER_FIELDS,
@@ -104,9 +106,17 @@ function applyWhitelistedPatchToMongooseDoc(doc, patch) {
   if (patch.payment_status !== undefined) doc.set('payment_status', patch.payment_status);
   if (patch.notes !== undefined) doc.set('notes', patch.notes);
   if (patch.discount_amount !== undefined) doc.set('discount_amount', Number(patch.discount_amount));
-  if (patch.priority !== undefined) doc.set('priority', patch.priority);
   if (patch.expected_delivery_date !== undefined) {
     doc.set('expected_delivery_date', patch.expected_delivery_date ? new Date(patch.expected_delivery_date) : null);
+  }
+  // Priority is derived from expected_delivery_date (manual priority patches are ignored when EDD is set).
+  if (doc.expected_delivery_date) {
+    doc.set(
+      'priority',
+      deriveOrderPriorityFromExpectedDeliveryDate(doc.expected_delivery_date, doc.priority || 'normal'),
+    );
+  } else if (patch.priority !== undefined) {
+    doc.set('priority', patch.priority);
   }
   if (patch.remarks !== undefined) doc.set('remarks', patch.remarks);
   for (const key of ASSIGNED_USER_ORDER_FIELDS) {
@@ -200,7 +210,7 @@ function isOrderSettlementClosed(doc) {
   return String(doc.status || '') === ORDER_STATUS.CLOSED || Boolean(doc.closed_at);
 }
 
-/** Account settlement close: fulfilled lifecycle, completed stage, closed queue status. */
+/** Full-delivery closure state used by the dispatch completion path. */
 function applyOrderSettlementClosedState(doc, user, options = {}) {
   doc.status = ORDER_STATUS.CLOSED;
   doc.lifecycle_status = ORDER_LIFECYCLE_STATUS.FULFILLED;
@@ -213,76 +223,6 @@ function applyOrderSettlementClosedState(doc, user, options = {}) {
   doc.closed_by = user._id;
   doc.updated_by = user._id;
   doc.current_revision = Number(doc.current_revision || 1) + 1;
-}
-
-/** Persist closed settlement state with audit trail. Idempotent when already closed. */
-async function persistOrderSettlementClose(orderId, doc, user, options = {}) {
-  if (!doc || isOrderSettlementClosed(doc)) {
-    return doc;
-  }
-
-  const {
-    remarks = 'Account settle & close',
-    activityMessage,
-    activityExtra = {},
-  } = options;
-  const { OrderWorkflow, OrderStatusHistory } = getModels();
-  const fromStatus = doc.status || ORDER_STATUS.DELIVERED;
-  const fromLifecycle = doc.lifecycle_status || ORDER_LIFECYCLE_STATUS.FULFILLED;
-  const fromStage = normalizeWorkflowStage(doc.workflow_stage) || ORDER_WORKFLOW_STAGE.DISPATCH;
-  const totalNetDelivered = (doc.order_items || []).reduce(
-    (sum, line) => sum + Number(line.delivered_quantity || 0),
-    0,
-  );
-  const dept = String(user.department || '');
-
-  applyOrderSettlementClosedState(doc, user, {
-    dispatch_status: FULFILLMENT_STATUS.COMPLETED,
-    delivery_status: totalNetDelivered > 0
-      ? FULFILLMENT_STATUS.COMPLETED
-      : FULFILLMENT_STATUS.PARTIAL,
-  });
-  if (options.closure_remarks) {
-    doc.closure_remarks = String(options.closure_remarks).trim();
-  }
-  await doc.save();
-
-  await OrderStatusHistory.create({
-    order: orderId,
-    from_status: fromStatus,
-    to_status: ORDER_STATUS.CLOSED,
-    changed_by: user._id,
-    remarks,
-  });
-
-  await OrderWorkflow.create({
-    order: orderId,
-    action_by: user._id,
-    role: dept === 'super_admin' ? 'admin' : dept || 'account',
-    action: 'closed',
-    from_stage: fromStage,
-    to_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
-    to_status: ORDER_STATUS.CLOSED,
-    remarks: options.workflow_remarks || '',
-    revision_number: doc.current_revision,
-  });
-
-  await activityService.create({
-    actor: user._id,
-    entity_type: 'order',
-    entity_id: String(doc._id),
-    action: 'status_changed',
-    message: activityMessage || `Order ${doc.order_no} closed after account settlement`,
-    old_value: { lifecycle_status: fromLifecycle, status: fromStatus },
-    new_value: {
-      lifecycle_status: ORDER_LIFECYCLE_STATUS.FULFILLED,
-      status: doc.status,
-      grand_total: doc.grand_total,
-      ...activityExtra,
-    },
-  });
-
-  return doc;
 }
 
 function refId(value) {
@@ -619,129 +559,46 @@ async function closeAfterFullDelivery(id, body, user) {
 }
 
 /**
- * Shared validation for account order closure.
+ * Close an order without modifying fulfillment quantities, approvals, returns, or commercials.
+ * Only workflow state and closure audit metadata are updated.
  */
-async function assertCloseWithReturnsPreconditions(id, body = {}) {
-  void body;
-  const { Order } = getModels();
+async function closeOrder(id, body, user) {
+  const dept = String(user.department || '');
+  if (!['account', 'admin', 'super_admin', 'dispatch'].includes(dept)) {
+    throw new ApiError(403, 'Only account or dispatch can close orders');
+  }
 
+  const { Order, OrderWorkflow, OrderStatusHistory } = getModels();
   const doc = await Order.findById(id);
   if (!doc) throw new ApiError(404, 'Order not found');
-
   if (isOrderSettlementClosed(doc)) {
-    throw new ApiError(400, 'Order is already closed or cancelled');
+    throw new ApiError(400, 'Order is already closed');
   }
-
   if (String(doc.lifecycle_status || '') === ORDER_LIFECYCLE_STATUS.CANCELLED) {
-    throw new ApiError(400, 'Order is already closed or cancelled');
+    throw new ApiError(400, 'Cancelled orders cannot be closed');
   }
 
-  return { doc };
-}
-
-/**
- * Apply return settlement and recalculate order commercial totals without changing workflow status.
- */
-async function settleOrderCommercials(id, body, user) {
-  const {
-    extra_charges: extraCharges = 0,
-    penalty_amount: penaltyAmount = 0,
-    damage_charge: damageCharge = 0,
-    remarks,
-  } = body || {};
-
-  const { doc } = await assertCloseWithReturnsPreconditions(id, body);
-  const { OrderDispatch } = getModels();
-  const { aggregateDispatchReturnsByOrderLine } = require('../../utils/returnSettlement');
-
-  const dispatches = await OrderDispatch.find({
-    order: id,
-    deletedAt: null,
-    dispatch_status: { $ne: 'cancelled' },
-  }).lean();
-
-  const returnedByLine = aggregateDispatchReturnsByOrderLine(dispatches);
-
-  const nextItems = (doc.order_items || []).map((line) => {
-    const item = line.toObject ? line.toObject() : { ...line };
-    const lineId = orderLineId(item);
-    const returnedQty = returnedByLine[lineId] ?? 0;
-    return applyReturnSettlementToLine(item, returnedQty);
-  });
-
-  doc.order_items = nextItems;
-  doc.extra_charges = Math.max(0, Number(extraCharges) || 0);
-  doc.penalty_amount = Math.max(0, Number(penaltyAmount) || 0);
-  doc.damage_charge = Math.max(0, Number(damageCharge) || 0);
-  if (remarks) {
-    doc.closure_remarks = String(remarks).trim();
-  }
-  doc.updated_by = user._id;
-
-  const plainForRecalc = doc.toObject();
-  recalcCommercialsForClosure(plainForRecalc);
-  doc.order_items = plainForRecalc.order_items;
-  doc.subtotal = plainForRecalc.subtotal;
-  doc.gst_amount = plainForRecalc.gst_amount;
-  doc.grand_total = plainForRecalc.grand_total;
-  doc.markModified('order_items');
-
-  await syncDispatchDeliveredAfterSettlement(id, nextItems);
-  await doc.save();
-
-  return { doc, nextItems };
-}
-
-/**
- * Account closes an order after warehouse return receipt: apply returned quantities,
- * optional extra/penalty/damage charges, recalculate totals, and mark order closed.
- */
-async function closeWithReturns(id, body, user) {
-  const dept = String(user.department || '');
-  if (!['account', 'admin', 'super_admin'].includes(dept)) {
-    throw new ApiError(403, 'Only account can close orders after returns');
-  }
-
-  const { remarks } = body || {};
-  const { OrderReturn, OrderWorkflow, OrderStatusHistory } = getModels();
-  const { doc, nextItems } = await settleOrderCommercials(id, body, user);
-
-  const totalReturned = nextItems.reduce(
-    (sum, line) => sum + Number(line.returned_quantity || 0),
-    0,
-  );
-  const totalNetDelivered = nextItems.reduce(
-    (sum, line) => sum + Number(line.delivered_quantity || 0),
-    0,
-  );
-
-  const fromStatus = doc.status || ORDER_STATUS.DELIVERED;
-  const fromLifecycle = doc.lifecycle_status || ORDER_LIFECYCLE_STATUS.FULFILLED;
+  const remarks = String(body?.remarks || '').trim();
+  const fromStatus = doc.status || '';
   const fromStage = normalizeWorkflowStage(doc.workflow_stage) || ORDER_WORKFLOW_STAGE.DISPATCH;
 
-  applyOrderSettlementClosedState(doc, user, {
-    dispatch_status: FULFILLMENT_STATUS.COMPLETED,
-    delivery_status: totalNetDelivered > 0 ? FULFILLMENT_STATUS.COMPLETED : FULFILLMENT_STATUS.PARTIAL,
-  });
-
+  doc.status = ORDER_STATUS.CLOSED;
+  doc.workflow_stage = ORDER_WORKFLOW_STAGE.COMPLETED;
+  doc.current_action = 'closed';
+  doc.is_locked = true;
+  doc.closed_at = new Date();
+  doc.closed_by = user._id;
+  doc.updated_by = user._id;
+  doc.current_revision = Number(doc.current_revision || 1) + 1;
+  if (remarks) doc.closure_remarks = remarks;
   await doc.save();
-
-  const closedAt = doc.closed_at;
-  await OrderReturn.updateMany(
-    {
-      order: id,
-      return_status: { $in: [ORDER_RETURN_STATUS.RECEIVED_AT_WAREHOUSE, 'received'] },
-      order_closed_at: null,
-    },
-    { $set: { order_closed_at: closedAt } },
-  );
 
   await OrderStatusHistory.create({
     order: id,
     from_status: fromStatus,
     to_status: ORDER_STATUS.CLOSED,
     changed_by: user._id,
-    remarks: remarks || 'Order closed after warehouse return receipt',
+    remarks: remarks || 'Order closed by account',
   });
 
   await OrderWorkflow.create({
@@ -752,7 +609,7 @@ async function closeWithReturns(id, body, user) {
     from_stage: fromStage,
     to_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
     to_status: ORDER_STATUS.CLOSED,
-    remarks: remarks || '',
+    remarks,
     revision_number: doc.current_revision,
   });
 
@@ -761,17 +618,11 @@ async function closeWithReturns(id, body, user) {
     entity_type: 'order',
     entity_id: String(doc._id),
     action: 'status_changed',
-    message: `Order ${doc.order_no} closed after returns with adjusted totals`,
-    old_value: { lifecycle_status: fromLifecycle, status: fromStatus },
+    message: `Order ${doc.order_no} closed`,
+    old_value: { status: fromStatus, workflow_stage: fromStage },
     new_value: {
-      lifecycle_status: ORDER_LIFECYCLE_STATUS.FULFILLED,
-      status: doc.status,
-      grand_total: doc.grand_total,
-      extra_charges: doc.extra_charges,
-      penalty_amount: doc.penalty_amount,
-      damage_charge: doc.damage_charge,
-      total_returned: totalReturned,
-      total_net_delivered: totalNetDelivered,
+      status: ORDER_STATUS.CLOSED,
+      workflow_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
     },
   });
 
@@ -779,98 +630,77 @@ async function closeWithReturns(id, body, user) {
 }
 
 /**
- * Account settle & close: resolve release approvals, settle commercials, lock order closed.
- * Runs synchronously so status updates are visible immediately in the API response.
+ * Reopen a closed order at the dispatch stage without changing fulfillment or commercials.
+ * Clears closure audit fields and records the state transition.
  */
-async function settleAndCloseOrder(id, body, user) {
+async function reopenOrder(id, body, user) {
   const dept = String(user.department || '');
-  if (!['account', 'admin', 'super_admin'].includes(dept)) {
-    throw new ApiError(403, 'Only account can settle and close orders after returns');
+  if (!['account', 'admin', 'super_admin', 'dispatch'].includes(dept)) {
+    throw new ApiError(403, 'Only account or dispatch can reopen orders');
   }
 
-  await assertCloseWithReturnsPreconditions(id, body);
+  const { Order, OrderWorkflow, OrderStatusHistory } = getModels();
+  const doc = await Order.findById(id);
+  if (!doc) throw new ApiError(404, 'Order not found');
+  if (!isOrderSettlementClosed(doc)) {
+    throw new ApiError(400, 'Only closed orders can be reopened');
+  }
 
-  const result = await processSettleAndCloseJob({
-    orderId: String(id),
-    userId: String(user._id),
-    body: body || {},
+  const remarks = String(body?.remarks || '').trim();
+  const fromStatus = doc.status || ORDER_STATUS.CLOSED;
+  const fromStage =
+    normalizeWorkflowStage(doc.workflow_stage) || ORDER_WORKFLOW_STAGE.COMPLETED;
+
+  doc.status = ORDER_STATUS.DISPATCH;
+  doc.lifecycle_status = ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED;
+  doc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
+  doc.current_action = 'reopened';
+  doc.is_locked = false;
+  doc.closed_at = null;
+  doc.closed_by = null;
+  doc.closure_remarks = null;
+  doc.updated_by = user._id;
+  doc.current_revision = Number(doc.current_revision || 1) + 1;
+  await doc.save();
+
+  await OrderStatusHistory.create({
+    order: id,
+    from_status: fromStatus,
+    to_status: ORDER_STATUS.DISPATCH,
+    changed_by: user._id,
+    remarks: remarks || `Order reopened by ${dept}`,
   });
 
-  const { Order } = getModels();
-  const doc = await Order.findById(id).lean();
-  return {
-    ...result,
-    queued: false,
-    order: doc ? toPlain(doc) : null,
-  };
-}
-
-async function processSettleAndCloseJob(payload = {}) {
-  const orderId = payload.orderId;
-  const userId = payload.userId;
-  const body = payload.body || {};
-  if (!orderId) throw new Error('settle_and_close requires orderId');
-  if (!userId) throw new Error('settle_and_close requires userId');
-
-  const { User, OrderReturn } = getModels();
-  const actor = await User.findById(userId).lean();
-  if (!actor) throw new Error(`User not found for settle_and_close: ${userId}`);
-  const user = toPlain(actor);
-
-  const approvalService = require('../orderApproval/orderApproval.service');
-  const releaseResult = await approvalService.resolvePendingReleaseApprovalsForOrder(
-    orderId,
-    user,
-    {
-      amendment_notes: body.amendment_notes || body.remarks,
-      remarks: body.remarks,
-      skipAsyncJobs: true,
-    },
-  );
-
-  await approvalService.finalizeDispatchReleasesOnOrderClose(orderId, user);
-
-  const { Order } = getModels();
-  let doc;
-  try {
-    ({ doc } = await settleOrderCommercials(orderId, body, user));
-  } catch (err) {
-    doc = await Order.findById(orderId);
-    if (!doc || isOrderSettlementClosed(doc)) {
-      throw err;
-    }
-  }
-
-  const remarks = body.remarks || 'Account settle & close';
-  const closedDoc = await persistOrderSettlementClose(orderId, doc, user, {
+  await OrderWorkflow.create({
+    order: id,
+    action_by: user._id,
+    role: dept === 'super_admin' ? 'admin' : dept,
+    action: 'reopened',
+    from_stage: fromStage,
+    to_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
+    from_status: fromStatus,
+    to_status: ORDER_STATUS.DISPATCH,
     remarks,
-    closure_remarks: body.remarks,
-    workflow_remarks: body.remarks || '',
-    activityMessage: `Order ${doc.order_no} closed after account settle & close`,
+    revision_number: doc.current_revision,
   });
 
-  const closedAt = closedDoc.closed_at ? new Date(closedDoc.closed_at) : new Date();
-  await OrderReturn.updateMany(
-    {
-      order: orderId,
-      return_status: { $in: [ORDER_RETURN_STATUS.RECEIVED_AT_WAREHOUSE, 'received'] },
-      order_closed_at: null,
+  await activityService.create({
+    actor: user._id,
+    entity_type: 'order',
+    entity_id: String(doc._id),
+    action: 'status_changed',
+    message: `Order ${doc.order_no} reopened`,
+    old_value: {
+      status: fromStatus,
+      workflow_stage: fromStage,
     },
-    { $set: { order_closed_at: closedAt } },
-  );
+    new_value: {
+      status: ORDER_STATUS.DISPATCH,
+      workflow_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
+    },
+  });
 
-  const flagService = require('../flags/flag.service');
-  await flagService.recomputeOrderFlagAggregates(orderId);
-
-  return {
-    orderId,
-    releasesResolved: releaseResult.resolved,
-    releasesSkipped: releaseResult.skipped,
-    closed: true,
-    lifecycle_status: closedDoc.lifecycle_status || ORDER_LIFECYCLE_STATUS.FULFILLED,
-    workflow_stage: closedDoc.workflow_stage || ORDER_WORKFLOW_STAGE.COMPLETED,
-    status: closedDoc.status || ORDER_STATUS.CLOSED,
-  };
+  return toPlain(doc.toObject());
 }
 
 /**
@@ -892,7 +722,7 @@ function normalizeItems(items) {
       hsn_code: line.hsn_code || '',
       gst_percent: Number(line.gst_percent ?? 0),
       ordered_quantity: orderedQuantity,
-      approved_quantity: Number(line.approved_quantity || 0),
+      approved_quantity: Number(line.approved_quantity ?? orderedQuantity ?? 0),
       dispatched_quantity: Number(line.dispatched_quantity || 0),
       delivered_quantity: Number(line.delivered_quantity || 0),
       returned_quantity: Number(line.returned_quantity || 0),
@@ -1062,7 +892,7 @@ async function list(query = {}, user) {
   const skip = (page - 1) * limit;
 
   const mapListedOrders = async (rows) => {
-    const plainRows = rows.map((r) => toPlain(r));
+    const plainRows = rows.map((r) => applyDerivedPriorityToOrder(toPlain(r)));
     const enrichedPending = await enrichOrdersWithApprovalPending(plainRows, getModels());
     const enrichedDueSheet = await enrichOrdersWithDueSheetStatus(enrichedPending, getModels());
     return enrichOrdersWithFlagStatus(enrichedDueSheet, getModels());
@@ -1096,8 +926,9 @@ async function getById(id, user) {
   applyAccessFilter(q, user);
   const row = await getModels().Order.findOne(q).lean();
   if (!row) throw new ApiError(404, 'Order not found');
-  const plain = toPlain(row);
-  const enrichedDueSheet = await enrichOrdersWithDueSheetStatus([plain], getModels());
+  const plain = applyDerivedPriorityToOrder(toPlain(row));
+  const enrichedPending = await enrichOrdersWithApprovalPending([plain], getModels());
+  const enrichedDueSheet = await enrichOrdersWithDueSheetStatus(enrichedPending, getModels());
   const enrichedFlag = await enrichOrdersWithFlagStatus(enrichedDueSheet, getModels());
   return enrichedFlag[0];
 }
@@ -1159,8 +990,11 @@ async function create(body, user) {
     internal_notes: body.notes != null ? String(body.notes) : '',
     order_items,
     discount_amount: Number(body.discount_amount || 0),
-    priority: body.priority || 'normal',
     expected_delivery_date: body.expected_delivery_date ? new Date(body.expected_delivery_date) : null,
+    priority: deriveOrderPriorityFromExpectedDeliveryDate(
+      body.expected_delivery_date,
+      body.priority || 'normal',
+    ),
     assigned_sales_user: body.assigned_sales_user || user._id,
     current_assignee: body.assigned_sales_user || user._id,
     current_department: 'sales',
@@ -1211,6 +1045,29 @@ async function create(body, user) {
         remarks: body.submit_remarks || 'Initial submission upon creation',
       },
     });
+
+    if (body.approval_items || body.approved_total_amount !== undefined) {
+      const orderApprovalQueue = require('../../queues/orderApproval.queue');
+      await orderApprovalQueue.enqueue({
+        type: 'create_order_approval',
+        payload: {
+          body: {
+            order: plain._id,
+            approve_immediately: body.approve_immediately,
+            approve_finance_only: body.approve_finance_only,
+            approve_account_only: body.approve_account_only,
+            replace_snapshot: true,
+            approval_notes: body.approval_notes || body.submit_remarks || "Initial approval on admin order creation",
+            approved_total_amount: body.approved_total_amount,
+            approval_items: body.approval_items,
+            contact_number: body.contact_number,
+            contact_name: body.contact_name,
+          },
+          user,
+        },
+      });
+    }
+
     plain.submit_queued = true;
   }
 
@@ -1329,6 +1186,52 @@ async function transition(id, body, user, reqMeta) {
   });
 }
 
+async function syncOrderPrioritiesFromEdd() {
+  const { Order } = getModels();
+  const cursor = Order.find({
+    deletedAt: null,
+    expected_delivery_date: { $ne: null },
+    status: { $nin: [ORDER_STATUS.CLOSED, ORDER_STATUS.CANCELLED] },
+  })
+    .select('_id expected_delivery_date priority')
+    .lean()
+    .cursor();
+
+  let scanned = 0;
+  let updated = 0;
+  const ops = [];
+
+  const flush = async () => {
+    if (ops.length === 0) return;
+    const result = await Order.bulkWrite(ops, { ordered: false });
+    updated += result.modifiedCount || 0;
+    ops.length = 0;
+  };
+
+  for await (const row of cursor) {
+    scanned += 1;
+    const nextPriority = deriveOrderPriorityFromExpectedDeliveryDate(
+      row.expected_delivery_date,
+      row.priority || 'normal',
+    );
+    if (nextPriority === row.priority) continue;
+
+    ops.push({
+      updateOne: {
+        filter: { _id: row._id },
+        update: { $set: { priority: nextPriority } },
+      },
+    });
+
+    if (ops.length >= 200) {
+      await flush();
+    }
+  }
+
+  await flush();
+  return { scanned, updated };
+}
+
 async function processOrderJob({ type, payload = {} }) {
   switch (type) {
     case 'sync_party_rates': {
@@ -1361,9 +1264,6 @@ async function processOrderJob({ type, payload = {} }) {
       const orderReturnService = require('../orderReturn/orderReturn.service');
       return orderReturnService.processPostOrderReturnJob(payload);
     }
-    case ORDER_JOB_TYPES.SETTLE_AND_CLOSE:
-    case 'settle_and_close':
-      return processSettleAndCloseJob(payload);
     case ORDER_JOB_TYPES.SUBMIT_ORDER:
     case 'submit_order': {
       const orderId = payload.orderId;
@@ -1379,6 +1279,10 @@ async function processOrderJob({ type, payload = {} }) {
         user_agent: payload.user_agent,
       });
       return { orderId, status: order?.status || ORDER_STATUS.SUBMITTED };
+    }
+    case ORDER_JOB_TYPES.SYNC_ORDER_PRIORITIES:
+    case 'sync_order_priorities': {
+      return syncOrderPrioritiesFromEdd();
     }
     default:
       throw new Error(`Unknown order job type: ${type}`);
@@ -1461,19 +1365,55 @@ async function assignees(id, user) {
   return assigneeService.listByOrder(id);
 }
 
+async function submitOrder(id, body, user, reqMeta) {
+  const orderApprovalService = require('../orderApproval/orderApproval.service');
+  await orderApprovalService.syncOrderItemsForAdminApproval(id, body.order_items, user);
+
+  const workflowQueue = require('../../queues/workflow.queue');
+  await workflowQueue.enqueue({
+    type: 'submit_transition',
+    payload: {
+      orderId: id,
+      userId: user._id,
+      remarks: body.remarks,
+      ip_address: reqMeta.ip,
+      user_agent: reqMeta.ua,
+    },
+  });
+
+  const orderApprovalQueue = require('../../queues/orderApproval.queue');
+  await orderApprovalQueue.enqueue({
+    type: 'create_order_approval',
+    payload: {
+      body: {
+        order: id,
+        approve_immediately: false,
+        replace_snapshot: true,
+        approval_notes: body.remarks,
+        approved_total_amount: body.approved_total_amount,
+        approval_items: body.approval_items,
+        contact_number: body.contact_number,
+        contact_name: body.contact_name,
+      },
+      user,
+    },
+  });
+
+  return { success: true, orderId: id };
+}
+
 module.exports = {
   list,
   getById,
   create,
   update,
   transition,
+  submitOrder,
   history,
   fulfillment,
   assignees,
-  closeWithReturns,
-  settleAndCloseOrder,
-  settleOrderCommercials,
-  processSettleAndCloseJob,
+  closeOrder,
+  reopenOrder,
   closeAfterFullDelivery,
   recalcCommercials,
   normalizeItems,
@@ -1484,5 +1424,6 @@ module.exports = {
   applyReturnSettlementToLine,
   grossAcceptedQty,
   syncDispatchDeliveredAfterSettlement,
+  syncOrderPrioritiesFromEdd,
   processOrderJob,
 };

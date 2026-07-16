@@ -8,6 +8,9 @@ import { PageContent } from "./PageContent";
 import { Sidebar } from "./Sidebar";
 import { ShellNavContext } from "./shell-nav-context";
 import { Topbar } from "./Topbar";
+import { NavControlPanel } from "./NavControlPanel";
+import { useDesktopSidebarCollapsed } from "./useDesktopSidebarCollapsed";
+import { Suspense } from "react";
 
 type DashboardShellProps = {
   portal: string;
@@ -17,6 +20,7 @@ type DashboardShellProps = {
 export function DashboardShell({ portal, children }: DashboardShellProps) {
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [desktopCollapsed, setDesktopCollapsed] = useDesktopSidebarCollapsed();
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   const openMobileNav = useCallback(() => setMobileNavOpen(true), []);
@@ -48,8 +52,10 @@ export function DashboardShell({ portal, children }: DashboardShellProps) {
       mobileNavOpen,
       openMobileNav,
       closeMobileNav,
+      desktopCollapsed,
+      setDesktopCollapsed,
     }),
-    [mobileNavOpen, openMobileNav, closeMobileNav],
+    [mobileNavOpen, openMobileNav, closeMobileNav, desktopCollapsed, setDesktopCollapsed],
   );
 
   return (
@@ -70,6 +76,10 @@ export function DashboardShell({ portal, children }: DashboardShellProps) {
 
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <Topbar portal={portal} />
+          {/* Nav control panel — visible on desktop only when sidebar is collapsed */}
+          <Suspense fallback={null}>
+            <NavControlPanel portal={portal} />
+          </Suspense>
           <PageContent>{children}</PageContent>
         </div>
       </div>

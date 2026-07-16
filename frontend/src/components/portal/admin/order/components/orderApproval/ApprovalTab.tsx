@@ -78,11 +78,6 @@ export function ApprovalTab({
     );
   }, [dispatchesQ.data]);
 
-  const mayApprove = useMemo(
-    () => canOpenAdminApprovalModal(status, readOnlyItems),
-    [status, readOnlyItems],
-  );
-
   const approvals = useMemo(() => {
     const rows = pickList(adminApprovalsQ.data);
     return [...rows].sort(
@@ -90,6 +85,15 @@ export function ApprovalTab({
         Number(b.revision_number ?? 0) - Number(a.revision_number ?? 0),
     );
   }, [adminApprovalsQ.data]);
+
+  const isCreatedBySales = useMemo(() => {
+    return approvals.some((app) => app.is_sales_submited === true);
+  }, [approvals]);
+
+  const mayApprove = useMemo(
+    () => canOpenAdminApprovalModal(status, readOnlyItems) && !isCreatedBySales,
+    [status, readOnlyItems, isCreatedBySales],
+  );
 
   const selectedApproval = useMemo(
     () =>
@@ -149,30 +153,9 @@ export function ApprovalTab({
 
   return (
     <div className="space-y-4">
-      {mayApprove && (
-        <div className="space-y-3">
-          {!allRatesMapped && (
-            <div className="rounded-xl border border-amber-250 bg-amber-50/50 px-4 py-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-              <b>Rate Mapping Needed:</b> Some items do not have negotiated rates mapped yet. You can click <b>Create Approval</b> and map them inline in the preview before final sign-off.
-            </div>
-          )}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200/80 bg-emerald-50/40 px-4 py-3 dark:border-emerald-555/10 dark:bg-emerald-950/10">
-            <div>
-              <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-300">
-                Review and Approve Order
-              </p>
-              <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80">
-                Verify rates and create the central approval document.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setApprovalModalOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400 cursor-pointer"
-            >
-              Create Approval
-            </button>
-          </div>
+      {mayApprove && !allRatesMapped && (
+        <div className="rounded-xl border border-amber-250 bg-amber-50/50 px-4 py-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-955/20 dark:text-amber-300">
+          <b>Rate Mapping Needed:</b> Some items do not have negotiated rates mapped yet. You can click <b>Approve Order</b> on the card below and map them inline in the preview before final sign-off.
         </div>
       )}
 
@@ -225,6 +208,7 @@ export function ApprovalTab({
                 expectedDeliveryDate={detail?.expected_delivery_date}
                 userNameById={userNameById}
                 onAmend={openAmendModal}
+                onApprove={() => setApprovalModalOpen(true)}
                 amendingApprovalId={amendApprovalId}
                 isAmendBlocked={hasActiveDispatch}
               />

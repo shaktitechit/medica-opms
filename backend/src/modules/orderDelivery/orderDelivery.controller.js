@@ -13,10 +13,6 @@ exports.get = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.get(req.params.id) });
 });
 
-exports.create = asyncHandler(async (req, res) => {
-  res.status(201).json({ success: true, data: await service.create(req.body, req.user) });
-});
-
 exports.logShipmentDelivery = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: await service.logShipmentDelivery(req.body, req.user) });
 });

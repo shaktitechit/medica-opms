@@ -73,6 +73,9 @@ export default function PortalCatchAllPage() {
   if (portal === "admin" && restArr.length === 1 && restArr[0] === "products") {
     return <ListProductsPage portalHome="/admin" />;
   }
+  if (portal === "admin" && restArr.length === 1 && restArr[0] === "transport-agents") {
+    return <ListTransportAgentsPage portalHome="/admin" />;
+  }
 
   // ── SALES ────────────────────────────────────────────────────────────────
   if (portal === "sales" && restArr.length === 1 && restArr[0] === "create-order") {
@@ -95,6 +98,9 @@ export default function PortalCatchAllPage() {
   if (portal === "finance" && restArr.length === 1 && restArr[0] === "products") {
     return <ListProductsPage portalHome="/finance" />;
   }
+  if (portal === "finance" && restArr.length === 1 && restArr[0] === "transport-agents") {
+    return <ListTransportAgentsPage portalHome="/finance" />;
+  }
 
   // ── ACCOUNT ──────────────────────────────────────────────────────────────
   if (portal === "account" && restArr.length === 1 && restArr[0] === "orders") {
@@ -108,6 +114,9 @@ export default function PortalCatchAllPage() {
   }
   if (portal === "account" && restArr.length === 1 && restArr[0] === "products") {
     return <ListProductsPage portalHome="/account" />;
+  }
+  if (portal === "account" && restArr.length === 1 && restArr[0] === "transport-agents") {
+    return <ListTransportAgentsPage portalHome="/account" />;
   }
 
   // ── DISPATCH ─────────────────────────────────────────────────────────────
@@ -168,6 +177,12 @@ export default function PortalCatchAllPage() {
     restArr.length === 2 && restArr[0] === "products"
   ) {
     return <ProductDetailPage id={restArr[1]} portalHome={`/${portal}`} />;
+  }
+  if (
+    (portal === "admin" || portal === "finance" || portal === "account") &&
+    restArr.length === 2 && restArr[0] === "transport-agents"
+  ) {
+    return <TransportAgentDetailPage id={restArr[1]} portalHome={`/${portal}`} />;
   }
 
   if (restArr.length === 1 && restArr[0] === "profile") {

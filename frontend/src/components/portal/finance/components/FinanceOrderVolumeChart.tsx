@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Info } from "lucide-react";
 import {
-  FINANCE_ORDER_TABS,
+  FINANCE_CHART_TABS,
   FINANCE_STATUS_COLORS,
   categorizeOrderForFinanceChart,
   createEmptyFinanceChartBreakdown,
@@ -158,7 +158,7 @@ export default function FinanceOrderVolumeChart({
   const dailyData = useMemo(() => buildDailyBuckets(orders), [orders]);
 
   const activeData = timeframe === "monthly" ? monthlyData : dailyData;
-  const statusKeys = FINANCE_ORDER_TABS.map((tab) => tab.id);
+  const statusKeys = FINANCE_CHART_TABS.map((tab) => tab.id);
 
   const maxVal = useMemo(() => {
     const vals = activeData.map((d) => {

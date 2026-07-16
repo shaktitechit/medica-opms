@@ -69,6 +69,7 @@ type PartyRow = {
   state?: string;
   payment_terms?: string;
   is_active: boolean;
+  is_featured: boolean;
   sra: boolean;
   sra_from_date?: string;
   sra_to_date?: string;
@@ -91,9 +92,10 @@ const COLUMNS: { key: keyof PartyRow; label: string; headerLetter: string; reado
   { key: "state", label: "State", headerLetter: "I", type: "text" },
   { key: "payment_terms", label: "Payment Terms", headerLetter: "J", type: "text" },
   { key: "is_active", label: "Active", headerLetter: "K", type: "boolean" },
-  { key: "sra", label: "SRA", headerLetter: "L", type: "boolean" },
-  { key: "sra_from_date", label: "SRA From Date", headerLetter: "M", type: "date" },
-  { key: "sra_to_date", label: "SRA To Date", headerLetter: "N", type: "date" }
+  { key: "is_featured", label: "Featured", headerLetter: "L", type: "boolean" },
+  { key: "sra", label: "SRA", headerLetter: "M", type: "boolean" },
+  { key: "sra_from_date", label: "SRA From Date", headerLetter: "N", type: "date" },
+  { key: "sra_to_date", label: "SRA To Date", headerLetter: "O", type: "date" },
 ];
 
 function toDateString(v: unknown): string {
@@ -136,6 +138,7 @@ export function GoogleSheetPartiesModal({
   // Filter panel toggle & criteria states
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [filterActiveStatus, setFilterActiveStatus] = useState<"all" | "active" | "inactive">("all");
+  const [filterFeaturedStatus, setFilterFeaturedStatus] = useState<"all" | "featured" | "not_featured">("all");
   const [filterPartyType, setFilterPartyType] = useState<"all" | "customer" | "supplier" | "both">("all");
   const [filterSraStatus, setFilterSraStatus] = useState<"all" | "sra" | "non-sra">("all");
   const [filterState, setFilterState] = useState<string>("all");
@@ -154,14 +157,16 @@ export function GoogleSheetPartiesModal({
   const hasActiveFilters = useMemo(() => {
     return (
       filterActiveStatus !== "all" ||
+      filterFeaturedStatus !== "all" ||
       filterPartyType !== "all" ||
       filterSraStatus !== "all" ||
       filterState !== "all"
     );
-  }, [filterActiveStatus, filterPartyType, filterSraStatus, filterState]);
+  }, [filterActiveStatus, filterFeaturedStatus, filterPartyType, filterSraStatus, filterState]);
 
   const handleClearFilters = () => {
     setFilterActiveStatus("all");
+    setFilterFeaturedStatus("all");
     setFilterPartyType("all");
     setFilterSraStatus("all");
     setFilterState("all");
@@ -180,6 +185,7 @@ export function GoogleSheetPartiesModal({
     state: 120,
     payment_terms: 120,
     is_active: 80,
+    is_featured: 90,
     sra: 80,
     sra_from_date: 120,
     sra_to_date: 120,
@@ -573,6 +579,12 @@ export function GoogleSheetPartiesModal({
       rows = rows.filter(r => r.is_active === wantActive);
     }
 
+    // 2b. Featured Status Filter
+    if (filterFeaturedStatus !== "all") {
+      const wantFeatured = filterFeaturedStatus === "featured";
+      rows = rows.filter(r => (r.is_featured === true) === wantFeatured);
+    }
+
     // 3. Party Type Filter
     if (filterPartyType !== "all") {
       rows = rows.filter(r => r.party_type === filterPartyType);
@@ -612,6 +624,7 @@ export function GoogleSheetPartiesModal({
     localRows,
     searchQuery,
     filterActiveStatus,
+    filterFeaturedStatus,
     filterPartyType,
     filterSraStatus,
     filterState,
@@ -700,6 +713,7 @@ function onEdit(e) {
     if (key === "mobile" || key === "phone") key = "mobile";
     if (key === "gstin" || key === "gstin_no") key = "gst_no";
     if (key === "active") key = "is_active";
+    if (key === "featured") key = "is_featured";
     if (key === "sra_start" || key === "sra_start_date") key = "sra_from_date";
     if (key === "sra_end" || key === "sra_end_date") key = "sra_to_date";
     
@@ -942,6 +956,20 @@ function onEdit(e) {
                           <option value="all">All statuses</option>
                           <option value="active">Active Only</option>
                           <option value="inactive">Inactive Only</option>
+                        </select>
+                      </div>
+
+                      {/* Featured select */}
+                      <div>
+                        <label className="block font-medium text-slate-550 dark:text-slate-400 mb-1">Featured</label>
+                        <select
+                          value={filterFeaturedStatus}
+                          onChange={e => setFilterFeaturedStatus(e.target.value as any)}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                        >
+                          <option value="all">All parties</option>
+                          <option value="featured">Featured Only</option>
+                          <option value="not_featured">Not Featured</option>
                         </select>
                       </div>
 
@@ -1657,6 +1685,7 @@ function onEdit(e) {
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">State</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Payment Terms</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Active</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Featured</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">SRA</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">SRA From Date</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">SRA To Date</div>
@@ -1707,6 +1736,7 @@ function onEdit(e) {
     if (key === "mobile" || key === "phone") key = "mobile";
     if (key === "gstin" || key === "gstin_no") key = "gst_no";
     if (key === "active") key = "is_active";
+    if (key === "featured") key = "is_featured";
     if (key === "sra_start" || key === "sra_start_date") key = "sra_from_date";
     if (key === "sra_end" || key === "sra_end_date") key = "sra_to_date";
     

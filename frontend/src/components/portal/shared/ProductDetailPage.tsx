@@ -108,6 +108,11 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
                   <span className="h-1.5 w-1.5 rounded-full bg-slate-400" /> Inactive
                 </span>
               )}
+              {p.is_featured === true && (
+                <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 text-xs font-semibold bg-amber-50 dark:bg-amber-500/10 px-2 py-0.5 rounded-full">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-600 dark:bg-amber-400" /> Featured
+                </span>
+              )}
             </div>
             {p.sku && (
               <div className="flex flex-wrap items-center gap-4 text-xs text-slate-550 dark:text-slate-400">

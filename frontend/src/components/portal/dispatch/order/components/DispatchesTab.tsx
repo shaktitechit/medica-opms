@@ -7,7 +7,7 @@ import {
   useListTransportAgentsQuery,
   useListOrderApprovalsQuery,
 } from "@/store/api";
-import { formatAgentType } from "../../fleetDisplay";
+import { formatAgentType } from "@/components/portal/shared/fleetDisplay";
 import { groupAccountDispatchesByRelease } from "@/components/portal/account/order/components/accountDispatchAvailability";
 import { useAppSelector } from "@/store/hooks";
 import { publicApiOrigin } from "@/lib/env";

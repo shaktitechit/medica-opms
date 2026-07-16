@@ -4,6 +4,9 @@
  */
 const mongoose = require('mongoose');
 const softDeletePlugin = require('../plugins/softDelete.plugin');
+const {
+  deriveOrderPriorityFromExpectedDeliveryDate,
+} = require('../modules/orders/order.constants');
 
 const MODULE_ENUM = [
   'user',
@@ -258,6 +261,11 @@ function registerModels() {
         default: true,
         index: true,
       },
+      is_featured: {
+        type: Boolean,
+        default: false,
+        index: true,
+      },
       deletedAt: {
         type: Date,
         default: null,
@@ -300,6 +308,11 @@ function registerModels() {
   productSchema.index({
     is_active: 1,
     deletedAt: 1,
+  });
+
+  productSchema.index({
+    is_featured: 1,
+    is_active: 1,
   });
 
   productSchema.plugin(softDeletePlugin);
@@ -374,6 +387,7 @@ function registerModels() {
       payment_terms: { type: String, trim: true },
       legacy_customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", unique: true, sparse: true },
       is_active: { type: Boolean, default: true },
+      is_featured: { type: Boolean, default: false, index: true },
       sra: { type: Boolean, default: false },
       sra_from_date: { type: Date, default: null },
       sra_to_date: { type: Date, default: null },
@@ -384,6 +398,7 @@ function registerModels() {
   );
   partySchema.index({ party_name: 1 });
   partySchema.index({ gst_no: 1 }, { sparse: true });
+  partySchema.index({ is_featured: 1, is_active: 1 });
   partySchema.plugin(softDeletePlugin);
   mongoose.model("Party", partySchema);
 
@@ -864,6 +879,7 @@ function registerModels() {
       order_no: { type: String, required: true, unique: true, index: true },
       order_date: { type: Date, default: Date.now, index: true },
       expected_delivery_date: Date,
+      // Derived from expected_delivery_date: >10 low, 5-10 normal, 3-4 high, <=2/past urgent
       priority: {
         type: String,
         enum: ["low", "normal", "high", "urgent"],
@@ -1031,6 +1047,17 @@ function registerModels() {
   orderSchema.index({ current_assignee: 1, workflow_stage: 1 });
   orderSchema.index({ status: 1, closed_at: -1 });
 
+  // Keep priority derived from expected_delivery_date on every save.
+  orderSchema.pre('save', function syncPriorityFromEdd(next) {
+    if (this.expected_delivery_date) {
+      this.priority = deriveOrderPriorityFromExpectedDeliveryDate(
+        this.expected_delivery_date,
+        this.priority || 'normal',
+      );
+    }
+    next();
+  });
+
   orderSchema.plugin(softDeletePlugin);
   mongoose.model("Order", orderSchema);
 
@@ -1112,6 +1139,9 @@ function registerModels() {
       rejected_total_amount: { type: Number, default: 0 },
 
       // Decisions/Signatures for Sales/Admin
+      is_sales_submited: { type: Boolean, default: false },
+      sales_submitted_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      sales_submitted_at: Date,
       is_admin_approved: { type: Boolean, default: false },
       admin_approved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       admin_approved_at: Date,

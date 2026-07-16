@@ -69,8 +69,8 @@ const ORDER_JOB_TYPES = Object.freeze({
   POST_TRANSPORT_SHIPMENT: 'post_transport_shipment',
   POST_SHIPMENT_DELIVERY: 'post_shipment_delivery',
   POST_ORDER_RETURN: 'post_order_return',
-  SETTLE_AND_CLOSE: 'settle_and_close',
   SUBMIT_ORDER: 'submit_order',
+  SYNC_ORDER_PRIORITIES: 'sync_order_priorities',
 });
 
 /** Legacy finance approval values still present in older documents. */
@@ -161,6 +161,65 @@ function normalizeOrderWorkflowFields(doc) {
   return doc;
 }
 
+/**
+ * Calendar days from today (UTC date) until expected delivery date.
+ * Negative when the EDD is already past.
+ * @param {Date|string|null|undefined} expectedDeliveryDate
+ * @returns {number|null}
+ */
+function daysUntilExpectedDelivery(expectedDeliveryDate) {
+  if (expectedDeliveryDate == null || expectedDeliveryDate === '') return null;
+  const target = expectedDeliveryDate instanceof Date
+    ? expectedDeliveryDate
+    : new Date(expectedDeliveryDate);
+  if (Number.isNaN(target.getTime())) return null;
+
+  const now = new Date();
+  const startTodayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const startEddUtc = Date.UTC(
+    target.getUTCFullYear(),
+    target.getUTCMonth(),
+    target.getUTCDate(),
+  );
+  return Math.floor((startEddUtc - startTodayUtc) / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * Derive order priority from expected_delivery_date:
+ * - > 10 days → low
+ * - 5–10 days → normal
+ * - 3–4 days → high
+ * - ≤ 2 days (or past) → urgent
+ * Missing/invalid EDD keeps the provided fallback (default normal).
+ * @param {Date|string|null|undefined} expectedDeliveryDate
+ * @param {string} [fallback='normal']
+ * @returns {'low'|'normal'|'high'|'urgent'}
+ */
+function deriveOrderPriorityFromExpectedDeliveryDate(
+  expectedDeliveryDate,
+  fallback = 'normal',
+) {
+  const daysLeft = daysUntilExpectedDelivery(expectedDeliveryDate);
+  if (daysLeft == null) return fallback;
+
+  if (daysLeft > 10) return 'low';
+  if (daysLeft >= 5) return 'normal';
+  if (daysLeft >= 3) return 'high';
+  return 'urgent';
+}
+
+/** Apply live EDD-derived priority onto a plain order object (for API responses). */
+function applyDerivedPriorityToOrder(order) {
+  if (!order || typeof order !== 'object') return order;
+  if (order.expected_delivery_date) {
+    order.priority = deriveOrderPriorityFromExpectedDeliveryDate(
+      order.expected_delivery_date,
+      order.priority || 'normal',
+    );
+  }
+  return order;
+}
+
 module.exports = {
   ORDER_LINE_STATUS,
   ORDER_LIFECYCLE_STATUS,
@@ -181,4 +240,7 @@ module.exports = {
   normalizeOrderLineItems,
   normalizeWorkflowStage,
   normalizeOrderWorkflowFields,
+  daysUntilExpectedDelivery,
+  deriveOrderPriorityFromExpectedDeliveryDate,
+  applyDerivedPriorityToOrder,
 };

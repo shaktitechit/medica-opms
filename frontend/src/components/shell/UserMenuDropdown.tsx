@@ -111,7 +111,7 @@ export function UserMenuDropdown({ portal, user }: UserMenuDropdownProps) {
           id={menuId}
           role="menu"
           aria-labelledby={btnId}
-          className="absolute right-0 top-[calc(100%+8px)] z-[55] w-[min(calc(100vw-2rem),280px)] overflow-hidden rounded-xl border border-slate-200/90 bg-white py-2 shadow-xl dark:border-white/10 dark:bg-slate-900"
+          className="absolute right-0 top-[calc(100%+8px)] z-[100] w-[min(calc(100vw-2rem),280px)] overflow-hidden rounded-xl border border-slate-200/90 bg-white py-2 shadow-xl dark:border-white/10 dark:bg-slate-900"
         >
           <div className="flex items-start gap-3 border-b border-slate-200/90 px-4 pb-3 pt-1 dark:border-white/10">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 text-lg font-semibold text-white shadow-inner">

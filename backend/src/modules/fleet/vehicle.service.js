@@ -2,6 +2,7 @@
  * @fileoverview Fleet: business rules and mongoose persistence helpers.
  * @module modules/fleet/vehicle.service
  */
+const mongoose = require('mongoose');
 const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
@@ -61,7 +62,11 @@ function sanitizePatch(patch) {
 
 async function list(query = {}) {
   const q = {};
-  if (query.transport_agent) q.transport_agent = query.transport_agent;
+  if (query.transport_agent) {
+    const agentId = String(query.transport_agent).trim();
+    if (!mongoose.isValidObjectId(agentId)) return [];
+    q.transport_agent = agentId;
+  }
   const rows = await getModels()
     .Vehicle.find(q)
     .populate(VEHICLE_POPULATE)
