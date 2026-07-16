@@ -6,7 +6,7 @@ import {
   ALL_MONTHS,
   MONTH_OPTIONS,
   formatMultiSelectLabel,
-} from "./adminPeriodFilter";
+} from "./periodFilterUtils";
 
 interface AdminPeriodFilterProps {
   availableYears: number[];

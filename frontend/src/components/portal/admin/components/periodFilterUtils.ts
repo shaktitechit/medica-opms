@@ -38,11 +38,11 @@ export function collectAvailableYears(orders: unknown[]): number[] {
   return Array.from(years).sort((a, b) => b - a);
 }
 
-export function filterOrdersByPeriod(
-  orders: unknown[],
+export function filterOrdersByPeriod<T>(
+  orders: T[],
   selectedYears: number[],
   selectedMonths: number[],
-): unknown[] {
+): T[] {
   if (selectedYears.length === 0 || selectedMonths.length === 0) return [];
   const yearSet = new Set(selectedYears);
   const monthSet = new Set(selectedMonths);

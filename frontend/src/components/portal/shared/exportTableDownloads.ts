@@ -133,7 +133,11 @@ function zipStore(files: Array<{ name: string; data: Uint8Array }>): Blob {
     u16(0),
   ]);
 
-  return new Blob([concatBytes([...localParts, central, end])], {
+  const zipBytes = concatBytes([...localParts, central, end]);
+  // Copy into a fresh ArrayBuffer so BlobPart typing accepts it under strict DOM libs.
+  const ab = new ArrayBuffer(zipBytes.byteLength);
+  new Uint8Array(ab).set(zipBytes);
+  return new Blob([ab], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
 }

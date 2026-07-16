@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   collectAvailableYears,
   filterOrdersByPeriod,
-} from "./adminPeriodFilter";
+} from "./periodFilterUtils";
 
 function getCurrentPeriodDefaults() {
   const now = new Date();
@@ -14,8 +14,11 @@ function getCurrentPeriodDefaults() {
   };
 }
 
-export function useAdminPeriodFilter(orders: unknown[]) {
-  const availableYears = useMemo(() => collectAvailableYears(orders), [orders]);
+export function useAdminPeriodFilter<T = unknown>(orders: T[]) {
+  const availableYears = useMemo(
+    () => collectAvailableYears(orders as unknown[]),
+    [orders],
+  );
   const defaults = useMemo(() => getCurrentPeriodDefaults(), []);
   const [selectedYears, setSelectedYears] = useState<number[]>([defaults.year]);
   const [selectedMonths, setSelectedMonths] = useState<number[]>([defaults.month]);
