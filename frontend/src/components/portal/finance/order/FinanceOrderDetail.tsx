@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
+import { Button } from "@/components/ui/Button";
 
 import {
   buildPartyNameById,
@@ -166,7 +167,7 @@ function renderWorkflowStatusBadge(category: FinanceOrderTabCategory | null) {
   }
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
     >
       {label}
     </span>
@@ -177,27 +178,27 @@ function renderPriorityBadge(priority: string) {
   const p = String(priority || "normal").toLowerCase();
   if (p === "urgent") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
         Urgent
       </span>
     );
   }
   if (p === "high") {
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-455/90 dark:ring-amber-500/20">
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-455/90 dark:ring-amber-500/20">
         High
       </span>
     );
   }
   if (p === "normal") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
         Normal
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
+    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
       Low
     </span>
   );
@@ -719,23 +720,18 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
             </div>
 
             <div className="mt-6 flex justify-end gap-3 font-sans font-medium">
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 onClick={() => {
                   setTransitioningTo(null);
                   setTransitionRemarks("");
                 }}
-                className="rounded-lg border border-slate-200/95 px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => executeTransition(transitioningTo)}
-                className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
-              >
+              </Button>
+              <Button onClick={() => executeTransition(transitioningTo)}>
                 Confirm
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -754,21 +750,20 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
               Are you sure you want to resolve this order? This will adjust the ordered quantity of all items to match their currently approved quantities, completing the order releases.
             </p>
             <div className="mt-6 flex justify-end gap-3 font-medium">
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                className="cursor-pointer font-sans"
                 onClick={() => setConfirmResolveOpen(false)}
-                className="rounded-lg border border-slate-200/95 px-3 py-2 text-sm text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer font-sans"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                className="cursor-pointer font-sans"
                 onClick={handleResolveOrder}
                 disabled={isPatching || isSubmitting}
-                className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 cursor-pointer font-sans"
               >
                 {isPatching || isSubmitting ? "Resolving..." : "Yes, Resolve Order"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -809,7 +804,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0 flex-1">
                   {/* Breadcrumb */}
-                  <div className="mb-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                  <div className="mb-1 flex flex-wrap items-center gap-1 text-2xs text-slate-500 dark:text-slate-400">
                     <button
                       type="button"
                       onClick={() => router.back()}
@@ -824,8 +819,13 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   {/* Title + priority inline */}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <h1 className="truncate text-base sm:text-lg font-bold tracking-tight text-slate-950 dark:text-slate-50">
-                      {detail.order_no ? String(detail.order_no) : "Order"}
+                      {custLabel}
                     </h1>
+                    {detail && (checkOrderPartySra(detail, partySraById) || (partyDetailQ.data as any)?.sra === true) && (
+                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-2xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                        SRA
+                      </span>
+                    )}
                     <span className="shrink-0">
                       {renderPriorityBadge(typeof detail.priority === "string" ? detail.priority : "normal")}
                     </span>
@@ -835,14 +835,12 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   </div>
 
                   {/* Meta info */}
-                  <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[16px] text-slate-500 dark:text-slate-400">
+                  <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-lg text-slate-500 dark:text-slate-400">
                     <span className="flex items-center gap-1">
-                      Party: <b className="font-bold text-blue-700 dark:text-blue-400">{custLabel}</b>
-                      {detail && (checkOrderPartySra(detail, partySraById) || (partyDetailQ.data as any)?.sra === true) && (
-                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
-                          SRA
-                        </span>
-                      )}
+                      Order No:{" "}
+                      <b className="font-bold text-blue-700 dark:text-blue-400">
+                        {detail.order_no ? String(detail.order_no) : "Order"}
+                      </b>
                     </span>
                     <span>Date: {formatDateShort(detail.order_date)}</span>
                     <span>EDD: {formatDateShort(detail.expected_delivery_date)}</span>
@@ -857,7 +855,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   <button
                     type="button"
                     onClick={() => setIsFulfillmentModalOpen(true)}
-                    className="shrink-0 rounded-md border border-amber-200/80 bg-white px-1.5 py-0.5 text-[9px] font-bold text-amber-600 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-950 dark:text-amber-400 dark:hover:bg-white/5"
+                    className="shrink-0 rounded-md border border-amber-200/80 bg-white px-1.5 py-0.5 text-2xs font-bold text-amber-600 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-950 dark:text-amber-400 dark:hover:bg-white/5"
                     title="Fulfillment details"
                   >
                     Details
@@ -880,7 +878,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 <button
                   type="button"
                   onClick={() => setIsOrderDetailsModalOpen(true)}
-                  className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]"
+                  className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-2xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]"
                 >
                   <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -890,7 +888,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 <button
                   type="button"
                   onClick={() => setIsPartyDetailsModalOpen(true)}
-                  className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]"
+                  className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-2xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]"
                 >
                   <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -907,7 +905,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                       type="button"
                       disabled={busy}
                       onClick={() => setConfirmResolveOpen(true)}
-                      className="rounded-md bg-indigo-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                      className="rounded-md bg-indigo-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                     >
                       Resolve Order
                     </button>
@@ -916,7 +914,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                     type="button"
                     disabled={!canReject || busy}
                     onClick={() => setTransitioningTo("finance_rejected")}
-                    className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                    className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                   >
                     Reject
                   </button>
@@ -924,7 +922,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                     type="button"
                     disabled={!canHold || busy}
                     onClick={() => setTransitioningTo("on_hold")}
-                    className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                    className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                   >
                     Hold
                   </button>
@@ -932,7 +930,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                     type="button"
                     disabled={status !== "on_hold" || busy}
                     onClick={() => setTransitioningTo("finance_review")}
-                    className="rounded-md bg-blue-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                    className="rounded-md bg-blue-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                   >
                     Resume
                   </button>
@@ -940,7 +938,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                     type="button"
                     disabled={!(status === "on_hold" || status === "dispatch_pending") || busy}
                     onClick={() => setTransitioningTo("cancelled")}
-                    className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                    className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                   >
                     Cancel
                   </button>
@@ -1228,7 +1226,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                     {tab.icon}
                     {tab.count !== undefined && tab.count > 0 && (
                       <span
-                        className={`absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 flex items-center justify-center rounded-full px-1 text-[9px] font-bold ${tab.dangerBadge
+                        className={`absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 flex items-center justify-center rounded-full px-1 text-2xs font-bold ${tab.dangerBadge
                             ? "bg-rose-500 text-white"
                             : "bg-slate-600 text-white dark:bg-slate-300 dark:text-slate-900"
                           }`}
@@ -1237,7 +1235,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                       </span>
                     )}
                   </span>
-                  <span className={`text-[10px] font-semibold leading-none truncate max-w-full ${isActive ? "text-blue-600 dark:text-blue-400" : ""
+                  <span className={`text-2xs font-semibold leading-none truncate max-w-full ${isActive ? "text-blue-600 dark:text-blue-400" : ""
                     }`}>
                     {tab.name}
                   </span>

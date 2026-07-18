@@ -659,7 +659,7 @@ export function FinanceAmendSalesApprovalModal({
                                   {String(p.product_name)}
                                 </span>
                                 {Boolean(p.sku) && (
-                                  <span className="ml-2 text-[10px] text-slate-400 font-mono">
+                                  <span className="ml-2 text-2xs text-slate-400 font-mono">
                                     ({String(p.sku)})
                                   </span>
                                 )}
@@ -729,7 +729,7 @@ export function FinanceAmendSalesApprovalModal({
                             <span className="font-medium text-slate-900 dark:text-slate-100">
                               {line.product_name}
                               {line.isNew ? (
-                                <span className="ml-1.5 text-[9px] font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-1 py-0.5 rounded">
+                                <span className="ml-1.5 text-2xs font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-1 py-0.5 rounded">
                                   NEW
                                 </span>
                               ) : null}
@@ -846,7 +846,7 @@ export function FinanceAmendSalesApprovalModal({
                             {lineTotal.toFixed(2)}
                           </td>
                           <td className="px-3 py-2 w-28">
-                            <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                            <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                               Fully approved
                             </span>
                           </td>
@@ -855,7 +855,7 @@ export function FinanceAmendSalesApprovalModal({
                               type="button"
                               disabled={busy || line.approved_quantity <= 0 || !line.product}
                               onClick={() => openMapModal(line)}
-                              className="rounded border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-slate-200"
+                              className="rounded border border-slate-200 px-2 py-1 text-2xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-slate-200"
                             >
                               Map rate
                             </button>
@@ -882,7 +882,7 @@ export function FinanceAmendSalesApprovalModal({
 
               {addableOrderLines.length > 0 ? (
                 <div className="rounded-lg border border-slate-200/90 p-4 dark:border-white/10 bg-slate-50/[0.1]">
-                  <p className="mb-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  <p className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">
                     Or add existing lines from this order:
                   </p>
                   <div className="flex flex-wrap gap-2">
@@ -892,7 +892,7 @@ export function FinanceAmendSalesApprovalModal({
                         type="button"
                         disabled={busy}
                         onClick={() => addOrderLineToBatch(line)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-slate-200 cursor-pointer"
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-slate-200 cursor-pointer"
                       >
                         <Plus className="h-3 w-3" />
                         {String(line.product_name ?? "Line")}

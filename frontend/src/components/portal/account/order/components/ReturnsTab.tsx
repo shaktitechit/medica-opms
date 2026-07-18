@@ -171,7 +171,7 @@ export function ReturnsTab({ orderId, detail }: ReturnsTabProps) {
                       )}
 
                       {(ret.order_closed_at || orderIsAccountClosed) && (
-                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-2xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                           Order closed
                         </span>
                       )}
@@ -226,7 +226,7 @@ export function ReturnsTab({ orderId, detail }: ReturnsTabProps) {
                                       {item.return_reason || "Rejection"}
                                     </div>
                                     {item.remarks ? (
-                                      <div className="text-[10px] italic mt-0.5">
+                                      <div className="text-2xs italic mt-0.5">
                                         Note: {item.remarks}
                                       </div>
                                     ) : null}
@@ -242,7 +242,7 @@ export function ReturnsTab({ orderId, detail }: ReturnsTabProps) {
                     <div className="space-y-4 rounded-lg bg-slate-50/50 p-4 border border-slate-100 dark:bg-slate-950/10 dark:border-white/5 text-xs">
                       {isReturnReceivedAtWarehouse(status) && (
                         <div>
-                          <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                             Warehouse Receipt Info
                           </span>
                           <div className="space-y-0.5 mb-3">
@@ -269,7 +269,7 @@ export function ReturnsTab({ orderId, detail }: ReturnsTabProps) {
                       )}
 
                       <div>
-                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                        <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                           Linked References
                         </span>
                         <div className="space-y-0.5">
@@ -289,7 +289,7 @@ export function ReturnsTab({ orderId, detail }: ReturnsTabProps) {
                       </div>
 
                       <div>
-                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                        <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                           Overall Return Comments
                         </span>
                         <p className="italic text-slate-700 dark:text-slate-300">

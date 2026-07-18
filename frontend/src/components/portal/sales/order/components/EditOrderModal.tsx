@@ -908,7 +908,7 @@ export default function EditOrderModal({
                               <div className="flex min-h-[38px] items-center gap-2">
                                 {row.productId ? (
                                   rateCheckQ.isFetching ? (
-                                    <span className="text-[11px] italic text-slate-400">
+                                    <span className="text-xs italic text-slate-400">
                                       Checking rates…
                                     </span>
                                   ) : (
@@ -922,7 +922,7 @@ export default function EditOrderModal({
                                         <button
                                           type="button"
                                           onClick={() => openMapModal(row)}
-                                          className="inline-flex items-center justify-center rounded bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none dark:bg-blue-500 dark:hover:bg-blue-400"
+                                          className="inline-flex items-center justify-center rounded bg-blue-600 px-2 py-0.5 text-2xs font-bold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none dark:bg-blue-500 dark:hover:bg-blue-400"
                                         >
                                           Map
                                         </button>
@@ -930,7 +930,7 @@ export default function EditOrderModal({
                                     </>
                                   )
                                 ) : (
-                                  <span className="text-[11px] italic text-slate-400">
+                                  <span className="text-xs italic text-slate-400">
                                     Select a product
                                   </span>
                                 )}

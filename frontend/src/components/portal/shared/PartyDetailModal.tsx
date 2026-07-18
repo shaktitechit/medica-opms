@@ -340,7 +340,7 @@ export function PartyDetailModal({
         <div className="flex items-center justify-between border-b border-slate-200/90 px-5 py-4 dark:border-white/10">
           <div>
             {portalHome ? (
-              <span className="mb-1 inline-flex rounded bg-slate-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
+              <span className="mb-1 inline-flex rounded bg-slate-900 px-2 py-0.5 text-2xs font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
                 {portalName}
               </span>
             ) : null}
@@ -386,7 +386,7 @@ export function PartyDetailModal({
           >
             Contacts
             {filledContactCount > 0 ? (
-              <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-300">
+              <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-2xs font-bold text-slate-600 dark:bg-white/10 dark:text-slate-300">
                 {filledContactCount}
               </span>
             ) : null}

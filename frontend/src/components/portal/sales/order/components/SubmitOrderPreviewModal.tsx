@@ -168,7 +168,7 @@ export default function SubmitOrderPreviewModal({
                             {name}
                           </span>
                           {typeof line.sku === "string" && line.sku ? (
-                            <span className="mt-0.5 block font-mono text-[10px] text-slate-500">
+                            <span className="mt-0.5 block font-mono text-2xs text-slate-500">
                               SKU {line.sku}
                             </span>
                           ) : null}

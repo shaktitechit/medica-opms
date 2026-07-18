@@ -78,19 +78,19 @@ export function RoleBasedMenu({
   };
 
   const linkBase =
-    "flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-[13px] transition";
+    "flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-sm transition";
   const linkCollapsedDesktop =
     "lg:justify-center lg:gap-0 lg:px-1.5 lg:py-2";
   const linkActivePortal =
-    "bg-blue-600/12 font-medium text-blue-950 ring-1 ring-blue-600/30 dark:bg-blue-500/15 dark:text-blue-50";
+    "bg-primary-muted font-medium text-foreground ring-1 ring-primary/30";
 
   const linkPassive =
-    "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5";
+    "text-foreground/80 hover:bg-surface-muted";
 
   const shortcutActivePortal =
-    "bg-slate-200/85 text-xs font-medium dark:bg-slate-800";
+    "bg-surface-muted text-xs font-medium text-foreground";
   const shortcutPassive =
-    "text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5";
+    "text-xs text-foreground/80 hover:bg-surface-muted";
 
   return (
     <nav className="relative flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-1.5 py-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
@@ -155,7 +155,7 @@ export function RoleBasedMenu({
                   {leaf.label}
                 </span>
                 <ChevronDown
-                  className={`size-3.5 shrink-0 text-slate-400 transition-transform ${desktopCollapsed ? "lg:hidden" : ""} ${isOpen ? "rotate-180" : ""}`}
+                  className={`size-3.5 shrink-0 text-muted transition-transform ${desktopCollapsed ? "lg:hidden" : ""} ${isOpen ? "rotate-180" : ""}`}
                   strokeWidth={2.5}
                   aria-hidden
                 />
@@ -171,7 +171,7 @@ export function RoleBasedMenu({
           onMouseEnter={clearClose}
           onMouseLeave={scheduleClose}
           style={{ top: flyout.top, left: flyout.left }}
-          className="fixed z-[60] min-w-[12rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-slate-900"
+          className="fixed z-[60] min-w-[12rem] overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg"
         >
           {flyout.children.map((child) => {
             const [qKey, qVal] = child.query.split("=");
@@ -190,8 +190,8 @@ export function RoleBasedMenu({
                 className={[
                   "flex min-w-0 items-center gap-1.5 px-3 py-2 text-xs transition",
                   childActive
-                    ? "bg-blue-600/10 font-medium text-blue-900 dark:bg-blue-500/15 dark:text-blue-100"
-                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/5",
+                    ? "bg-primary-muted font-medium text-foreground"
+                    : "text-muted hover:bg-surface-muted hover:text-foreground",
                 ].join(" ")}
               >
                 <NavIcon name={child.icon} className="size-3.5 shrink-0" />

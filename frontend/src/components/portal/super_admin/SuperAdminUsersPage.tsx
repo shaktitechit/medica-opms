@@ -47,7 +47,7 @@ function DeptBadge({ dept }: { dept: string }) {
   };
   const fmt = (s: string) => s.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   return (
-    <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${colors[dept] ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>
+    <span className={`inline-block rounded-full px-2 py-0.5 text-2xs font-semibold ${colors[dept] ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>
       {fmt(dept)}
     </span>
   );
@@ -322,7 +322,7 @@ function EditUserDrawer({ user, onClose }: { user: any; onClose: () => void }) {
             <div className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 dark:border-white/10">
               <div>
                 <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">Active Status</p>
-                <p className="text-[10px] text-slate-500">User can log into the system</p>
+                <p className="text-2xs text-slate-500">User can log into the system</p>
               </div>
               <button
                 type="button"
@@ -488,11 +488,11 @@ export default function SuperAdminUsersPage() {
                       <td className="px-4 py-3 hidden sm:table-cell text-xs text-slate-600 dark:text-slate-400">{u.phone || "—"}</td>
                       <td className="px-4 py-3 text-center">
                         {isActive ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
                             <CheckCircle className="h-2.5 w-2.5" /> Active
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                             <XCircle className="h-2.5 w-2.5" /> Inactive
                           </span>
                         )}

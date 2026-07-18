@@ -68,7 +68,7 @@ function LineRateStatusBadge({
   if (status === "negotiated") {
     return (
       <span
-        className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20"
+        className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20"
         title={
           mappedRate
             ? `Negotiated at ${mappedRate}${validityEnd ? ` · valid until ${validityEnd}` : ""}`
@@ -83,7 +83,7 @@ function LineRateStatusBadge({
   if (status === "expired") {
     return (
       <span
-        className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-500/25"
+        className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-semibold text-amber-800 ring-1 ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-500/25"
         title={
           validityEnd
             ? `Negotiated period expired${mappedRate ? ` · last rate ${mappedRate}` : ""} · ended ${validityEnd}`
@@ -97,7 +97,7 @@ function LineRateStatusBadge({
 
   return (
     <span
-      className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-600/15 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-500/20"
+      className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-semibold text-rose-700 ring-1 ring-rose-600/15 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-500/20"
       title="No active mapped rate for this party, product, and rate type"
     >
       Not negotiated
@@ -294,13 +294,13 @@ export function OrderTab({
                                 {name}
                               </span>
                               {typeof line.sku === "string" && line.sku ? (
-                                <span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">
+                                <span className="mt-0.5 block text-2xs text-slate-500 dark:text-slate-400">
                                   SKU {line.sku}
                                 </span>
                               ) : null}
                               {typeof line.remarks === "string" &&
                               line.remarks.trim() ? (
-                                <span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">
+                                <span className="mt-0.5 block text-2xs text-slate-500 dark:text-slate-400">
                                   {line.remarks}
                                 </span>
                               ) : null}
@@ -329,14 +329,14 @@ export function OrderTab({
                             <td className="px-3 py-2 text-right tabular-nums">
                               {formatMoney(line.discount_amount)}
                               {Number(line.discount_percent || 0) > 0 ? (
-                                <span className="block text-[10px] text-slate-500">
+                                <span className="block text-2xs text-slate-500">
                                   ({String(line.discount_percent)}%)
                                 </span>
                               ) : null}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums">
                               {formatMoney(line.gst_amount)}
-                              <span className="block text-[10px] text-slate-500">
+                              <span className="block text-2xs text-slate-500">
                                 ({String(line.gst_percent ?? "—")}%)
                               </span>
                             </td>
@@ -355,7 +355,7 @@ export function OrderTab({
                                 </button>
                               ) : (
                                 <span
-                                  className="text-[10px] text-slate-400 dark:text-slate-500"
+                                  className="text-2xs text-slate-400 dark:text-slate-500"
                                   title={
                                     status !== "finance_review"
                                       ? "Mapping is locked after finance review"
@@ -386,7 +386,7 @@ export function OrderTab({
                     </h4>
                     <div className="grid grid-cols-2 gap-4 text-xs font-sans font-normal sm:grid-cols-4">
                       <div className="rounded-lg border border-slate-200/50 bg-white p-3 dark:border-white/5 dark:bg-slate-950">
-                        <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        <span className="block text-2xs font-bold uppercase tracking-wide text-slate-500">
                           Subtotal
                         </span>
                         <span className="mt-1 block font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -394,7 +394,7 @@ export function OrderTab({
                         </span>
                       </div>
                       <div className="rounded-lg border border-slate-200/50 bg-white p-3 dark:border-white/5 dark:bg-slate-950">
-                        <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        <span className="block text-2xs font-bold uppercase tracking-wide text-slate-500">
                           GST
                         </span>
                         <span className="mt-1 block font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -402,7 +402,7 @@ export function OrderTab({
                         </span>
                       </div>
                       <div className="rounded-lg border border-slate-200/50 bg-white p-3 dark:border-white/5 dark:bg-slate-950">
-                        <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        <span className="block text-2xs font-bold uppercase tracking-wide text-slate-500">
                           Discount
                         </span>
                         <span className="mt-1 block font-mono text-sm font-semibold text-rose-600 dark:text-rose-400">
@@ -410,7 +410,7 @@ export function OrderTab({
                         </span>
                       </div>
                       <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 p-3 dark:border-indigo-900/30 dark:bg-indigo-950/20">
-                        <span className="block text-[10px] font-bold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
+                        <span className="block text-2xs font-bold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
                           Grand Total
                         </span>
                         <span className="mt-1 block font-mono text-sm font-bold text-indigo-900 dark:text-indigo-100">

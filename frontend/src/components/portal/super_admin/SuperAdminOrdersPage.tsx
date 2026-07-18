@@ -191,12 +191,12 @@ export default function SuperAdminOrdersPage() {
                       const date = o.order_date || o.createdAt;
                       return (
                         <tr key={id} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition">
-                          <td className="px-4 py-3 font-mono text-[11px] font-semibold text-slate-900 dark:text-slate-100">{ref.slice(0, 14)}</td>
+                          <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">{ref.slice(0, 14)}</td>
                            <td className="px-4 py-3 text-xs text-slate-800 dark:text-slate-200">
                             <div className="flex items-center gap-1.5 max-w-[150px]">
                               <span className="truncate" title={partyName}>{partyName}</span>
                               {checkOrderPartySra(o, partySraById) && (
-                                <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                                <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-2xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
                                   SRA
                                 </span>
                               )}
@@ -206,12 +206,12 @@ export default function SuperAdminOrdersPage() {
                             {Number.isFinite(total) ? total.toLocaleString("en-IN", { minimumFractionDigits: 2 }) : "0.00"}
                           </td>
                           <td className="px-4 py-3 text-center hidden md:table-cell">
-                            <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium ${["high", "urgent"].includes(pri) ? "bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400" : "text-slate-500"}`}>
+                            <span className={`inline-block rounded-full px-1.5 py-0.5 text-2xs font-medium ${["high", "urgent"].includes(pri) ? "bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400" : "text-slate-500"}`}>
                               {pri}
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            <span className={`inline-block rounded px-2 py-0.5 text-[10px] font-medium tracking-wide ${getStatusBadgeClass(o.status)}`}>
+                            <span className={`inline-block rounded px-2 py-0.5 text-2xs font-medium tracking-wide ${getStatusBadgeClass(o.status)}`}>
                               {fmt(o.status)}
                             </span>
                           </td>

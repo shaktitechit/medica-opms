@@ -59,7 +59,7 @@ function rowKey(row: unknown): string {
 
 function renderOwnershipBadge(owner: string) {
   return (
-    <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-700/10 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-500/20 capitalize">
+    <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-700/10 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-500/20 capitalize">
       {owner}
     </span>
   );
@@ -68,7 +68,7 @@ function renderOwnershipBadge(owner: string) {
 function renderVehicleStatusBadge(statusStr: string) {
   if (statusStr === "available") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-455 font-semibold bg-emerald-50 dark:bg-emerald-955/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-emerald-700/10 dark:ring-emerald-500/25">
+      <span className="inline-flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-455 font-semibold bg-emerald-50 dark:bg-emerald-955/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-emerald-700/10 dark:ring-emerald-500/25">
         <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
         Available
       </span>
@@ -76,14 +76,14 @@ function renderVehicleStatusBadge(statusStr: string) {
   }
   if (statusStr === "maintenance") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-amber-700/10 dark:ring-amber-500/20">
+      <span className="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-amber-700/10 dark:ring-amber-500/20">
         <span className="h-1.5 w-1.5 rounded-full bg-amber-600 dark:bg-amber-400" />
         Maintenance
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-rose-700 dark:text-rose-455 font-semibold bg-rose-50 dark:bg-rose-955/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-rose-700/10 dark:ring-rose-500/25">
+    <span className="inline-flex items-center gap-1.5 text-xs text-rose-700 dark:text-rose-455 font-semibold bg-rose-50 dark:bg-rose-955/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-rose-700/10 dark:ring-rose-500/25">
       <span className="h-1.5 w-1.5 rounded-full bg-rose-600 dark:bg-rose-400" />
       {statusStr.replace("_", " ")}
     </span>
@@ -374,7 +374,7 @@ export default function ListVehiclesPage() {
                             <div className="font-semibold text-slate-800 dark:text-slate-200">{driverName}</div>
                           ) : null}
                           {agent && agent !== "—" ? (
-                            <div className={`text-slate-500 dark:text-slate-400 ${driverName ? "mt-0.5 text-[10px]" : "font-semibold text-slate-800 dark:text-slate-200"}`}>
+                            <div className={`text-slate-500 dark:text-slate-400 ${driverName ? "mt-0.5 text-2xs" : "font-semibold text-slate-800 dark:text-slate-200"}`}>
                               {driverName ? `Agent: ${agent}` : agent}
                             </div>
                           ) : !driverName ? (

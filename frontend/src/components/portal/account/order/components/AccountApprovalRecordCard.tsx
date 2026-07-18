@@ -279,10 +279,10 @@ export function AccountApprovalRecordCard({
             {approvalNo}
           </span>
           <span className="text-slate-300">|</span>
-          <span className="font-sans text-[10px] text-slate-500 font-sans">
+          <span className="font-sans text-2xs text-slate-500 font-sans">
             Rev #{String(approval.revision_number ?? 1)}
           </span>
-          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(approvalStatus)}`}>
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold ${statusBadgeClass(approvalStatus)}`}>
             {formatStatus(approvalStatus)}
           </span>
         </div>
@@ -292,33 +292,33 @@ export function AccountApprovalRecordCard({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             {approval.is_finance_approved ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
                 Finance Approved
               </span>
             ) : null}
             {approval.is_account_approved ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
                 Account Approved
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-900 dark:text-slate-300 dark:ring-white/10">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-900 dark:text-slate-300 dark:ring-white/10">
                 Account Pending
               </span>
             )}
             {financeAmended ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-600/20 dark:bg-indigo-950/30 dark:text-indigo-300">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-600/20 dark:bg-indigo-950/30 dark:text-indigo-300">
                 Finance Amended
               </span>
             ) : null}
             {accountAmended ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-500/10 px-2.5 py-1 text-[11px] font-semibold text-teal-700 ring-1 ring-teal-600/20 dark:bg-teal-950/30 dark:text-teal-300">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-500/10 px-2.5 py-1 text-xs font-semibold text-teal-700 ring-1 ring-teal-600/20 dark:bg-teal-950/30 dark:text-teal-300">
                 Account Amended
               </span>
             ) : null}
           </div>
-          <div className="mt-2 space-y-1 text-[11px] text-slate-500 dark:text-slate-400 font-sans">
+          <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400 font-sans">
             {Boolean(approval.is_finance_approved) ? (
               <p>
                 <b>Finance:</b> Approved by{" "}
@@ -383,7 +383,7 @@ export function AccountApprovalRecordCard({
                   <span className="tabular-nums"> · {accountAmendedAtLabel}</span>
                 ) : null}
                 {accountAmendNotes ? (
-                  <span className="mt-1 block text-[10px] italic text-slate-500 dark:text-slate-400">
+                  <span className="mt-1 block text-2xs italic text-slate-500 dark:text-slate-400">
                     {accountAmendNotes}
                   </span>
                 ) : null}
@@ -532,11 +532,11 @@ export function AccountApprovalRecordCard({
                         <div className="flex flex-col font-sans">
                           <span className="font-semibold">{rateType}</span>
                           {rateMapped ? (
-                            <span className="text-[9px] text-emerald-600 font-semibold dark:text-emerald-400 leading-none">
+                            <span className="text-2xs text-emerald-600 font-semibold dark:text-emerald-400 leading-none">
                               Negotiated
                             </span>
                           ) : (
-                            <span className="text-[9px] text-slate-400 font-medium dark:text-slate-500 leading-none">
+                            <span className="text-2xs text-slate-400 font-medium dark:text-slate-500 leading-none">
                               Manual
                             </span>
                           )}
@@ -549,7 +549,7 @@ export function AccountApprovalRecordCard({
                         <div className="flex flex-col font-sans">
                           <span className="font-semibold">{qty}</span>
                           {scaledFreeQty > 0 ? (
-                            <span className="text-[9px] text-indigo-600 dark:text-indigo-400 leading-none">
+                            <span className="text-2xs text-indigo-600 dark:text-indigo-400 leading-none">
                               +{scaledFreeQty} free
                             </span>
                           ) : null}
@@ -562,7 +562,7 @@ export function AccountApprovalRecordCard({
                         <div className="flex flex-col font-sans">
                           <span>{discountPercent > 0 ? `${discountPercent}%` : "—"}</span>
                           {lineDiscount > 0 ? (
-                            <span className="text-[9px] text-slate-500 leading-none">
+                            <span className="text-2xs text-slate-500 leading-none">
                               (-₹{lineDiscount.toLocaleString("en-IN", { minimumFractionDigits: 2 })})
                             </span>
                           ) : null}
@@ -572,7 +572,7 @@ export function AccountApprovalRecordCard({
                         <div className="flex flex-col font-sans">
                           <span>{gstPercent > 0 ? `${gstPercent}%` : "0%"}</span>
                           {lineGst > 0 ? (
-                            <span className="text-[9px] text-slate-500 leading-none">
+                            <span className="text-2xs text-slate-500 leading-none">
                               (+₹{lineGst.toLocaleString("en-IN", { minimumFractionDigits: 2 })})
                             </span>
                           ) : null}
@@ -614,7 +614,7 @@ export function AccountApprovalRecordCard({
         </p>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 font-sans text-[10px] text-slate-400 dark:border-white/5">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 font-sans text-2xs text-slate-400 dark:border-white/5">
         <span>Reviewed {formatDate(approval.reviewed_at || approval.createdAt)}</span>
       </div>
 

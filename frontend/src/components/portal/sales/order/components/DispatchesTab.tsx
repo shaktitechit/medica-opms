@@ -188,7 +188,7 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
 
                     <div className="space-y-3 rounded-lg bg-slate-50/50 p-4 border border-slate-100 dark:bg-slate-950/10 dark:border-white/5 text-xs">
                       <div>
-                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                        <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                           Warehouse Location
                         </span>
                         <span className="font-semibold text-slate-800 dark:text-slate-200">
@@ -196,7 +196,7 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
                         </span>
                       </div>
                       <div>
-                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                        <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                           Remarks
                         </span>
                         <span className="italic text-slate-800 dark:text-slate-200">
@@ -205,7 +205,7 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
                       </div>
                       {packedByName && (
                         <div>
-                          <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                             Packed By
                           </span>
                           <span className="font-semibold text-slate-800 dark:text-slate-200">
@@ -215,7 +215,7 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
                       )}
                       {dispatchedByName && (
                         <div>
-                          <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                             Dispatched By
                           </span>
                           <span className="font-semibold text-slate-800 dark:text-slate-200">
@@ -238,7 +238,7 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
                       <div className="grid gap-4 rounded-lg bg-slate-50/50 p-4 border border-slate-100 dark:bg-slate-950/20 dark:border-white/5 sm:grid-cols-3 text-xs font-sans">
                         <div className="space-y-2">
                           <div>
-                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Transport Agent</span>
+                            <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400">Transport Agent</span>
                             {(() => {
                               const agentId =
                                 transport.transport_agent && typeof transport.transport_agent === "object"
@@ -267,7 +267,7 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
                                       </span>
                                     )}
                                     {agentObj.agent_type && (
-                                      <span className="text-[10px] text-slate-500 capitalize block mt-0.5">
+                                      <span className="text-2xs text-slate-500 capitalize block mt-0.5">
                                         {formatAgentType(agentObj.agent_type)}
                                       </span>
                                     )}
@@ -280,18 +280,18 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
                             })()}
                           </div>
                           <div>
-                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Shipment No</span>
+                            <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400">Shipment No</span>
                             <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">{transport.shipment_no}</span>
                           </div>
                           <div>
-                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Shipment Status</span>
-                            <span className={`inline-flex items-center rounded-full mt-1 px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300`}>
+                            <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400">Shipment Status</span>
+                            <span className={`inline-flex items-center rounded-full mt-1 px-2 py-0.5 text-2xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300`}>
                               {String(transport.shipment_status ?? "created").replace(/_/g, " ").toUpperCase()}
                             </span>
                           </div>
                           {transport.source_location && (
                             <div>
-                              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Source Location</span>
+                              <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400">Source Location</span>
                               <span className="text-slate-800 dark:text-slate-200">{transport.source_location}</span>
                             </div>
                           )}
@@ -299,19 +299,19 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
 
                         <div className="space-y-2">
                           <div>
-                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Driver Details</span>
+                            <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400">Driver Details</span>
                             <span className="font-semibold text-slate-800 dark:text-slate-200 block">{transport.driver_name || "—"}</span>
                             {(transport.driver_mobile || transport.driver_phone) && (
                               <span className="text-slate-500 block mt-0.5">{transport.driver_mobile || transport.driver_phone}</span>
                             )}
                           </div>
                           <div>
-                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Vehicle Number</span>
+                            <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400">Vehicle Number</span>
                             <span className="font-semibold text-slate-900 dark:text-slate-100 uppercase">{transport.vehicle_number || transport.vehicle_no || "—"}</span>
                           </div>
                           {(transport.weight !== undefined && transport.weight !== null) && (
                             <div>
-                              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Shipment Weight</span>
+                              <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400">Shipment Weight</span>
                               <span className="font-semibold text-slate-900 dark:text-slate-100">{transport.weight} {transport.weight_unit || "Kg"}</span>
                             </div>
                           )}
@@ -319,20 +319,20 @@ export function DispatchesTab({ orderId, detail }: DispatchesTabProps) {
 
                         <div className="space-y-2">
                           <div>
-                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">LR / E-way Bill</span>
+                            <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400">LR / E-way Bill</span>
                             <span className="text-slate-800 dark:text-slate-200 font-mono">
                               LR: {transport.lr_number || "—"} / Eway: {transport.eway_bill_no || "—"}
                             </span>
                           </div>
                           <div>
-                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Expected Delivery</span>
+                            <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400">Expected Delivery</span>
                             <span className="text-slate-800 dark:text-slate-200">
                               {formatDate(transport.expected_delivery_date)}
                             </span>
                           </div>
                           {transport.tracking_number && (
                             <div>
-                              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Tracking Number</span>
+                              <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400">Tracking Number</span>
                               <span className="text-slate-800 dark:text-slate-200 font-mono">{transport.tracking_number}</span>
                             </div>
                           )}

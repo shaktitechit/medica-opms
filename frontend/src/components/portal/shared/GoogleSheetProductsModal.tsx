@@ -777,7 +777,7 @@ function onEdit(e) {
                 Product Inventory Spreadsheet
               </span>
               {/* Sync Status Badge */}
-              <div className="flex items-center gap-1 text-[11px] rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 border border-slate-200 dark:border-slate-700 text-slate-550 dark:text-slate-400">
+              <div className="flex items-center gap-1 text-xs rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 border border-slate-200 dark:border-slate-700 text-slate-550 dark:text-slate-400">
                 {isSavingAny ? (
                   <>
                     <RefreshCw className="h-3 w-3 animate-spin text-blue-400" />
@@ -925,7 +925,7 @@ function onEdit(e) {
                       <button
                         onClick={handleClearFilters}
                         disabled={!hasActiveFilters}
-                        className="text-[10px] text-slate-400 hover:text-emerald-500 disabled:opacity-50 transition"
+                        className="text-2xs text-slate-400 hover:text-emerald-500 disabled:opacity-50 transition"
                       >
                         Reset All
                       </button>
@@ -1056,7 +1056,7 @@ function onEdit(e) {
                         <select
                           value={filterTag}
                           onChange={e => setFilterTag(e.target.value)}
-                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 font-mono text-[11px]"
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 font-mono text-xs"
                         >
                           <option value="all">All tags</option>
                           {uniqueTags.map(t => (
@@ -1185,7 +1185,7 @@ function onEdit(e) {
                         <div className="flex items-center justify-center gap-1.5 w-full">
                           <div className="flex-1 min-w-0">
                             {col.headerLetter}
-                            <span className="block text-[10px] uppercase font-sans text-slate-400 dark:text-slate-500 font-bold tracking-wider mt-0.5 truncate">
+                            <span className="block text-2xs uppercase font-sans text-slate-400 dark:text-slate-500 font-bold tracking-wider mt-0.5 truncate">
                               {col.label}
                             </span>
                           </div>
@@ -1274,7 +1274,7 @@ function onEdit(e) {
                             onClick={() => setSelectedCell({ productId: row._id, colKey: col.key })}
                             style={{ width: colWidths[col.key] || 120, minWidth: colWidths[col.key] || 120, maxWidth: colWidths[col.key] || 120 }}
                             className={`border-r border-slate-200 dark:border-slate-800 p-0 text-slate-800 dark:text-slate-200 transition duration-75 relative ${
-                              isReadonly ? "bg-slate-50/50 dark:bg-slate-900/30 text-slate-400 dark:text-slate-500 font-mono text-[10px]" : "cursor-cell hover:bg-slate-100/50 dark:hover:bg-slate-850/50"
+                              isReadonly ? "bg-slate-50/50 dark:bg-slate-900/30 text-slate-400 dark:text-slate-500 font-mono text-2xs" : "cursor-cell hover:bg-slate-100/50 dark:hover:bg-slate-850/50"
                             } ${
                               isSelected ? "ring-2 ring-emerald-500 ring-inset bg-emerald-50/5 dark:bg-slate-850/90 z-10" : ""
                             }`}
@@ -1449,7 +1449,7 @@ function onEdit(e) {
               <div className="border border-slate-200 dark:border-slate-850 rounded-xl overflow-hidden shadow-xl bg-white dark:bg-slate-900">
                 <div className="bg-slate-100 dark:bg-slate-850 px-4 py-2 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center text-xs">
                   <span className="font-semibold text-slate-700 dark:text-slate-300">Google Sheet Embedded View</span>
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500">Iframe loading via Google Docs URL</span>
+                  <span className="text-2xs text-slate-400 dark:text-slate-500">Iframe loading via Google Docs URL</span>
                 </div>
                 <iframe
                   src={googleSheetEmbedUrl}
@@ -1481,7 +1481,7 @@ function onEdit(e) {
                   <p>
                     Set the headers in Row 1 of your spreadsheet exactly as follows (column order doesn't matter, but names must match):
                   </p>
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 pt-1.5 font-mono text-[10px]">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 pt-1.5 font-mono text-2xs">
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Product ID</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Product Name*</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">SKU</div>
@@ -1502,7 +1502,7 @@ function onEdit(e) {
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Active</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Featured</div>
                   </div>
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-1">
+                  <span className="text-2xs text-slate-400 dark:text-slate-500 block mt-1">
                     * Asterisks denote fields required by the database engine.
                   </span>
                 </div>
@@ -1514,7 +1514,7 @@ function onEdit(e) {
                   </p>
 
                   {/* Copy Script Container */}
-                  <div className="relative border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-950 font-mono text-[11px] leading-normal text-slate-700 dark:text-slate-300">
+                  <div className="relative border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-950 font-mono text-xs leading-normal text-slate-700 dark:text-slate-300">
                     <div className="bg-slate-100 dark:bg-slate-850 px-4 py-2 flex justify-between items-center text-xs select-none">
                       <span className="font-semibold text-slate-500 dark:text-slate-450">GoogleAppsScriptCode.js</span>
                       <button

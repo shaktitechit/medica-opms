@@ -52,7 +52,7 @@ export function PartyContactsEditor({
             <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
               Contact {index + 1}
               {index === 0 ? (
-                <span className="ml-2 text-[11px] font-semibold text-blue-600 dark:text-blue-400">
+                <span className="ml-2 text-xs font-semibold text-blue-600 dark:text-blue-400">
                   Primary
                 </span>
               ) : null}

@@ -47,7 +47,7 @@ function MultiSelectMenu({
 
   const btnClass =
     size === "sm"
-      ? "flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+      ? "flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-2xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer"
       : "flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer";
 
   return (
@@ -62,7 +62,7 @@ function MultiSelectMenu({
 
       {open && (
         <div className="absolute right-0 z-30 mt-1.5 w-40 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-slate-900">
-          <div className="border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:border-white/5">
+          <div className="border-b border-slate-100 px-3 py-2 text-2xs font-semibold uppercase tracking-wide text-slate-400 dark:border-white/5">
             Select {label.toLowerCase()}
           </div>
           <ul className="max-h-56 overflow-y-auto py-1">
@@ -141,7 +141,7 @@ export default function AdminPeriodFilter({
       <span
         className={
           size === "sm"
-            ? "text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400"
+            ? "text-2xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400"
             : "text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400"
         }
       >

@@ -221,7 +221,7 @@ export default function SalesMonthlyPerformanceChart({
 
             {yearMenuOpen && (
               <div className="absolute right-0 z-30 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-slate-900">
-                <div className="border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:border-white/5">
+                <div className="border-b border-slate-100 px-3 py-2 text-2xs font-semibold uppercase tracking-wide text-slate-400 dark:border-white/5">
                   Select years
                 </div>
                 <ul className="max-h-56 overflow-y-auto py-1">
@@ -252,7 +252,7 @@ export default function SalesMonthlyPerformanceChart({
       </div>
 
       {activeYears.length > 0 && (
-        <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-100/50 pb-3 dark:border-white/5">
+        <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-2xs font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-100/50 pb-3 dark:border-white/5">
           {activeYears.map((year, idx) => {
             const color = YEAR_COLORS[idx % YEAR_COLORS.length];
             return (
@@ -298,7 +298,7 @@ export default function SalesMonthlyPerformanceChart({
                     x={45}
                     y={y + 3}
                     textAnchor="end"
-                    className="text-[9px] font-semibold fill-slate-400 dark:fill-slate-500 font-mono"
+                    className="text-2xs font-semibold fill-slate-400 dark:fill-slate-500 font-mono"
                   >
                     {formatAxisValue(tick)}
                   </text>
@@ -368,7 +368,7 @@ export default function SalesMonthlyPerformanceChart({
                     x={centerX}
                     y={208}
                     textAnchor="middle"
-                    className="text-[9px] font-semibold fill-slate-400 dark:fill-slate-500 font-sans"
+                    className="text-2xs font-semibold fill-slate-400 dark:fill-slate-500 font-sans"
                   >
                     {label}
                   </text>
@@ -399,7 +399,7 @@ export default function SalesMonthlyPerformanceChart({
                       x={centerX}
                       y={tipY + 12}
                       textAnchor="middle"
-                      className="text-[8px] font-bold fill-white/80 font-sans uppercase"
+                      className="text-2xs font-bold fill-white/80 font-sans uppercase"
                     >
                       {MONTH_LABELS[hoveredCell.month]} {hoveredCell.year}
                     </text>
@@ -407,7 +407,7 @@ export default function SalesMonthlyPerformanceChart({
                       x={centerX}
                       y={tipY + 23}
                       textAnchor="middle"
-                      className="text-[9px] font-bold fill-white font-mono"
+                      className="text-2xs font-bold fill-white font-mono"
                     >
                       {qty.toLocaleString()}
                     </text>

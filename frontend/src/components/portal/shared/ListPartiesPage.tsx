@@ -122,21 +122,21 @@ function formatDateShort(v: unknown): string {
 function renderPartyTypeBadge(type: string) {
   if (type === "customer") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20">
         Customer
       </span>
     );
   }
   if (type === "supplier") {
     return (
-      <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-700/10 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-500/20">
+      <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-2xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-700/10 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-500/20">
         Supplier
       </span>
     );
   }
   if (type === "both") {
     return (
-      <span className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 ring-1 ring-inset ring-purple-700/10 dark:bg-purple-500/10 dark:text-purple-400 dark:ring-purple-500/20">
+      <span className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-2xs font-semibold text-purple-700 ring-1 ring-inset ring-purple-700/10 dark:bg-purple-500/10 dark:text-purple-400 dark:ring-purple-500/20">
         Both
       </span>
     );
@@ -147,14 +147,14 @@ function renderPartyTypeBadge(type: string) {
 function renderActiveBadge(active: boolean) {
   if (active) {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-green-600/10 dark:ring-green-500/20">
+      <span className="inline-flex items-center gap-1 text-2xs font-semibold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-green-600/10 dark:ring-green-500/20">
         <span className="h-1.5 w-1.5 rounded-full bg-green-600 dark:bg-green-400" />
         Active
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
+    <span className="inline-flex items-center gap-1 text-2xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
       <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
       Inactive
     </span>
@@ -623,7 +623,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
                                 {name}
                               </div>
                               {gst ? (
-                                <p className="mt-1 flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                <p className="mt-1 flex items-center gap-1 font-mono text-2xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
                                   <FileText className="h-3 w-3 shrink-0 text-slate-400" />
                                   <span>GSTIN: {gst}</span>
                                 </p>
@@ -639,7 +639,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
                             {renderActiveBadge(active)}
                             {p.sra ? (
                               <span
-                                className="inline-flex items-center text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-emerald-600/10 dark:ring-emerald-500/20"
+                                className="inline-flex items-center text-2xs text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-emerald-600/10 dark:ring-emerald-500/20"
                                 title={`Special Rate Approval Enabled${p.sra_from_date || p.sra_to_date ? ` (${formatDateShort(p.sra_from_date)} - ${formatDateShort(p.sra_to_date)})` : ""}`}
                               >
                                 SRA{p.sra_from_date || p.sra_to_date ? ` (${formatDateShort(p.sra_from_date)} - ${formatDateShort(p.sra_to_date)})` : ""}
@@ -658,7 +658,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
                                 ) : null}
                               </span>
                               {department ? (
-                                <span className="ml-1.5 inline-flex rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 dark:bg-white/5 dark:text-slate-400">
+                                <span className="ml-1.5 inline-flex rounded-full bg-slate-100 px-1.5 py-0.5 text-2xs font-semibold text-slate-600 dark:bg-white/5 dark:text-slate-400">
                                   {department}
                                 </span>
                               ) : null}

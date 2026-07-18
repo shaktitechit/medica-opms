@@ -139,13 +139,13 @@ function renderPriorityBadge(priority: string) {
   const p = String(priority || "normal").toLowerCase();
   if (p === "urgent") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 ring-1 ring-inset ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/20">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wide text-rose-700 ring-1 ring-inset ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/20">
         Urgent
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-slate-800/30 dark:text-slate-400 dark:ring-slate-700/10">
+    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-2xs font-medium uppercase tracking-wide text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-slate-800/30 dark:text-slate-400 dark:ring-slate-700/10">
       Normal
     </span>
   );
@@ -727,13 +727,13 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                       <div className="grid gap-3 border-t border-slate-100 pt-3 dark:border-white/10 sm:grid-cols-2">
                         <div>
                           <dt className="text-xs font-medium text-slate-500">Billing Address</dt>
-                          <dd className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-2 text-[11px] text-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
+                          <dd className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-2 text-xs text-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
                             {formatStructuredAddress(p.billing_address)}
                           </dd>
                         </div>
                         <div>
                           <dt className="text-xs font-medium text-slate-500">Shipping Address</dt>
-                          <dd className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-2 text-[11px] text-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
+                          <dd className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-2 text-xs text-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
                             {formatStructuredAddress(p.shipping_address)}
                           </dd>
                         </div>
@@ -770,25 +770,28 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
               {/* ── Top row: order details + inline fulfillment pipeline ── */}
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="mb-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                  <div className="mb-1 flex flex-wrap items-center gap-1 text-2xs text-slate-500 dark:text-slate-400">
                     <button type="button" onClick={() => router.back()} className="font-medium text-blue-600 hover:underline dark:text-blue-400">Orders</button>
                     <span>/</span>
                     <span className="font-semibold text-slate-700 dark:text-slate-200">Order Details</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <h1 className="truncate text-base sm:text-lg font-bold tracking-tight text-slate-950 dark:text-slate-50">
-                      {detail.order_no ? String(detail.order_no) : "Order"}
+                      {custLabel}
                     </h1>
+                    {detail && (checkOrderPartySra(detail, partySraById) || (partyDetailQ.data as any)?.sra === true) && (
+                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-2xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                        SRA
+                      </span>
+                    )}
                     <span className="shrink-0">{renderPriorityBadge(typeof detail.priority === "string" ? detail.priority : "normal")}</span>
                   </div>
-                  <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[16px] text-slate-500 dark:text-slate-400">
+                  <div className="mt-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-lg text-slate-500 dark:text-slate-400">
                     <span className="flex items-center gap-1">
-                      Party: <b className="font-bold text-blue-700 dark:text-blue-400">{custLabel}</b>
-                      {detail && (checkOrderPartySra(detail, partySraById) || (partyDetailQ.data as any)?.sra === true) && (
-                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
-                          SRA
-                        </span>
-                      )}
+                      Order No:{" "}
+                      <b className="font-bold text-blue-700 dark:text-blue-400">
+                        {detail.order_no ? String(detail.order_no) : "Order"}
+                      </b>
                     </span>
                     <span>Date: {formatDateShort(detail.order_date)}</span>
                     <span>EDD: {formatDateShort(detail.expected_delivery_date)}</span>
@@ -799,7 +802,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                   <div className="min-w-0 flex-1 overflow-x-auto lg:flex-none lg:min-w-[420px]">
                     <OrderFulfillmentPipelineStrip steps={pipelineSteps} size="sm" />
                   </div>
-                  <button type="button" onClick={() => setIsFulfillmentModalOpen(true)} className="shrink-0 rounded-md border border-amber-200/80 bg-white px-1.5 py-0.5 text-[9px] font-bold text-amber-600 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-950 dark:text-amber-400 dark:hover:bg-white/5" title="Fulfillment details">Details</button>
+                  <button type="button" onClick={() => setIsFulfillmentModalOpen(true)} className="shrink-0 rounded-md border border-amber-200/80 bg-white px-1.5 py-0.5 text-2xs font-bold text-amber-600 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-950 dark:text-amber-400 dark:hover:bg-white/5" title="Fulfillment details">Details</button>
                   <button type="button" onClick={handleRefetch} className="shrink-0 rounded-md border border-slate-200/95 p-1 text-slate-500 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5" title="Refresh">
                     <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                   </button>
@@ -808,20 +811,20 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
 
               {/* ── Info buttons: 3-col on mobile, inline on sm+ ── */}
               <div className="mt-1 grid grid-cols-3 gap-1 sm:flex sm:flex-wrap sm:gap-1.5 font-sans font-medium">
-                <button type="button" onClick={() => setIsOrderDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                <button type="button" onClick={() => setIsOrderDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-2xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
                   <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                   <span>Order Info</span>
                 </button>
-                <button type="button" onClick={() => setIsPartyDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                <button type="button" onClick={() => setIsPartyDetailsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-2xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
                   <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                   <span>Party Info</span>
                 </button>
-                <button type="button" onClick={() => setIsOrderItemsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
+                <button type="button" onClick={() => setIsOrderItemsModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-white px-2 py-1 sm:px-2 sm:py-1 text-2xs font-semibold text-slate-700 shadow-sm transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer active:scale-[0.97]">
                   <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
                   <span>Items List</span>
                 </button>
                 {isDraft && (
-                  <button type="button" onClick={() => setIsEditModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md bg-blue-600 hover:bg-blue-700 px-2 py-1 sm:px-2 sm:py-1 text-[10px] font-semibold text-white shadow-sm transition active:scale-[0.97] cursor-pointer dark:bg-blue-500 dark:hover:bg-blue-400">
+                  <button type="button" onClick={() => setIsEditModalOpen(true)} className="inline-flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-1 rounded-md bg-blue-600 hover:bg-blue-700 px-2 py-1 sm:px-2 sm:py-1 text-2xs font-semibold text-white shadow-sm transition active:scale-[0.97] cursor-pointer dark:bg-blue-500 dark:hover:bg-blue-400">
                     <svg className="h-3.5 w-3.5 sm:h-3 sm:w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                     <span>Edit Draft</span>
                   </button>
@@ -831,7 +834,7 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
               {/* ── Action buttons ── */}
               <div className="mt-2 border-t border-slate-100 pt-2 dark:border-white/10">
                 <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 font-sans font-medium">
-                  <button type="button" disabled={status !== "draft"} onClick={() => { setSubmitRemarks(""); setIsSubmitPreviewOpen(true); }} className="rounded-md bg-emerald-600 px-2 sm:px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400 active:scale-[0.98]">Submit Order</button>
+                  <button type="button" disabled={status !== "draft"} onClick={() => { setSubmitRemarks(""); setIsSubmitPreviewOpen(true); }} className="rounded-md bg-emerald-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-500 dark:hover:bg-emerald-400 active:scale-[0.98]">Submit Order</button>
                 </div>
               </div>
 
@@ -901,9 +904,9 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
                 <button key={tab.id} type="button" onClick={() => { if (activeTab === tab.id && mobileTabOpen) { setMobileTabOpen(false); } else { setActiveTab(tab.id); setMobileTabOpen(true); } }} className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 px-2 flex-1 min-w-0 transition-colors ${isActive ? "text-blue-600 dark:text-blue-400" : "text-slate-500 dark:text-slate-400"}`}>
                   <span className={`relative transition-transform ${isActive ? "scale-110" : ""}`}>
                     {tab.icon}
-                    {tab.count !== undefined && tab.count > 0 && (<span className={`absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 flex items-center justify-center rounded-full px-1 text-[9px] font-bold ${tab.dangerBadge ? "bg-rose-500 text-white" : "bg-slate-600 text-white dark:bg-slate-300 dark:text-slate-900"}`}>{tab.count}</span>)}
+                    {tab.count !== undefined && tab.count > 0 && (<span className={`absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 flex items-center justify-center rounded-full px-1 text-2xs font-bold ${tab.dangerBadge ? "bg-rose-500 text-white" : "bg-slate-600 text-white dark:bg-slate-300 dark:text-slate-900"}`}>{tab.count}</span>)}
                   </span>
-                  <span className={`text-[10px] font-semibold leading-none truncate max-w-full ${isActive ? "text-blue-600 dark:text-blue-400" : ""}`}>{tab.name}</span>
+                  <span className={`text-2xs font-semibold leading-none truncate max-w-full ${isActive ? "text-blue-600 dark:text-blue-400" : ""}`}>{tab.name}</span>
                   {isActive && <span className="absolute top-0 left-2 right-2 h-0.5 rounded-full bg-blue-600 dark:bg-blue-400" />}
                 </button>
               );

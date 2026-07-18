@@ -55,7 +55,7 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
     <div
       aria-hidden={!desktopCollapsed}
       className={[
-        "relative z-30 hidden lg:flex shrink-0 items-center gap-1 border-b border-slate-200/80 bg-white px-3 dark:border-white/10 dark:bg-slate-950",
+        "relative z-30 hidden lg:flex shrink-0 items-center gap-1 border-b border-border bg-card px-3",
         "transition-all duration-300 ease-out",
         desktopCollapsed
           ? "max-h-[48px] opacity-100 py-1.5 pointer-events-auto overflow-visible"
@@ -67,12 +67,12 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
         onClick={() => setDesktopCollapsed(false)}
         title="Expand sidebar"
         aria-label="Expand sidebar"
-        className="mr-1 flex shrink-0 items-center justify-center rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100"
+        className="mr-1 flex shrink-0 items-center justify-center rounded-md p-1.5 text-muted transition hover:bg-surface-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       >
         <ChevronRight className="size-4 shrink-0" strokeWidth={2} aria-hidden />
       </button>
 
-      <div className="mr-2 h-5 w-px shrink-0 bg-slate-200 dark:bg-white/10" />
+      <div className="mr-2 h-5 w-px shrink-0 bg-border" />
 
       {navLeaves.map((leaf) => {
         const href =
@@ -92,10 +92,10 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
               href={linkHref}
               title={leaf.label}
               className={[
-                "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium whitespace-nowrap transition",
+                "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition",
                 active
-                  ? "bg-blue-600/12 text-blue-950 ring-1 ring-blue-600/30 dark:bg-blue-500/15 dark:text-blue-50"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/8 dark:hover:text-slate-100",
+                  ? "bg-primary-muted text-foreground ring-1 ring-primary/30"
+                  : "text-muted hover:bg-surface-muted hover:text-foreground",
               ].join(" ")}
             >
               <NavIcon name={leaf.icon} className="size-3.5 shrink-0" strokeWidth={2} />
@@ -122,10 +122,10 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
               aria-expanded={isOpen}
               aria-haspopup="menu"
               className={[
-                "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium whitespace-nowrap transition",
+                "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition",
                 active || isOpen
-                  ? "bg-blue-600/12 text-blue-950 ring-1 ring-blue-600/30 dark:bg-blue-500/15 dark:text-blue-50"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/8 dark:hover:text-slate-100",
+                  ? "bg-primary-muted text-foreground ring-1 ring-primary/30"
+                  : "text-muted hover:bg-surface-muted hover:text-foreground",
               ].join(" ")}
             >
               <NavIcon name={leaf.icon} className="size-3.5 shrink-0" strokeWidth={2} />
@@ -140,7 +140,7 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
             {isOpen && (
               <div
                 role="menu"
-                className="absolute left-0 top-full z-50 mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-slate-900"
+                className="absolute left-0 top-full z-50 mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg"
               >
                 {children.map((child) => {
                   const [qKey, qVal] = child.query.split("=");
@@ -154,10 +154,10 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
                       href={`${href}?${child.query}`}
                       onClick={() => setOpenKey(null)}
                       className={[
-                        "flex items-center gap-2 px-3 py-2 text-[12px] font-medium transition",
+                        "flex items-center gap-2 px-3 py-2 text-sm font-medium transition",
                         childActive
-                          ? "bg-blue-600/10 text-blue-950 dark:bg-blue-500/15 dark:text-blue-50"
-                          : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/8",
+                          ? "bg-primary-muted text-foreground"
+                          : "text-foreground/80 hover:bg-surface-muted",
                       ].join(" ")}
                     >
                       <NavIcon name={child.icon} className="size-3.5 shrink-0" strokeWidth={2} />
@@ -173,7 +173,7 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
 
       {topSlots.length > 0 && (
         <>
-          <div className="mx-1.5 h-5 w-px shrink-0 bg-slate-200 dark:bg-white/10" />
+          <div className="mx-1.5 h-5 w-px shrink-0 bg-border" />
           {topSlots.map((slot) => {
             const active =
               pathname === slot.href || pathname.startsWith(`${slot.href}/`);
@@ -183,10 +183,10 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
                 href={slot.href}
                 title={slot.label}
                 className={[
-                  "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium whitespace-nowrap transition",
+                  "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition",
                   active
-                    ? "bg-slate-200/85 text-slate-900 dark:bg-slate-800 dark:text-slate-50"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/8 dark:hover:text-slate-100",
+                    ? "bg-surface-muted text-foreground"
+                    : "text-muted hover:bg-surface-muted hover:text-foreground",
                 ].join(" ")}
               >
                 <NavIcon name={slot.icon} className="size-3.5 shrink-0" strokeWidth={2} />

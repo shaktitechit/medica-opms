@@ -238,14 +238,14 @@ export function MapOrderLinePriceModal({
 
         <form onSubmit={handleSubmit} className="flex-1 space-y-4 overflow-y-auto p-5">
           <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3.5 dark:border-white/5 dark:bg-white/5">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Order line</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Order line</div>
             <div className="mt-0.5 text-sm font-bold text-slate-900 dark:text-slate-50">
               {target.productName}
             </div>
             {target.sku ? (
               <div className="mt-0.5 font-mono text-xs text-slate-500">SKU {target.sku}</div>
             ) : null}
-            <div className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
+            <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
               Rate type on order: <b>{rateType}</b>
               {target.unitPrice != null ? (
                 <>

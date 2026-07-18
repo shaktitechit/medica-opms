@@ -583,11 +583,11 @@ export function GoogleSheetAnalyticsModal({
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <span>Order Analytics Dashboard</span>
-              <span className="rounded-full bg-blue-150/60 dark:bg-blue-950 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/30">
+              <span className="rounded-full bg-blue-150/60 dark:bg-blue-950 px-2 py-0.5 text-2xs font-bold text-blue-700 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/30">
                 Sheets Visualizer
               </span>
             </h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Interactive reports and analytics parsed from {filteredOrders.length} filtered orders.
             </p>
           </div>
@@ -702,7 +702,7 @@ export function GoogleSheetAnalyticsModal({
                   <button
                     onClick={handleClearFilters}
                     disabled={!hasActiveFilters}
-                    className="text-[10px] text-slate-450 hover:text-blue-500 disabled:opacity-50 transition font-semibold"
+                    className="text-2xs text-slate-450 hover:text-blue-500 disabled:opacity-50 transition font-semibold"
                   >
                     Reset All
                   </button>
@@ -797,7 +797,7 @@ export function GoogleSheetAnalyticsModal({
                   {filterDatePreset === "custom" && (
                     <div className="grid grid-cols-2 gap-2 pt-1 animate-fadeIn">
                       <div>
-                        <label className="block text-[10px] text-slate-400 mb-0.5">Start Date</label>
+                        <label className="block text-2xs text-slate-400 mb-0.5">Start Date</label>
                         <input
                           type="date"
                           value={filterStartDate}
@@ -806,7 +806,7 @@ export function GoogleSheetAnalyticsModal({
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] text-slate-400 mb-0.5">End Date</label>
+                        <label className="block text-2xs text-slate-400 mb-0.5">End Date</label>
                         <input
                           type="date"
                           value={filterEndDate}
@@ -874,7 +874,7 @@ export function GoogleSheetAnalyticsModal({
           >
             <div className={`absolute top-0 left-0 h-1 w-full bg-gradient-to-r ${card.color}`} />
             <div className="flex items-center justify-between text-slate-400">
-              <span className="text-[10px] font-bold uppercase tracking-wider">{card.label}</span>
+              <span className="text-2xs font-bold uppercase tracking-wider">{card.label}</span>
               <div className={`p-1.5 rounded-lg bg-slate-50 dark:bg-white/5 ${card.textColor}`}>
                 {card.icon}
               </div>
@@ -882,7 +882,7 @@ export function GoogleSheetAnalyticsModal({
             <h3 className={`mt-2 font-bold text-slate-900 dark:text-slate-100 text-lg md:text-xl truncate ${card.isTitleTruncated ? "max-w-[200px] text-sm md:text-sm" : ""}`} title={card.value}>
               {card.value}
             </h3>
-            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400 truncate">{card.sub}</p>
+            <p className="mt-1 text-2xs text-slate-500 dark:text-slate-400 truncate">{card.sub}</p>
           </div>
         ))}
       </section>
@@ -934,7 +934,7 @@ export function GoogleSheetAnalyticsModal({
                   <div className="flex rounded-lg bg-slate-200 p-0.5 dark:bg-slate-800 border border-slate-300 dark:border-slate-700">
                     <button
                       onClick={() => setChartMetric("volume")}
-                      className={`rounded px-3 py-1 text-[11px] font-bold transition cursor-pointer ${
+                      className={`rounded px-3 py-1 text-xs font-bold transition cursor-pointer ${
                         chartMetric === "volume"
                           ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
                           : "text-slate-600 dark:text-slate-400"
@@ -944,7 +944,7 @@ export function GoogleSheetAnalyticsModal({
                     </button>
                     <button
                       onClick={() => setChartMetric("qty")}
-                      className={`rounded px-3 py-1 text-[11px] font-bold transition cursor-pointer ${
+                      className={`rounded px-3 py-1 text-xs font-bold transition cursor-pointer ${
                         chartMetric === "qty"
                           ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
                           : "text-slate-600 dark:text-slate-400"
@@ -974,7 +974,7 @@ export function GoogleSheetAnalyticsModal({
                             return (
                               <g key={idx} className="opacity-30 dark:opacity-10">
                                 <line x1={40} y1={y} x2={410} y2={y} className="stroke-slate-300 dark:stroke-slate-700" strokeDasharray="3 3" />
-                                <text x={35} y={y + 3} textAnchor="end" className="text-[8px] font-mono font-semibold fill-slate-500">
+                                <text x={35} y={y + 3} textAnchor="end" className="text-2xs font-mono font-semibold fill-slate-500">
                                   {chartMetric === "volume" ? `₹${formatMoneyAbbr(tickVal)}` : Math.round(tickVal)}
                                 </text>
                               </g>
@@ -1011,7 +1011,7 @@ export function GoogleSheetAnalyticsModal({
                                 />
                                 {/* Bottom label */}
                                 {idx % 2 === 0 && (
-                                  <text x={pt.x} y={142} textAnchor="middle" className="text-[7.5px] font-semibold fill-slate-400 dark:fill-slate-500">
+                                  <text x={pt.x} y={142} textAnchor="middle" className="text-2xs font-semibold fill-slate-400 dark:fill-slate-500">
                                     {pt.label.slice(0, 6)}
                                   </text>
                                 )}
@@ -1028,10 +1028,10 @@ export function GoogleSheetAnalyticsModal({
                             return (
                               <g className="pointer-events-none transition-all duration-200">
                                 <rect x={tooltipX - 55} y={pt.y - 32} width={110} height={24} rx={4} className="fill-slate-900/95 dark:fill-slate-800/95 shadow-md" />
-                                <text x={tooltipX} y={pt.y - 22} textAnchor="middle" className="text-[7.5px] font-bold fill-white">
+                                <text x={tooltipX} y={pt.y - 22} textAnchor="middle" className="text-2xs font-bold fill-white">
                                   {pt.label}
                                 </text>
-                                <text x={tooltipX} y={pt.y - 12} textAnchor="middle" className="text-[8.5px] font-bold fill-blue-400 font-mono">
+                                <text x={tooltipX} y={pt.y - 12} textAnchor="middle" className="text-2xs font-bold fill-blue-400 font-mono">
                                   {chartMetric === "volume" ? `₹${formatMoney(pt.val)}` : `${pt.val.toLocaleString()} units`}
                                 </text>
                               </g>
@@ -1057,7 +1057,7 @@ export function GoogleSheetAnalyticsModal({
                           return (
                             <g key={idx} className="opacity-30 dark:opacity-10">
                               <line x1={45} y1={y} x2={420} y2={y} className="stroke-slate-300 dark:stroke-slate-700" strokeDasharray="3 3" />
-                              <text x={40} y={y + 3} textAnchor="end" className="text-[8px] font-mono font-semibold fill-slate-500">
+                              <text x={40} y={y + 3} textAnchor="end" className="text-2xs font-mono font-semibold fill-slate-500">
                                 {chartMetric === "volume" ? `₹${formatMoneyAbbr(tickVal)}` : Math.round(tickVal)}
                               </text>
                             </g>
@@ -1097,7 +1097,7 @@ export function GoogleSheetAnalyticsModal({
                                     : "fill-indigo-500/80 dark:fill-indigo-500/60"
                                 }`}
                               />
-                              <text x={x} y={142} textAnchor="middle" className="text-[7.5px] font-bold fill-slate-400 dark:fill-slate-500">
+                              <text x={x} y={142} textAnchor="middle" className="text-2xs font-bold fill-slate-400 dark:fill-slate-500">
                                 {m.label}
                               </text>
                             </g>
@@ -1116,10 +1116,10 @@ export function GoogleSheetAnalyticsModal({
                           return (
                             <g className="pointer-events-none transition-all duration-200">
                               <rect x={x - 55} y={barY - 32} width={110} height={24} rx={4} className="fill-slate-900/95 dark:fill-slate-800/95 shadow-md" />
-                              <text x={x} y={barY - 22} textAnchor="middle" className="text-[7.5px] font-bold fill-white">
+                              <text x={x} y={barY - 22} textAnchor="middle" className="text-2xs font-bold fill-white">
                                 Month: {m.label} ({m.count} orders)
                               </text>
-                              <text x={x} y={barY - 12} textAnchor="middle" className="text-[8.5px] font-bold fill-indigo-400 font-mono">
+                              <text x={x} y={barY - 12} textAnchor="middle" className="text-2xs font-bold fill-indigo-400 font-mono">
                                 {chartMetric === "volume" ? `₹${formatMoney(val)}` : `${val.toLocaleString()} units`}
                               </text>
                             </g>
@@ -1157,7 +1157,7 @@ export function GoogleSheetAnalyticsModal({
                                     {idx + 1}. {p.name}
                                   </span>
                                   <span className="font-mono text-slate-900 dark:text-slate-100">
-                                    ₹{formatMoney(p.value)} <span className="text-[10px] text-slate-400 font-normal">({p.qty} units)</span>
+                                    ₹{formatMoney(p.value)} <span className="text-2xs text-slate-400 font-normal">({p.qty} units)</span>
                                   </span>
                                 </div>
                                 <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -1192,7 +1192,7 @@ export function GoogleSheetAnalyticsModal({
                                     {idx + 1}. {p.name}
                                   </span>
                                   <span className="font-mono text-slate-900 dark:text-slate-100">
-                                    {p.value.toLocaleString()} units <span className="text-[10px] text-slate-400 font-normal">(₹{formatMoneyAbbr(p.volume)})</span>
+                                    {p.value.toLocaleString()} units <span className="text-2xs text-slate-400 font-normal">(₹{formatMoneyAbbr(p.volume)})</span>
                                   </span>
                                 </div>
                                 <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -1227,7 +1227,7 @@ export function GoogleSheetAnalyticsModal({
                                     {idx + 1}. {p.name}
                                   </span>
                                   <span className="font-mono text-slate-900 dark:text-slate-100">
-                                    ₹{formatMoney(p.value)} <span className="text-[10px] text-slate-400 font-normal">({p.count} orders)</span>
+                                    ₹{formatMoney(p.value)} <span className="text-2xs text-slate-400 font-normal">({p.count} orders)</span>
                                   </span>
                                 </div>
                                 <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -1262,7 +1262,7 @@ export function GoogleSheetAnalyticsModal({
                                     {idx + 1}. {p.name}
                                   </span>
                                   <span className="font-mono text-slate-900 dark:text-slate-100">
-                                    ₹{formatMoney(p.value)} <span className="text-[10px] text-slate-400 font-normal">({p.count} orders)</span>
+                                    ₹{formatMoney(p.value)} <span className="text-2xs text-slate-400 font-normal">({p.count} orders)</span>
                                   </span>
                                 </div>
                                 <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -1287,7 +1287,7 @@ export function GoogleSheetAnalyticsModal({
                     <thead>
                       <tr className="bg-slate-100 dark:bg-slate-900 sticky top-0 z-20">
                         {/* Row Number Column */}
-                        <th className="w-12 border-r border-b border-slate-250 dark:border-slate-800 bg-slate-150 dark:bg-slate-850 text-center text-[10px] text-slate-500 font-medium py-2">
+                        <th className="w-12 border-r border-b border-slate-250 dark:border-slate-800 bg-slate-150 dark:bg-slate-850 text-center text-2xs text-slate-500 font-medium py-2">
                           &nbsp;
                         </th>
                         {SHEET_COLUMNS.map((col) => (
@@ -1297,8 +1297,8 @@ export function GoogleSheetAnalyticsModal({
                             className="border-r border-b border-slate-250 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 font-semibold text-center select-none"
                           >
                             <div className="flex flex-col items-center justify-center py-1">
-                              <span className="text-[9px] text-slate-400">{col.headerLetter}</span>
-                              <span className="text-[10px] truncate px-2">{col.label}</span>
+                              <span className="text-2xs text-slate-400">{col.headerLetter}</span>
+                              <span className="text-2xs truncate px-2">{col.label}</span>
                             </div>
                           </th>
                         ))}
@@ -1318,7 +1318,7 @@ export function GoogleSheetAnalyticsModal({
                             className="hover:bg-slate-50 dark:hover:bg-slate-800/50 bg-white dark:bg-slate-900"
                           >
                             {/* Index */}
-                            <td className="sticky left-0 border-r border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-center text-[10px] text-slate-400 font-mono py-1.5 shadow-[2px_0_0_0_rgba(0,0,0,0.02)]">
+                            <td className="sticky left-0 border-r border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-center text-2xs text-slate-400 font-mono py-1.5 shadow-[2px_0_0_0_rgba(0,0,0,0.02)]">
                               {rowIdx + 1}
                             </td>
 
@@ -1354,7 +1354,7 @@ export function GoogleSheetAnalyticsModal({
                       {/* Summary Row */}
                       {dailyAnalyticalRows.length > 0 && (
                         <tr className="bg-slate-50 dark:bg-slate-950 font-bold border-t border-slate-250 dark:border-slate-800">
-                          <td className="border-r border-b border-slate-200 dark:border-slate-800 text-center text-[9px] text-slate-500 py-2">
+                          <td className="border-r border-b border-slate-200 dark:border-slate-800 text-center text-2xs text-slate-500 py-2">
                             ∑
                           </td>
                           <td className="border-r border-b border-slate-200 dark:border-slate-800 px-3 py-2 text-left">

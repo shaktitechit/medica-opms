@@ -253,7 +253,7 @@ export default function AdminOrderVolumeChart({
         </div>
       </div>
 
-      <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-100/50 pb-3 dark:border-white/5">
+      <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-2xs font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-100/50 pb-3 dark:border-white/5">
         {statusKeys.map((key) => {
           const colorInfo = ADMIN_STATUS_COLORS[key];
           return (
@@ -294,7 +294,7 @@ export default function AdminOrderVolumeChart({
                     x={38}
                     y={y + 3}
                     textAnchor="end"
-                    className="text-[9px] font-semibold fill-slate-400 dark:fill-slate-500 font-mono"
+                    className="text-2xs font-semibold fill-slate-400 dark:fill-slate-500 font-mono"
                   >
                     {showMetric === "volume" ? `₹${formatMoneyAbbr(tick)}` : Math.round(tick)}
                   </text>
@@ -363,7 +363,7 @@ export default function AdminOrderVolumeChart({
                     x={x}
                     y={185}
                     textAnchor="middle"
-                    className="text-[8px] font-semibold fill-slate-400 dark:fill-slate-500 font-sans"
+                    className="text-2xs font-semibold fill-slate-400 dark:fill-slate-500 font-sans"
                   >
                     {d.label}
                   </text>
@@ -425,7 +425,7 @@ export default function AdminOrderVolumeChart({
                       x={x}
                       y={tooltipY + 13}
                       textAnchor="middle"
-                      className="text-[9px] font-bold fill-white/80 font-sans tracking-wide uppercase"
+                      className="text-2xs font-bold fill-white/80 font-sans tracking-wide uppercase"
                     >
                       {item.label}
                     </text>
@@ -442,7 +442,7 @@ export default function AdminOrderVolumeChart({
                             x={x - 42}
                             y={lineY}
                             textAnchor="start"
-                            className="text-[8px] font-semibold fill-white font-sans"
+                            className="text-2xs font-semibold fill-white font-sans"
                           >
                             {ab.label}
                           </text>
@@ -450,7 +450,7 @@ export default function AdminOrderVolumeChart({
                             x={x + 52}
                             y={lineY}
                             textAnchor="end"
-                            className="text-[8px] font-bold fill-slate-300 font-mono"
+                            className="text-2xs font-bold fill-slate-300 font-mono"
                           >
                             {displayVal}
                           </text>

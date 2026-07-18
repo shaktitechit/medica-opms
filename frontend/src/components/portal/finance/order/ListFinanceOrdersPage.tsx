@@ -95,27 +95,27 @@ function renderPriorityBadge(priority: string) {
   const p = String(priority).toLowerCase();
   if (p === "urgent") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
         Urgent
       </span>
     );
   }
   if (p === "high") {
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-455/90 dark:ring-amber-500/20">
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-455/90 dark:ring-amber-500/20">
         High
       </span>
     );
   }
   if (p === "normal") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
         Normal
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
+    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
       Low
     </span>
   );
@@ -206,7 +206,7 @@ function renderWorkflowStatusBadge(category: FinanceOrderTabCategory) {
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
     >
       {label}
     </span>
@@ -229,7 +229,7 @@ function renderPendingApprovalBadge(order: OrderRow) {
 
   return (
     <span
-      className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700 ring-1 ring-inset ring-violet-600/10 dark:bg-violet-955/30 dark:text-violet-400 dark:ring-violet-500/25"
+      className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-violet-700 ring-1 ring-inset ring-violet-600/10 dark:bg-violet-955/30 dark:text-violet-400 dark:ring-violet-500/25"
       title={title}
     >
       {label}
@@ -252,8 +252,9 @@ export default function ListFinanceOrdersPage() {
   const viewBy = searchParams.get("by") === "priority" ? "priority" : "workflow";
   const defaultTab: FinanceOrderTabCategory =
     viewBy === "priority" ? "all" : "pending_finance_approval";
+  const qFromUrl = searchParams.get("q") ?? "";
 
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(qFromUrl);
   const [activeTab, setActiveTab] = useState<FinanceOrderTabCategory>(() =>
     tabFromUrl ? normalizeFinanceTabFromUrl(tabFromUrl) : defaultTab,
   );
@@ -272,6 +273,11 @@ export default function ListFinanceOrdersPage() {
     setPriorityFilter("all");
     setCurrentPage(1);
   }, [tabFromUrl, defaultTab]);
+
+  useEffect(() => {
+    setSearchQuery(qFromUrl);
+    if (qFromUrl) setCurrentPage(1);
+  }, [qFromUrl]);
 
   const queryParams = useMemo(() => {
     const base: Record<string, string | undefined> = {};
@@ -601,7 +607,7 @@ export default function ListFinanceOrdersPage() {
                             {partyLabel}
                           </span>
                           {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
-                            <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400">
+                            <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-2xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400">
                               SRA
                             </span>
                           )}

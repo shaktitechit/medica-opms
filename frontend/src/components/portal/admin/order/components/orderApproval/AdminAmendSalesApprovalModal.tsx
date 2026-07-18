@@ -645,7 +645,7 @@ export function AdminAmendSalesApprovalModal({
                                   {String(p.product_name)}
                                 </span>
                                 {Boolean(p.sku) && (
-                                  <span className="ml-2 text-[10px] text-slate-400 font-mono">
+                                  <span className="ml-2 text-2xs text-slate-400 font-mono">
                                     ({String(p.sku)})
                                   </span>
                                 )}
@@ -713,7 +713,7 @@ export function AdminAmendSalesApprovalModal({
                             <span className="font-medium text-slate-900 dark:text-slate-100">
                               {line.product_name}
                               {line.isNew ? (
-                                <span className="ml-1.5 text-[9px] font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-1 py-0.5 rounded">
+                                <span className="ml-1.5 text-2xs font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-1 py-0.5 rounded">
                                   NEW
                                 </span>
                               ) : null}

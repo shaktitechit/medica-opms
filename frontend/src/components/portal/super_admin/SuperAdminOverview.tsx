@@ -107,7 +107,7 @@ function KpiCard({
         <div className={`rounded-lg p-2.5 ${accentFrom.replace("from-", "bg-").replace("-450", "-50").replace("-550", "-50")} dark:bg-white/5`}>
           {icon}
         </div>
-        <span className={`text-[10px] font-bold tracking-widest uppercase ${textColor}`}>{label}</span>
+        <span className={`text-2xs font-bold tracking-widest uppercase ${textColor}`}>{label}</span>
       </div>
       <div className="mt-4">
         <h3 className="text-3xl font-bold text-slate-900 dark:text-slate-100">
@@ -140,7 +140,7 @@ function DeptBadge({ dept }: { dept: string }) {
     dispatch: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
   };
   return (
-    <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${map[dept] ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>
+    <span className={`inline-block rounded-full px-2 py-0.5 text-2xs font-semibold ${map[dept] ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>
       {fmt(dept)}
     </span>
   );
@@ -492,12 +492,12 @@ export default function SuperAdminOverview() {
                     const partyName = partyNameById.get(partyId) || partyId.slice(0, 8) || "—";
                     return (
                       <tr key={id} className="hover:bg-slate-50/30 dark:hover:bg-white/[0.02]">
-                        <td className="py-2.5 font-mono text-[11px] text-slate-900 dark:text-slate-100">{ref.slice(0, 12)}</td>
+                        <td className="py-2.5 font-mono text-xs text-slate-900 dark:text-slate-100">{ref.slice(0, 12)}</td>
                         <td className="max-w-[130px] truncate py-2.5 pr-2 text-slate-800 dark:text-slate-200" title={partyName}>
                           <span className="flex items-center gap-1.5 truncate">
                             <span className="truncate">{partyName}</span>
                             {partySraById.get(partyId) === true && (
-                              <span className="inline-flex items-center rounded-full bg-emerald-50 px-1 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                              <span className="inline-flex items-center rounded-full bg-emerald-50 px-1 py-0.5 text-2xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
                                 SRA
                               </span>
                             )}
@@ -507,12 +507,12 @@ export default function SuperAdminOverview() {
                           {Number.isFinite(total) ? total.toFixed(2) : "0.00"}
                         </td>
                         <td className="py-2.5 text-center capitalize">
-                          <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium ${["high", "urgent"].includes(pri) ? "bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400" : "text-slate-500"}`}>
+                          <span className={`inline-block rounded-full px-1.5 py-0.5 text-2xs font-medium ${["high", "urgent"].includes(pri) ? "bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400" : "text-slate-500"}`}>
                             {pri}
                           </span>
                         </td>
                         <td className="py-2.5">
-                          <span className={`inline-block rounded px-2 py-0.5 text-[10px] font-medium tracking-wide ${getStatusBadgeClass(o.status)}`}>
+                          <span className={`inline-block rounded px-2 py-0.5 text-2xs font-medium tracking-wide ${getStatusBadgeClass(o.status)}`}>
                             {fmt(o.status)}
                           </span>
                         </td>
@@ -547,7 +547,7 @@ export default function SuperAdminOverview() {
                     <div className="bg-emerald-500 transition-all duration-500" style={{ width: `${completedPct}%` }} title={`Completed: ${completedCount}`} />
                     <div className="bg-rose-500 transition-all duration-500" style={{ width: `${otherPct}%` }} title={`Other: ${otherCount}`} />
                   </div>
-                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] font-medium">
+                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs font-medium">
                     {[
                       { color: "bg-slate-400", label: "Drafts", count: draftCount, pct: draftPct },
                       { color: "bg-violet-500", label: "Awaiting", count: awaitingCount, pct: awaitingPct },
@@ -578,7 +578,7 @@ export default function SuperAdminOverview() {
                 <Flag className="h-4 w-4 text-rose-500" />
                 <h3 className="font-bold text-slate-900 dark:text-slate-100">Active Flags</h3>
               </div>
-              <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+              <span className="rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
                 {openFlagList.length}
               </span>
             </div>
@@ -599,13 +599,13 @@ export default function SuperAdminOverview() {
                     return (
                       <li key={fId} className="rounded-lg border border-slate-150 bg-slate-50/50 p-3 dark:border-white/5 dark:bg-slate-950/50">
                         <div className="flex items-start justify-between gap-2">
-                          <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wider capitalize ${getSeverityBadgeClass(flag.severity)}`}>
+                          <span className={`rounded px-1.5 py-0.5 text-2xs font-bold tracking-wider capitalize ${getSeverityBadgeClass(flag.severity)}`}>
                             {flag.severity || "medium"}
                           </span>
-                          <span className="font-mono text-[9px] text-slate-400">{fmt(flag.flag_type)}</span>
+                          <span className="font-mono text-2xs text-slate-400">{fmt(flag.flag_type)}</span>
                         </div>
                         <h4 className="mt-2 text-xs font-semibold text-slate-900 dark:text-slate-100">{flag.title}</h4>
-                        <div className="mt-2 flex items-center justify-between text-[10px] border-t border-slate-100/60 pt-2 dark:border-white/5">
+                        <div className="mt-2 flex items-center justify-between text-2xs border-t border-slate-100/60 pt-2 dark:border-white/5">
                           <span className="text-slate-500">Order: <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">{orderNo}</span></span>
                           <Link href={urlPath} className="inline-flex items-center gap-1 text-violet-600 hover:underline dark:text-violet-400 font-medium">
                             View <ExternalLink className="h-2.5 w-2.5" />
@@ -653,7 +653,7 @@ export default function SuperAdminOverview() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">{u.name || "—"}</p>
-                        <p className="truncate text-[10px] text-slate-500 dark:text-slate-400">{u.email || "—"}</p>
+                        <p className="truncate text-2xs text-slate-500 dark:text-slate-400">{u.email || "—"}</p>
                       </div>
                       <DeptBadge dept={u.department || "unknown"} />
                     </li>

@@ -690,11 +690,11 @@ export function GoogleSheetOrdersModal({
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <span>Order Spreadsheet Registry</span>
-                <span className="rounded-full bg-slate-200/60 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:text-slate-400">
+                <span className="rounded-full bg-slate-200/60 dark:bg-slate-800 px-2 py-0.5 text-2xs font-bold text-slate-600 dark:text-slate-400">
                   Read Only
                 </span>
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Interactive spreadsheet viewer for orders, filtered to {filteredRows.length} matching rows.
               </p>
             </div>
@@ -776,7 +776,7 @@ export function GoogleSheetOrdersModal({
                     <button
                       onClick={handleClearFilters}
                       disabled={!hasActiveFilters}
-                      className="text-[10px] text-slate-400 hover:text-emerald-500 disabled:opacity-50 transition font-semibold"
+                      className="text-2xs text-slate-400 hover:text-emerald-500 disabled:opacity-50 transition font-semibold"
                     >
                       Reset All
                     </button>
@@ -904,21 +904,21 @@ export function GoogleSheetOrdersModal({
                       {filterDatePreset === "custom" && (
                         <div className="grid grid-cols-2 gap-2 mt-1.5 animate-fadeIn">
                           <div>
-                            <label className="block text-[10px] font-semibold text-slate-400 mb-1">Start Date</label>
+                            <label className="block text-2xs font-semibold text-slate-400 mb-1">Start Date</label>
                             <input
                               type="date"
                               value={filterStartDate}
                               onChange={e => setFilterStartDate(e.target.value)}
-                              className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2 py-1 text-[11px] text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                              className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2 py-1 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
                             />
                           </div>
                           <div>
-                            <label className="block text-[10px] font-semibold text-slate-400 mb-1">End Date</label>
+                            <label className="block text-2xs font-semibold text-slate-400 mb-1">End Date</label>
                             <input
                               type="date"
                               value={filterEndDate}
                               onChange={e => setFilterEndDate(e.target.value)}
-                              className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2 py-1 text-[11px] text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                              className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2 py-1 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
                             />
                           </div>
                         </div>
@@ -993,7 +993,7 @@ export function GoogleSheetOrdersModal({
           const orderCount = filteredRows.length;
           return (
             <div className="flex items-center gap-0 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-emerald-50/80 via-white to-purple-50/60 dark:from-emerald-950/30 dark:via-slate-900 dark:to-purple-950/20 px-4 py-2 shrink-0 select-none text-xs">
-              <span className="text-slate-400 dark:text-slate-600 font-semibold mr-4 text-[10px] uppercase tracking-wide">∑ Summary</span>
+              <span className="text-slate-400 dark:text-slate-600 font-semibold mr-4 text-2xs uppercase tracking-wide">∑ Summary</span>
               {/* Orders count */}
               <div className="flex items-center gap-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1 mr-3">
                 <span className="h-2 w-2 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
@@ -1012,7 +1012,7 @@ export function GoogleSheetOrdersModal({
                 <span className="text-purple-700 dark:text-purple-400 font-medium">Total Items Qty</span>
                 <span className="font-bold text-purple-800 dark:text-purple-200 ml-1 font-mono">{sumQty.toLocaleString("en-IN")}</span>
               </div>
-              <span className="ml-auto text-[10px] text-slate-400 dark:text-slate-600 italic">Showing totals for filtered rows</span>
+              <span className="ml-auto text-2xs text-slate-400 dark:text-slate-600 italic">Showing totals for filtered rows</span>
             </div>
           );
         })()}
@@ -1036,7 +1036,7 @@ export function GoogleSheetOrdersModal({
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-900">
                   {/* Row index top corner cell */}
-                  <th className="sticky top-0 left-0 z-30 w-12 border-r border-b border-slate-250 dark:border-slate-800 bg-slate-150 dark:bg-slate-850 text-center text-[10px] text-slate-500 font-medium py-1.5 shadow-[2px_2px_0_0_rgba(0,0,0,0.02)]">
+                  <th className="sticky top-0 left-0 z-30 w-12 border-r border-b border-slate-250 dark:border-slate-800 bg-slate-150 dark:bg-slate-850 text-center text-2xs text-slate-500 font-medium py-1.5 shadow-[2px_2px_0_0_rgba(0,0,0,0.02)]">
                     &nbsp;
                   </th>
                   
@@ -1050,8 +1050,8 @@ export function GoogleSheetOrdersModal({
                         className="sticky top-0 z-20 border-r border-b border-slate-250 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 font-semibold text-center select-none relative group"
                       >
                         <div className="flex flex-col items-center justify-center py-1">
-                          <span className="text-[10px] text-slate-400">{col.headerLetter}</span>
-                          <span className="text-[11px] truncate px-2 max-w-full" title={col.label}>
+                          <span className="text-2xs text-slate-400">{col.headerLetter}</span>
+                          <span className="text-xs truncate px-2 max-w-full" title={col.label}>
                             {col.label}
                           </span>
                         </div>
@@ -1073,7 +1073,7 @@ export function GoogleSheetOrdersModal({
                       className="hover:bg-slate-50 dark:hover:bg-slate-900/60 transition-colors bg-white dark:bg-slate-900"
                     >
                       {/* Row index cell */}
-                      <td className="sticky left-0 z-10 border-r border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-center text-[10px] text-slate-400 font-mono py-1.5 shadow-[2px_0_0_0_rgba(0,0,0,0.02)] select-none">
+                      <td className="sticky left-0 z-10 border-r border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-center text-2xs text-slate-400 font-mono py-1.5 shadow-[2px_0_0_0_rgba(0,0,0,0.02)] select-none">
                         {rowIdx + 1}
                       </td>
 
@@ -1151,9 +1151,9 @@ export function GoogleSheetOrdersModal({
           <div className="flex items-center justify-between sm:justify-end gap-4 px-6 py-2.5 sm:py-0 text-slate-500 dark:text-slate-400">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-purple-500 animate-pulse" />
-              <span className="font-semibold text-[11px] text-slate-655 dark:text-slate-355">Read-Only Grid Mode</span>
+              <span className="font-semibold text-xs text-slate-655 dark:text-slate-355">Read-Only Grid Mode</span>
             </div>
-            <div className="flex items-center gap-3 text-[11px]">
+            <div className="flex items-center gap-3 text-xs">
               <span>Rows: <strong className="text-slate-800 dark:text-slate-200">{filteredRows.length}</strong> / {localRows.length}</span>
               <span className="text-emerald-600 dark:text-emerald-400 font-semibold">∑ ₹{formatMoney(filteredRows.reduce((a, r) => a + r.grand_total, 0))}</span>
               <span className="text-purple-600 dark:text-purple-400 font-semibold">Qty: {filteredRows.reduce((a, r) => a + r.total_quantity, 0).toLocaleString("en-IN")}</span>

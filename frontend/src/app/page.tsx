@@ -46,7 +46,7 @@ export default async function Home() {
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <MedicaLogo priority />
-            <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary-muted text-primary border border-primary/25">
+            <span className="hidden sm:inline-flex items-center gap-1 text-2xs font-bold px-2 py-0.5 rounded-full bg-primary-muted text-primary border border-primary/25">
               <Sparkles className="w-2.5 h-2.5" />
               OPMS v1.2
             </span>
@@ -90,7 +90,7 @@ export default async function Home() {
               Unifying Enterprise Healthcare Operations
             </div>
 
-            <h1 className="text-[2.25rem] sm:text-[3.5rem] lg:text-[4rem] font-extrabold leading-[1.1] tracking-tight text-foreground max-w-4xl">
+            <h1 className="text-5xl sm:text-7xl lg:text-8xl font-extrabold leading-[1.1] tracking-tight text-foreground max-w-4xl">
               Order & Operations <br />
               <span className="bg-gradient-to-r from-blue-600 via-indigo-500 to-violet-500 bg-clip-text text-transparent dark:from-blue-400 dark:to-violet-400">
                 Management Portal Suite
@@ -194,19 +194,19 @@ export default async function Home() {
         <section id="metrics" className="py-16 border-t border-b border-border/60 bg-muted/5 relative overflow-hidden">
           <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 lg:grid-cols-4 gap-8">
             <div className="text-center">
-              <p className="text-[2rem] sm:text-[2.75rem] font-extrabold tracking-tight text-blue-500">124k+</p>
+              <p className="text-4xl sm:text-6xl font-extrabold tracking-tight text-blue-500">124k+</p>
               <p className="mt-1 text-xs font-semibold text-muted uppercase">Bookings Managed</p>
             </div>
             <div className="text-center">
-              <p className="text-[2rem] sm:text-[2.75rem] font-extrabold tracking-tight text-indigo-500">99.98%</p>
+              <p className="text-4xl sm:text-6xl font-extrabold tracking-tight text-indigo-500">99.98%</p>
               <p className="mt-1 text-xs font-semibold text-muted uppercase">Platform Uptime</p>
             </div>
             <div className="text-center">
-              <p className="text-[2rem] sm:text-[2.75rem] font-extrabold tracking-tight text-violet-500">45s</p>
+              <p className="text-4xl sm:text-6xl font-extrabold tracking-tight text-violet-500">45s</p>
               <p className="mt-1 text-xs font-semibold text-muted uppercase">Avg. Audit Clearance</p>
             </div>
             <div className="text-center">
-              <p className="text-[2rem] sm:text-[2.75rem] font-extrabold tracking-tight text-emerald-500">&lt; 0.1%</p>
+              <p className="text-4xl sm:text-6xl font-extrabold tracking-tight text-emerald-500">&lt; 0.1%</p>
               <p className="mt-1 text-xs font-semibold text-muted uppercase">Logistics Discrepancy</p>
             </div>
           </div>
@@ -242,12 +242,12 @@ export default async function Home() {
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-2.5">
             <MedicaLogo className="opacity-90 hover:opacity-100 transition-opacity" />
-            <span className="text-[10px] text-muted font-medium border-l border-border pl-2.5">OPMS Workspace System</span>
+            <span className="text-2xs text-muted font-medium border-l border-border pl-2.5">OPMS Workspace System</span>
           </div>
-          <p className="text-[10px] text-muted md:order-last">
+          <p className="text-2xs text-muted md:order-last">
             &copy; {new Date().getFullYear()} Medica Enterprises Inc. All rights reserved.
           </p>
-          <div className="flex gap-6 text-[10px] text-muted">
+          <div className="flex gap-6 text-2xs text-muted">
             <a href="#" className="hover:text-foreground transition-colors">Privacy Policy</a>
             <a href="#" className="hover:text-foreground transition-colors">Terms of Service</a>
             <a href="#" className="hover:text-foreground transition-colors">System Status</a>

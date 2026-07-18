@@ -42,7 +42,7 @@ export function OrderDetailTabsNav({
               <span>{t.name}</span>
               {t.count !== undefined && t.count > 0 ? (
                 <span
-                  className={`ml-1.5 inline-flex min-w-[1.25rem] justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                  className={`ml-1.5 inline-flex min-w-[1.25rem] justify-center rounded-full px-1.5 py-0.5 text-2xs font-bold ${
                     t.dangerBadge
                       ? "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
                       : "bg-slate-200/90 text-slate-700 dark:bg-slate-700 dark:text-slate-200"

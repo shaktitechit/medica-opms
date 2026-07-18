@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Mail, MessageCircle, Send, X } from "lucide-react";
 
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
+import { Button } from "@/components/ui/Button";
 import {
   largeModalBackdropClass,
   largeModalPanelClass,
@@ -395,7 +396,7 @@ export function ComposeMessageModal({
                   <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Recipients
                   </label>
-                  <div className="flex items-center gap-2 text-[11px]">
+                  <div className="flex items-center gap-2 text-xs">
                     <button
                       type="button"
                       disabled={isSending || channelContacts.length === 0}
@@ -415,7 +416,7 @@ export function ComposeMessageModal({
                     </button>
                   </div>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Party contacts and the order&apos;s sales user. Select one or more.
                   {selectedContacts.length > 0
                     ? ` · ${selectedContacts.length} selected`
@@ -460,7 +461,7 @@ export function ComposeMessageModal({
                                 {contact.name}
                               </p>
                               <span
-                                className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                                className={`shrink-0 rounded px-1 py-0.5 text-2xs font-bold uppercase tracking-wide ${
                                   contact.source === "sales"
                                     ? "bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300"
                                     : "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300"
@@ -469,10 +470,10 @@ export function ComposeMessageModal({
                                 {contact.source === "sales" ? "Sales" : "Party"}
                               </span>
                             </div>
-                            <p className="truncate text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                            <p className="truncate text-2xs font-medium text-slate-500 dark:text-slate-400">
                               {contact.subtitle}
                             </p>
-                            <p className="mt-0.5 font-mono text-[10px] text-slate-600 dark:text-slate-400">
+                            <p className="mt-0.5 font-mono text-2xs text-slate-600 dark:text-slate-400">
                               {value}
                             </p>
                           </div>
@@ -488,7 +489,7 @@ export function ComposeMessageModal({
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Order received template preview
                   </p>
-                  <p className="mt-1 text-[11px] text-slate-400">
+                  <p className="mt-1 text-xs text-slate-400">
                     {"{{1}} name · {{2}} order no · {{3}} items"}
                     {selectedContacts.length > 1
                       ? ` · each of ${selectedContacts.length} recipients gets their own name`
@@ -540,23 +541,25 @@ export function ComposeMessageModal({
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4 dark:border-white/5 dark:bg-slate-950/40">
-              <button
-                type="button"
+            <div className="flex items-center justify-end gap-3 border-t border-border bg-surface-muted/60 px-6 py-4">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="font-semibold cursor-pointer"
                 disabled={isSending}
                 onClick={handleClose}
-                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
+                size="sm"
+                className="font-semibold cursor-pointer"
                 disabled={
                   isSending ||
                   selectedContacts.length === 0 ||
                   (formChannel === "whatsapp" && orderQ.isFetching && !order)
                 }
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400 cursor-pointer"
               >
                 <Send className="h-4 w-4" />
                 {isSending
@@ -568,7 +571,7 @@ export function ComposeMessageModal({
                     : selectedContacts.length > 1
                       ? `Send ${selectedContacts.length} emails`
                       : "Send"}
-              </button>
+              </Button>
             </div>
           </form>
         </div>

@@ -72,7 +72,7 @@ function formatDateReadOnly(dateVal: unknown): string {
 function renderDriverStatusBadge(statusStr: string) {
   if (statusStr === "available") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-emerald-700/10 dark:ring-emerald-500/25">
+      <span className="inline-flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-emerald-700/10 dark:ring-emerald-500/25">
         <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
         Available
       </span>
@@ -80,7 +80,7 @@ function renderDriverStatusBadge(statusStr: string) {
   }
   if (statusStr === "assigned") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] text-blue-700 dark:text-blue-400 font-semibold bg-blue-50 dark:bg-blue-955/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-blue-700/10 dark:ring-blue-500/25">
+      <span className="inline-flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-400 font-semibold bg-blue-50 dark:bg-blue-955/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-blue-700/10 dark:ring-blue-500/25">
         <span className="h-1.5 w-1.5 rounded-full bg-blue-600 dark:bg-blue-400" />
         Assigned
       </span>
@@ -88,7 +88,7 @@ function renderDriverStatusBadge(statusStr: string) {
   }
   if (statusStr === "on_trip") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-amber-700/10 dark:ring-amber-500/20">
+      <span className="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-amber-700/10 dark:ring-amber-500/20">
         <span className="h-1.5 w-1.5 rounded-full bg-amber-650 dark:bg-amber-400" />
         On Trip
       </span>
@@ -96,14 +96,14 @@ function renderDriverStatusBadge(statusStr: string) {
   }
   if (statusStr === "leave") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 font-medium bg-slate-50 dark:bg-white/5 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-white/10">
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 font-medium bg-slate-50 dark:bg-white/5 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-white/10">
         <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
         Leave
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-rose-700 dark:text-rose-455 font-semibold bg-rose-50 dark:bg-rose-950/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-rose-700/10 dark:ring-rose-500/25">
+    <span className="inline-flex items-center gap-1.5 text-xs text-rose-700 dark:text-rose-455 font-semibold bg-rose-50 dark:bg-rose-950/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-rose-700/10 dark:ring-rose-500/25">
       <span className="h-1.5 w-1.5 rounded-full bg-rose-600 dark:bg-rose-400" />
       Inactive
     </span>

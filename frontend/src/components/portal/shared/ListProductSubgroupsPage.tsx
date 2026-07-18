@@ -260,7 +260,7 @@ export default function ListProductSubgroupsPage({
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:border-white/5 dark:bg-white/[0.02] dark:text-slate-400">
+                <tr className="border-b border-slate-100 bg-slate-50/50 text-xs font-bold uppercase tracking-wider text-slate-500 dark:border-white/5 dark:bg-white/[0.02] dark:text-slate-400">
                   <th className="px-4 py-3">Subgroup Name</th>
                   <th className="px-4 py-3">Commercial Group</th>
                   <th className="px-4 py-3">Description</th>
@@ -278,18 +278,18 @@ export default function ListProductSubgroupsPage({
                     <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{row.description || "—"}</td>
                     <td className="px-4 py-3 space-x-1.5">
                       {row.is_active ? (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] text-green-700 dark:text-green-400 font-semibold bg-green-50 dark:bg-green-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-green-600/10 dark:ring-green-500/20">
+                        <span className="inline-flex items-center gap-1.5 text-2xs text-green-700 dark:text-green-400 font-semibold bg-green-50 dark:bg-green-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-green-600/10 dark:ring-green-500/20">
                           <span className="h-1.5 w-1.5 rounded-full bg-green-600 dark:bg-green-400" />
                           Active
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 font-medium bg-slate-50 dark:bg-slate-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
+                        <span className="inline-flex items-center gap-1.5 text-2xs text-slate-500 dark:text-slate-400 font-medium bg-slate-50 dark:bg-slate-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
                           <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
                           Inactive
                         </span>
                       )}
                       {row.is_featured && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-amber-600/10 dark:ring-amber-500/20">
+                        <span className="inline-flex items-center gap-1 text-2xs text-amber-700 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-amber-600/10 dark:ring-amber-500/20">
                           ★ Featured
                         </span>
                       )}

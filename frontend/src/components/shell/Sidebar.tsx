@@ -31,15 +31,15 @@ export function Sidebar({ portal }: SidebarProps) {
       id="app-sidebar"
       aria-label="Main navigation"
       className={[
-        "fixed left-0 top-0 z-[40] flex h-[100vh] max-h-[100vh] min-h-0 w-[min(12rem,82vw)] max-w-[13rem] flex-col overflow-hidden border-r border-slate-200/80 bg-white shadow-xl shadow-slate-200/40 transition-[transform,width,min-width] duration-300 ease-out supports-[height:100dvh]:max-h-[100dvh] supports-[height:100dvh]:h-[100dvh] dark:border-white/10 dark:bg-slate-950 dark:shadow-black/30",
-        "lg:relative lg:z-0 lg:h-full lg:min-h-0 lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:shadow-none dark:lg:bg-slate-950",
+        "fixed left-0 top-0 z-[40] flex h-[100vh] max-h-[100vh] min-h-0 w-[min(12rem,82vw)] max-w-[13rem] flex-col overflow-hidden border-r border-border bg-card shadow-xl shadow-border/40 transition-[transform,width,min-width] duration-300 ease-out supports-[height:100dvh]:max-h-[100dvh] supports-[height:100dvh]:h-[100dvh]",
+        "lg:relative lg:z-0 lg:h-full lg:min-h-0 lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:shadow-none",
         lgW,
         mobileNavOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
       ].join(" ")}
     >
       <div
         className={[
-          "relative flex shrink-0 flex-col gap-0.5 border-b border-slate-200/90 px-2 pb-2.5 pr-11 pt-[max(0.75rem,env(safe-area-inset-top))] dark:border-white/10",
+          "relative flex shrink-0 flex-col gap-0.5 border-b border-border px-2 pb-2.5 pr-11 pt-[max(0.75rem,env(safe-area-inset-top))]",
           desktopCollapsed
             ? "lg:items-center lg:px-1.5 lg:pb-2.5 lg:pr-1.5 lg:pt-4"
             : "lg:pr-2",
@@ -63,14 +63,14 @@ export function Sidebar({ portal }: SidebarProps) {
         </Link>
         {userDept ? (
           <p
-            className={`truncate text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 ${desktopCollapsed ? "hidden lg:hidden" : ""}`}
+            className={`truncate text-2xs uppercase tracking-wide text-muted ${desktopCollapsed ? "hidden lg:hidden" : ""}`}
           >
             {userDept}
           </p>
         ) : null}
         <button
           type="button"
-          className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/55 lg:hidden dark:text-slate-300 dark:hover:bg-white/10"
+          className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] rounded-lg p-2 text-muted transition hover:bg-surface-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/55 lg:hidden"
           aria-label="Close navigation menu"
           onClick={closeMobileNav}
         >
@@ -86,10 +86,10 @@ export function Sidebar({ portal }: SidebarProps) {
         />
       </Suspense>
 
-      <div className="mt-auto hidden shrink-0 border-t border-slate-200/90 dark:border-white/10 lg:flex">
+      <div className="mt-auto hidden shrink-0 border-t border-border lg:flex">
         <button
           type="button"
-          className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-slate-600 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/45 dark:text-slate-300 dark:hover:bg-white/10"
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-muted transition hover:bg-surface-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
           aria-label={
             desktopCollapsed ? "Expand sidebar" : "Collapse sidebar"
           }

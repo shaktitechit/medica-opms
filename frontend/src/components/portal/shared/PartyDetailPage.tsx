@@ -174,27 +174,27 @@ function renderPriorityBadge(priority: string) {
   const p = String(priority).toLowerCase();
   if (p === "urgent") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25">
         Urgent
       </span>
     );
   }
   if (p === "high") {
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955 dark:text-amber-400 dark:ring-amber-500/20">
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955 dark:text-amber-400 dark:ring-amber-500/20">
         High
       </span>
     );
   }
   if (p === "normal") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955 dark:text-blue-400 dark:ring-blue-500/20">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955 dark:text-blue-400 dark:ring-blue-500/20">
         Normal
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
+    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
       Low
     </span>
   );
@@ -501,7 +501,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded bg-slate-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
+              <span className="rounded bg-slate-900 px-2 py-0.5 text-2xs font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
                 {portalName}
               </span>
               <span className="text-xs font-medium text-slate-550 dark:text-slate-400">Party Profile</span>
@@ -917,27 +917,27 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                         <div className="flex flex-wrap items-center gap-3 md:justify-end">
                           {/* Control Pills */}
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-350">
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-350">
                               Priority: {m.priority ?? 100}
                             </span>
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-350">
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-350">
                               EOQ: {m.expected_order_quantity ?? 0}
                             </span>
                             {m.is_orderable ? (
-                              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400">
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400">
                                 Orderable
                               </span>
                             ) : (
-                              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400">
                                 Non-Orderable
                               </span>
                             )}
                             {m.is_active !== false ? (
-                              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400">
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400">
                                 Active
                               </span>
                             ) : (
-                              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400">
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400">
                                 Inactive
                               </span>
                             )}
@@ -1051,7 +1051,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                                         <td className="py-2.5 pr-4 font-medium flex items-center gap-1.5">
                                           {typeLabel}
                                           {r.approval_required && (
-                                            <span className="text-[9px] bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 px-1 py-0.2 rounded font-bold uppercase">
+                                            <span className="text-2xs bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 px-1 py-0.2 rounded font-bold uppercase">
                                               Req Approval
                                             </span>
                                           )}
@@ -1066,7 +1066,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                                           {new Date(r.validity_start).toLocaleDateString()} to {new Date(r.validity_end).toLocaleDateString()}
                                         </td>
                                         <td className="py-2.5 px-4 text-center">
-                                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${displayStatusColor}`}>
+                                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-2xs font-bold uppercase tracking-wider ${displayStatusColor}`}>
                                             {displayStatus}
                                           </span>
                                         </td>
@@ -1254,7 +1254,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                         >
                           <span>{tab.label}</span>
                           {!isOrdersFetching && (
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            <span className={`rounded-full px-2 py-0.5 text-2xs font-bold ${
                               isActive
                                 ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
                                 : "bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-400"
@@ -1439,9 +1439,9 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                             </span>
 
                             {/* Financials & Dates */}
-                            <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-8 lg:w-[280px] lg:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
+                            <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-8 lg:w-[280px] lg:shrink-0 text-xs text-slate-500 dark:text-slate-400">
                               <div className="flex flex-col min-w-[90px]">
-                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                                   Grand Total
                                 </span>
                                 <span className="mt-0.5 font-bold tabular-nums text-slate-900 dark:text-slate-50 text-xs">
@@ -1449,7 +1449,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                                 </span>
                               </div>
                               <div className="flex flex-col">
-                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                                   Created
                                 </span>
                                 <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
@@ -1457,7 +1457,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                                 </span>
                               </div>
                               <div className="flex flex-col">
-                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                                   Expected Delivery
                                 </span>
                                 <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
@@ -1487,7 +1487,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
 
                           {/* Bottom Row: Pipeline */}
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5">
-                            <span className="text-slate-400 dark:text-slate-500 font-bold text-[9px] uppercase tracking-wider">
+                            <span className="text-slate-400 dark:text-slate-500 font-bold text-2xs uppercase tracking-wider">
                               Fulfillment Pipeline
                             </span>
                             <div className="flex items-center gap-4 sm:gap-6">
@@ -1512,7 +1512,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
                       </span>
                       <span className="text-slate-350 dark:text-slate-700">|</span>
                       <div className="flex items-center gap-1">
-                        <span className="text-[11px] font-medium text-slate-500">Rows per page:</span>
+                        <span className="text-xs font-medium text-slate-500">Rows per page:</span>
                         <select
                           value={orderItemsPerPage}
                           onChange={(e) => {
@@ -2392,7 +2392,7 @@ function AddRateModal({
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="bg-slate-50 dark:bg-white/5 rounded-xl p-3 border border-slate-100 dark:border-white/5">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Adding pricing tier for:</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Adding pricing tier for:</div>
             <div className="text-sm font-bold text-slate-900 dark:text-slate-50">{mapping.product?.product_name}</div>
           </div>
 
@@ -2580,7 +2580,7 @@ function EditRateModal({
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="bg-slate-550 dark:bg-white/5 rounded-xl p-3 border border-slate-100 dark:border-white/5">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Editing rate tier for:</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Editing rate tier for:</div>
             <div className="text-sm font-bold text-slate-900 dark:text-slate-50">{mapping.product?.product_name}</div>
             <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">Type: {rate.rate_type}</div>
           </div>

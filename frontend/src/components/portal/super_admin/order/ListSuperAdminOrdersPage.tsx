@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   buildPartyNameById,
@@ -54,27 +54,27 @@ function renderPriorityBadge(priority: string) {
   const p = String(priority).toLowerCase();
   if (p === "urgent") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-950/30 dark:text-rose-455/90 dark:ring-rose-500/25">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-950/30 dark:text-rose-455/90 dark:ring-rose-500/25">
         Urgent
       </span>
     );
   }
   if (p === "high") {
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-950/30 dark:text-amber-455/90 dark:ring-amber-500/20">
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-950/30 dark:text-amber-455/90 dark:ring-amber-500/20">
         High
       </span>
     );
   }
   if (p === "normal") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-950/30 dark:text-blue-455/90 dark:ring-blue-500/20">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-950/30 dark:text-blue-455/90 dark:ring-blue-500/20">
         Normal
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
+    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
       Low
     </span>
   );
@@ -101,14 +101,14 @@ function renderStatusDimensionBadge(
   return (
     <div className="flex min-w-[70px] flex-col items-start">
       <span
-        className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1 ${dimensionToneClass(dimension.tone)} break-words whitespace-normal`}
+        className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-bold uppercase tracking-wider ring-1 ${dimensionToneClass(dimension.tone)} break-words whitespace-normal`}
         title={title}
       >
         {dimension.label}
       </span>
       {dimension.detail && (
         <span
-          className="mt-0.5 break-words whitespace-normal text-[9px] font-medium text-slate-500 dark:text-slate-400"
+          className="mt-0.5 break-words whitespace-normal text-2xs font-medium text-slate-500 dark:text-slate-400"
           title={dimension.detail}
         >
           {dimension.detail}
@@ -120,7 +120,9 @@ function renderStatusDimensionBadge(
 
 export default function ListSuperAdminOrdersPage() {
   const router = useRouter();
-  const [searchQuery, setSearchQuery] = useState("");
+  const searchParams = useSearchParams();
+  const qFromUrl = searchParams.get("q") ?? "";
+  const [searchQuery, setSearchQuery] = useState(qFromUrl);
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
@@ -128,6 +130,11 @@ export default function ListSuperAdminOrdersPage() {
   const [customDateTo, setCustomDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  useEffect(() => {
+    setSearchQuery(qFromUrl);
+    if (qFromUrl) setCurrentPage(1);
+  }, [qFromUrl]);
 
   const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -362,14 +369,14 @@ export default function ListSuperAdminOrdersPage() {
                       >
                         <span>{partyLabel}</span>
                         {checkOrderPartySra(o as Record<string, unknown>, partySraById) && (
-                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-2xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
                             SRA
                           </span>
                         )}
                       </span>
-                      <div className="grid min-w-0 grid-cols-2 gap-3 text-[11px] text-slate-500 lg:col-span-2">
+                      <div className="grid min-w-0 grid-cols-2 gap-3 text-xs text-slate-500 lg:col-span-2">
                         <div className="flex flex-col">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                             Grand Total
                           </span>
                           <span className="mt-0.5 text-xs font-bold tabular-nums text-slate-900 dark:text-slate-50">
@@ -377,7 +384,7 @@ export default function ListSuperAdminOrdersPage() {
                           </span>
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                             Created
                           </span>
                           <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
@@ -387,25 +394,25 @@ export default function ListSuperAdminOrdersPage() {
                       </div>
                       <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3 lg:col-span-4">
                         <div className="flex flex-col">
-                          <span className="mb-1 text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          <span className="mb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                             Department
                           </span>
                           {renderStatusDimensionBadge(statusDims?.departmental)}
                         </div>
                         <div className="flex flex-col">
-                          <span className="mb-1 text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          <span className="mb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                             Fulfillment
                           </span>
                           {renderStatusDimensionBadge(statusDims?.fulfillment)}
                         </div>
                         <div className="flex flex-col">
-                          <span className="mb-1 text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          <span className="mb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                             Last Action
                           </span>
                           {renderStatusDimensionBadge(statusDims?.action)}
                         </div>
                       </div>
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400 lg:col-span-1 lg:text-right">
+                      <span className="text-2xs font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400 lg:col-span-1 lg:text-right">
                         {statusRaw.replaceAll("_", " ")}
                       </span>
                     </div>
@@ -420,7 +427,7 @@ export default function ListSuperAdminOrdersPage() {
       <div className="shrink-0 border-t border-slate-200 bg-white/95 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
         <div className="mx-auto flex max-w-screen-2xl flex-col sm:flex-row sm:items-center sm:justify-end">
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-slate-100 px-4 py-1.5 dark:border-white/5 sm:border-t-0">
-            <label className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <label className="whitespace-nowrap text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Status
             </label>
             <select
@@ -435,7 +442,7 @@ export default function ListSuperAdminOrdersPage() {
                 </option>
               ))}
             </select>
-            <label className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <label className="whitespace-nowrap text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Priority
             </label>
             <select

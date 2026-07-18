@@ -48,10 +48,10 @@ export function Topbar({ portal }: TopbarProps) {
   const label = portal.charAt(0).toUpperCase() + portal.slice(1);
 
   return (
-    <header className={`${showRemindersModal ? "z-[100]" : "z-[50]"} relative flex shrink-0 items-center gap-2 border-b border-slate-200/90 bg-white px-3 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] backdrop-blur-md dark:border-white/10 dark:bg-slate-950 sm:gap-3 sm:px-4 sm:py-3 md:px-6`}>
+    <header className={`${showRemindersModal ? "z-[100]" : "z-[50]"} relative flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] backdrop-blur-md sm:gap-3 sm:px-4 sm:py-3 md:px-6`}>
       <button
         type="button"
-        className="-ml-0.5 inline-flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-800 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 lg:hidden dark:text-slate-100 dark:hover:bg-white/10"
+        className="-ml-0.5 inline-flex shrink-0 items-center justify-center rounded-lg p-2 text-foreground transition hover:bg-surface-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 lg:hidden"
         aria-label="Open navigation menu"
         aria-controls="app-sidebar"
         aria-expanded={mobileNavOpen}
@@ -62,19 +62,19 @@ export function Topbar({ portal }: TopbarProps) {
 
       <Link
         href={`/${portal}`}
-        className="min-w-0 max-w-[8rem] truncate text-sm font-semibold leading-tight text-slate-900 sm:max-w-[14rem] dark:text-slate-50 lg:hidden"
+        className="min-w-0 max-w-[8rem] truncate text-sm font-semibold leading-tight text-foreground sm:max-w-[14rem] lg:hidden"
         title={label}
       >
         {label}
       </Link>
 
-      <GlobalSearch />
+      <GlobalSearch portal={portal} />
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2 md:gap-3">
         <button
           type="button"
           onClick={toggleTheme}
-          className="inline-flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 hover:text-slate-900 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 cursor-pointer"
+          className="inline-flex shrink-0 items-center justify-center rounded-lg p-2 text-muted transition hover:bg-surface-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 cursor-pointer"
           aria-label="Toggle dark mode"
           title={isDark ? "Switch to light mode" : "Switch to dark mode"}
         >
@@ -88,7 +88,7 @@ export function Topbar({ portal }: TopbarProps) {
         <button
           type="button"
           onClick={() => setShowRemindersModal(true)}
-          className="relative inline-flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 hover:text-slate-900 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 cursor-pointer"
+          className="relative inline-flex shrink-0 items-center justify-center rounded-lg p-2 text-muted transition hover:bg-surface-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 cursor-pointer"
           title="Watch Reminders Spreadsheet"
           aria-label="Watch Reminders"
         >
@@ -108,7 +108,7 @@ export function Topbar({ portal }: TopbarProps) {
                 }
               `}</style>
               <span
-                className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-600 px-1 text-[9px] font-bold text-white shadow-lg ring-1.5 ring-white dark:ring-slate-950"
+                className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-danger px-1 text-2xs font-bold text-danger-foreground shadow-lg ring-1.5 ring-card"
                 style={{
                   animation: "pulse-bounce 2s infinite ease-in-out"
                 }}
@@ -120,7 +120,7 @@ export function Topbar({ portal }: TopbarProps) {
         </button>
 
         <NotificationBell />
-        <div className="hidden h-6 w-px bg-slate-200/90 sm:block dark:bg-white/10" />
+        <div className="hidden h-6 w-px bg-border sm:block" />
         <UserMenuDropdown portal={portal} user={user} />
       </div>
 

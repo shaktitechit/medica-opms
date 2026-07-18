@@ -334,7 +334,7 @@ export function CreateAccountDispatchModal({
                 </div>
               </div>
               {activeApproval ? (
-                <div className="mt-3 space-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+                <div className="mt-3 space-y-1 text-xs text-slate-600 dark:text-slate-300">
                   <p>
                     Linked approval batch{" "}
                     <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-300">
@@ -477,7 +477,7 @@ export function CreateAccountDispatchModal({
                           <p className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
                             {billDocumentFile.name}
                           </p>
-                          <p className="text-[10px] text-slate-500">
+                          <p className="text-2xs text-slate-500">
                             {(billDocumentFile.size / 1024 / 1024).toFixed(2)} MB
                           </p>
                         </div>
@@ -490,7 +490,7 @@ export function CreateAccountDispatchModal({
                         </button>
                       </div>
                     ) : (
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         Upload invoice or bill copy (PDF, image, or Word) or paste a screenshot directly (Ctrl+V / Cmd+V).
                       </p>
                     )}
@@ -517,7 +517,7 @@ export function CreateAccountDispatchModal({
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       Dispatch preview
                     </h4>
-                    <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
+                    <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">
                       This batch: {previewDispatchTotal}
                     </span>
                   </div>
@@ -554,7 +554,7 @@ export function CreateAccountDispatchModal({
                                     {row.productName}
                                   </span>
                                   {row.sku ? (
-                                    <span className="text-[10px] text-slate-400">
+                                    <span className="text-2xs text-slate-400">
                                       SKU {row.sku}
                                     </span>
                                   ) : null}
@@ -598,7 +598,7 @@ export function CreateAccountDispatchModal({
                         )}
                       </tbody>
                       {previewRows.length > 0 ? (
-                        <tfoot className="border-t border-slate-200/80 bg-slate-50/80 text-[11px] font-semibold dark:border-white/10 dark:bg-slate-950/40">
+                        <tfoot className="border-t border-slate-200/80 bg-slate-50/80 text-xs font-semibold dark:border-white/10 dark:bg-slate-950/40">
                           <tr>
                             <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300">Total</td>
                             <td className="px-4 py-2.5 text-center tabular-nums text-slate-600 dark:text-slate-400">

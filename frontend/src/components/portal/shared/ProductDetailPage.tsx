@@ -86,7 +86,7 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded bg-slate-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
+              <span className="rounded bg-slate-900 px-2 py-0.5 text-2xs font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
                 {portalName}
               </span>
               <span className="text-xs font-medium text-slate-550 dark:text-slate-400">Product Specifications</span>

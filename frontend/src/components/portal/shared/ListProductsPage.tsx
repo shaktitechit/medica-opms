@@ -111,14 +111,14 @@ function formatMoney(v: unknown): string {
 function renderActiveBadge(active: boolean) {
   if (active) {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-green-600/10 dark:ring-green-500/20">
+      <span className="inline-flex items-center gap-1 text-2xs font-semibold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-green-600/10 dark:ring-green-500/20">
         <span className="h-1.5 w-1.5 rounded-full bg-green-600 dark:bg-green-400" />
         Active
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
+    <span className="inline-flex items-center gap-1 text-2xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
       <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
       Inactive
     </span>
@@ -624,11 +624,11 @@ export default function ListProductsPage({
                                 <span className="font-bold text-slate-900 dark:text-slate-50 break-words">
                                   {name}
                                 </span>
-                                <span className="inline-flex items-center rounded-md bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10 capitalize">
+                                <span className="inline-flex items-center rounded-md bg-slate-50 px-1.5 py-0.5 text-2xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10 capitalize">
                                   {unit}
                                 </span>
                               </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-slate-500 dark:text-slate-400">
                                 {sku ? (
                                   <span className="font-mono uppercase tracking-wider bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
                                     SKU: {sku}
@@ -666,11 +666,11 @@ export default function ListProductsPage({
                               <strong className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums">
                                 ₹{basePrice}
                               </strong>
-                              <span className="text-[10px] text-slate-400 mx-1">/</span>
+                              <span className="text-2xs text-slate-400 mx-1">/</span>
                               <strong className="font-medium text-slate-700 dark:text-slate-300 tabular-nums">
                                 ₹{mrpPrice}
                               </strong>
-                              <span className="text-[10px] text-slate-400 ml-1.5 bg-slate-100 dark:bg-slate-800 px-1 rounded">
+                              <span className="text-2xs text-slate-400 ml-1.5 bg-slate-100 dark:bg-slate-800 px-1 rounded">
                                 {gstStr} GST
                               </span>
                             </span>

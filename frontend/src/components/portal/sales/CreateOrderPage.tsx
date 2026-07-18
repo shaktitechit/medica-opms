@@ -26,6 +26,7 @@ import {
   useLazyListOrdersQuery,
 } from "@/store/api";
 import { useAppSelector } from "@/store";
+import { Button } from "@/components/ui/Button";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
@@ -214,7 +215,7 @@ function PartyAutocomplete({
                     {name}
                     {type && <span className="text-xs text-slate-400 ml-1">{type}</span>}
                     {p.sra === true && (
-                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 ml-1.5">
+                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-2xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 ml-1.5">
                         SRA
                       </span>
                     )}
@@ -341,8 +342,8 @@ function ProductAutocomplete({
                 >
                   <span className="truncate">
                     {name}
-                    {sku && <span className="text-[10px] text-slate-500 dark:text-slate-400 ml-1">{sku}</span>}
-                    {brand && <span className="text-[10px] text-slate-400 ml-1">{brand}</span>}
+                    {sku && <span className="text-2xs text-slate-500 dark:text-slate-400 ml-1">{sku}</span>}
+                    {brand && <span className="text-2xs text-slate-400 ml-1">{brand}</span>}
                   </span>
                   {isSelected && <Check className="h-3.5 w-3.5 flex-shrink-0 text-blue-600 dark:text-blue-400" />}
                 </button>
@@ -686,7 +687,7 @@ export default function CreateOrderPage() {
                   <div className="grid gap-3 grid-cols-1 lg:grid-cols-12">
                     {/* Product */}
                     <div className="space-y-1 lg:col-span-6">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         Product
                       </span>
                       <ProductAutocomplete
@@ -699,7 +700,7 @@ export default function CreateOrderPage() {
 
                     {/* Qty */}
                     <div className="space-y-1 lg:col-span-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         Qty
                       </span>
                       <input
@@ -725,7 +726,7 @@ export default function CreateOrderPage() {
 
                     {/* Free Qty */}
                     <div className="space-y-1 lg:col-span-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         Free
                       </span>
                       <input
@@ -751,7 +752,7 @@ export default function CreateOrderPage() {
 
                     {/* Rate Type */}
                     <div className="space-y-1 lg:col-span-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         Rate Type
                       </span>
                       <select
@@ -772,7 +773,7 @@ export default function CreateOrderPage() {
                   <div className="grid gap-3 grid-cols-1 lg:grid-cols-12 pt-2 border-t border-slate-100/50 dark:border-white/5">
                     {/* Remarks */}
                     <div className="space-y-1 lg:col-span-11">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         Line Remarks
                       </span>
                       <input
@@ -867,15 +868,15 @@ export default function CreateOrderPage() {
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-100 dark:border-white/5">
-                <button
+              <div className="pt-3 border-t border-border">
+                <Button
                   type="submit"
                   disabled={isLoading}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/25 transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:shadow-none dark:hover:bg-blue-400"
+                  className="w-full font-semibold shadow-md shadow-primary/25"
                 >
                   {isLoading ? (
                     <>
-                      <svg className="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                      <svg className="h-4 w-4 animate-spin text-primary-foreground" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
@@ -884,7 +885,7 @@ export default function CreateOrderPage() {
                   ) : (
                     "Save draft order"
                   )}
-                </button>
+                </Button>
               </div>
             </section>
           </div>

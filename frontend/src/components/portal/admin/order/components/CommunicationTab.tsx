@@ -153,7 +153,7 @@ export default function CommunicationTab({
 
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="min-w-[10rem] flex-1 space-y-1">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Recipient
           </label>
           <div className="relative">
@@ -171,7 +171,7 @@ export default function CommunicationTab({
           </div>
         </div>
         <div className="space-y-1">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Channel
           </label>
           <select
@@ -190,7 +190,7 @@ export default function CommunicationTab({
           </select>
         </div>
         <div className="space-y-1">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Status
           </label>
           <select
@@ -220,7 +220,7 @@ export default function CommunicationTab({
       <div className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="border-b border-slate-100 bg-slate-50/80 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:border-white/5 dark:bg-slate-950/50">
+            <thead className="border-b border-slate-100 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-white/5 dark:bg-slate-950/50">
               <tr>
                 <th className="px-4 py-3">When</th>
                 <th className="px-4 py-3">Channel</th>
@@ -281,14 +281,14 @@ export default function CommunicationTab({
                           {preview}
                         </div>
                         {row.error ? (
-                          <div className="mt-0.5 truncate text-[11px] text-rose-600" title={row.error}>
+                          <div className="mt-0.5 truncate text-xs text-rose-600" title={row.error}>
                             {row.error}
                           </div>
                         ) : null}
                       </td>
                       <td className="px-4 py-3">
                         <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset ${statusTone(row.status)}`}
+                          className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-bold uppercase tracking-wide ring-1 ring-inset ${statusTone(row.status)}`}
                         >
                           {row.status}
                         </span>

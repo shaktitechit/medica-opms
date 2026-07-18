@@ -117,13 +117,13 @@ function FlagsList({
           >
             <div className="flex items-start justify-between gap-2">
               <span
-                className={`rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wider capitalize ${getSeverityBadgeClass(
+                className={`rounded px-1.5 py-0.5 text-2xs font-bold tracking-wider capitalize ${getSeverityBadgeClass(
                   String(flag.severity ?? ""),
                 )}`}
               >
                 {String(flag.severity || "medium")}
               </span>
-              <span className="font-mono text-[9px] text-slate-400 dark:text-slate-500 font-semibold">
+              <span className="font-mono text-2xs text-slate-400 dark:text-slate-500 font-semibold">
                 {formatStatusLabel(String(flag.flag_type ?? ""))}
               </span>
             </div>
@@ -133,12 +133,12 @@ function FlagsList({
             </h4>
 
             {flag.description ? (
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
                 {String(flag.description)}
               </p>
             ) : null}
 
-            <div className="mt-3 flex flex-col gap-1.5 border-t border-slate-150/60 pt-2.5 text-[10px] dark:border-white/5 font-sans">
+            <div className="mt-3 flex flex-col gap-1.5 border-t border-slate-150/60 pt-2.5 text-2xs dark:border-white/5 font-sans">
               <div className="flex items-center justify-between">
                 <span className="text-slate-455">Order Ref:</span>
                 <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
@@ -150,7 +150,7 @@ function FlagsList({
                 <span className="text-slate-455">Action:</span>
                 <Link
                   href={urlPath}
-                  className={`group inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[9px] font-bold tracking-wide uppercase transition ${departmentButtonColors[currentDepartment] || "bg-slate-100 text-slate-800 hover:bg-slate-150"}`}
+                  className={`group inline-flex items-center gap-1 rounded border px-2 py-0.5 text-2xs font-bold tracking-wide uppercase transition ${departmentButtonColors[currentDepartment] || "bg-slate-100 text-slate-800 hover:bg-slate-150"}`}
                 >
                   <span>View</span>
                   <ExternalLink className="h-2.5 w-2.5 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
@@ -224,7 +224,7 @@ export function OverviewFlagsWidget({
           <Flag className="h-4 w-4" />
           <span className="hidden sm:inline">{title}</span>
           <span className="sm:hidden">Alerts</span>
-          <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white dark:bg-rose-500">
+          <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-2xs font-bold leading-none text-white dark:bg-rose-500">
             {isFlagsFetching ? "…" : flagCount}
           </span>
         </button>
@@ -238,7 +238,7 @@ export function OverviewFlagsWidget({
                   <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
                     {title}
                   </h3>
-                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-955/30 dark:text-rose-400">
+                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-bold text-rose-700 dark:bg-rose-955/30 dark:text-rose-400">
                     {flagCount}
                   </span>
                 </div>
@@ -280,7 +280,7 @@ export function OverviewFlagsWidget({
             {title}
           </h3>
         </div>
-        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-955/30 dark:text-rose-400">
+        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-bold text-rose-700 dark:bg-rose-955/30 dark:text-rose-400">
           {flagCount}
         </span>
       </div>

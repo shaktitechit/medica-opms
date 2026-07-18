@@ -116,7 +116,7 @@ export function ListEntitySearchPanel({
           {filters.map((f) => (
             <div key={f.id} className="flex shrink-0 flex-wrap items-center gap-2">
               {f.label ? (
-                <span className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <span className="whitespace-nowrap text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                   {f.label}
                 </span>
               ) : null}

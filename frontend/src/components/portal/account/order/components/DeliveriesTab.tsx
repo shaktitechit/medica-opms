@@ -153,7 +153,7 @@ export function DeliveriesTab({ orderId, detail }: DeliveriesTabProps) {
 
                     <div className="space-y-4 rounded-lg bg-slate-50/50 p-4 border border-slate-100 dark:bg-slate-950/10 dark:border-white/5 text-xs">
                       <div>
-                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                        <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                           Recipient Information
                         </span>
                         <div className="space-y-0.5">
@@ -173,7 +173,7 @@ export function DeliveriesTab({ orderId, detail }: DeliveriesTabProps) {
                       </div>
 
                       <div>
-                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                        <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                           Linked References
                         </span>
                         <div className="space-y-0.5">
@@ -193,7 +193,7 @@ export function DeliveriesTab({ orderId, detail }: DeliveriesTabProps) {
                       </div>
 
                       <div>
-                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                        <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                           Overall Remarks
                         </span>
                         <p className="italic text-slate-700 dark:text-slate-300">

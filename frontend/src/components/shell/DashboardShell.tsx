@@ -60,11 +60,11 @@ export function DashboardShell({ portal, children }: DashboardShellProps) {
 
   return (
     <ShellNavContext.Provider value={navValue}>
-      <div className="relative flex h-[100vh] max-h-[100vh] min-h-0 w-full flex-row overflow-hidden bg-slate-100 dark:bg-slate-950 supports-[height:100dvh]:max-h-[100dvh] supports-[height:100dvh]:h-[100dvh]">
+      <div className="relative flex h-[100vh] max-h-[100vh] min-h-0 w-full flex-row overflow-hidden bg-background supports-[height:100dvh]:max-h-[100dvh] supports-[height:100dvh]:h-[100dvh]">
         <div
           aria-hidden={!mobileNavOpen}
           className={[
-            "fixed inset-0 z-[35] bg-slate-900/45 backdrop-blur-[2px] transition-opacity duration-300 lg:hidden",
+            "fixed inset-0 z-[35] bg-foreground/45 backdrop-blur-[2px] transition-opacity duration-300 lg:hidden",
             mobileNavOpen
               ? "pointer-events-auto opacity-100"
               : "pointer-events-none opacity-0",

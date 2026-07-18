@@ -42,7 +42,7 @@ function rowKey(row: unknown): string {
 
 function renderAgentTypeBadge(typeStr: string) {
   return (
-    <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-700/10 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-500/20 capitalize">
+    <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-700/10 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-500/20 capitalize">
       {typeStr}
     </span>
   );
@@ -51,7 +51,7 @@ function renderAgentTypeBadge(typeStr: string) {
 function renderAgentStatusBadge(status: string) {
   if (status === "active") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] text-green-700 dark:text-green-400 font-semibold bg-green-50 dark:bg-green-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-green-600/10 dark:ring-green-500/20">
+      <span className="inline-flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400 font-semibold bg-green-50 dark:bg-green-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-green-600/10 dark:ring-green-500/20">
         <span className="h-1.5 w-1.5 rounded-full bg-green-600 dark:bg-green-400" />
         Active
       </span>
@@ -59,14 +59,14 @@ function renderAgentStatusBadge(status: string) {
   }
   if (status === "blacklisted") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] text-rose-700 dark:text-rose-455 font-semibold bg-rose-50 dark:bg-rose-950/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-rose-700/10 dark:ring-rose-500/25">
+      <span className="inline-flex items-center gap-1.5 text-xs text-rose-700 dark:text-rose-455 font-semibold bg-rose-50 dark:bg-rose-950/30 px-2 py-0.5 rounded-full ring-1 ring-inset ring-rose-700/10 dark:ring-rose-500/25">
         <span className="h-1.5 w-1.5 rounded-full bg-rose-600 dark:bg-rose-400" />
         Blacklisted
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 font-medium bg-slate-50 dark:bg-slate-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
+    <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium bg-slate-50 dark:bg-slate-500/10 px-2 py-0.5 rounded-full ring-1 ring-inset ring-slate-500/10 dark:ring-slate-500/20">
       <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
       Inactive
     </span>
@@ -303,7 +303,7 @@ export default function ListTransportAgentsPage({
                         <td className="px-4 py-3">
                           <div className="font-semibold text-slate-800 dark:text-slate-200">{name}</div>
                           {code && code !== "—" && (
-                            <div className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            <div className="mt-0.5 font-mono text-2xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
                               {code}
                             </div>
                           )}
@@ -315,7 +315,7 @@ export default function ListTransportAgentsPage({
                           <div className="font-semibold text-slate-800 dark:text-slate-200">{contact}</div>
                           <div className="mt-0.5 tabular-nums text-slate-500 dark:text-slate-400">{mob}</div>
                           {email ? (
-                            <div className="mt-0.5 font-mono text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]" title={email}>
+                            <div className="mt-0.5 font-mono text-2xs text-slate-500 dark:text-slate-400 truncate max-w-[200px]" title={email}>
                               {email}
                             </div>
                           ) : null}

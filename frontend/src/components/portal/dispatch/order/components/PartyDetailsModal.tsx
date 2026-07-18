@@ -117,13 +117,13 @@ export default function PartyDetailsModal({
                   <div className="grid gap-3 border-t border-slate-100 pt-3 dark:border-white/10 sm:grid-cols-2">
                     <div>
                       <dt className="text-xs font-medium text-slate-500">Billing Address</dt>
-                      <dd className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-2 text-[11px] text-slate-700 dark:bg-slate-955/40 dark:text-slate-300 font-sans">
+                      <dd className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-2 text-xs text-slate-700 dark:bg-slate-955/40 dark:text-slate-300 font-sans">
                         {formatStructuredAddress(p.billing_address)}
                       </dd>
                     </div>
                     <div>
                       <dt className="text-xs font-medium text-slate-500">Shipping Address</dt>
-                      <dd className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-2 text-[11px] text-slate-700 dark:bg-slate-955/40 dark:text-slate-300 font-sans">
+                      <dd className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-2 text-xs text-slate-700 dark:bg-slate-955/40 dark:text-slate-300 font-sans">
                         {formatStructuredAddress(p.shipping_address)}
                       </dd>
                     </div>

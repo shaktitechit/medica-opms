@@ -12,13 +12,13 @@ export default function DashboardCard({
   children,
 }: DashboardCardProps) {
   return (
-    <section className="rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900">
+    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <header className="mb-3">
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+        <h2 className="text-sm font-semibold text-foreground">
           {title}
         </h2>
         {description ? (
-          <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">
+          <p className="mt-0.5 text-xs text-muted">
             {description}
           </p>
         ) : null}

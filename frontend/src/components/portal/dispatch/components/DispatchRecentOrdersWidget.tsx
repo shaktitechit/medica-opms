@@ -54,27 +54,27 @@ function renderPriorityBadge(priority: string) {
   const p = String(priority).toLowerCase();
   if (p === "urgent") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455/90 dark:ring-rose-500/25">
         Urgent
       </span>
     );
   }
   if (p === "high") {
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-455/90 dark:ring-amber-500/20">
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-455/90 dark:ring-amber-500/20">
         High
       </span>
     );
   }
   if (p === "normal") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-955/30 dark:text-blue-455/90 dark:ring-blue-500/20">
         Normal
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
+    <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10">
       Low
     </span>
   );
@@ -130,7 +130,7 @@ function renderWorkflowStatusBadge(category: DispatchOrderTabCategory) {
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-bold uppercase tracking-wider ring-1 ring-inset ${bgClass}`}
     >
       {label}
     </span>
@@ -374,16 +374,16 @@ export default function DispatchRecentOrdersWidget({
                     >
                       <span>{partyLabel}</span>
                       {checkOrderPartySra(row, partySraById) && (
-                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
+                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-2xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 shrink-0">
                           SRA
                         </span>
                       )}
                     </span>
 
                     {/* Financials & Dates */}
-                    <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-6 sm:w-[260px] sm:shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
+                    <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-6 sm:w-[260px] sm:shrink-0 text-xs text-slate-500 dark:text-slate-400">
                       <div className="flex flex-col min-w-[75px]">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                           Grand Total
                         </span>
                         <span className="mt-0.5 font-bold tabular-nums text-slate-900 dark:text-slate-50 text-xs">
@@ -391,7 +391,7 @@ export default function DispatchRecentOrdersWidget({
                         </span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                           Order Date
                         </span>
                         <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-350">
@@ -399,7 +399,7 @@ export default function DispatchRecentOrdersWidget({
                         </span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                           Expected Delivery
                         </span>
                         <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
@@ -411,7 +411,7 @@ export default function DispatchRecentOrdersWidget({
 
                   {/* Bottom Row: Pipeline */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5 font-sans">
-                    <span className="text-slate-400 dark:text-slate-505 font-bold text-[9px] uppercase tracking-wider">
+                    <span className="text-slate-400 dark:text-slate-505 font-bold text-2xs uppercase tracking-wider">
                       Fulfillment Pipeline
                     </span>
                     <div className="flex items-center gap-4 sm:gap-6">

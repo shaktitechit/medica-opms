@@ -353,7 +353,7 @@ export default function AttachmentsTab({
                       <p className="text-xs font-semibold text-slate-900 truncate max-w-[200px]" title={uploadFile.name}>
                         {uploadFile.name}
                       </p>
-                      <p className="text-[10px] text-slate-500">
+                      <p className="text-2xs text-slate-500">
                         {(uploadFile.size / 1024 / 1024).toFixed(2)} MB
                       </p>
                     </div>

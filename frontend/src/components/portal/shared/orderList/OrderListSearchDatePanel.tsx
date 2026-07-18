@@ -92,7 +92,7 @@ export function OrderListSearchDatePanel({
               title="From date"
               aria-label="From date"
             />
-            <span className="text-[10px] text-slate-400">—</span>
+            <span className="text-2xs text-slate-400">—</span>
             <input
               type="date"
               value={customDateTo}
@@ -131,7 +131,7 @@ export function OrderListSearchDatePanel({
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <span className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <span className="whitespace-nowrap text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Order Date
             </span>
             <select

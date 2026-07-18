@@ -97,11 +97,11 @@ export function OrderListBottomTabStrip({
                   <span className="hidden md:inline">{tab.label}</span>
                   {isActive && !isFetching && (
                     <>
-                      <span className="hidden rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 md:inline">
+                      <span className="hidden rounded-full bg-blue-100 px-1.5 py-0.5 text-2xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 md:inline">
                         {filteredCount}
                       </span>
                       <span
-                        className={`absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold text-white md:hidden ${countBadgeClass}`}
+                        className={`absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-2xs font-bold text-white md:hidden ${countBadgeClass}`}
                       >
                         {filteredCount}
                       </span>
@@ -114,7 +114,7 @@ export function OrderListBottomTabStrip({
         )}
 
         <div className={`flex shrink-0 items-center gap-2 border-t border-slate-100 px-4 dark:border-white/5 sm:border-t-0 ${filterPy}`}>
-          <label className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <label className="whitespace-nowrap text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
             {filterLabel}
           </label>
           <select

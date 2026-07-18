@@ -34,16 +34,16 @@ function SummaryPill({
 }) {
   return (
     <div className="min-w-0 flex-1 rounded-lg border border-slate-200/80 bg-slate-50/80 px-2.5 py-2 dark:border-white/10 dark:bg-white/[0.03]">
-      <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <div className="text-2xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {title}
       </div>
       <div
-        className={`mt-1 inline-flex max-w-full rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${dimensionToneClass(dimension.tone)}`}
+        className={`mt-1 inline-flex max-w-full rounded-full px-2 py-0.5 text-2xs font-semibold ring-1 ${dimensionToneClass(dimension.tone)}`}
       >
         <span className="truncate">{dimension.label}</span>
       </div>
       {dimension.detail ? (
-        <p className="mt-1 truncate text-[10px] text-slate-500 dark:text-slate-400">
+        <p className="mt-1 truncate text-2xs text-slate-500 dark:text-slate-400">
           {dimension.detail}
         </p>
       ) : null}
@@ -55,18 +55,18 @@ function DepartmentBox({ box }: { box: DepartmentStageBox }) {
   return (
     <div className="flex min-w-0 flex-col rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-slate-900/80">
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <span className="text-2xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           {box.department}
         </span>
         <span
-          className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold ring-1 ${dimensionToneClass(box.status.tone)}`}
+          className={`shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold ring-1 ${dimensionToneClass(box.status.tone)}`}
         >
           {box.status.label}
         </span>
       </div>
 
       {box.status.detail ? (
-        <p className="mt-1.5 text-[10px] leading-snug text-slate-600 dark:text-slate-400">
+        <p className="mt-1.5 text-2xs leading-snug text-slate-600 dark:text-slate-400">
           {box.status.detail}
         </p>
       ) : null}
@@ -74,14 +74,14 @@ function DepartmentBox({ box }: { box: DepartmentStageBox }) {
       {["dispatch", "delivery", "return"].includes(String(box.id || "").toLowerCase()) ? (
         <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2 dark:border-white/10">
           <div>
-            <div className="text-[9px] font-medium uppercase text-slate-400">Done</div>
+            <div className="text-2xs font-medium uppercase text-slate-400">Done</div>
             <div className="text-sm font-bold tabular-nums text-slate-900 dark:text-slate-100">
               {box.completedQty}
             </div>
-            <div className="text-[9px] text-slate-500">{box.progressLabel}</div>
+            <div className="text-2xs text-slate-500">{box.progressLabel}</div>
           </div>
           <div>
-            <div className="text-[9px] font-medium uppercase text-slate-400">Remaining</div>
+            <div className="text-2xs font-medium uppercase text-slate-400">Remaining</div>
             <div
               className={`text-sm font-bold tabular-nums ${
                 box.remainingQty > 0
@@ -91,16 +91,16 @@ function DepartmentBox({ box }: { box: DepartmentStageBox }) {
             >
               {box.remainingQty}
             </div>
-            <div className="text-[9px] text-slate-500">of {box.totalQty} cap</div>
+            <div className="text-2xs text-slate-500">of {box.totalQty} cap</div>
           </div>
         </div>
       ) : null}
 
       {box.action ? (
         <div className="mt-2 border-t border-slate-100 pt-2 dark:border-white/10">
-          <div className="text-[9px] font-medium uppercase text-slate-400">Latest action</div>
+          <div className="text-2xs font-medium uppercase text-slate-400">Latest action</div>
           <span
-            className={`mt-1 inline-flex max-w-full rounded-full px-2 py-0.5 text-[9px] font-semibold ring-1 ${dimensionToneClass(box.action.tone)}`}
+            className={`mt-1 inline-flex max-w-full rounded-full px-2 py-0.5 text-2xs font-semibold ring-1 ${dimensionToneClass(box.action.tone)}`}
           >
             {box.action.label}
           </span>
@@ -119,8 +119,8 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
 
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-white/10">
-      <table className="w-full min-w-[980px] text-left text-[11px]">
-        <thead className="bg-slate-50/90 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-950/50 dark:text-slate-400">
+      <table className="w-full min-w-[980px] text-left text-xs">
+        <thead className="bg-slate-50/90 text-2xs font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-950/50 dark:text-slate-400">
           <tr>
             <th className="px-3 py-2">Item</th>
             <th className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-400">
@@ -142,7 +142,7 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
                   {line.product_name}
                 </span>
                 {line.sku ? (
-                  <span className="mt-0.5 block font-mono text-[9px] text-slate-400">
+                  <span className="mt-0.5 block font-mono text-2xs text-slate-400">
                     {line.sku}
                   </span>
                 ) : null}
@@ -211,7 +211,7 @@ export function OrderDepartmentFulfillmentPanel({
 
       {showItemsTable ? (
         <div>
-          <h3 className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <h3 className="mb-2 text-2xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Item fulfillment &amp; remaining quantities
           </h3>
           <ItemsFulfillmentTable lines={lines} />

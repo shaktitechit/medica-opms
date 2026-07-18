@@ -16,7 +16,7 @@ function ContactCard({ contact, index }: { contact: PartyContact; index: number 
           {contact.name || "Unnamed contact"}
         </h4>
         {index === 0 ? (
-          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">
             Primary
           </span>
         ) : null}

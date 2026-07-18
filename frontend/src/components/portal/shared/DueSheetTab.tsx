@@ -89,27 +89,27 @@ function statusBadge(status: unknown, isCurrent: boolean) {
   const normalized = String(status || "active").toLowerCase();
   if (isCurrent && normalized === "active") {
     return (
-      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400">
+      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400">
         Current
       </span>
     );
   }
   if (normalized === "superseded") {
     return (
-      <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 ring-1 ring-inset ring-amber-600/10 dark:bg-amber-500/10 dark:text-amber-400">
+      <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wide text-amber-700 ring-1 ring-inset ring-amber-600/10 dark:bg-amber-500/10 dark:text-amber-400">
         Superseded
       </span>
     );
   }
   if (normalized === "archived") {
     return (
-      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400">
+      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-bold uppercase tracking-wide text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400">
         Archived
       </span>
     );
   }
   return (
-    <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700 ring-1 ring-inset ring-blue-600/10 dark:bg-blue-500/10 dark:text-blue-400">
+    <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wide text-blue-700 ring-1 ring-inset ring-blue-600/10 dark:bg-blue-500/10 dark:text-blue-400">
       Active
     </span>
   );
@@ -342,7 +342,7 @@ export function DueSheetTab({ orderId, onUploadSuccess }: DueSheetTabProps) {
                     <p className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
                       {uploadFile.name}
                     </p>
-                    <p className="text-[10px] text-slate-500">
+                    <p className="text-2xs text-slate-500">
                       {(uploadFile.size / 1024 / 1024).toFixed(2)} MB
                     </p>
                   </div>
@@ -427,7 +427,7 @@ export function DueSheetTab({ orderId, onUploadSuccess }: DueSheetTabProps) {
                     <p className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
                       {replaceFile.name}
                     </p>
-                    <p className="text-[10px] text-slate-500">
+                    <p className="text-2xs text-slate-500">
                       {(replaceFile.size / 1024 / 1024).toFixed(2)} MB
                     </p>
                   </div>
@@ -589,7 +589,7 @@ export function DueSheetTab({ orderId, onUploadSuccess }: DueSheetTabProps) {
                     <p className="mt-1 truncate text-xs text-slate-600 dark:text-slate-300">
                       {doc?.name ?? "No document linked"}
                     </p>
-                    <p className="mt-1 text-[11px] text-slate-500">
+                    <p className="mt-1 text-xs text-slate-500">
                       {formatDate(sheet.sheet_date)} · {userLabel(sheet.created_by)}
                     </p>
                   </div>

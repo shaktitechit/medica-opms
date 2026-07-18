@@ -124,7 +124,7 @@ export function ApprovalTab({ orderId, detail }: ApprovalTabProps) {
                         {appNo}
                       </span>
                       <span className="text-slate-300">|</span>
-                      <span className="font-sans text-[10px] text-slate-500 font-semibold">
+                      <span className="font-sans text-2xs text-slate-500 font-semibold">
                         Revision #{revisionNumber}
                       </span>
                     </div>
@@ -135,41 +135,41 @@ export function ApprovalTab({ orderId, detail }: ApprovalTabProps) {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         {app.is_admin_approved ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20">
                             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
                             Admin Approved
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-600/15 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-500/20">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-600/15 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-500/20">
                             <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
                             Admin Review Pending
                           </span>
                         )}
 
                         {app.is_finance_approved ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20">
                             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
                             Finance Approved
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-900 dark:text-slate-300 dark:ring-white/10">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-900 dark:text-slate-300 dark:ring-white/10">
                             Finance Pending
                           </span>
                         )}
 
                         {app.is_account_approved ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20">
                             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
                             Account Approved
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-900 dark:text-slate-300 dark:ring-white/10">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-600/10 dark:bg-slate-900 dark:text-slate-300 dark:ring-white/10">
                             Account Pending
                           </span>
                         )}
                       </div>
 
-                      <div className="mt-2 space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
                         {Boolean(app.is_sales_submited) && (
                           <p>
                             <b>Sales:</b> Submitted by <span className="font-medium text-slate-700 dark:text-slate-200">{salesSubmittedByLabel}</span>
@@ -252,11 +252,11 @@ export function ApprovalTab({ orderId, detail }: ApprovalTabProps) {
                                     <div className="flex flex-col">
                                       <span className="font-semibold">{rateType}</span>
                                       {rateMapped ? (
-                                        <span className="text-[9px] text-emerald-600 font-semibold dark:text-emerald-400 leading-none">
+                                        <span className="text-2xs text-emerald-600 font-semibold dark:text-emerald-400 leading-none">
                                           Negotiated
                                         </span>
                                       ) : (
-                                        <span className="text-[9px] text-slate-400 font-medium dark:text-slate-500 leading-none">
+                                        <span className="text-2xs text-slate-400 font-medium dark:text-slate-500 leading-none">
                                           Manual
                                         </span>
                                       )}
@@ -269,7 +269,7 @@ export function ApprovalTab({ orderId, detail }: ApprovalTabProps) {
                                     <div className="flex flex-col">
                                       <span className="font-semibold">{qty}</span>
                                       {freeQty > 0 ? (
-                                        <span className="text-[9px] text-indigo-600 dark:text-indigo-400 leading-none">
+                                        <span className="text-2xs text-indigo-600 dark:text-indigo-400 leading-none">
                                           +{freeQty} free
                                         </span>
                                       ) : null}

@@ -573,7 +573,7 @@ export function BulkUploadProductsModal({
                         <td className="px-3 py-2 max-w-[120px] truncate">
                           {p.generic_name || "—"}
                         </td>
-                        <td className="px-3 py-2 font-mono text-[11px] max-w-[120px] truncate">
+                        <td className="px-3 py-2 font-mono text-xs max-w-[120px] truncate">
                           {p.sku || "—"}
                         </td>
                         <td className="px-3 py-2 capitalize">
@@ -608,11 +608,11 @@ export function BulkUploadProductsModal({
                         </td>
                         <td className="px-3 py-2">
                           {p.status === "ready" ? (
-                            <span className="inline-flex items-center gap-1 rounded bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-950/30 dark:text-green-400">
+                            <span className="inline-flex items-center gap-1 rounded bg-green-50 px-1.5 py-0.5 text-2xs font-semibold text-green-700 dark:bg-green-950/30 dark:text-green-400">
                               Ready
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-400" title={p.reason}>
+                            <span className="inline-flex items-center gap-1 rounded bg-rose-50 px-1.5 py-0.5 text-2xs font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-400" title={p.reason}>
                               Skipped: {p.reason}
                             </span>
                           )}

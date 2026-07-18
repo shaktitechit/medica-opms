@@ -540,7 +540,7 @@ export function ApprovalModal({
                                 {String(p.product_name)}
                               </span>
                               {Boolean(p.sku) && (
-                                <span className="ml-2 text-[10px] text-slate-400 font-mono">
+                                <span className="ml-2 text-2xs text-slate-400 font-mono">
                                   ({String(p.sku)})
                                 </span>
                               )}
@@ -614,13 +614,13 @@ export function ApprovalModal({
                           <span className="font-medium text-slate-900 dark:text-slate-100">
                             {line.product_name}
                             {line.isNew && (
-                              <span className="ml-1.5 text-[9px] font-semibold text-blue-600 bg-blue-50 dark:bg-blue-950/40 px-1 py-0.5 rounded">
+                              <span className="ml-1.5 text-2xs font-semibold text-blue-600 bg-blue-50 dark:bg-blue-950/40 px-1 py-0.5 rounded">
                                 NEW
                               </span>
                             )}
                           </span>
                           {line.sku ? (
-                            <span className="mt-0.5 block text-[10px] text-slate-500 font-mono">
+                            <span className="mt-0.5 block text-2xs text-slate-500 font-mono">
                               {line.sku}
                             </span>
                           ) : null}
@@ -728,7 +728,7 @@ export function ApprovalModal({
                                 type="button"
                                 onClick={() => openMapModal(line)}
                                 disabled={busy}
-                                className="inline-flex items-center justify-center rounded bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm hover:bg-blue-700 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer transition-colors"
+                                className="inline-flex items-center justify-center rounded bg-blue-600 px-2 py-0.5 text-2xs font-bold text-white shadow-sm hover:bg-blue-700 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer transition-colors"
                               >
                                 Map
                               </button>
@@ -776,7 +776,7 @@ export function ApprovalModal({
                 <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Send WhatsApp Notification
                 </label>
-                <p className="text-[10px] text-slate-450 dark:text-slate-400">
+                <p className="text-2xs text-slate-450 dark:text-slate-400">
                   Select contacts to receive WhatsApp approval notification:
                 </p>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
@@ -810,11 +810,11 @@ export function ApprovalModal({
                             {contact.name || "Unnamed Contact"}
                           </p>
                           {contact.department && (
-                            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
+                            <p className="text-2xs text-slate-500 dark:text-slate-400 font-medium truncate">
                               {contact.department}
                             </p>
                           )}
-                          <p className="font-mono text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          <p className="font-mono text-2xs text-slate-500 dark:text-slate-400 mt-0.5">
                             {phone || "No phone number"}
                           </p>
                         </div>
@@ -827,7 +827,7 @@ export function ApprovalModal({
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-4 dark:border-white/5">
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               One request updates order lines, creates the approval, and queues fulfillment sync.
             </p>
             <div className="flex items-center gap-2">

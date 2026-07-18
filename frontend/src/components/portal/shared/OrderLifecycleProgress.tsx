@@ -147,7 +147,7 @@ export function OrderLifecycleProgress({ status, className = "" }: OrderLifecycl
                   ) : null}
                   <div className="flex w-[13%] min-w-[52px] max-w-[88px] flex-col items-center">
                     <div
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold transition-colors ${circle}`}
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold transition-colors ${circle}`}
                       aria-current={dot === "current" || dot === "hold" ? "step" : undefined}
                     >
                       {dot === "cancel" ? (
@@ -161,7 +161,7 @@ export function OrderLifecycleProgress({ status, className = "" }: OrderLifecycl
                       )}
                     </div>
                     <p
-                      className={`mt-2 max-w-[4.5rem] text-center text-[10px] font-semibold leading-snug sm:max-w-[6rem] sm:text-[11px] ${labelClass}`}
+                      className={`mt-2 max-w-[4.5rem] text-center text-2xs font-semibold leading-snug sm:max-w-[6rem] sm:text-xs ${labelClass}`}
                     >
                       <span className="sm:hidden">{step.shortLabel}</span>
                       <span className="hidden sm:inline">{step.label}</span>

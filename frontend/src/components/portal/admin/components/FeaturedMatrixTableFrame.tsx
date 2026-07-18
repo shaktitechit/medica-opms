@@ -68,7 +68,7 @@ export default function FeaturedMatrixTableFrame({
                 <button
                   type="button"
                   onClick={() => onMetricChange("quantity")}
-                  className={`rounded-md px-2.5 py-1 text-[10px] font-semibold transition cursor-pointer ${
+                  className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
                     metric === "quantity"
                       ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
                       : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
@@ -79,7 +79,7 @@ export default function FeaturedMatrixTableFrame({
                 <button
                   type="button"
                   onClick={() => onMetricChange("volume")}
-                  className={`rounded-md px-2.5 py-1 text-[10px] font-semibold transition cursor-pointer ${
+                  className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
                     metric === "volume"
                       ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
                       : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"

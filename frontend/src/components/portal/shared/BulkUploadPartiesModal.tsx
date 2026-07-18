@@ -512,13 +512,13 @@ export function BulkUploadPartiesModal({
                               </span>
                             ) : null}
                           </td>
-                          <td className={`px-3 py-2 font-mono text-[11px] max-w-[120px] truncate ${p.status === "invalid" && p.reason?.includes("phone") ? "text-rose-600 bg-rose-50/30 dark:text-rose-400" : ""}`}>
+                          <td className={`px-3 py-2 font-mono text-xs max-w-[120px] truncate ${p.status === "invalid" && p.reason?.includes("phone") ? "text-rose-600 bg-rose-50/30 dark:text-rose-400" : ""}`}>
                             {primary?.phone || "— (Missing)"}
                           </td>
                           <td className={`px-3 py-2 truncate max-w-[140px] ${p.status === "invalid" && p.reason?.includes("email") ? "text-rose-600 bg-rose-50/30 dark:text-rose-400" : ""}`}>
                             {primary?.email || "—"}
                           </td>
-                          <td className="px-3 py-2 font-mono text-[11px] uppercase">
+                          <td className="px-3 py-2 font-mono text-xs uppercase">
                             {p.gst_no || "—"}
                           </td>
                           <td className="px-3 py-2 max-w-[100px] truncate">

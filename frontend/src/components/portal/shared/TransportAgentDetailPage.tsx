@@ -185,41 +185,41 @@ function statusBadge(status: string) {
   const s = status.toLowerCase();
   if (s === "active" || s === "available") {
     return (
-      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-700/10 dark:bg-emerald-950/30 dark:text-emerald-400">
+      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-700/10 dark:bg-emerald-950/30 dark:text-emerald-400">
         Active
       </span>
     );
   }
   if (s === "assigned") {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-950/30 dark:text-blue-400">
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-950/30 dark:text-blue-400">
         Assigned
       </span>
     );
   }
   if (s === "on_trip" || s === "in_transit") {
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-400">
+      <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-700/10 dark:bg-amber-955/30 dark:text-amber-400">
         On Trip
       </span>
     );
   }
   if (s === "maintenance" || s === "leave") {
     return (
-      <span className="inline-flex items-center rounded-full bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400">
+      <span className="inline-flex items-center rounded-full bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400">
         {s.replace(/_/g, " ")}
       </span>
     );
   }
   if (s === "inactive") {
     return (
-      <span className="inline-flex items-center rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455">
+      <span className="inline-flex items-center rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-700/10 dark:bg-rose-955/30 dark:text-rose-455">
         Inactive
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 ring-1 ring-inset ring-slate-600/10 dark:bg-white/10 dark:text-slate-300 capitalize">
+    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-inset ring-slate-600/10 dark:bg-white/10 dark:text-slate-300 capitalize">
       {s.replace(/_/g, " ")}
     </span>
   );
@@ -229,27 +229,27 @@ function shipmentStatusBadge(status: string) {
   const s = status.toLowerCase();
   if (s === "delivered") {
     return (
-      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-955/30 dark:text-emerald-400">
+      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700 dark:bg-emerald-955/30 dark:text-emerald-400">
         Delivered
       </span>
     );
   }
   if (s === "delivery_failed" || s === "returned") {
     return (
-      <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-955/30 dark:text-rose-455 capitalize">
+      <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-semibold text-rose-700 dark:bg-rose-955/30 dark:text-rose-455 capitalize">
         {s.replace(/_/g, " ")}
       </span>
     );
   }
   if (s === "in_transit" || s === "out_for_delivery") {
     return (
-      <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-955/30 dark:text-amber-400 capitalize">
+      <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-semibold text-amber-700 dark:bg-amber-955/30 dark:text-amber-400 capitalize">
         {s.replace(/_/g, " ")}
       </span>
     );
   }
   return (
-    <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-955/30 dark:text-blue-400 capitalize">
+    <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-semibold text-blue-700 dark:bg-blue-955/30 dark:text-blue-400 capitalize">
       {s.replace(/_/g, " ")}
     </span>
   );
@@ -789,7 +789,7 @@ export default function TransportAgentDetailPage({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded bg-slate-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
+              <span className="rounded bg-slate-900 px-2 py-0.5 text-2xs font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
                 Transport Agent
               </span>
               {statusBadge(stringField(detail.status) || "active")}
@@ -855,7 +855,7 @@ export default function TransportAgentDetailPage({
             <FileText className="h-4 w-4" />
             Documents
             {attachments.length > 0 ? (
-              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-2xs font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
                 {attachments.length}
               </span>
             ) : null}
@@ -874,7 +874,7 @@ export default function TransportAgentDetailPage({
             <User className="h-4 w-4" />
             Drivers
             {drivers.length > 0 ? (
-              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-2xs font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
                 {drivers.length}
               </span>
             ) : null}
@@ -893,7 +893,7 @@ export default function TransportAgentDetailPage({
             <Truck className="h-4 w-4" />
             Vehicles
             {vehicles.length > 0 ? (
-              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-2xs font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
                 {vehicles.length}
               </span>
             ) : null}
@@ -912,7 +912,7 @@ export default function TransportAgentDetailPage({
             <Route className="h-4 w-4" />
             Transports
             {transports.length > 0 ? (
-              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-2xs font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
                 {transports.length}
               </span>
             ) : null}
@@ -961,7 +961,7 @@ export default function TransportAgentDetailPage({
                             {String(att.original_name ?? att.file_name ?? "Document")}
                           </span>
                           {typeof att.remarks === "string" && att.remarks.trim() ? (
-                            <span className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                            <span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
                               {att.remarks}
                             </span>
                           ) : null}
@@ -1145,14 +1145,14 @@ export default function TransportAgentDetailPage({
                                 </h3>
                                 {statusBadge(statusStr)}
                               </div>
-                              <p className="mt-1 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-500">
+                              <p className="mt-1 flex items-center gap-1.5 font-mono text-2xs uppercase tracking-wider text-slate-500">
                                 <span>Code: {code}</span>
                               </p>
                             </div>
                           </div>
 
                           {/* Metadata */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-[11px] lg:flex-[2] max-w-lg w-full">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs lg:flex-[2] max-w-lg w-full">
                             <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 font-mono">
                               <Phone className="h-3.5 w-3.5 text-slate-400" />
                               <span>{phone}</span>
@@ -1351,19 +1351,19 @@ export default function TransportAgentDetailPage({
                                 <h3 className="text-xs font-bold text-slate-905 dark:text-slate-50 truncate font-mono uppercase tracking-wider">
                                   {num}
                                 </h3>
-                                <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 capitalize font-sans">
+                                <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-2xs font-semibold text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 capitalize font-sans">
                                   {owner}
                                 </span>
                                 {statusBadge(statusStr)}
                               </div>
-                              <p className="mt-1 text-[11px] text-slate-500 capitalize">
+                              <p className="mt-1 text-xs text-slate-500 capitalize">
                                 {type.replace(/_/g, " ")}
                               </p>
                             </div>
                           </div>
 
                           {/* Metadata */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-[11px] lg:flex-[2] max-w-lg w-full">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs lg:flex-[2] max-w-lg w-full">
                             <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 font-sans">
                               <Scale className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                               <span>Capacity: <strong>{cap}</strong></span>
@@ -1563,7 +1563,7 @@ export default function TransportAgentDetailPage({
 
                 {transportDateFilter === "custom" ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    <span className="text-2xs font-bold uppercase tracking-wider text-slate-400">
                       Dispatch date
                     </span>
                     <input
@@ -1577,7 +1577,7 @@ export default function TransportAgentDetailPage({
                       title="From date"
                       aria-label="Dispatch date from"
                     />
-                    <span className="text-[10px] text-slate-400">—</span>
+                    <span className="text-2xs text-slate-400">—</span>
                     <input
                       type="date"
                       value={transportCustomDateTo}
@@ -1622,7 +1622,7 @@ export default function TransportAgentDetailPage({
                   />
                   <div className="overflow-x-auto">
                   <table className="w-full min-w-[900px] text-left text-xs">
-                    <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-2xs font-bold uppercase tracking-wider text-slate-500">
                       <tr>
                         <th className="px-3 py-2.5">Shipment</th>
                         <th className="px-3 py-2.5">Order No</th>

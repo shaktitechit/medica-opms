@@ -92,7 +92,7 @@ export function LineRateStatusBadge({
   if (status === "negotiated") {
     return (
       <span
-        className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20"
+        className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700 ring-1 ring-emerald-600/15 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-500/20"
         title={
           mappedRate
             ? `Negotiated at ${mappedRate}${validityEnd ? ` · valid until ${validityEnd}` : ""}`
@@ -107,7 +107,7 @@ export function LineRateStatusBadge({
   if (status === "expired") {
     return (
       <span
-        className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-500/25"
+        className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-semibold text-amber-800 ring-1 ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-500/25"
         title={
           validityEnd
             ? `Negotiated period expired${mappedRate ? ` · last rate ${mappedRate}` : ""} · ended ${validityEnd}`
@@ -121,7 +121,7 @@ export function LineRateStatusBadge({
 
   return (
     <span
-      className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-600/15 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-500/20"
+      className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-semibold text-rose-700 ring-1 ring-rose-600/15 dark:bg-rose-950/30 dark:text-rose-300 dark:ring-rose-500/20"
       title="No active mapped rate for this party, product, and rate type"
     >
       Not negotiated

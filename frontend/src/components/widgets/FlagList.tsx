@@ -78,7 +78,7 @@ export default function FlagList() {
                       key={id}
                       className="rounded-md bg-slate-50 px-2 py-1.5 ring-1 ring-slate-200/80 dark:bg-slate-950 dark:ring-white/10"
                     >
-                      <span className="font-mono text-[10px] text-slate-400">
+                      <span className="font-mono text-2xs text-slate-400">
                         {id}
                       </span>
                       <p className="text-slate-800 dark:text-slate-100">{label}</p>

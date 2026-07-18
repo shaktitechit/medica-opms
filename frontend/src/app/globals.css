@@ -2,7 +2,10 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Professional blue + slate system (light / dark via prefers-color-scheme) */
+/*
+ * Brand palette (from design swatch):
+ *   #3c467b  #50589c  #636ccb  #6e8cfb
+ */
 :root {
   color-scheme: light;
   /* System stacks — avoids Google Fonts fetch during Docker / offline builds */
@@ -10,15 +13,91 @@
     "Helvetica Neue", Arial, sans-serif;
   --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
-  --background: #f4f7fb;
-  --foreground: #0f172a;
+
+  --brand-900: #3c467b;
+  --brand-700: #50589c;
+  --brand-500: #636ccb;
+  --brand-400: #6e8cfb;
+
+  --background: #eef0f8;
+  --foreground: #3c467b;
   --card: #ffffff;
-  --muted: #64748b;
-  --border: #e2e8f0;
-  --primary: #1d4ed8;
-  --primary-hover: #1e40af;
-  --primary-muted: #eff6ff;
-  --ring: #2563eb;
+  --muted: #50589c;
+  --border: #d4d8eb;
+  --surface-muted: #f3f4fb;
+  --primary: #636ccb;
+  --primary-hover: #50589c;
+  --primary-muted: #e8eaf7;
+  --primary-foreground: #ffffff;
+  --ring: #6e8cfb;
+  --danger: #e11d48;
+  --danger-hover: #be123c;
+  --danger-muted: #fff1f2;
+  --danger-foreground: #ffffff;
+  --success: #059669;
+  --success-muted: #ecfdf5;
+  --warning: #d97706;
+  --warning-muted: #fffbeb;
+
+  /* Type scale (base = 16px). Prefer text-2xs…text-8xl over text-[Npx]. */
+  --app-text-2xs: 0.625rem; /* 10px */
+  --app-text-2xs--line-height: 0.875rem;
+  --app-text-xs: 0.75rem; /* 12px */
+  --app-text-xs--line-height: 1rem;
+  --app-text-sm: 0.875rem; /* 14px */
+  --app-text-sm--line-height: 1.25rem;
+  --app-text-base: 1rem; /* 16px */
+  --app-text-base--line-height: 1.5rem;
+  --app-text-lg: 1.125rem; /* 18px */
+  --app-text-lg--line-height: 1.75rem;
+  --app-text-xl: 1.25rem; /* 20px */
+  --app-text-xl--line-height: 1.75rem;
+  --app-text-2xl: 1.5rem; /* 24px */
+  --app-text-2xl--line-height: 2rem;
+  --app-text-3xl: 1.875rem; /* 30px */
+  --app-text-3xl--line-height: 2.25rem;
+  --app-text-4xl: 2.25rem; /* 36px */
+  --app-text-4xl--line-height: 2.5rem;
+  --app-text-5xl: 3rem; /* 48px */
+  --app-text-5xl--line-height: 1;
+  --app-text-6xl: 3.75rem; /* 60px */
+  --app-text-6xl--line-height: 1;
+  --app-text-7xl: 4.5rem; /* 72px */
+  --app-text-7xl--line-height: 1;
+  --app-text-8xl: 6rem; /* 96px */
+  --app-text-8xl--line-height: 1;
+}
+
+/* Compact type scale on small screens (base = 12px). */
+@media (max-width: 639px) {
+  :root {
+    --app-text-2xs: 0.5rem; /* 8px */
+    --app-text-2xs--line-height: 0.75rem;
+    --app-text-xs: 0.5625rem; /* 9px */
+    --app-text-xs--line-height: 0.875rem;
+    --app-text-sm: 0.6875rem; /* 11px */
+    --app-text-sm--line-height: 1rem;
+    --app-text-base: 0.75rem; /* 12px */
+    --app-text-base--line-height: 1.125rem;
+    --app-text-lg: 0.875rem; /* 14px */
+    --app-text-lg--line-height: 1.25rem;
+    --app-text-xl: 0.9375rem; /* 15px */
+    --app-text-xl--line-height: 1.375rem;
+    --app-text-2xl: 1.125rem; /* 18px */
+    --app-text-2xl--line-height: 1.5rem;
+    --app-text-3xl: 1.375rem; /* 22px */
+    --app-text-3xl--line-height: 1.75rem;
+    --app-text-4xl: 1.75rem; /* 28px */
+    --app-text-4xl--line-height: 2rem;
+    --app-text-5xl: 2.25rem; /* 36px */
+    --app-text-5xl--line-height: 1;
+    --app-text-6xl: 2.8125rem; /* 45px */
+    --app-text-6xl--line-height: 1;
+    --app-text-7xl: 3.3125rem; /* 53px */
+    --app-text-7xl--line-height: 1;
+    --app-text-8xl: 4.5rem; /* 72px */
+    --app-text-8xl--line-height: 1;
+  }
 }
 
 @theme inline {
@@ -27,10 +106,20 @@
   --color-card: var(--card);
   --color-muted: var(--muted);
   --color-border: var(--border);
+  --color-surface-muted: var(--surface-muted);
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-muted: var(--primary-muted);
+  --color-primary-foreground: var(--primary-foreground);
   --color-ring: var(--ring);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-muted: var(--danger-muted);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-success: var(--success);
+  --color-success-muted: var(--success-muted);
+  --color-warning: var(--warning);
+  --color-warning-muted: var(--warning-muted);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 
@@ -61,9 +150,17 @@
   --color-rose-445: #fda4af;
   --color-rose-350: #fda4af;
 
-  --color-blue-855: #1e40af;
-  --color-blue-955: #172554;
-  --color-blue-455: #60a5fa;
+  /* Align default blue scale with brand palette */
+  --color-blue-400: #6e8cfb;
+  --color-blue-500: #636ccb;
+  --color-blue-600: #636ccb;
+  --color-blue-700: #50589c;
+  --color-blue-800: #3c467b;
+  --color-blue-900: #2f365f;
+  --color-blue-950: #252a4a;
+  --color-blue-855: #50589c;
+  --color-blue-955: #3c467b;
+  --color-blue-455: #6e8cfb;
 
   --color-emerald-405: #34d399;
   --color-emerald-455: #34d399;
@@ -81,43 +178,64 @@
    */
   --spacing: 0.21875rem;
 
-  --text-xs: 0.6875rem;
-  --text-xs--line-height: 1rem;
-  --text-sm: 0.8125rem;
-  --text-sm--line-height: 1.125rem;
-  --text-base: 0.925rem;
-  --text-base--line-height: 1.375rem;
-  --text-lg: 1.0625rem;
-  --text-lg--line-height: 1.5rem;
-  --text-xl: 1.1875rem;
-  --text-xl--line-height: 1.625rem;
-  --text-2xl: 1.375rem;
-  --text-2xl--line-height: 1.875rem;
-  --text-3xl: 1.675rem;
-  --text-3xl--line-height: 2.125rem;
-  --text-4xl: 2rem;
-  --text-4xl--line-height: 2.375rem;
+  /* App-wide type scale — values live on :root so breakpoints can override them. */
+  --text-2xs: var(--app-text-2xs);
+  --text-2xs--line-height: var(--app-text-2xs--line-height);
+  --text-xs: var(--app-text-xs);
+  --text-xs--line-height: var(--app-text-xs--line-height);
+  --text-sm: var(--app-text-sm);
+  --text-sm--line-height: var(--app-text-sm--line-height);
+  --text-base: var(--app-text-base);
+  --text-base--line-height: var(--app-text-base--line-height);
+  --text-lg: var(--app-text-lg);
+  --text-lg--line-height: var(--app-text-lg--line-height);
+  --text-xl: var(--app-text-xl);
+  --text-xl--line-height: var(--app-text-xl--line-height);
+  --text-2xl: var(--app-text-2xl);
+  --text-2xl--line-height: var(--app-text-2xl--line-height);
+  --text-3xl: var(--app-text-3xl);
+  --text-3xl--line-height: var(--app-text-3xl--line-height);
+  --text-4xl: var(--app-text-4xl);
+  --text-4xl--line-height: var(--app-text-4xl--line-height);
+  --text-5xl: var(--app-text-5xl);
+  --text-5xl--line-height: var(--app-text-5xl--line-height);
+  --text-6xl: var(--app-text-6xl);
+  --text-6xl--line-height: var(--app-text-6xl--line-height);
+  --text-7xl: var(--app-text-7xl);
+  --text-7xl--line-height: var(--app-text-7xl--line-height);
+  --text-8xl: var(--app-text-8xl);
+  --text-8xl--line-height: var(--app-text-8xl--line-height);
 }
 
 :root.dark {
   color-scheme: dark;
-  --background: #020617;
-  --foreground: #f1f5f9;
-  --card: #0f172a;
-  --muted: #94a3b8;
-  --border: rgba(148, 163, 184, 0.16);
-  --primary: #3b82f6;
-  --primary-hover: #60a5fa;
-  --primary-muted: rgba(59, 130, 246, 0.12);
-  --ring: #60a5fa;
+  --background: #252a4a;
+  --foreground: #eef0f8;
+  --card: #3c467b;
+  --muted: #a8b0d6;
+  --border: rgba(110, 140, 251, 0.22);
+  --surface-muted: rgba(110, 140, 251, 0.12);
+  --primary: #6e8cfb;
+  --primary-hover: #8aa3ff;
+  --primary-muted: rgba(99, 108, 203, 0.28);
+  --primary-foreground: #ffffff;
+  --ring: #6e8cfb;
+  --danger: #fb7185;
+  --danger-hover: #fda4af;
+  --danger-muted: rgba(244, 63, 94, 0.12);
+  --danger-foreground: #ffffff;
+  --success: #34d399;
+  --success-muted: rgba(16, 185, 129, 0.12);
+  --warning: #fbbf24;
+  --warning-muted: rgba(245, 158, 11, 0.12);
 }
 
 body {
   min-height: 100dvh;
   background: var(--background);
   color: var(--foreground);
-  font-size: 0.825rem;
-  line-height: 1.25;
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
   font-family:
     var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
@@ -130,7 +248,7 @@ textarea {
 }
 
 table {
-  font-size: 0.625rem;
+  font-size: var(--text-sm);
 }
 
 ::selection {

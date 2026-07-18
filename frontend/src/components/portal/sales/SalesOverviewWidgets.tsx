@@ -365,7 +365,7 @@ export default function SalesOverviewWidgets({
               >
                 <div className={`absolute top-0 left-0 h-1 w-full ${card.accent}`} />
                 <div className="flex items-start justify-between">
-                  <span className="text-[10px] font-bold tracking-wider uppercase text-slate-500 dark:text-slate-400">
+                  <span className="text-2xs font-bold tracking-wider uppercase text-slate-500 dark:text-slate-400">
                     {card.label}
                   </span>
                   <div className={`rounded p-1 shrink-0 ${card.iconWrap}`}>
@@ -380,7 +380,7 @@ export default function SalesOverviewWidgets({
                       card.value.toLocaleString()
                     )}
                   </h3>
-                  <p className="mt-1 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-2xs font-medium text-slate-500 dark:text-slate-400">
                     {card.hint}
                   </p>
                 </div>
@@ -409,7 +409,7 @@ export default function SalesOverviewWidgets({
               >
                 <div className={`absolute top-0 left-0 h-1 w-full ${meta.accent}`} />
                 <div className="flex items-start justify-between gap-1.5">
-                  <span className={`text-[9px] font-bold tracking-wider uppercase line-clamp-2 ${meta.labelTone}`}>
+                  <span className={`text-2xs font-bold tracking-wider uppercase line-clamp-2 ${meta.labelTone}`}>
                     {tab.label}
                   </span>
                   <div className={`rounded p-1 shrink-0 ${meta.iconWrap}`}>

@@ -40,7 +40,7 @@ export function OrderListPaginationBar({
         </span>
         <span className="text-slate-350 dark:text-slate-700">|</span>
         <div className="flex items-center gap-1">
-          <span className="text-[11px] font-medium text-slate-500">Rows per page:</span>
+          <span className="text-xs font-medium text-slate-500">Rows per page:</span>
           <select
             value={itemsPerPage}
             onChange={(e) => onItemsPerPageChange(Number(e.target.value))}

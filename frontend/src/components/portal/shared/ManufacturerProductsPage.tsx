@@ -132,14 +132,14 @@ export default function ManufacturerProductsPage({
                   <div key={p._id} className="flex items-center justify-between p-3.5 hover:bg-slate-55/50 dark:hover:bg-white/[0.01]">
                     <div className="min-w-0 pr-4">
                       <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">{p.product_name}</p>
-                      <p className="text-[10px] text-slate-400 truncate">
+                      <p className="text-2xs text-slate-400 truncate">
                         {p.sku ? `SKU: ${p.sku} | ` : ""}
                         Base Price: ₹{p.base_price || "0.00"}
                       </p>
                     </div>
                     <button
                       onClick={() => handleRemoveProduct(p._id)}
-                      className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-700 shadow-sm transition hover:bg-rose-100 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20 cursor-pointer"
+                      className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 shadow-sm transition hover:bg-rose-100 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20 cursor-pointer"
                     >
                       <Trash2 className="size-3" />
                       Remove
@@ -183,20 +183,20 @@ export default function ManufacturerProductsPage({
                     <div key={p._id} className="flex items-center justify-between p-3 hover:bg-slate-55/50 dark:hover:bg-white/[0.01]">
                       <div className="min-w-0 pr-4">
                         <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{p.product_name}</p>
-                        <p className="text-[10px] text-slate-400 truncate">
+                        <p className="text-2xs text-slate-400 truncate">
                           {p.sku ? `SKU: ${p.sku} | ` : ""}
                           Manufacturer: {p.manufacturer?.name || p.manufacturer || "None"}
                         </p>
                       </div>
                       {isAssociated ? (
-                        <span className="inline-flex items-center gap-1 rounded bg-green-50 px-2 py-1 text-[10px] font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-400">
+                        <span className="inline-flex items-center gap-1 rounded bg-green-50 px-2 py-1 text-2xs font-semibold text-green-700 dark:bg-green-500/10 dark:text-green-400">
                           <Check className="size-2.5" />
                           Added
                         </span>
                       ) : (
                         <button
                           onClick={() => handleAddProduct(p._id)}
-                          className="inline-flex items-center gap-1 rounded border border-blue-200 bg-white px-2 py-1 text-[11px] text-blue-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-blue-400 dark:hover:bg-white/5 cursor-pointer"
+                          className="inline-flex items-center gap-1 rounded border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-blue-400 dark:hover:bg-white/5 cursor-pointer"
                         >
                           <Plus className="size-3" />
                           Add

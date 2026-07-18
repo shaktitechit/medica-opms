@@ -61,7 +61,7 @@ export default function RecentActivity() {
         rows.length > 0 &&
         typeof rows[0] === "object"
           ? (
-              <ul className="space-y-2 font-mono text-[11px] text-slate-700 dark:text-slate-200">
+              <ul className="space-y-2 font-mono text-xs text-slate-700 dark:text-slate-200">
                 {rows.slice(0, 14).map((row, idx) => {
                   const obj = row as Record<string, unknown>;
                   const id =

@@ -59,7 +59,7 @@ export default function OrderTab({
                         {name}
                       </span>
                       {typeof line.sku === "string" && line.sku ? (
-                        <span className="mt-0.5 block text-[10px] text-slate-550 dark:text-slate-400 font-mono">
+                        <span className="mt-0.5 block text-2xs text-slate-550 dark:text-slate-400 font-mono">
                           SKU {line.sku}
                         </span>
                       ) : null}

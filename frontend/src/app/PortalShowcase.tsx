@@ -134,7 +134,7 @@ export default function PortalShowcase() {
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
                     <h3 className="font-bold text-foreground text-sm">{dept.name}</h3>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${dept.bgMuted} ${dept.textColor}`}>
+                    <span className={`text-2xs px-2 py-0.5 rounded-full font-medium ${dept.bgMuted} ${dept.textColor}`}>
                       {dept.badge}
                     </span>
                   </div>
@@ -156,9 +156,9 @@ export default function PortalShowcase() {
                 <span className="w-3 h-3 rounded-full bg-red-400" />
                 <span className="w-3 h-3 rounded-full bg-yellow-400" />
                 <span className="w-3 h-3 rounded-full bg-green-400" />
-                <span className="ml-2 text-[10px] font-mono text-muted/80">medica.opms://{activeDept}-portal</span>
+                <span className="ml-2 text-2xs font-mono text-muted/80">medica.opms://{activeDept}-portal</span>
               </div>
-              <div className="flex items-center gap-1 text-[10px] font-semibold text-primary">
+              <div className="flex items-center gap-1 text-2xs font-semibold text-primary">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
                 <span>Live Sandbox</span>
               </div>
@@ -182,7 +182,7 @@ export default function PortalShowcase() {
                       <div className="w-2 h-2 rounded-full bg-blue-500" />
                       <div className="flex-1">
                         <p className="text-xs font-semibold text-foreground">Customer: City Health Pharmacy</p>
-                        <p className="text-[10px] text-muted">ID: PARTY-98213 • Credit Status: Healthy</p>
+                        <p className="text-2xs text-muted">ID: PARTY-98213 • Credit Status: Healthy</p>
                       </div>
                     </div>
 
@@ -215,7 +215,7 @@ export default function PortalShowcase() {
                       </div>
                       <div>
                         <p className="text-xs font-bold text-foreground">Order status:</p>
-                        <p className="text-[10px] text-muted">
+                        <p className="text-2xs text-muted">
                           {salesOrderStatus === "pending_finance" ? "Awaiting Finance Audit" : "Approved by Finance"}
                         </p>
                       </div>
@@ -226,14 +226,14 @@ export default function PortalShowcase() {
                           setSalesOrderStatus("approved");
                           setFinanceApprovedCount((c) => c + 1);
                         }}
-                        className="text-[10px] font-bold text-white bg-blue-600 hover:bg-blue-700 transition px-2.5 py-1 rounded"
+                        className="text-2xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition px-2.5 py-1 rounded"
                       >
                         Submit to Audit
                       </button>
                     ) : (
                       <button
                         onClick={() => setSalesOrderStatus("pending_finance")}
-                        className="text-[10px] font-bold text-blue-600 bg-blue-500/10 hover:bg-blue-500/20 transition px-2.5 py-1 rounded"
+                        className="text-2xs font-bold text-blue-600 bg-blue-500/10 hover:bg-blue-500/20 transition px-2.5 py-1 rounded"
                       >
                         Reset Mockup
                       </button>
@@ -255,11 +255,11 @@ export default function PortalShowcase() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3 bg-muted/5 border border-border/80 rounded-xl">
-                      <p className="text-[10px] font-semibold text-muted uppercase">Pending Audit</p>
+                      <p className="text-2xs font-semibold text-muted uppercase">Pending Audit</p>
                       <p className="text-lg font-extrabold text-foreground mt-1">4 Orders</p>
                     </div>
                     <div className="p-3 bg-muted/5 border border-border/80 rounded-xl">
-                      <p className="text-[10px] font-semibold text-muted uppercase">Approved Today</p>
+                      <p className="text-2xs font-semibold text-muted uppercase">Approved Today</p>
                       <p className="text-lg font-extrabold text-emerald-500 mt-1">{financeApprovedCount} Orders</p>
                     </div>
                   </div>
@@ -267,9 +267,9 @@ export default function PortalShowcase() {
                   <div className="p-3.5 rounded-xl border border-border/70 space-y-2.5 bg-card">
                     <div className="flex justify-between items-center text-xs">
                       <span className="font-semibold text-foreground">Awaiting Credit Check:</span>
-                      <span className="text-[10px] font-bold bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded">Pending Audit</span>
+                      <span className="text-2xs font-bold bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded">Pending Audit</span>
                     </div>
-                    <div className="text-[10px] text-muted space-y-1">
+                    <div className="text-2xs text-muted space-y-1">
                       <p>• Client: Apex Global Clinics</p>
                       <p>• Order Value: $4,560.00 • Account Balance: -$1,200.00</p>
                       <p>• Credit Limit Status: <span className="text-emerald-500 font-medium">Clear</span></p>
@@ -300,7 +300,7 @@ export default function PortalShowcase() {
                   <div className="p-3.5 bg-muted/5 border border-border/80 rounded-xl space-y-3">
                     <div className="flex justify-between items-center text-xs">
                       <span className="font-bold text-foreground">Shipment #TRK-8921</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                      <span className={`text-2xs font-bold px-2 py-0.5 rounded uppercase ${
                         dispatchStatus === "loading"
                           ? "bg-amber-500/10 text-amber-500"
                           : dispatchStatus === "transit"
@@ -314,7 +314,7 @@ export default function PortalShowcase() {
                     <div className="grid grid-cols-3 gap-2">
                       <button
                         onClick={() => setDispatchStatus("loading")}
-                        className={`p-2 rounded text-[10px] font-bold text-center border transition ${
+                        className={`p-2 rounded text-2xs font-bold text-center border transition ${
                           dispatchStatus === "loading" ? "bg-violet-500/10 border-violet-500 text-violet-500" : "bg-card border-border text-muted"
                         }`}
                       >
@@ -322,7 +322,7 @@ export default function PortalShowcase() {
                       </button>
                       <button
                         onClick={() => setDispatchStatus("transit")}
-                        className={`p-2 rounded text-[10px] font-bold text-center border transition ${
+                        className={`p-2 rounded text-2xs font-bold text-center border transition ${
                           dispatchStatus === "transit" ? "bg-violet-500/10 border-violet-500 text-violet-500" : "bg-card border-border text-muted"
                         }`}
                       >
@@ -330,7 +330,7 @@ export default function PortalShowcase() {
                       </button>
                       <button
                         onClick={() => setDispatchStatus("delivered")}
-                        className={`p-2 rounded text-[10px] font-bold text-center border transition ${
+                        className={`p-2 rounded text-2xs font-bold text-center border transition ${
                           dispatchStatus === "delivered" ? "bg-violet-500/10 border-violet-500 text-violet-500" : "bg-card border-border text-muted"
                         }`}
                       >
@@ -347,7 +347,7 @@ export default function PortalShowcase() {
                           }}
                         />
                       </div>
-                      <div className="flex justify-between items-center mt-2 text-[10px] text-muted">
+                      <div className="flex justify-between items-center mt-2 text-2xs text-muted">
                         <span>Central Warehouse</span>
                         <span>Route 4-B</span>
                         <span>Medica Clinic</span>
@@ -359,7 +359,7 @@ export default function PortalShowcase() {
                     <Truck className="w-5 h-5 text-violet-500" />
                     <div className="flex-1 text-xs">
                       <p className="font-semibold text-foreground">Driver: Johnathan Doe</p>
-                      <p className="text-[10px] text-muted">Vehicle: Volvo FH16 (Plate: MC-9021) • Temp Control: 4.5°C</p>
+                      <p className="text-2xs text-muted">Vehicle: Volvo FH16 (Plate: MC-9021) • Temp Control: 4.5°C</p>
                     </div>
                   </div>
                 </div>
@@ -379,21 +379,21 @@ export default function PortalShowcase() {
                   <div className="p-3.5 bg-muted/5 border border-border/80 rounded-xl space-y-2.5">
                     <div className="flex justify-between items-center text-xs">
                       <span className="font-semibold text-foreground">Current Active Operators:</span>
-                      <span className="text-[11px] font-bold bg-primary-muted text-primary px-2 py-0.5 rounded">{adminUserCount} Users</span>
+                      <span className="text-xs font-bold bg-primary-muted text-primary px-2 py-0.5 rounded">{adminUserCount} Users</span>
                     </div>
-                    <p className="text-[10px] text-muted leading-relaxed">
+                    <p className="text-2xs text-muted leading-relaxed">
                       Control security tokens, clear cached DB entries, or provision new accounts. Toggle simulated team growth:
                     </p>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setAdminUserCount((c) => c + 1)}
-                        className="text-[10px] font-bold text-white bg-blue-600 hover:bg-blue-700 transition px-3 py-1 rounded"
+                        className="text-2xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition px-3 py-1 rounded"
                       >
                         + Create Account
                       </button>
                       <button
                         onClick={() => setAdminUserCount(18)}
-                        className="text-[10px] font-bold text-muted bg-card hover:bg-muted/10 border border-border transition px-3 py-1 rounded"
+                        className="text-2xs font-bold text-muted bg-card hover:bg-muted/10 border border-border transition px-3 py-1 rounded"
                       >
                         Reset System
                       </button>
@@ -401,8 +401,8 @@ export default function PortalShowcase() {
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-[10px] font-bold text-muted uppercase tracking-wider">Recent System Audit Log</p>
-                    <div className="border border-border/60 rounded-xl overflow-hidden text-[10px] font-mono divide-y divide-border/40 bg-card">
+                    <p className="text-2xs font-bold text-muted uppercase tracking-wider">Recent System Audit Log</p>
+                    <div className="border border-border/60 rounded-xl overflow-hidden text-2xs font-mono divide-y divide-border/40 bg-card">
                       <div className="p-2 flex justify-between">
                         <span className="text-emerald-500">[AUTH] User admin_dept signed in</span>
                         <span className="text-muted">10s ago</span>
@@ -421,12 +421,12 @@ export default function PortalShowcase() {
               )}
 
               {/* Bottom footer helper in mockup screen */}
-              <div className="border-t border-border/50 pt-4 mt-4 flex items-center justify-between text-[11px] text-muted">
+              <div className="border-t border-border/50 pt-4 mt-4 flex items-center justify-between text-xs text-muted">
                 <span className="flex items-center gap-1">
                   <UserCheck className="w-3.5 h-3.5 text-muted/70" />
                   Operator Session
                 </span>
-                <span className="font-mono text-[9px] bg-muted/15 px-1.5 py-0.5 rounded">API: OK (200)</span>
+                <span className="font-mono text-2xs bg-muted/15 px-1.5 py-0.5 rounded">API: OK (200)</span>
               </div>
             </div>
           </div>

@@ -659,7 +659,7 @@ export function OrderDetailModal({
                               <td className="max-w-[200px] px-2 py-1.5">
                                 <span className="line-clamp-2">{name}</span>
                                 {typeof line.sku === "string" && line.sku ? (
-                                  <span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">
+                                  <span className="mt-0.5 block text-2xs text-slate-500 dark:text-slate-400">
                                     SKU {line.sku}
                                   </span>
                                 ) : null}

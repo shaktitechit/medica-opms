@@ -56,7 +56,7 @@ export function OrderFlagBadge({
     return (
       <span
         title="All Flag(s) Resolved"
-        className={`inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25 gap-1 select-none ${className}`}
+        className={`inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400 dark:ring-emerald-500/25 gap-1 select-none ${className}`}
       >
         <Flag className="h-3 w-3 fill-emerald-700 dark:fill-emerald-400 stroke-none" />
         Resolved
@@ -68,7 +68,7 @@ export function OrderFlagBadge({
   return (
     <span
       title="Unresolved Flag(s) Exist"
-      className={`inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25 gap-1 select-none ${className}`}
+      className={`inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider text-rose-700 ring-1 ring-inset ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25 gap-1 select-none ${className}`}
     >
       <Flag className="h-3 w-3 fill-rose-700 dark:fill-rose-400 stroke-none animate-pulse" />
       Flagged

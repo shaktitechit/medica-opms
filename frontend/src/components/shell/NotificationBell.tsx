@@ -228,7 +228,7 @@ export function NotificationBell() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200/90 text-slate-700 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-border text-foreground transition hover:bg-surface-muted"
         aria-expanded={open}
         aria-haspopup="true"
         aria-label={`Notifications${unread ? `, ${String(unread)} unread` : ""}`}
@@ -239,7 +239,7 @@ export function NotificationBell() {
           <Bell className="size-[18px]" strokeWidth={2} aria-hidden />
         )}
         {!isFetching && unread > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">
+          <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-2xs font-semibold text-danger-foreground">
             {unread > 9 ? "9+" : unread}
           </span>
         ) : null}
@@ -247,7 +247,7 @@ export function NotificationBell() {
         {/* Pulse ring — appears when a new notification arrives while panel is closed */}
         {hasNewPulse && !open ? (
           <span
-            className="absolute -right-0.5 -top-0.5 size-[18px] animate-ping rounded-full bg-rose-500 opacity-75"
+            className="absolute -right-0.5 -top-0.5 size-[18px] animate-ping rounded-full bg-danger opacity-75"
             aria-hidden
           />
         ) : null}
@@ -255,19 +255,19 @@ export function NotificationBell() {
 
       {open ? (
         <div
-          className="absolute right-0 top-full z-[55] mt-1 w-[min(100vw-2rem,380px)] rounded-xl border border-slate-200/90 bg-white py-2 shadow-lg dark:border-white/10 dark:bg-slate-950"
+          className="absolute right-0 top-full z-[55] mt-1 w-[min(100vw-2rem,380px)] rounded-xl border border-border bg-card py-2 shadow-lg"
           role="menu"
         >
-          <div className="flex items-center justify-between gap-2 border-b border-slate-200/90 px-3 pb-2 dark:border-white/10">
-            <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3 pb-2">
+            <p className="text-xs font-semibold text-foreground">
               Notifications
             </p>
             <div className="flex items-center gap-2">
               {/* Live indicator dot */}
-              <span className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
+              <span className="flex items-center gap-1 text-2xs text-success">
                 <span className="relative flex size-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+                  <span className="relative inline-flex size-2 rounded-full bg-success" />
                 </span>
                 Live
               </span>
@@ -275,7 +275,7 @@ export function NotificationBell() {
                 <button
                   type="button"
                   onClick={() => void refetch()}
-                  className="text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
+                  className="text-xs font-medium text-primary hover:underline"
                 >
                   Refresh
                 </button>
@@ -284,15 +284,15 @@ export function NotificationBell() {
           </div>
           <div className="max-h-[min(360px,50vh)] overflow-y-auto px-1.5 pb-1 pt-1">
             {isFetching ? (
-              <p className="px-2 py-3 text-xs text-slate-500">Loading…</p>
+              <p className="px-2 py-3 text-xs text-muted">Loading…</p>
             ) : null}
             {isError ? (
-              <p className="px-2 py-3 text-xs text-rose-600">
+              <p className="px-2 py-3 text-xs text-danger">
                 Could not load notifications.
               </p>
             ) : null}
             {!isFetching && !isError && rows.length === 0 ? (
-              <p className="px-2 py-3 text-xs text-slate-500">
+              <p className="px-2 py-3 text-xs text-muted">
                 No notifications yet.
               </p>
             ) : null}
@@ -325,7 +325,7 @@ export function NotificationBell() {
                     "flex w-full gap-2 rounded-lg px-2 py-2 text-left transition",
                     tv.row,
                     unreadRow
-                      ? "bg-slate-50/95 dark:bg-slate-900/60"
+                      ? "bg-surface-muted"
                       : "opacity-[0.97]",
                   ].join(" ");
 
@@ -341,27 +341,27 @@ export function NotificationBell() {
                           <span
                             className={
                               unreadRow
-                                ? "font-semibold text-slate-900 dark:text-slate-50"
-                                : "font-medium text-slate-700 dark:text-slate-300"
+                                ? "font-semibold text-foreground"
+                                : "font-medium text-foreground/80"
                             }
                           >
                             {title}
                           </span>
                           {mod ? (
-                            <span className="rounded-full bg-blue-600/12 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-blue-800 dark:bg-blue-500/15 dark:text-blue-100">
+                            <span className="rounded-full bg-primary-muted px-1.5 py-px text-2xs font-medium uppercase tracking-wide text-primary">
                               {moduleLabel(mod)}
                             </span>
                           ) : null}
                         </span>
                         {body ? (
-                          <span className="mt-1 line-clamp-3 block text-[11px] leading-snug text-slate-600 dark:text-slate-400">
+                          <span className="mt-1 line-clamp-3 block text-xs leading-snug text-muted">
                             {body}
                           </span>
                         ) : null}
-                        <span className="mt-1 flex items-center gap-2 text-[10px] text-slate-400 dark:text-slate-500">
+                        <span className="mt-1 flex items-center gap-2 text-2xs text-muted">
                           {at ? <span>{at}</span> : null}
                           {unreadRow ? (
-                            <span className="rounded bg-blue-600/90 px-1 py-px font-semibold uppercase tracking-wide text-[9px] text-white dark:bg-blue-500">
+                            <span className="rounded bg-primary px-1 py-px font-semibold uppercase tracking-wide text-2xs text-primary-foreground">
                               Unread
                             </span>
                           ) : (
@@ -381,8 +381,8 @@ export function NotificationBell() {
                           onClick={() => void onNotificationActivate(row)}
                           className={[
                             shellClassName,
-                            "w-full cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/70",
-                            "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40",
+                            "w-full cursor-pointer hover:bg-surface-muted",
+                            "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                           ].join(" ")}
                           aria-label={`${title}. Unread — press to mark as read.`}
                         >
@@ -392,7 +392,7 @@ export function NotificationBell() {
                         <div
                           className={[
                             shellClassName,
-                            "cursor-default hover:bg-slate-50/60 dark:hover:bg-white/[0.03]",
+                            "cursor-default hover:bg-surface-muted/60",
                           ].join(" ")}
                           role="group"
                           aria-label={`${title}. Read`}

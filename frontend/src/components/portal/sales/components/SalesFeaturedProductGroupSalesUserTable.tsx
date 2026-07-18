@@ -289,7 +289,7 @@ export default function SalesFeaturedProductGroupSalesUserTable({
                             )}
                           </button>
                           <span>{group.name}</span>
-                          <span className="text-[10px] text-slate-400 font-normal">
+                          <span className="text-2xs text-slate-400 font-normal">
                             ({subProducts.length} items)
                           </span>
                         </div>

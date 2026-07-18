@@ -122,27 +122,27 @@ function shipmentStatusBadge(status: string) {
   const s = status.toLowerCase();
   if (s === "delivered") {
     return (
-      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
         Delivered
       </span>
     );
   }
   if (s === "delivery_failed" || s === "returned") {
     return (
-      <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 capitalize">
+      <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-2xs font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 capitalize">
         {s.replace(/_/g, " ")}
       </span>
     );
   }
   if (s === "in_transit" || s === "out_for_delivery") {
     return (
-      <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 capitalize">
+      <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 capitalize">
         {s.replace(/_/g, " ")}
       </span>
     );
   }
   return (
-    <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950/30 dark:text-blue-400 capitalize">
+    <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-semibold text-blue-700 dark:bg-blue-950/30 dark:text-blue-400 capitalize">
       {s.replace(/_/g, " ")}
     </span>
   );
@@ -313,12 +313,12 @@ export default function DriverDetailPage({ id }: DriverDetailPageProps) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded bg-slate-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
+              <span className="rounded bg-slate-900 px-2 py-0.5 text-2xs font-bold uppercase tracking-widest text-white dark:bg-white dark:text-slate-900">
                 Dispatch
               </span>
               {statusBadge(statusStr)}
               {detail.is_active === false ? (
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-white/10 dark:text-slate-400">
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-semibold text-slate-600 dark:bg-white/10 dark:text-slate-400">
                   Inactive
                 </span>
               ) : null}
@@ -440,7 +440,7 @@ export default function DriverDetailPage({ id }: DriverDetailPageProps) {
             <FileText className="h-4 w-4" />
             Documents
             {attachments.length > 0 ? (
-              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-2xs font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
                 {attachments.length}
               </span>
             ) : null}
@@ -457,7 +457,7 @@ export default function DriverDetailPage({ id }: DriverDetailPageProps) {
             <Route className="h-4 w-4" />
             Transports
             {transports.length > 0 ? (
-              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-2xs font-bold text-slate-600 dark:bg-white/10 dark:text-slate-400">
                 {transports.length}
               </span>
             ) : null}
@@ -507,7 +507,7 @@ export default function DriverDetailPage({ id }: DriverDetailPageProps) {
                             )}
                           </span>
                           {typeof att.remarks === "string" && att.remarks.trim() ? (
-                            <span className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                            <span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
                               {att.remarks}
                             </span>
                           ) : null}
@@ -570,7 +570,7 @@ export default function DriverDetailPage({ id }: DriverDetailPageProps) {
               ) : (
                 <div className="overflow-x-auto rounded-lg ring-1 ring-slate-200/90 dark:ring-white/10">
                   <table className="w-full min-w-[720px] text-left text-xs">
-                    <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-2xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       <tr>
                         <th className="px-3 py-2.5">Shipment</th>
                         <th className="px-3 py-2.5">Status</th>

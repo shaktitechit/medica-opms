@@ -314,7 +314,7 @@ export function CreateReturnModal({
           {/* Reference Info Card */}
           {selectedDispatchId && (
             <div className="rounded-lg bg-slate-50/50 p-4 border border-slate-200/60 dark:bg-slate-955/20 dark:border-white/5 space-y-2.5">
-              <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider text-[10px]">
+              <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider text-2xs">
                 Auto-Fetched Logistics References
               </h4>
               {transportsQ.isFetching || deliveriesQ.isFetching ? (
@@ -328,7 +328,7 @@ export function CreateReturnModal({
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 text-slate-700 dark:text-slate-300">
                   <div>
-                    <span className="font-bold text-[10px] text-slate-400 block uppercase">Transport Shipment</span>
+                    <span className="font-bold text-2xs text-slate-400 block uppercase">Transport Shipment</span>
                     {activeTransport ? (
                       <div className="mt-1 space-y-0.5">
                         <div>
@@ -357,7 +357,7 @@ export function CreateReturnModal({
                   </div>
 
                   <div>
-                    <span className="font-bold text-[10px] text-slate-400 block uppercase">Order Delivery</span>
+                    <span className="font-bold text-2xs text-slate-400 block uppercase">Order Delivery</span>
                     {activeDelivery ? (
                       <div className="mt-1 space-y-0.5">
                         <div>
@@ -387,7 +387,7 @@ export function CreateReturnModal({
           {/* Dynamic Items Table */}
           {selectedDispatchId && (
             <div className="space-y-2.5">
-              <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider text-[10px]">
+              <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider text-2xs">
                 Returned Quantity & Expiry/Rejection Registry
               </h4>
               {dispatchItems.length === 0 ? (
@@ -448,7 +448,7 @@ export function CreateReturnModal({
                             <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
                               {productName}
                               {fullyReturned && (
-                                <span className="ml-2 inline-flex items-center rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-600 dark:bg-rose-950/40 dark:text-rose-400">
+                                <span className="ml-2 inline-flex items-center rounded-full bg-rose-100 px-1.5 py-0.5 text-2xs font-bold uppercase tracking-wider text-rose-600 dark:bg-rose-950/40 dark:text-rose-400">
                                   Fully Returned
                                 </span>
                               )}
@@ -458,7 +458,7 @@ export function CreateReturnModal({
                             </td>
                             <td className="px-4 py-3 text-center font-bold">
                               {deliveredQty !== null ? (
-                                <span className="inline-flex items-center justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+                                <span className="inline-flex items-center justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
                                   {deliveredQty}
                                 </span>
                               ) : (
@@ -467,7 +467,7 @@ export function CreateReturnModal({
                             </td>
                             <td className="px-4 py-3 text-center">
                               {prevReturnedQty > 0 ? (
-                                <span className="inline-flex items-center justify-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-400">
+                                <span className="inline-flex items-center justify-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-400">
                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-2.5 w-2.5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                                     <path fillRule="evenodd" d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 017 7v2a1 1 0 11-2 0v-2a5 5 0 00-5-5H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
                                   </svg>
@@ -480,7 +480,7 @@ export function CreateReturnModal({
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-center">
                                 {fullyReturned ? (
-                                  <span className="text-[10px] text-rose-500 dark:text-rose-400 italic font-medium">All returned</span>
+                                  <span className="text-2xs text-rose-500 dark:text-rose-400 italic font-medium">All returned</span>
                                 ) : (
                                   <input
                                     type="number"

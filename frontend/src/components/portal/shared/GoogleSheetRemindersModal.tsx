@@ -798,7 +798,7 @@ function onEdit(e) {
               <span className="text-sm font-bold tracking-wide text-slate-900 dark:text-slate-100">
                 Reminders Master Spreadsheet
               </span>
-              <div className="flex items-center gap-1 text-[11px] rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 border border-slate-200 dark:border-slate-700 text-slate-550 dark:text-slate-400">
+              <div className="flex items-center gap-1 text-xs rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 border border-slate-200 dark:border-slate-700 text-slate-550 dark:text-slate-400">
                 {isSavingAny ? (
                   <>
                     <RefreshCw className="h-3 w-3 animate-spin text-blue-400" />
@@ -936,7 +936,7 @@ function onEdit(e) {
                       <button
                         onClick={handleClearFilters}
                         disabled={!hasActiveFilters}
-                        className="text-[10px] text-slate-400 hover:text-emerald-500 disabled:opacity-50 transition font-semibold cursor-pointer"
+                        className="text-2xs text-slate-400 hover:text-emerald-500 disabled:opacity-50 transition font-semibold cursor-pointer"
                       >
                         Reset All
                       </button>
@@ -995,7 +995,7 @@ function onEdit(e) {
                         <label className="block font-semibold text-slate-550 dark:text-slate-400 mb-1">Follow-up Date Range</label>
                         <div className="space-y-1.5">
                           <div>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500">From</span>
+                            <span className="text-2xs text-slate-400 dark:text-slate-500">From</span>
                             <input
                               type="date"
                               value={filterStartDate}
@@ -1004,7 +1004,7 @@ function onEdit(e) {
                             />
                           </div>
                           <div>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500">To</span>
+                            <span className="text-2xs text-slate-400 dark:text-slate-500">To</span>
                             <input
                               type="date"
                               value={filterEndDate}
@@ -1074,9 +1074,9 @@ function onEdit(e) {
               <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 z-20 text-slate-550 dark:text-slate-400 font-semibold font-mono">
                 <tr>
                   {/* Empty Corner */}
-                  <th className="w-12 sticky left-0 top-0 z-30 border-r border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-850 text-[10px] text-slate-400 text-center font-normal"></th>
+                  <th className="w-12 sticky left-0 top-0 z-30 border-r border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-850 text-2xs text-slate-400 text-center font-normal"></th>
                   {/* Actions Column Header */}
-                  <th className="w-20 border-r border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-500 dark:text-slate-400 text-center bg-slate-100 dark:bg-slate-850">Actions</th>
+                  <th className="w-20 border-r border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-500 dark:text-slate-400 text-center bg-slate-100 dark:bg-slate-850">Actions</th>
                   {/* Mapped columns */}
                   {COLUMNS.map(col => (
                     <th
@@ -1086,7 +1086,7 @@ function onEdit(e) {
                     >
                       <div className="flex justify-between items-center">
                         <span className="truncate">{col.label}</span>
-                        <span className="text-[10px] text-slate-400 font-mono font-normal pl-2">{col.headerLetter}</span>
+                        <span className="text-2xs text-slate-400 font-mono font-normal pl-2">{col.headerLetter}</span>
                       </div>
                       {/* Resize Handle */}
                       <div
@@ -1116,7 +1116,7 @@ function onEdit(e) {
                         }`}
                     >
                       {/* Row Number Column */}
-                      <td className="sticky left-0 z-10 bg-slate-100 dark:bg-slate-850 border-r border-slate-200 dark:border-slate-800 text-[10px] font-mono text-slate-400 text-center select-none font-normal">
+                      <td className="sticky left-0 z-10 bg-slate-100 dark:bg-slate-850 border-r border-slate-200 dark:border-slate-800 text-2xs font-mono text-slate-400 text-center select-none font-normal">
                         {index + 2}
                       </td>
 
@@ -1199,7 +1199,7 @@ function onEdit(e) {
                                   ))}
                                 </select>
                               ) : (
-                                <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${col.key === "reminder_type"
+                                <span className={`inline-flex items-center rounded px-2 py-0.5 text-2xs font-bold uppercase tracking-wider ${col.key === "reminder_type"
                                     ? getReminderTypeStyle(val)
                                     : getStatusStyle(val)
                                   }`}>
@@ -1305,7 +1305,7 @@ function onEdit(e) {
             </div>
 
             {/* Stats / Rows Indicator */}
-            <div className="flex items-center justify-between sm:justify-end gap-4 px-6 py-2.5 sm:py-0 text-slate-500 dark:text-slate-400 text-[11px] font-sans">
+            <div className="flex items-center justify-between sm:justify-end gap-4 px-6 py-2.5 sm:py-0 text-slate-500 dark:text-slate-400 text-xs font-sans">
               <span className="hidden md:inline italic text-slate-400 dark:text-slate-500">Double click or select cell to update.</span>
               <span>Showing <strong>{filteredRows.length}</strong> / {localRows.length} reminders</span>
             </div>
@@ -1327,7 +1327,7 @@ function onEdit(e) {
                     <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate max-w-[360px]">
                       Reminder Timeline & Log
                     </h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate max-w-[380px]">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate max-w-[380px]">
                       Order: {drawerReminder.order && typeof drawerReminder.order === "object" ? drawerReminder.order.order_no : String(drawerReminder.order || "—")} | Party: {drawerReminder.party && typeof drawerReminder.party === "object" ? drawerReminder.party.party_name : String(drawerReminder.party || "—")}
                     </p>
                   </div>
@@ -1369,7 +1369,7 @@ function onEdit(e) {
                                   <div className="relative flex space-x-3">
                                     <div>
                                       <span
-                                        className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] ring-4 ring-white dark:ring-slate-900 ${isFollowUpCompleted
+                                        className={`flex h-6 w-6 items-center justify-center rounded-full text-2xs ring-4 ring-white dark:ring-slate-900 ${isFollowUpCompleted
                                             ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400"
                                             : "bg-slate-50 text-slate-600 dark:bg-white/5 dark:text-slate-400"
                                           }`}
@@ -1383,14 +1383,14 @@ function onEdit(e) {
                                           {log.remarks}
                                         </p>
                                         {log.followup_date && (
-                                          <span className="block mt-0.5 text-[10px] text-slate-400 dark:text-slate-500 font-sans">
+                                          <span className="block mt-0.5 text-2xs text-slate-400 dark:text-slate-500 font-sans">
                                             Follow-up: {formatDateTime(log.followup_date)}
                                           </span>
                                         )}
                                       </div>
-                                      <div className="text-right text-[10px] whitespace-nowrap text-slate-500 font-sans">
+                                      <div className="text-right text-2xs whitespace-nowrap text-slate-500 font-sans">
                                         <span className="font-semibold">{creatorName}</span>
-                                        <span className="block mt-0.5 text-[9px]">
+                                        <span className="block mt-0.5 text-2xs">
                                           {formatDateTime(log.createdAt)}
                                         </span>
                                       </div>
@@ -1412,7 +1412,7 @@ function onEdit(e) {
                     </h4>
 
                     <div>
-                      <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Next Follow-up Date & Time</label>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Next Follow-up Date & Time</label>
                       <input
                         type="datetime-local"
                         required
@@ -1423,7 +1423,7 @@ function onEdit(e) {
                     </div>
 
                     <div>
-                      <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-350">Follow-up Remarks</label>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-350">Follow-up Remarks</label>
                       <textarea
                         required
                         rows={3}
@@ -1435,7 +1435,7 @@ function onEdit(e) {
                     </div>
 
                     <div>
-                      <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-350">Status Outcome</label>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-350">Status Outcome</label>
                       <select
                         value={drawerFollowUpStatus}
                         onChange={(e) => setDrawerFollowUpStatus(e.target.value as any)}
@@ -1467,7 +1467,7 @@ function onEdit(e) {
                         <button
                           onClick={() => handleAddContact(drawerReminder.partyObj._id || drawerReminder.partyObj.id)}
                           type="button"
-                          className="text-[10px] text-emerald-500 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 font-semibold transition flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded cursor-pointer"
+                          className="text-2xs text-emerald-500 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 font-semibold transition flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded cursor-pointer"
                         >
                           <UserPlus className="h-3 w-3" />
                           <span>Add Contact</span>
@@ -1476,7 +1476,7 @@ function onEdit(e) {
 
                       <div className="space-y-4">
                         {(!drawerReminder.partyObj.contacts || drawerReminder.partyObj.contacts.length === 0) && (
-                          <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center py-4 select-none">
+                          <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-4 select-none">
                             No contacts configured. Click Add Contact to set up the list.
                           </p>
                         )}
@@ -1493,11 +1493,11 @@ function onEdit(e) {
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
 
-                            <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 select-none font-sans">
+                            <div className="text-2xs font-bold text-slate-400 dark:text-slate-500 select-none font-sans">
                               CONTACT CARD #{idx + 1} {idx === 0 && <span className="text-emerald-500 font-bold ml-1.5">(PRIMARY)</span>}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3 text-[11px]">
+                            <div className="grid grid-cols-2 gap-3 text-xs">
                               <div className="col-span-2">
                                 <label className="block text-slate-600 dark:text-slate-400 mb-0.5 font-medium">Contact Name</label>
                                 <input
@@ -1615,7 +1615,7 @@ function onEdit(e) {
                     </button>
                   </div>
 
-                  <div className="mt-4 bg-slate-950 dark:bg-slate-955 p-4 rounded-lg overflow-x-auto text-[11px] font-mono text-emerald-400 whitespace-pre">
+                  <div className="mt-4 bg-slate-950 dark:bg-slate-955 p-4 rounded-lg overflow-x-auto text-xs font-mono text-emerald-400 whitespace-pre">
                     {`// App Script standard trigger
 function onEdit(e) {
   var sheet = e.source.getActiveSheet();

@@ -242,7 +242,7 @@ export default function FinalOrderStatementModal({
             <>
               <div className="grid gap-4 sm:grid-cols-2 rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-white/10 dark:bg-slate-950/30 text-xs">
                 <div className="space-y-2">
-                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <h4 className="text-2xs font-bold uppercase tracking-wider text-slate-500">
                     Order
                   </h4>
                   <dl className="space-y-1">
@@ -269,7 +269,7 @@ export default function FinalOrderStatementModal({
                   </dl>
                 </div>
                 <div className="space-y-2">
-                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <h4 className="text-2xs font-bold uppercase tracking-wider text-slate-500">
                     Party
                   </h4>
                   <dl className="space-y-1">
@@ -295,7 +295,7 @@ export default function FinalOrderStatementModal({
                 </div>
                 {order.closure_remarks ? (
                   <div className="sm:col-span-2 border-t border-slate-200/70 pt-3 dark:border-white/10">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    <span className="text-2xs font-bold uppercase tracking-wider text-slate-500">
                       Closure Remarks
                     </span>
                     <p className="mt-1 text-slate-700 dark:text-slate-300 italic">
@@ -331,10 +331,10 @@ export default function FinalOrderStatementModal({
                             {String(line.product_name || "—")}
                           </div>
                           {line.sku ? (
-                            <div className="text-[10px] font-mono text-slate-400">{String(line.sku)}</div>
+                            <div className="text-2xs font-mono text-slate-400">{String(line.sku)}</div>
                           ) : null}
                           {line.hsn_code ? (
-                            <div className="text-[10px] text-slate-400">HSN: {String(line.hsn_code)}</div>
+                            <div className="text-2xs text-slate-400">HSN: {String(line.hsn_code)}</div>
                           ) : null}
                         </td>
                         <td className="px-3 py-2.5 text-center tabular-nums">{num(line.ordered_quantity)}</td>
@@ -353,7 +353,7 @@ export default function FinalOrderStatementModal({
                           ₹{formatMoney(num(line.unit_price))}
                         </td>
                         <td className="px-3 py-2.5 text-center">
-                          <span className="inline-flex rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                          <span className="inline-flex rounded-md bg-slate-100 px-1.5 py-0.5 text-2xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                             {formatRateType(line.applied_rate_type)}
                           </span>
                         </td>
@@ -369,7 +369,7 @@ export default function FinalOrderStatementModal({
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot className="bg-slate-50/80 dark:bg-slate-950/50 text-[11px] font-semibold border-t border-slate-200/60 dark:border-white/5">
+                  <tfoot className="bg-slate-50/80 dark:bg-slate-950/50 text-xs font-semibold border-t border-slate-200/60 dark:border-white/5">
                     <tr>
                       <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400">Totals</td>
                       <td className="px-3 py-2.5 text-center tabular-nums">{num(qty.ordered)}</td>

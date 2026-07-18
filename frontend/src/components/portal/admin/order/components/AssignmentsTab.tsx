@@ -41,7 +41,7 @@ export function AssignmentsTab({ detail }: AssignmentsTabProps) {
 
     return (
       <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 transition-all duration-200 hover:border-slate-200 dark:border-white/5 dark:bg-slate-950/20">
-        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
+        <span className="block text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
           {label}
         </span>
         {assignedUser ? (

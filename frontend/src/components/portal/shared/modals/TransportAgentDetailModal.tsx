@@ -311,7 +311,7 @@ export function TransportAgentDetailModal({
                   <p className={`${inputClass} font-mono uppercase bg-slate-50 dark:bg-slate-900/80`}>
                     {stringField(detail?.agent_code)}
                   </p>
-                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     Assigned by the system and cannot be changed.
                   </p>
                 </div>

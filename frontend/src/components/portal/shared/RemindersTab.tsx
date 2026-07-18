@@ -206,15 +206,15 @@ export function RemindersTab({ orderId }: RemindersTabProps) {
 
                     {/* Status Badge */}
                     {isReminderActive ? (
-                      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">
+                      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-semibold text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">
                         Active
                       </span>
                     ) : reminder.status === "completed" ? (
-                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
+                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
                         Completed
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-white/5 dark:text-slate-455">
+                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-semibold text-slate-600 dark:bg-white/5 dark:text-slate-455">
                         Dismissed
                       </span>
                     )}
@@ -253,7 +253,7 @@ export function RemindersTab({ orderId }: RemindersTabProps) {
                           <button
                             type="button"
                             onClick={() => setCompletingReminderId(reminder._id || reminder.id || null)}
-                            className="rounded px-2 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-900/10 dark:text-emerald-400 transition hover:bg-emerald-100/50 cursor-pointer"
+                            className="rounded px-2 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-900/10 dark:text-emerald-400 transition hover:bg-emerald-100/50 cursor-pointer"
                             title="Mark Completed"
                           >
                             ✓ Done
@@ -299,7 +299,7 @@ export function RemindersTab({ orderId }: RemindersTabProps) {
                                 <div className="relative flex space-x-3">
                                   <div>
                                     <span
-                                      className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] ring-4 ring-white dark:ring-slate-900 ${
+                                      className={`flex h-6 w-6 items-center justify-center rounded-full text-2xs ring-4 ring-white dark:ring-slate-900 ${
                                         isFollowUpCompleted
                                           ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400"
                                           : "bg-slate-50 text-slate-600 dark:bg-white/5 dark:text-slate-400"
@@ -314,14 +314,14 @@ export function RemindersTab({ orderId }: RemindersTabProps) {
                                         {log.remarks}
                                       </p>
                                       {log.followup_date && (
-                                        <span className="block mt-0.5 text-[10px] text-slate-455 font-sans">
+                                        <span className="block mt-0.5 text-2xs text-slate-455 font-sans">
                                           Follow-up scheduled for: {formatDateTime(log.followup_date)}
                                         </span>
                                       )}
                                     </div>
-                                    <div className="text-right text-[10px] whitespace-nowrap text-slate-500 font-sans">
+                                    <div className="text-right text-2xs whitespace-nowrap text-slate-500 font-sans">
                                       <span className="font-semibold">{creatorName}</span>
-                                      <span className="block mt-0.5 text-[9px]">
+                                      <span className="block mt-0.5 text-2xs">
                                         {formatDateTime(log.createdAt)}
                                       </span>
                                     </div>

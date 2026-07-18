@@ -119,10 +119,10 @@ export function FulfillmentCircleStep({
       <span
         className={`font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-center ${
           extraSmall
-            ? "mt-0.5 text-[8px] leading-none"
+            ? "mt-0.5 text-2xs leading-none"
             : compact
-              ? "mt-0.5 text-[9px] leading-none"
-              : "mt-1 text-[11px]"
+              ? "mt-0.5 text-2xs leading-none"
+              : "mt-1 text-xs"
         }`}
       >
         {label}
@@ -135,10 +135,10 @@ export function FulfillmentCircleStep({
               : "text-slate-600 dark:text-slate-300"
           } ${
             extraSmall
-              ? "text-[8px] leading-none"
+              ? "text-2xs leading-none"
               : compact
-                ? "text-[9px] leading-none"
-                : "text-[11px]"
+                ? "text-2xs leading-none"
+                : "text-xs"
           }`}
         >
           {status.label}
@@ -147,10 +147,10 @@ export function FulfillmentCircleStep({
         <span
           className={`font-extrabold tracking-tight ${quantityColor} ${
             extraSmall
-              ? "text-[9px] leading-none"
+              ? "text-2xs leading-none"
               : compact
-                ? "text-[10px] leading-none"
-                : "text-[12px]"
+                ? "text-2xs leading-none"
+                : "text-sm"
           }`}
         >
           {completed}/{total}
@@ -266,8 +266,8 @@ export function OrderFulfillmentPipelineStrip({
   const visible = steps.filter((step) => step.status);
   const arrowClass =
     size === "xs"
-      ? "px-0 text-[9px] font-bold text-slate-300 dark:text-slate-600"
-      : "px-0.5 text-[11px] font-bold text-slate-300 dark:text-slate-600";
+      ? "px-0 text-2xs font-bold text-slate-300 dark:text-slate-600"
+      : "px-0.5 text-xs font-bold text-slate-300 dark:text-slate-600";
 
   if (visible.length === 0) return null;
 
