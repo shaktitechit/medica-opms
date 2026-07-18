@@ -46,7 +46,7 @@ import {
   X,
 } from "lucide-react";
 
-const ADMIN_PENDING_PUSH_INTERVAL_MS = 60_000;
+const ADMIN_PENDING_PUSH_INTERVAL_MS = 300_000;
 const ADMIN_PENDING_ALERT_URL = "/admin/orders?tab=pending_admin_approval";
 
 function notificationsSupported(): boolean {
@@ -139,7 +139,7 @@ export default function AdminOverview() {
       document.title = `(${count}) Admin Dashboard`;
     }
 
-    // OS notification banner + system notification sound (every 60s)
+    // OS notification banner + system notification sound (every 5 minutes)
     await showLocalNotification({
       title,
       body,
@@ -171,7 +171,7 @@ export default function AdminOverview() {
   const refetchOrdersRef = useRef(refetchOrders);
   refetchOrdersRef.current = refetchOrders;
 
-  // Alert immediately when pending exists, then every 60s while overview stays open.
+  // Alert immediately when pending exists, then every 5 minutes while overview stays open.
   // Depend only on hasPendingAdmin — including refetchOrders was clearing the timer.
   useEffect(() => {
     if (!hasPendingAdmin) {
@@ -362,7 +362,7 @@ export default function AdminOverview() {
             <BellOff className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
               Browser alerts are off. Enable them to get an OS notification
-              (with system sound) every 60s while admin orders are pending.
+              (with system sound) every 5 minutes while admin orders are pending.
             </p>
           </div>
           <button

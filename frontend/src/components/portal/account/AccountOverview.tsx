@@ -44,7 +44,7 @@ import {
   X,
 } from "lucide-react";
 
-const ACCOUNT_PENDING_PUSH_INTERVAL_MS = 60_000;
+const ACCOUNT_PENDING_PUSH_INTERVAL_MS = 300_000;
 const DUE_SHEET_PENDING_ALERT_URL = "/account/orders?tab=due_sheet_pending";
 const ACCOUNT_PENDING_ALERT_URL = "/account/orders?tab=pending_account_approval";
 const OPEN_DISPATCH_PENDING_ALERT_URL = "/account/orders?tab=open_dispatched";
@@ -297,7 +297,7 @@ export default function AccountOverview() {
   const refetchOrdersRef = useRef(refetchOrders);
   refetchOrdersRef.current = refetchOrders;
 
-  // Separate 60s stream for due sheet pending
+  // Separate 5-minute stream for due sheet pending
   useEffect(() => {
     if (!hasPendingDueSheet) {
       syncDocumentTitle();
@@ -322,7 +322,7 @@ export default function AccountOverview() {
     };
   }, [hasPendingDueSheet]);
 
-  // Separate 60s stream for account pending
+  // Separate 5-minute stream for account pending
   useEffect(() => {
     if (!hasPendingAccount) {
       syncDocumentTitle();
@@ -347,7 +347,7 @@ export default function AccountOverview() {
     };
   }, [hasPendingAccount]);
 
-  // Separate 60s stream for open/dispatch pending
+  // Separate 5-minute stream for open/dispatch pending
   useEffect(() => {
     if (!hasPendingOpenDispatch) {
       syncDocumentTitle();
@@ -588,7 +588,7 @@ export default function AccountOverview() {
             <BellOff className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
               Browser alerts are off. Enable them to get separate OS
-              notifications every 60s for due sheet, account, and open/dispatch
+              notifications every 5 minutes for due sheet, account, and open/dispatch
               pending.
             </p>
           </div>

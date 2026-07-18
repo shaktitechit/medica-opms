@@ -32,7 +32,7 @@ import {
   X,
 } from "lucide-react";
 
-const TRANSPORT_RETURN_PENDING_PUSH_INTERVAL_MS = 60_000;
+const TRANSPORT_RETURN_PENDING_PUSH_INTERVAL_MS = 300_000;
 const TRANSPORT_RETURN_PENDING_ALERT_URL =
   "/dispatch/orders?tab=transport_return_pending";
 
@@ -159,7 +159,7 @@ export default function DispatchOverview() {
   const refetchReturnsRef = useRef(refetchReturns);
   refetchReturnsRef.current = refetchReturns;
 
-  // Alert immediately when pending exists, then every 60s while overview stays open.
+  // Alert immediately when pending exists, then every 5 minutes while overview stays open.
   useEffect(() => {
     if (!hasPendingTransportReturn) {
       if (typeof document !== "undefined" && document.title.startsWith("(")) {
@@ -341,7 +341,7 @@ export default function DispatchOverview() {
             <BellOff className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
               Browser alerts are off. Enable them to get an OS notification
-              (with system sound) every 60s while transport/return orders are
+              (with system sound) every 5 minutes while transport/return orders are
               pending.
             </p>
           </div>

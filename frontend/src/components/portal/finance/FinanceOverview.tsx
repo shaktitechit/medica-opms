@@ -44,7 +44,7 @@ import {
   X,
 } from "lucide-react";
 
-const FINANCE_PENDING_PUSH_INTERVAL_MS = 60_000;
+const FINANCE_PENDING_PUSH_INTERVAL_MS = 300_000;
 const FINANCE_PENDING_ALERT_URL = "/finance/orders?tab=pending_finance_approval";
 
 function notificationsSupported(): boolean {
@@ -167,7 +167,7 @@ export default function FinanceOverview() {
   const refetchOrdersRef = useRef(refetchOrders);
   refetchOrdersRef.current = refetchOrders;
 
-  // Alert immediately when pending exists, then every 60s while overview stays open.
+  // Alert immediately when pending exists, then every 5 minutes while overview stays open.
   useEffect(() => {
     if (!hasPendingFinance) {
       if (typeof document !== "undefined" && document.title.startsWith("(")) {
@@ -354,7 +354,7 @@ export default function FinanceOverview() {
             <BellOff className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
               Browser alerts are off. Enable them to get an OS notification
-              (with system sound) every 60s while finance orders are pending.
+              (with system sound) every 5 minutes while finance orders are pending.
             </p>
           </div>
           <button
