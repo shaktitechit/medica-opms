@@ -44,6 +44,7 @@ import GroupProductsPage from "./GroupProductsPage";
 import SubgroupProductsPage from "./SubgroupProductsPage";
 import BrandProductsPage from "./BrandProductsPage";
 import ManufacturerProductsPage from "./ManufacturerProductsPage";
+import { productRefLabel } from "./productRefLabel";
 
 const btnCompactClass =
   "inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer";
@@ -574,16 +575,12 @@ export default function ListProductsPage({
                     const id = rowKey(p);
                     const label = rowLabel(p, id);
                     const name = p.product_name || "—";
-                    const groupObj = p.product_group as any;
-                    const groupPart = (groupObj?.name || p.product_group || "").trim();
-                    const subgroupObj = p.product_subgroup as any;
-                    const subgroupPart = (subgroupObj?.name || p.product_subgroup || "").trim();
+                    const groupPart = productRefLabel(p.product_group);
+                    const subgroupPart = productRefLabel(p.product_subgroup);
                     const groupText = [groupPart, subgroupPart].filter(Boolean).join(" / ") || "—";
 
-                    const brandObj = p.brand as any;
-                    const brandPart = (brandObj?.name || p.brand || "").trim();
-                    const mfrObj = p.manufacturer as any;
-                    const mfrPart = (mfrObj?.name || p.manufacturer || "").trim();
+                    const brandPart = productRefLabel(p.brand);
+                    const mfrPart = productRefLabel(p.manufacturer);
                     const brandText = [brandPart, mfrPart].filter(Boolean).join(" / ") || "—";
 
                     const generic = p.generic_name?.trim() || "";

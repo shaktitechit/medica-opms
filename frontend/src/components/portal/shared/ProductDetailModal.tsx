@@ -13,6 +13,7 @@ import {
   usePatchProductMutation,
   useGetProductMetaOptionsQuery,
 } from "@/store/api";
+import { productRefLabel } from "./productRefLabel";
 
 export type ProductDetailModalProps = {
   productId: string | null;
@@ -131,10 +132,10 @@ export function ProductDetailModal({
         product_name: stringField(p.product_name),
         generic_name: stringField(p.generic_name),
         sku: stringField(p.sku),
-        product_group: stringField(p.product_group?.name || p.product_group),
-        product_subgroup: stringField(p.product_subgroup?.name || p.product_subgroup),
-        brand: stringField(p.brand?.name || p.brand),
-        manufacturer: stringField(p.manufacturer?.name || p.manufacturer),
+        product_group: productRefLabel(p.product_group),
+        product_subgroup: productRefLabel(p.product_subgroup),
+        brand: productRefLabel(p.brand),
+        manufacturer: productRefLabel(p.manufacturer),
         unit: UNIT_OPTIONS.includes(p.unit) ? p.unit : "pcs",
         base_price: numField(p.base_price),
         minimum_sale_rate: numField(p.minimum_sale_rate),
@@ -232,10 +233,10 @@ export function ProductDetailModal({
         const pObj = rawProduct as any;
         const patch: Record<string, any> = {};
 
-        const oldGroup = pObj.product_group?.name || pObj.product_group;
-        const oldSubgroup = pObj.product_subgroup?.name || pObj.product_subgroup;
-        const oldBrand = pObj.brand?.name || pObj.brand;
-        const oldManufacturer = pObj.manufacturer?.name || pObj.manufacturer;
+        const oldGroup = productRefLabel(pObj.product_group);
+        const oldSubgroup = productRefLabel(pObj.product_subgroup);
+        const oldBrand = productRefLabel(pObj.brand);
+        const oldManufacturer = productRefLabel(pObj.manufacturer);
 
         if (!valsEqual(form.product_name.trim(), pObj.product_name)) patch.product_name = form.product_name.trim();
         if (!valsEqual(form.generic_name.trim(), pObj.generic_name)) patch.generic_name = form.generic_name.trim() || null;

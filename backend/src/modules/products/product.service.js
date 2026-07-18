@@ -48,64 +48,100 @@ function coerceNonNegInt(raw, label) {
   return n;
 }
 
-async function resolveProductRefs(payload, user) {
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeRefInput(val) {
+  if (val == null || val === '') return null;
+  if (typeof val === 'object') {
+    if (val._id != null) return String(val._id);
+    if (val.name != null && String(val.name).trim()) return String(val.name).trim();
+    return null;
+  }
+  const s = String(val).trim();
+  return s || null;
+}
+
+/**
+ * Resolve name/ObjectId inputs to Product* ObjectIds.
+ * @param {object} payload
+ * @param {object|null} user
+ * @param {object|null} [existing] current product doc (for subgroup → group fallback)
+ */
+async function resolveProductRefs(payload, user, existing = null) {
   const { ProductGroup, ProductSubgroup, ProductBrand, ProductManufacturer } = getModels();
 
   const fields = [
     { key: 'product_group', model: ProductGroup },
     { key: 'brand', model: ProductBrand },
-    { key: 'manufacturer', model: ProductManufacturer }
+    { key: 'manufacturer', model: ProductManufacturer },
   ];
 
   for (const field of fields) {
-    if (Object.prototype.hasOwnProperty.call(payload, field.key)) {
-      const val = payload[field.key];
-      if (val === null || val === '') {
-        payload[field.key] = null;
-      } else if (typeof val === 'string' && val.trim()) {
-        const trimmed = val.trim();
-        if (isObjectId(trimmed)) {
-          payload[field.key] = trimmed;
-        } else {
-          let doc = await field.model.findOne({ name: { $regex: new RegExp(`^${trimmed}$`, 'i') } });
-          if (!doc) {
-            doc = await field.model.create({ name: trimmed, created_by: user?._id });
-          }
-          payload[field.key] = doc._id;
-        }
-      }
+    if (!Object.prototype.hasOwnProperty.call(payload, field.key)) continue;
+    const normalized = normalizeRefInput(payload[field.key]);
+    if (normalized == null) {
+      payload[field.key] = null;
+      continue;
     }
+    if (isObjectId(normalized)) {
+      payload[field.key] = normalized;
+      continue;
+    }
+    let doc = await field.model.findOne({
+      name: { $regex: new RegExp(`^${escapeRegex(normalized)}$`, 'i') },
+      deletedAt: null,
+    });
+    if (!doc) {
+      doc = await field.model.create({ name: normalized, created_by: user?._id });
+    }
+    payload[field.key] = doc._id;
   }
 
-  if (Object.prototype.hasOwnProperty.call(payload, 'product_subgroup')) {
-    const subVal = payload.product_subgroup;
-    if (subVal === null || subVal === '') {
-      payload.product_subgroup = null;
-    } else if (typeof subVal === 'string' && subVal.trim()) {
-      const trimmedSub = subVal.trim();
-      if (isObjectId(trimmedSub)) {
-        payload.product_subgroup = trimmedSub;
-      } else {
-        const groupRef = payload.product_group;
-        if (groupRef) {
-          let subgroup = await ProductSubgroup.findOne({
-            name: { $regex: new RegExp(`^${trimmedSub}$`, 'i') },
-            group: groupRef
-          });
-          if (!subgroup) {
-            subgroup = await ProductSubgroup.create({
-              name: trimmedSub,
-              group: groupRef,
-              created_by: user?._id
-            });
-          }
-          payload.product_subgroup = subgroup._id;
-        } else {
-          payload.product_subgroup = null;
-        }
-      }
-    }
+  if (!Object.prototype.hasOwnProperty.call(payload, 'product_subgroup')) return;
+
+  const normalizedSub = normalizeRefInput(payload.product_subgroup);
+  if (normalizedSub == null) {
+    payload.product_subgroup = null;
+    return;
   }
+  if (isObjectId(normalizedSub)) {
+    payload.product_subgroup = normalizedSub;
+    return;
+  }
+
+  // Prefer group from this patch; else keep the product's existing group.
+  const groupRef =
+    payload.product_group != null
+      ? payload.product_group
+      : existing?.product_group != null
+        ? existing.product_group
+        : null;
+
+  if (!groupRef) {
+    // No group context — match by name alone, or clear.
+    const alone = await ProductSubgroup.findOne({
+      name: { $regex: new RegExp(`^${escapeRegex(normalizedSub)}$`, 'i') },
+      deletedAt: null,
+    });
+    payload.product_subgroup = alone?._id || null;
+    return;
+  }
+
+  let subgroup = await ProductSubgroup.findOne({
+    name: { $regex: new RegExp(`^${escapeRegex(normalizedSub)}$`, 'i') },
+    group: groupRef,
+    deletedAt: null,
+  });
+  if (!subgroup) {
+    subgroup = await ProductSubgroup.create({
+      name: normalizedSub,
+      group: groupRef,
+      created_by: user?._id,
+    });
+  }
+  payload.product_subgroup = subgroup._id;
 }
 
 /** Allowlisted PATCH aligned with mongoRegistry Product schema. */
@@ -127,6 +163,11 @@ function sanitizePatch(patch) {
     if (k === 'generic_name' || k === 'product_group' || k === 'product_subgroup' || k === 'brand' || k === 'manufacturer') {
       if (v === null || v === '') {
         out[k] = null;
+        continue;
+      }
+      // Keep string names/ids, or {_id}/{name} objects for resolveProductRefs.
+      if (typeof v === 'object') {
+        out[k] = v;
         continue;
       }
       out[k] = typeof v === 'string' ? v.trim() : String(v).trim();
@@ -384,7 +425,7 @@ async function update(id, patch, user) {
     throw new ApiError(400, 'No valid fields to patch');
   }
 
-  await resolveProductRefs(sanitized, user);
+  await resolveProductRefs(sanitized, user, doc);
 
   if (user) {
     sanitized.updated_by = user._id;
@@ -636,23 +677,29 @@ async function syncFromGoogleSheet(row) {
   if (isActive !== undefined) payload.is_active = isActive;
   if (isFeatured !== undefined) payload.is_featured = isFeatured;
 
+  // Names → ObjectIds (same as create/update). Without this, ObjectId fields
+  // receive raw strings and save/cast fails.
+  await resolveProductRefs(payload, null, doc);
+
   if (doc) {
     for (const [k, v] of Object.entries(payload)) {
       doc.set(k, v);
     }
     await doc.save();
-    return toPlain(doc.toObject());
-  } else {
-    // defaults
-    if (!payload.product_name) payload.product_name = 'New Sheet Product';
-    if (payload.base_price === undefined) payload.base_price = 0;
-    if (payload.minimum_sale_rate === undefined) payload.minimum_sale_rate = payload.base_price;
-    if (payload.unit === undefined) payload.unit = 'pcs';
-    if (payload.gst_percent === undefined) payload.gst_percent = 18;
-
-    const newDoc = await Product.create(payload);
-    return toPlain(newDoc.toObject());
+    const [populated] = await findProductsLean({ _id: doc._id, deletedAt: null });
+    return toPlain(populated);
   }
+
+  // defaults
+  if (!payload.product_name) payload.product_name = 'New Sheet Product';
+  if (payload.base_price === undefined) payload.base_price = 0;
+  if (payload.minimum_sale_rate === undefined) payload.minimum_sale_rate = payload.base_price;
+  if (payload.unit === undefined) payload.unit = 'pcs';
+  if (payload.gst_percent === undefined) payload.gst_percent = 18;
+
+  const newDoc = await Product.create(payload);
+  const [populated] = await findProductsLean({ _id: newDoc._id, deletedAt: null });
+  return toPlain(populated);
 }
 
 async function getMetaOptions() {

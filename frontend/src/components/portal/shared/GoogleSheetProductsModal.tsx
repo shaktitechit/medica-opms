@@ -30,6 +30,7 @@ import {
   useGetProductMetaOptionsQuery
 } from "@/store/api";
 import { toast } from "@/lib/toast";
+import { productRefLabel } from "./productRefLabel";
 
 export type GoogleSheetProductsModalProps = {
   isOpen: boolean;
@@ -63,14 +64,7 @@ type ProductRow = {
 
 /** Resolve product ref fields that may be a legacy string or `{ name }` object. */
 function refName(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  if (typeof value === "object") {
-    const name = (value as { name?: unknown }).name;
-    if (name != null && name !== "") return String(name);
-    return "";
-  }
-  return "";
+  return productRefLabel(value);
 }
 
 type SelectedCell = {

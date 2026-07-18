@@ -11,6 +11,33 @@ function isObjectId(id) {
   return typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 }
 
+function refIdString(val) {
+  if (val == null || val === '') return '';
+  if (val instanceof mongoose.Types.ObjectId) return String(val);
+  if (typeof val === 'string') {
+    const s = val.trim();
+    return isObjectId(s) ? s : '';
+  }
+  if (typeof val === 'object') {
+    const id = val._id ?? val.id;
+    if (id != null) return refIdString(id);
+  }
+  return '';
+}
+
+function refDisplayName(val) {
+  if (val == null || val === '') return '';
+  if (typeof val === 'string') {
+    const s = val.trim();
+    if (!s || isObjectId(s)) return '';
+    return s;
+  }
+  if (typeof val === 'object' && val.name != null && String(val.name).trim()) {
+    return String(val.name).trim();
+  }
+  return '';
+}
+
 const PRODUCT_REF_FIELDS = Object.freeze([
   { key: 'product_group', modelKey: 'ProductGroup' },
   { key: 'product_subgroup', modelKey: 'ProductSubgroup' },
@@ -21,6 +48,9 @@ const PRODUCT_REF_FIELDS = Object.freeze([
 /**
  * Avoids Mongoose populate CastError when DB still has legacy string values
  * (e.g. product_group: "Battery") after the ObjectId migration.
+ *
+ * Lean queries return ObjectId instances (`typeof === "object"`), so those must
+ * be collected and hydrated — not skipped.
  */
 async function attachProductRefs(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
@@ -34,9 +64,20 @@ async function attachProductRefs(rows) {
     for (const { key } of PRODUCT_REF_FIELDS) {
       const val = row[key];
       if (val == null || val === '') continue;
-      if (typeof val === 'object') continue;
-      if (isObjectId(val)) idSets[key].add(String(val));
-      else if (typeof val === 'string' && val.trim()) nameSets[key].add(val.trim());
+
+      // Already a hydrated doc with a name — nothing to look up.
+      if (typeof val === 'object' && !(val instanceof mongoose.Types.ObjectId) && val.name) {
+        continue;
+      }
+
+      const id = refIdString(val);
+      if (id) {
+        idSets[key].add(id);
+        continue;
+      }
+
+      const name = refDisplayName(val);
+      if (name) nameSets[key].add(name);
     }
   }
 
@@ -89,10 +130,19 @@ async function attachProductRefs(rows) {
         row[key] = null;
         continue;
       }
-      if (typeof val === 'object') continue;
-      if (isObjectId(val)) {
-        row[key] = lookups[key].byId.get(String(val)) || null;
-      } else if (typeof val === 'string') {
+
+      // Keep already-hydrated docs.
+      if (typeof val === 'object' && !(val instanceof mongoose.Types.ObjectId) && val.name) {
+        continue;
+      }
+
+      const id = refIdString(val);
+      if (id) {
+        row[key] = lookups[key].byId.get(id) || { _id: id, name: null };
+        continue;
+      }
+
+      if (typeof val === 'string') {
         const found = lookups[key].byName.get(val.trim().toLowerCase());
         row[key] = found || { name: val.trim() };
       }
@@ -114,6 +164,8 @@ async function findProductsLean(filter, { sort, skip, limit } = {}) {
 
 module.exports = {
   isObjectId,
+  refIdString,
+  refDisplayName,
   attachProductRefs,
   findProductsLean,
 };
