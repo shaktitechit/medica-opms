@@ -180,7 +180,10 @@ export function accountTabQueryParams(
     case "pending_finance_approval":
       return { status: "pending_finance_review" };
     case "pending_account_approval":
-      return { status: "pending_account_review" };
+      // Broad fetch; exclusive client filter (getAccountOrderTabCategory) decides
+      // membership. Avoids missing rows that aren't keyed only by approval-batch
+      // status aliases, and avoids empty tabs when API returns pre-account stages.
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     case "on_hold":
       return { status: "on_hold" };
     case "cancelled":
@@ -306,66 +309,15 @@ export function computeAccountOrderStats(
     stats.all.quantity += qty;
     stats.all.amount += amount;
 
-    if (status === "on_hold") {
-      stats.on_hold.count += 1;
-      stats.on_hold.quantity += qty;
-      stats.on_hold.amount += amount;
-    }
-    if (status === "cancelled") {
-      stats.cancelled.count += 1;
-      stats.cancelled.quantity += qty;
-      stats.cancelled.amount += amount;
-    }
-    if (status === "finance_rejected") {
-      stats.rejected.count += 1;
-      stats.rejected.quantity += qty;
-      stats.rejected.amount += amount;
-    }
-    if (orderMatchesAccountTab(order, "transport_return_pending", options)) {
-      stats.transport_return_pending.count += 1;
-      stats.transport_return_pending.quantity += qty;
-      stats.transport_return_pending.amount += amount;
-    }
-    if (isOrderClosedOrDelivered(row)) {
-      stats.closed_delivered.count += 1;
-      stats.closed_delivered.quantity += qty;
-      stats.closed_delivered.amount += amount;
-    }
+    // One exclusive primary bucket — same as list tabs / orderMatchesAccountTab.
+    // (Do not count overlapping approval flags; e.g. account may still be
+    // "pending" while the order belongs in Due Sheet or Finance Pending.)
+    const cat = getAccountOrderTabCategory(order, options);
+    if (!cat || cat === "all") continue;
 
-    const isPipelineActive =
-      status !== "on_hold" &&
-      status !== "cancelled" &&
-      status !== "finance_rejected" &&
-      !isOrderClosedOrDelivered(row) &&
-      !isTransportOrReturnPending(order, options);
-
-    const pending = resolveApprovalPending(row);
-    if (isPipelineActive && pending.admin) {
-      stats.pending_admin_approval.count += 1;
-      stats.pending_admin_approval.quantity += qty;
-      stats.pending_admin_approval.amount += amount;
-    }
-    if (isPipelineActive && isDueSheetPending(row)) {
-      stats.due_sheet_pending.count += 1;
-      stats.due_sheet_pending.quantity += qty;
-      stats.due_sheet_pending.amount += amount;
-    }
-    if (isPipelineActive && pending.finance) {
-      stats.pending_finance_approval.count += 1;
-      stats.pending_finance_approval.quantity += qty;
-      stats.pending_finance_approval.amount += amount;
-    }
-    if (isPipelineActive && pending.account) {
-      stats.pending_account_approval.count += 1;
-      stats.pending_account_approval.quantity += qty;
-      stats.pending_account_approval.amount += amount;
-    }
-    // Match list/tab logic — not legacy status === "open" (derive rarely returns that).
-    if (orderMatchesAccountTab(order, "open_dispatched", options)) {
-      stats.open_dispatched.count += 1;
-      stats.open_dispatched.quantity += qty;
-      stats.open_dispatched.amount += amount;
-    }
+    stats[cat].count += 1;
+    stats[cat].quantity += qty;
+    stats[cat].amount += amount;
   }
 
   return stats;

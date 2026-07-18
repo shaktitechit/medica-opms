@@ -39,6 +39,7 @@ import {
 import {
   FINANCE_ORDER_TABS,
   buildPendingReturnOrderIds,
+  financeTabQueryParams,
   getFinanceOrderTabCategory,
   normalizeFinanceTabFromUrl,
   orderMatchesFinanceTab,
@@ -276,41 +277,7 @@ export default function ListFinanceOrdersPage() {
     const base: Record<string, string | undefined> = {};
 
     if (!searchQuery.trim()) {
-      switch (activeTab) {
-        case "all":
-          base.exclude_status = "draft";
-          break;
-        case "pending_admin_approval":
-          base.status = "pending_review";
-          break;
-        case "due_sheet_pending":
-          base.exclude_status = "draft,submitted,on_hold,cancelled,finance_rejected";
-          break;
-        case "pending_finance_approval":
-          base.status = "pending_finance_review";
-          break;
-        case "pending_account_approval":
-          base.status = "pending_account_review";
-          break;
-        case "on_hold":
-          base.status = "on_hold";
-          break;
-        case "cancelled":
-          base.status = "cancelled";
-          break;
-        case "rejected":
-          base.status = "finance_rejected";
-          break;
-        case "open_dispatched":
-          base.status = "open";
-          break;
-        case "transport_return_pending":
-          base.exclude_status = "draft,on_hold,cancelled,finance_rejected";
-          break;
-        case "closed_delivered":
-          base.exclude_status = "draft,submitted,on_hold,cancelled,finance_rejected";
-          break;
-      }
+      Object.assign(base, financeTabQueryParams(activeTab));
     }
 
     if (searchQuery.trim()) {

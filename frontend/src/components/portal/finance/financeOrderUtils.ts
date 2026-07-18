@@ -156,6 +156,43 @@ export function isFinanceOrderTabCategory(value: string): value is FinanceOrderT
   return FINANCE_ORDER_TABS.some((tab) => tab.id === value);
 }
 
+/** API query for a finance list tab. Client exclusive filter decides membership. */
+export function financeTabQueryParams(
+  tab: FinanceOrderTabCategory,
+): Record<string, string | undefined> {
+  if (tab === "transport_return_pending") {
+    return { exclude_status: "draft,on_hold,cancelled,finance_rejected" };
+  }
+
+  switch (tab) {
+    case "all":
+      return { exclude_status: "draft" };
+    case "pending_admin_approval":
+      return { status: "pending_review" };
+    case "due_sheet_pending":
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
+    case "pending_finance_approval":
+      // Broad fetch; exclusive client filter (getFinanceOrderTabCategory) decides
+      // membership. Avoids empty tabs when API returns pre-finance stages that
+      // still carry a finance-pending flag, and rows not keyed only by aliases.
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
+    case "pending_account_approval":
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
+    case "on_hold":
+      return { status: "on_hold" };
+    case "cancelled":
+      return { status: "cancelled" };
+    case "rejected":
+      return { status: "finance_rejected" };
+    case "open_dispatched":
+      return { status: "open" };
+    case "closed_delivered":
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
+    default:
+      return {};
+  }
+}
+
 /** Map legacy URL tab ids to the current finance tab set. Defaults to Finance Pending. */
 export function normalizeFinanceTabFromUrl(value: string | null): FinanceOrderTabCategory {
   if (!value) return "pending_finance_approval";
@@ -226,66 +263,15 @@ export function computeFinanceOrderStats(
     stats.all.quantity += qty;
     stats.all.amount += amount;
 
-    if (status === "on_hold") {
-      stats.on_hold.count += 1;
-      stats.on_hold.quantity += qty;
-      stats.on_hold.amount += amount;
-    }
-    if (status === "cancelled") {
-      stats.cancelled.count += 1;
-      stats.cancelled.quantity += qty;
-      stats.cancelled.amount += amount;
-    }
-    if (status === "finance_rejected") {
-      stats.rejected.count += 1;
-      stats.rejected.quantity += qty;
-      stats.rejected.amount += amount;
-    }
-    if (orderMatchesFinanceTab(order, "transport_return_pending", options)) {
-      stats.transport_return_pending.count += 1;
-      stats.transport_return_pending.quantity += qty;
-      stats.transport_return_pending.amount += amount;
-    }
-    if (isOrderClosedOrDelivered(row)) {
-      stats.closed_delivered.count += 1;
-      stats.closed_delivered.quantity += qty;
-      stats.closed_delivered.amount += amount;
-    }
+    // One exclusive primary bucket — same as list tabs / orderMatchesFinanceTab.
+    // (Do not count overlapping approval flags; e.g. finance may still be
+    // "pending" while the order belongs in Admin or Due Sheet Pending.)
+    const cat = getFinanceOrderTabCategory(order, options);
+    if (!cat || cat === "all") continue;
 
-    const isPipelineActive =
-      status !== "on_hold" &&
-      status !== "cancelled" &&
-      status !== "finance_rejected" &&
-      !isOrderClosedOrDelivered(row) &&
-      !isTransportOrReturnPending(order, options);
-
-    const pending = resolveApprovalPending(row);
-    if (isPipelineActive && pending.admin) {
-      stats.pending_admin_approval.count += 1;
-      stats.pending_admin_approval.quantity += qty;
-      stats.pending_admin_approval.amount += amount;
-    }
-    if (isPipelineActive && isDueSheetPending(row)) {
-      stats.due_sheet_pending.count += 1;
-      stats.due_sheet_pending.quantity += qty;
-      stats.due_sheet_pending.amount += amount;
-    }
-    if (isPipelineActive && pending.finance) {
-      stats.pending_finance_approval.count += 1;
-      stats.pending_finance_approval.quantity += qty;
-      stats.pending_finance_approval.amount += amount;
-    }
-    if (isPipelineActive && pending.account) {
-      stats.pending_account_approval.count += 1;
-      stats.pending_account_approval.quantity += qty;
-      stats.pending_account_approval.amount += amount;
-    }
-    // Match list/tab logic — not legacy status === "open" (derive rarely returns that).
-    if (orderMatchesFinanceTab(order, "open_dispatched", options)) {
-      stats.open_dispatched.count += 1;
-      stats.open_dispatched.quantity += qty;
-      stats.open_dispatched.amount += amount;
-    }
+    stats[cat].count += 1;
+    stats[cat].quantity += qty;
+    stats[cat].amount += amount;
   }
 
   return stats;

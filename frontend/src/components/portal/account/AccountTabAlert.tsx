@@ -10,8 +10,14 @@ import {
 } from "react";
 
 import { useBrowserTabAlert } from "@/hooks/useBrowserTabAlert";
+import { pickList } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { useListOrdersQuery } from "@/store/api";
+import { useListOrderReturnsQuery, useListOrdersQuery } from "@/store/api";
+import {
+  accountTabQueryParams,
+  buildPendingReturnOrderIds,
+  orderMatchesAccountTab,
+} from "./accountOrderUtils";
 
 const OverrideContext = createContext<(count: number | null) => void>(() => {});
 
@@ -50,15 +56,23 @@ function AccountTabAlertInner({
   overrideCount: number | null;
 }) {
   const { data, isError } = useListOrdersQuery(
-    { status: "pending_account_review" },
+    accountTabQueryParams("pending_account_approval"),
     {
       pollingInterval: 30_000,
       refetchOnFocus: true,
       refetchOnReconnect: true,
     },
   );
+  const { data: returnsData } = useListOrderReturnsQuery({});
 
-  const queryCount = useMemo(() => pickOrders(data).length, [data]);
+  const queryCount = useMemo(() => {
+    const pendingReturnOrderIds = buildPendingReturnOrderIds(pickList(returnsData));
+    const options = { pendingReturnOrderIds };
+    return pickOrders(data).filter((order) =>
+      orderMatchesAccountTab(order, "pending_account_approval", options),
+    ).length;
+  }, [data, returnsData]);
+
   const count = overrideCount ?? queryCount;
 
   useBrowserTabAlert({
