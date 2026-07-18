@@ -1,14 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFinanceTabAlertOverride } from "./FinanceTabAlert";
 import FinanceOverviewWidgets from "./components/FinanceOverviewWidgets";
 import FinanceMonthlyPerformanceChart from "./components/FinanceMonthlyPerformanceChart";
 import FinancePartyLeaderboard from "./components/FinancePartyLeaderboard";
 import FinanceProductLeaderboard from "./components/FinanceProductLeaderboard";
 import FinanceSalesLeaderboard from "./components/FinanceSalesLeaderboard";
-import FinanceFeaturedProductSalesUserTable from "./components/FinanceFeaturedProductSalesUserTable";
-import FinanceFeaturedProductFeaturePartyTable from "./components/FinanceFeaturedProductFeaturePartyTable";
 import FinanceFeaturedProductGroupSalesUserTable from "./components/FinanceFeaturedProductGroupSalesUserTable";
 import FinanceFeaturedProductGroupFeaturedPartyTable from "./components/FinanceFeaturedProductGroupFeaturedPartyTable";
 import {
@@ -21,7 +19,16 @@ import {
   useListOrdersQuery,
   useListPartiesQuery,
   useListUsersQuery,
+  useNotifyPushMutation,
+  useSubscribePushMutation,
 } from "@/store/api";
+import {
+  enableNotificationAlerts,
+  showLocalNotification,
+} from "@/lib/notificationAlert";
+import { ensurePushSubscription } from "@/lib/push";
+import { publicVapidKey } from "@/lib/env";
+import { toast } from "@/lib/toast";
 import { useAppSelector } from "@/store/hooks";
 import { OverviewFlagsWidget } from "@/components/portal/shared/OverviewFlagsWidget";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
@@ -31,8 +38,18 @@ import {
 } from "@/components/portal/sales/partyDisplay";
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
 import {
+  Bell,
+  BellOff,
   RefreshCw,
+  X,
 } from "lucide-react";
+
+const FINANCE_PENDING_PUSH_INTERVAL_MS = 60_000;
+const FINANCE_PENDING_ALERT_URL = "/finance/orders?tab=pending_finance_approval";
+
+function notificationsSupported(): boolean {
+  return typeof window !== "undefined" && "Notification" in window;
+}
 
 export default function FinanceOverview() {
   const user = useAppSelector((state) => state.auth.user);
@@ -53,6 +70,28 @@ export default function FinanceOverview() {
   const { data: returnsData } = useListOrderReturnsQuery({});
   const { data: partiesData } = useListPartiesQuery({});
   const { data: usersData } = useListUsersQuery({ department: "sales" });
+  const [notifyPush] = useNotifyPushMutation();
+  const [subscribePush] = useSubscribePushMutation();
+
+  const [notifPermission, setNotifPermission] = useState<
+    NotificationPermission | "unsupported"
+  >("default");
+  const [enablingAlerts, setEnablingAlerts] = useState(false);
+  const [lastTestAlert, setLastTestAlert] = useState<{
+    title: string;
+    body: string;
+    at: string;
+    osOk: boolean;
+    detail?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!notificationsSupported()) {
+      setNotifPermission("unsupported");
+      return;
+    }
+    setNotifPermission(Notification.permission);
+  }, []);
 
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
@@ -71,7 +110,176 @@ export default function FinanceOverview() {
     [orders, categoryOptions],
   );
 
-  useFinanceTabAlertOverride(orderStats.pending_finance_approval.count);
+  const pendingFinanceCount = orderStats.pending_finance_approval.count;
+  const pendingFinanceCountRef = useRef(pendingFinanceCount);
+  pendingFinanceCountRef.current = pendingFinanceCount;
+  const hasPendingFinance = pendingFinanceCount > 0;
+
+  useFinanceTabAlertOverride(pendingFinanceCount);
+
+  const sendPendingReminder = async () => {
+    const count = pendingFinanceCountRef.current;
+    if (count <= 0) return;
+
+    const title = `${count} Finance Pending`;
+    const body =
+      count === 1
+        ? "1 order is awaiting finance approval. Open Finance Orders to review."
+        : `${count} orders are awaiting finance approval. Open Finance Orders to review.`;
+
+    toast.message(title, {
+      id: `finance-pending-${Date.now()}`,
+      description: body,
+      duration: 8_000,
+    });
+
+    if (typeof document !== "undefined") {
+      document.title = `(${count}) Finance Overview`;
+    }
+
+    await showLocalNotification({
+      title,
+      body,
+      url: FINANCE_PENDING_ALERT_URL,
+      tag: "finance-pending-reminder",
+      requireInteraction: false,
+    }).catch(() => undefined);
+
+    try {
+      await notifyPush({
+        title,
+        body,
+        url: FINANCE_PENDING_ALERT_URL,
+        data: {
+          module: "order",
+          kind: "finance_pending_reminder",
+          count,
+          tag: "finance-pending-reminder",
+        },
+      }).unwrap();
+    } catch {
+      /* ignore if no subscription yet */
+    }
+  };
+
+  const sendPendingReminderRef = useRef(sendPendingReminder);
+  sendPendingReminderRef.current = sendPendingReminder;
+  const refetchOrdersRef = useRef(refetchOrders);
+  refetchOrdersRef.current = refetchOrders;
+
+  // Alert immediately when pending exists, then every 60s while overview stays open.
+  useEffect(() => {
+    if (!hasPendingFinance) {
+      if (typeof document !== "undefined" && document.title.startsWith("(")) {
+        document.title = "Finance Overview";
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    const tick = () => {
+      if (cancelled) return;
+      void sendPendingReminderRef.current();
+      void refetchOrdersRef.current();
+    };
+
+    const first = window.setTimeout(tick, 1_000);
+    const id = window.setInterval(tick, FINANCE_PENDING_PUSH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(first);
+      window.clearInterval(id);
+      if (typeof document !== "undefined" && document.title.startsWith("(")) {
+        document.title = "Finance Overview";
+      }
+    };
+  }, [hasPendingFinance]);
+
+  const handleEnableAlerts = async () => {
+    setEnablingAlerts(true);
+    try {
+      const result = await enableNotificationAlerts();
+      setNotifPermission(result === "unsupported" ? "unsupported" : result);
+
+      if (result !== "granted") {
+        const msg =
+          result === "denied"
+            ? "Notifications are blocked. Allow them for this site in the browser address bar / OS Settings → Notifications."
+            : "Notifications are not supported in this browser.";
+        toast.error(msg);
+        setLastTestAlert({
+          title: "Alerts blocked",
+          body: msg,
+          at: new Date().toLocaleTimeString(),
+          osOk: false,
+          detail: `permission=${result}`,
+        });
+        return;
+      }
+
+      const count = pendingFinanceCountRef.current;
+      const title =
+        count > 0 ? `${count} Finance Pending` : "Medica test alert";
+      const body =
+        count > 0
+          ? `${count} order${count === 1 ? "" : "s"} awaiting finance approval.`
+          : "OS notifications are working. You will be alerted when finance orders are pending.";
+
+      toast.success(title, { description: body, duration: 8_000 });
+
+      const shown = await showLocalNotification({
+        title,
+        body,
+        url: FINANCE_PENDING_ALERT_URL,
+        tag: "finance-test-alert",
+        requireInteraction: true,
+      });
+
+      setLastTestAlert({
+        title,
+        body,
+        at: new Date().toLocaleTimeString(),
+        osOk: shown.ok,
+        detail: shown.ok
+          ? `OS notification via ${shown.method}`
+          : shown.error || "OS notification failed",
+      });
+
+      if (!shown.ok) {
+        toast.error(
+          "In-app alert shown, but OS banner failed. Check macOS System Settings → Notifications for your browser (Banners + Sounds on).",
+          { duration: 10_000 },
+        );
+      }
+
+      void (async () => {
+        try {
+          const sub = await Promise.race([
+            ensurePushSubscription(publicVapidKey()),
+            new Promise<null>((resolve) =>
+              setTimeout(() => resolve(null), 4_000),
+            ),
+          ]);
+          if (sub) await subscribePush(sub).unwrap();
+        } catch {
+          /* ignore */
+        }
+      })();
+    } catch (err) {
+      console.warn("[finance] test alert failed", err);
+      toast.error("Failed to send test alert.");
+      setLastTestAlert({
+        title: "Test alert failed",
+        body: err instanceof Error ? err.message : "Unknown error",
+        at: new Date().toLocaleTimeString(),
+        osOk: false,
+      });
+    } finally {
+      setEnablingAlerts(false);
+    }
+  };
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
@@ -101,8 +309,66 @@ export default function FinanceOverview() {
   const isAnyLoading =
     isKpiFetching || isOrdersFetching || isRefreshing;
 
+  const showEnableBanner =
+    hasPendingFinance &&
+    notifPermission !== "granted" &&
+    notifPermission !== "unsupported";
+
   return (
     <div className="space-y-8 pb-10 font-sans">
+      {lastTestAlert ? (
+        <div
+          className={`relative rounded-xl border px-4 py-3 ${
+            lastTestAlert.osOk
+              ? "border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10"
+              : "border-rose-200 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => setLastTestAlert(null)}
+            className="absolute right-3 top-3 rounded p-1 text-slate-500 hover:bg-black/5 dark:hover:bg-white/10"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <p className="pr-8 text-sm font-semibold text-slate-900 dark:text-slate-50">
+            {lastTestAlert.title}
+          </p>
+          <p className="mt-1 pr-8 text-sm text-slate-700 dark:text-slate-200">
+            {lastTestAlert.body}
+          </p>
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            {lastTestAlert.at}
+            {lastTestAlert.detail ? ` · ${lastTestAlert.detail}` : ""}
+            {lastTestAlert.osOk
+              ? " · If you did not hear a sound, check OS notification settings for this browser."
+              : ""}
+          </p>
+        </div>
+      ) : null}
+
+      {showEnableBanner ? (
+        <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-amber-500/30 dark:bg-amber-500/10">
+          <div className="flex items-start gap-2 text-sm text-amber-900 dark:text-amber-100">
+            <BellOff className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              Browser alerts are off. Enable them to get an OS notification
+              (with system sound) every 60s while finance orders are pending.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleEnableAlerts()}
+            disabled={enablingAlerts}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-700 disabled:opacity-60"
+          >
+            <Bell className="h-4 w-4" />
+            {enablingAlerts ? "Enabling…" : "Enable alerts"}
+          </button>
+        </div>
+      ) : null}
+
       {/* HEADER SECTION */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -120,6 +386,27 @@ export default function FinanceOverview() {
 
         <div className="flex flex-wrap items-center gap-3">
           <OverviewFlagsWidget currentDepartment="finance" variant="headerButton" />
+
+          <button
+            type="button"
+            onClick={() => void handleEnableAlerts()}
+            disabled={enablingAlerts || notifPermission === "unsupported"}
+            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-60 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
+            title={
+              notifPermission === "unsupported"
+                ? "Notifications not supported"
+                : notifPermission === "granted"
+                  ? "Send a test OS notification"
+                  : "Enable OS notifications"
+            }
+          >
+            <Bell className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+            {enablingAlerts
+              ? "Sending…"
+              : notifPermission === "granted"
+                ? "Test alert"
+                : "Enable alerts"}
+          </button>
 
           <button
             type="button"
@@ -165,14 +452,6 @@ export default function FinanceOverview() {
       </div>
 
       <div className="space-y-6">
-        {/* <FinanceFeaturedProductSalesUserTable
-          orders={orders}
-          isOrdersFetching={isOrdersFetching}
-        />
-        <FinanceFeaturedProductFeaturePartyTable
-          orders={orders}
-          isOrdersFetching={isOrdersFetching}
-        /> */}
         <FinanceFeaturedProductGroupSalesUserTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
