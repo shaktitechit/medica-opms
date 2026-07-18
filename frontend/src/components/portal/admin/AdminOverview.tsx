@@ -26,6 +26,7 @@ import {
 import {
   enableNotificationAlerts,
   showLocalNotification,
+  unlockNotificationAudio,
 } from "@/lib/notificationAlert";
 import { ensurePushSubscription } from "@/lib/push";
 import { publicVapidKey } from "@/lib/env";
@@ -206,7 +207,8 @@ export default function AdminOverview() {
   const handleEnableAlerts = async () => {
     setEnablingAlerts(true);
     try {
-      // 1) Permission only (does not wait on push subscribe)
+      // Unlock sound on this click, then request permission.
+      await unlockNotificationAudio();
       const result = await enableNotificationAlerts();
       setNotifPermission(result === "unsupported" ? "unsupported" : result);
 
@@ -226,18 +228,18 @@ export default function AdminOverview() {
         return;
       }
 
+      await unlockNotificationAudio();
+
       const count = pendingAdminCountRef.current;
       const title =
         count > 0 ? `${count} Admin Pending` : "Medica test alert";
       const body =
         count > 0
           ? `${count} order${count === 1 ? "" : "s"} awaiting admin approval.`
-          : "OS notifications are working. You will be alerted when admin orders are pending.";
+          : "Alerts are working. You will be notified when admin orders are pending.";
 
-      // 2) Always show in-page confirmation first (never blocked by OS)
       toast.success(title, { description: body, duration: 8_000 });
 
-      // 3) OS notification + system sound (immediate — before any push work)
       const shown = await showLocalNotification({
         title,
         body,
@@ -251,15 +253,21 @@ export default function AdminOverview() {
         body,
         at: new Date().toLocaleTimeString(),
         osOk: shown.ok,
-        detail: shown.ok
-          ? `OS notification via ${shown.method}`
-          : shown.error || "OS notification failed",
+        detail: [
+          shown.ok ? `banner via ${shown.method}` : shown.error || "banner failed",
+          shown.soundPlayed ? "sound played" : "sound blocked — click Test alert again",
+        ].join(" · "),
       });
 
       if (!shown.ok) {
         toast.error(
-          "In-app alert shown, but OS banner failed. Check macOS System Settings → Notifications for your browser (Banners + Sounds on).",
+          "In-app alert shown, but OS banner failed. Check System Settings → Notifications for your browser.",
           { duration: 10_000 },
+        );
+      } else if (!shown.soundPlayed) {
+        toast.error(
+          "Notification shown but sound was blocked. Click Test alert once more to unlock audio.",
+          { duration: 8_000 },
         );
       }
 

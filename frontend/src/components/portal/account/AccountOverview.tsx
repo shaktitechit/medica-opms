@@ -25,6 +25,7 @@ import {
 import {
   enableNotificationAlerts,
   showLocalNotification,
+  unlockNotificationAudio,
 } from "@/lib/notificationAlert";
 import { ensurePushSubscription } from "@/lib/push";
 import { publicVapidKey } from "@/lib/env";
@@ -375,6 +376,7 @@ export default function AccountOverview() {
   const handleEnableAlerts = async () => {
     setEnablingAlerts(true);
     try {
+      await unlockNotificationAudio();
       const result = await enableNotificationAlerts();
       setNotifPermission(result === "unsupported" ? "unsupported" : result);
 
@@ -394,11 +396,18 @@ export default function AccountOverview() {
         return;
       }
 
+      await unlockNotificationAudio();
+
       const dueSheet = pendingDueSheetCountRef.current;
       const account = pendingAccountCountRef.current;
       const openDispatch = pendingOpenDispatchCountRef.current;
 
-      const results: Array<{ ok: boolean; method?: string; error?: string }> = [];
+      const results: Array<{
+        ok: boolean;
+        method?: string;
+        error?: string;
+        soundPlayed?: boolean;
+      }> = [];
 
       if (dueSheet > 0) {
         const title = `${dueSheet} Due Sheet Pending`;
@@ -462,11 +471,13 @@ export default function AccountOverview() {
       }
 
       const anyOk = results.some((r) => r.ok);
-      const detail = results
-        .map((r) =>
+      const anySound = results.some((r) => r.soundPlayed);
+      const detail = [
+        ...results.map((r) =>
           r.ok ? `OK via ${r.method}` : r.error || "failed",
-        )
-        .join(" · ");
+        ),
+        anySound ? "sound played" : "sound blocked — click Test alert again",
+      ].join(" · ");
 
       const hasCounts = dueSheet > 0 || account > 0 || openDispatch > 0;
       setLastTestAlert({
@@ -474,8 +485,8 @@ export default function AccountOverview() {
           ? `Due sheet: ${dueSheet} · Account: ${account} · Open/Dispatch: ${openDispatch}`
           : "Medica test alert",
         body: hasCounts
-          ? "Separate OS notifications were sent for each pending type that has items."
-          : "OS notifications are enabled for due sheet, account, and open/dispatch pending.",
+          ? "Separate notifications were sent for each pending type that has items."
+          : "Alerts are enabled for due sheet, account, and open/dispatch pending.",
         at: new Date().toLocaleTimeString(),
         osOk: anyOk,
         detail,
@@ -483,8 +494,13 @@ export default function AccountOverview() {
 
       if (!anyOk) {
         toast.error(
-          "In-app alert shown, but OS banner failed. Check macOS System Settings → Notifications for your browser (Banners + Sounds on).",
+          "In-app alert shown, but OS banner failed. Check System Settings → Notifications for your browser.",
           { duration: 10_000 },
+        );
+      } else if (!anySound) {
+        toast.error(
+          "Notification shown but sound was blocked. Click Test alert once more to unlock audio.",
+          { duration: 8_000 },
         );
       }
 

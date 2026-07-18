@@ -25,6 +25,7 @@ import {
 import {
   enableNotificationAlerts,
   showLocalNotification,
+  unlockNotificationAudio,
 } from "@/lib/notificationAlert";
 import { ensurePushSubscription } from "@/lib/push";
 import { publicVapidKey } from "@/lib/env";
@@ -200,6 +201,7 @@ export default function FinanceOverview() {
   const handleEnableAlerts = async () => {
     setEnablingAlerts(true);
     try {
+      await unlockNotificationAudio();
       const result = await enableNotificationAlerts();
       setNotifPermission(result === "unsupported" ? "unsupported" : result);
 
@@ -219,13 +221,15 @@ export default function FinanceOverview() {
         return;
       }
 
+      await unlockNotificationAudio();
+
       const count = pendingFinanceCountRef.current;
       const title =
         count > 0 ? `${count} Finance Pending` : "Medica test alert";
       const body =
         count > 0
           ? `${count} order${count === 1 ? "" : "s"} awaiting finance approval.`
-          : "OS notifications are working. You will be alerted when finance orders are pending.";
+          : "Alerts are working. You will be notified when finance orders are pending.";
 
       toast.success(title, { description: body, duration: 8_000 });
 
@@ -242,15 +246,21 @@ export default function FinanceOverview() {
         body,
         at: new Date().toLocaleTimeString(),
         osOk: shown.ok,
-        detail: shown.ok
-          ? `OS notification via ${shown.method}`
-          : shown.error || "OS notification failed",
+        detail: [
+          shown.ok ? `banner via ${shown.method}` : shown.error || "banner failed",
+          shown.soundPlayed ? "sound played" : "sound blocked — click Test alert again",
+        ].join(" · "),
       });
 
       if (!shown.ok) {
         toast.error(
-          "In-app alert shown, but OS banner failed. Check macOS System Settings → Notifications for your browser (Banners + Sounds on).",
+          "In-app alert shown, but OS banner failed. Check System Settings → Notifications for your browser.",
           { duration: 10_000 },
+        );
+      } else if (!shown.soundPlayed) {
+        toast.error(
+          "Notification shown but sound was blocked. Click Test alert once more to unlock audio.",
+          { duration: 8_000 },
         );
       }
 
