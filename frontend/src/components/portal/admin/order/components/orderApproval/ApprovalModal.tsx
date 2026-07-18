@@ -473,7 +473,7 @@ export function ApprovalModal({
   if (!open) return null;
 
   return (
-    <div className={`${largeModalBackdropClass} z-55`}>
+    <div className={largeModalBackdropClass}>
       <div className={largeModalPanelClass}>
         <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4 dark:border-white/5">
           <div>

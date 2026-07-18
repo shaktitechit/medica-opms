@@ -641,7 +641,7 @@ export function AccountAmendFinanceApprovalModal({
                     className={`${inputClass} pl-9 py-2.5 text-sm`}
                   />
                   {searchQuery.trim() !== "" && (
-                    <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-white/15 dark:bg-slate-950">
+                    <div className="absolute left-0 right-0 z-[90] mt-1 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-white/15 dark:bg-slate-950">
                       {filteredProducts.length === 0 ? (
                         <div className="px-3 py-2 text-xs text-slate-500">No products found</div>
                       ) : (
