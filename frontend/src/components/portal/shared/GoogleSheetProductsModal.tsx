@@ -37,15 +37,17 @@ export type GoogleSheetProductsModalProps = {
   onSuccess?: () => void;
 };
 
+type ProductRef = string | { _id?: string; name?: string } | null | undefined;
+
 type ProductRow = {
   _id: string;
   product_name: string;
   generic_name?: string;
   sku?: string;
-  product_group?: string;
-  product_subgroup?: string;
-  brand?: string;
-  manufacturer?: string;
+  product_group?: ProductRef;
+  product_subgroup?: ProductRef;
+  brand?: ProductRef;
+  manufacturer?: ProductRef;
   unit: "pcs" | "box" | "kg" | "ltr" | "meter" | "set" | "kit" | "bottle";
   base_price: number;
   minimum_sale_rate: number;
@@ -58,6 +60,18 @@ type ProductRow = {
   is_active: boolean;
   is_featured: boolean;
 };
+
+/** Resolve product ref fields that may be a legacy string or `{ name }` object. */
+function refName(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (typeof value === "object") {
+    const name = (value as { name?: unknown }).name;
+    if (name != null && name !== "") return String(name);
+    return "";
+  }
+  return "";
+}
 
 type SelectedCell = {
   productId: string;
@@ -141,8 +155,8 @@ export function GoogleSheetProductsModal({
   const uniqueBrands = useMemo(() => {
     const values = new Set<string>();
     localRows.forEach(r => {
-      const b = (r.brand && typeof r.brand === "object" && "name" in r.brand) ? (r.brand as any).name : r.brand;
-      if (b?.trim()) values.add(b.trim());
+      const b = refName(r.brand).trim();
+      if (b) values.add(b);
     });
     return Array.from(values).sort();
   }, [localRows]);
@@ -150,8 +164,8 @@ export function GoogleSheetProductsModal({
   const uniqueManufacturers = useMemo(() => {
     const values = new Set<string>();
     localRows.forEach(r => {
-      const m = (r.manufacturer && typeof r.manufacturer === "object" && "name" in r.manufacturer) ? (r.manufacturer as any).name : r.manufacturer;
-      if (m?.trim()) values.add(m.trim());
+      const m = refName(r.manufacturer).trim();
+      if (m) values.add(m);
     });
     return Array.from(values).sort();
   }, [localRows]);
@@ -159,8 +173,8 @@ export function GoogleSheetProductsModal({
   const uniqueProductGroups = useMemo(() => {
     const values = new Set<string>();
     localRows.forEach(r => {
-      const pg = (r.product_group && typeof r.product_group === "object" && "name" in r.product_group) ? (r.product_group as any).name : r.product_group;
-      if (pg?.trim()) values.add(pg.trim());
+      const pg = refName(r.product_group).trim();
+      if (pg) values.add(pg);
     });
     return Array.from(values).sort();
   }, [localRows]);
@@ -168,8 +182,8 @@ export function GoogleSheetProductsModal({
   const uniqueProductSubgroups = useMemo(() => {
     const values = new Set<string>();
     localRows.forEach(r => {
-      const psg = (r.product_subgroup && typeof r.product_subgroup === "object" && "name" in r.product_subgroup) ? (r.product_subgroup as any).name : r.product_subgroup;
-      if (psg?.trim()) values.add(psg.trim());
+      const psg = refName(r.product_subgroup).trim();
+      if (psg) values.add(psg);
     });
     return Array.from(values).sort();
   }, [localRows]);
@@ -329,9 +343,16 @@ export function GoogleSheetProductsModal({
       const row = localRows.find(r => r._id === selectedCell.productId);
       if (row) {
         const val = row[selectedCell.colKey];
-        const valStr = (val && typeof val === "object" && "name" in val)
-          ? String((val as any).name || "")
-          : (val !== undefined && val !== null ? String(val) : "");
+        const key = selectedCell.colKey;
+        const valStr =
+          key === "brand" ||
+          key === "manufacturer" ||
+          key === "product_group" ||
+          key === "product_subgroup"
+            ? refName(val)
+            : val !== undefined && val !== null
+              ? String(val)
+              : "";
         setFormulaValue(valStr);
       }
     } else {
@@ -402,7 +423,13 @@ export function GoogleSheetProductsModal({
 
     // Don't patch if value didn't change
     const orig = originalRow[colKey];
-    const origVal = (orig && typeof orig === "object" && "name" in orig) ? (orig as any).name : orig;
+    const origVal =
+      colKey === "brand" ||
+      colKey === "manufacturer" ||
+      colKey === "product_group" ||
+      colKey === "product_subgroup"
+        ? refName(orig)
+        : orig;
     if (areEqual(origVal, parsedVal)) return;
 
     setSavingRows(prev => ({ ...prev, [productId]: true }));
@@ -468,10 +495,10 @@ export function GoogleSheetProductsModal({
           r.product_name?.toLowerCase().includes(query) ||
           r.sku?.toLowerCase().includes(query) ||
           r.generic_name?.toLowerCase().includes(query) ||
-          r.brand?.toLowerCase().includes(query) ||
-          r.manufacturer?.toLowerCase().includes(query) ||
-          r.product_group?.toLowerCase().includes(query) ||
-          r.product_subgroup?.toLowerCase().includes(query) ||
+          refName(r.brand).toLowerCase().includes(query) ||
+          refName(r.manufacturer).toLowerCase().includes(query) ||
+          refName(r.product_group).toLowerCase().includes(query) ||
+          refName(r.product_subgroup).toLowerCase().includes(query) ||
           r.description?.toLowerCase().includes(query) ||
           (Array.isArray(r.aliases) ? r.aliases.join(", ") : String(r.aliases || "")).toLowerCase().includes(query) ||
           (Array.isArray(r.tags) ? r.tags.join(", ") : String(r.tags || "")).toLowerCase().includes(query)
@@ -519,22 +546,22 @@ export function GoogleSheetProductsModal({
 
     // 7. Brand Filter
     if (filterBrand !== "all") {
-      rows = rows.filter(r => r.brand?.trim() === filterBrand);
+      rows = rows.filter(r => refName(r.brand).trim() === filterBrand);
     }
 
     // 8. Manufacturer Filter
     if (filterManufacturer !== "all") {
-      rows = rows.filter(r => r.manufacturer?.trim() === filterManufacturer);
+      rows = rows.filter(r => refName(r.manufacturer).trim() === filterManufacturer);
     }
 
     // 9. Product Group Filter
     if (filterProductGroup !== "all") {
-      rows = rows.filter(r => r.product_group?.trim() === filterProductGroup);
+      rows = rows.filter(r => refName(r.product_group).trim() === filterProductGroup);
     }
 
     // 10. Product Subgroup Filter
     if (filterProductSubgroup !== "all") {
-      rows = rows.filter(r => r.product_subgroup?.trim() === filterProductSubgroup);
+      rows = rows.filter(r => refName(r.product_subgroup).trim() === filterProductSubgroup);
     }
 
     // 11. Tag Filter
@@ -551,12 +578,15 @@ export function GoogleSheetProductsModal({
 
     // Apply sorting
     if (sortConfig) {
+      const refKeys = new Set(["brand", "manufacturer", "product_group", "product_subgroup"]);
       rows.sort((a, b) => {
-        const valA = a[sortConfig.key];
-        const valB = b[sortConfig.key];
+        const rawA = a[sortConfig.key];
+        const rawB = b[sortConfig.key];
+        const valA = refKeys.has(sortConfig.key) ? refName(rawA) : rawA;
+        const valB = refKeys.has(sortConfig.key) ? refName(rawB) : rawB;
 
-        if (valA == null) return sortConfig.direction === "asc" ? 1 : -1;
-        if (valB == null) return sortConfig.direction === "asc" ? -1 : 1;
+        if (valA == null || valA === "") return sortConfig.direction === "asc" ? 1 : -1;
+        if (valB == null || valB === "") return sortConfig.direction === "asc" ? -1 : 1;
 
         const strA = String(valA).toLowerCase();
         const strB = String(valB).toLowerCase();
@@ -709,7 +739,15 @@ function onEdit(e) {
     const csvRows = localRows.map(row => {
       return COLUMNS.map(col => {
         const val = row[col.key];
-        const stringified = val !== undefined && val !== null ? String(val) : "";
+        const stringified =
+          col.key === "brand" ||
+          col.key === "manufacturer" ||
+          col.key === "product_group" ||
+          col.key === "product_subgroup"
+            ? refName(val)
+            : val !== undefined && val !== null
+              ? String(val)
+              : "";
         return `"${stringified.replace(/"/g, '""')}"`;
       }).join(",");
     });
@@ -1223,9 +1261,13 @@ function onEdit(e) {
                       {/* Spreadsheet Columns */}
                       {COLUMNS.map(col => {
                         const rawCellVal = row[col.key];
-                        const cellVal = (rawCellVal && typeof rawCellVal === "object" && "name" in rawCellVal)
-                          ? (rawCellVal as any).name
-                          : rawCellVal;
+                        const cellVal =
+                          col.key === "brand" ||
+                          col.key === "manufacturer" ||
+                          col.key === "product_group" ||
+                          col.key === "product_subgroup"
+                            ? refName(rawCellVal)
+                            : rawCellVal;
                         const isSelected = selectedCell?.productId === row._id && selectedCell?.colKey === col.key;
                         const isReadonly = col.readonly;
 
@@ -1265,11 +1307,7 @@ function onEdit(e) {
                                   </div>
                                 ) : ["product_group", "product_subgroup", "brand", "manufacturer"].includes(col.key) ? (
                                   <select
-                                    value={
-                                      (cellVal && typeof cellVal === "object" && "name" in cellVal)
-                                        ? (cellVal as any).name
-                                        : String(cellVal || "")
-                                    }
+                                    value={String(cellVal || "")}
                                     onChange={e => {
                                       const newVal = e.target.value;
                                       setLocalRows(prev =>
