@@ -127,8 +127,13 @@ export function AccountApprovalRecordCard({
       : [];
   }, [approval]);
 
-  const approvedByLabel = resolveUserDisplay(approval.approved_by || approval.reviewed_by, userNameById);
-  const approvedAtLabel = formatDate(approval.approved_at || approval.reviewed_at || approval.createdAt);
+  const approvedByLabel = resolveUserDisplay(
+    approval.admin_approved_by ?? approval.approved_by ?? approval.reviewed_by,
+    userNameById,
+  );
+  const approvedAtLabel = formatDate(
+    approval.admin_approved_at ?? approval.approved_at ?? approval.reviewed_at ?? approval.createdAt,
+  );
   const financeApprovedByLabel = resolveUserDisplay(approval.finance_approved_by, userNameById);
   const financeApprovedAtLabel = formatDate(approval.finance_approved_at);
   const accountApprovedByLabel = resolveUserDisplay(approval.account_approved_by, userNameById);

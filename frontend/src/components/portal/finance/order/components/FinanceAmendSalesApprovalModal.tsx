@@ -183,7 +183,7 @@ export function FinanceAmendSalesApprovalModal({
             typeof product === "object" && product
               ? String(product.sku ?? "")
               : String(it.sku ?? ""),
-          ordered_quantity: Number(it.approved_quantity ?? it.ordered_quantity ?? 0),
+          ordered_quantity: Number(it.ordered_quantity ?? it.approved_quantity ?? 0),
           ordered_unit_price: Number(it.ordered_unit_price ?? 0),
           approved_quantity: Number(it.approved_quantity ?? it.ordered_quantity ?? 0),
           approved_unit_price: Number(
@@ -226,7 +226,7 @@ export function FinanceAmendSalesApprovalModal({
           if (patch.approved_quantity !== undefined) {
             const qty = Math.max(0, Number(patch.approved_quantity));
             next.approved_quantity = qty;
-            next.ordered_quantity = qty;
+            // Keep batch/admin ordered qty intact — finance only changes approved qty.
             next.approval_status = financeOverrideLineStatus(qty);
           }
           // Recalculate discount_amount if discount_percent or approved_quantity or approved_unit_price changes
@@ -500,7 +500,8 @@ export function FinanceAmendSalesApprovalModal({
             return {
               order_item_id: line.order_item_id,
               product: line.product,
-              ordered_quantity: line.approved_quantity,
+              // Preserve admin batch ordered qty; only finance-approved qty changes.
+              ordered_quantity: line.ordered_quantity,
               approved_quantity: line.approved_quantity,
               approved_unit_price: line.approved_unit_price,
               free_quantity: line.free_quantity,
@@ -525,6 +526,7 @@ export function FinanceAmendSalesApprovalModal({
                   ? undefined
                   : line.order_item_id,
               product: line.product,
+              ordered_quantity: line.approved_quantity,
               approved_quantity: line.approved_quantity,
               approved_unit_price: line.approved_unit_price,
               free_quantity: line.free_quantity,

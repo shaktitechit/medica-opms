@@ -976,8 +976,11 @@ function mergeApprovalItemOverrides(doc, bodyItems = [], order = null) {
 function alignApprovalItemForFinanceOverride(item) {
   const approvedQty = Number(item.approved_quantity || 0);
   const approvedPrice = Number(item.approved_unit_price || 0);
-  item.ordered_quantity = approvedQty;
-  item.ordered_unit_price = approvedPrice;
+  const orderedQty = Number(item.ordered_quantity || 0);
+  const orderedPrice = Number(item.ordered_unit_price ?? approvedPrice);
+  // Preserve admin/batch ordered qty; only raise when finance clears more than the batch.
+  item.ordered_quantity = Math.max(orderedQty, approvedQty);
+  item.ordered_unit_price = orderedPrice || approvedPrice;
   recalcApprovalItemTotals(item);
 }
 
@@ -1021,8 +1024,11 @@ function finalizeFinanceOverrideApprovalIsolated(doc, user) {
   doc.is_finance_approved = true;
   doc.finance_approved_by = doc.finance_approved_by || user._id;
   doc.finance_approved_at = doc.finance_approved_at || now;
-  if (!doc.approved_by) doc.approved_by = user._id;
-  if (!doc.approved_at) doc.approved_at = now;
+  // Only fill legacy approved_by when admin has not already signed this batch.
+  if (!doc.is_admin_approved) {
+    if (!doc.approved_by) doc.approved_by = user._id;
+    if (!doc.approved_at) doc.approved_at = now;
+  }
 
   doc.approved_total_amount = (doc.approval_items || []).reduce(
     (sum, item) => sum + Number(item.approved_total_amount || 0),
@@ -1112,9 +1118,13 @@ async function syncOrderLinesFromFinanceAmendment(order, approvalDoc, rateByLine
     if (!line) continue;
 
     const approvedPrice = Number(item.approved_unit_price ?? line.unit_price ?? 0);
+    const currentOrdered = Number(line.ordered_quantity ?? line.quantity ?? 0);
 
-    line.ordered_quantity = approvedQty;
-    line.quantity = approvedQty;
+    // Finance only updates finance-cleared qty; do not shrink admin/order ordered pool.
+    if (approvedQty > currentOrdered) {
+      line.ordered_quantity = approvedQty;
+      line.quantity = approvedQty;
+    }
     line.approved_quantity = approvedQty;
     line.unit_price = approvedPrice;
     if (item.applied_rate_type) line.applied_rate_type = item.applied_rate_type;
@@ -1127,8 +1137,9 @@ async function syncOrderLinesFromFinanceAmendment(order, approvalDoc, rateByLine
     line.discount_percent = Number(item.discount_percent ?? 0);
     line.discount_amount = Number(item.discount_amount ?? 0);
     line.gst_percent = Number(item.gst_percent ?? 0);
-    line.approved_by = stampBy;
-    line.approved_at = stampAt;
+    // Stamp finance clearance on the line without rewriting admin approver metadata.
+    if (!line.approved_by) line.approved_by = stampBy;
+    if (!line.approved_at) line.approved_at = stampAt;
     line.line_status = 'active';
 
     alignApprovalItemForFinanceOverride(item);
@@ -1450,10 +1461,20 @@ async function decideFinance(id, decision, body, user) {
   doc.is_finance_approved = !isRejected;
   doc.finance_approved_by = isRejected ? undefined : user._id;
   doc.finance_approved_at = isRejected ? undefined : new Date();
-  doc.approved_by = isRejected ? undefined : user._id;
   doc.rejected_by = isRejected ? user._id : undefined;
-  doc.approved_at = isRejected ? undefined : new Date();
   doc.rejected_at = isRejected ? new Date() : undefined;
+  // Preserve admin attribution — finance must not overwrite approved_by/approved_at.
+  if (doc.is_admin_approved) {
+    if (!doc.admin_approved_by && doc.approved_by) {
+      doc.admin_approved_by = doc.approved_by;
+    }
+    if (!doc.admin_approved_at && doc.approved_at) {
+      doc.admin_approved_at = doc.approved_at;
+    }
+  } else {
+    doc.approved_by = isRejected ? undefined : user._id;
+    doc.approved_at = isRejected ? undefined : new Date();
+  }
   if (body?.approval_notes !== undefined) doc.approval_notes = body.approval_notes;
   if (body?.rejection_reason !== undefined) doc.rejection_reason = body.rejection_reason;
   
@@ -2112,12 +2133,13 @@ async function amendByFinance(id, body, user) {
     entity_id: doc._id,
     action: 'updated',
     message: wasFinanceApproved
-      ? `Sales approval ${doc.approval_no} amended by finance`
-      : `Sales approval ${doc.approval_no} approved by finance`,
+      ? `Finance approval ${doc.approval_no} amended by finance`
+      : `Finance approval ${doc.approval_no} approved by finance`,
   });
 
+  // Notes already stamped above — do not pass approval_notes or decideFinance
+  // will overwrite admin attribution / stamped notes on the shared batch.
   return decideFinance(id, 'approved', {
-    approval_notes: note,
     approved_total_amount: doc.approved_total_amount,
   }, user);
 }

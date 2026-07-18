@@ -130,8 +130,13 @@ export function ApprovalRecordCard({
 
   const items = useMemo(() => approvalItemsList(approval), [approval]);
 
-  const approvedByLabel = resolveUserDisplay(approval.approved_by, userNameById);
-  const approvedAtLabel = formatDate(approval.approved_at);
+  const approvedByLabel = resolveUserDisplay(
+    approval.admin_approved_by ?? approval.approved_by,
+    userNameById,
+  );
+  const approvedAtLabel = formatDate(
+    approval.admin_approved_at ?? approval.approved_at,
+  );
   const financeAmended = Boolean(approval.finance_amended);
   const financeAmendedByLabel = resolveUserDisplay(
     approval.finance_amended_by,
