@@ -2,10 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { Briefcase, X } from "lucide-react";
-import {
-  largeModalBackdropClass,
-  largeModalPanelClass,
-} from "@/components/portal/shared/modalLayout";
+import { LargeModalBackdrop } from "@/components/portal/shared/LargeModalBackdrop";
+import { largeModalPanelClass } from "@/components/portal/shared/modalLayout";
 import { resolveUserDisplay } from "@/components/portal/shared/userDisplay";
 import AdminPeriodFilter from "./AdminPeriodFilter";
 import { useAdminPeriodFilter } from "./useAdminPeriodFilter";
@@ -264,7 +262,7 @@ export default function AdminSalesLeaderboard({
       </div>
 
       {showAll && (
-        <div className={largeModalBackdropClass}>
+        <LargeModalBackdrop>
           <div className={`${largeModalPanelClass} max-w-5xl h-[min(90vh,750px)]`}>
             <div className="flex flex-col gap-3 p-5 border-b border-slate-100 dark:border-white/5">
               <div className="flex items-center justify-between gap-3">
@@ -367,7 +365,7 @@ export default function AdminSalesLeaderboard({
               </button>
             </div>
           </div>
-        </div>
+        </LargeModalBackdrop>
       )}
     </>
   );

@@ -12,6 +12,7 @@ import {
   useGetPartyProductQuery,
   useGetPartyQuery,
 } from "@/store/api";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-1 focus:ring-blue-600 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
@@ -218,6 +219,7 @@ export function MapOrderLinePriceModal({
   const submitLabel = isExistingMapping ? "Save rate" : "Map product";
 
   return (
+    <LargeModalPortal>
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
       <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900">
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 p-5 dark:border-white/5">
@@ -439,5 +441,6 @@ export function MapOrderLinePriceModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

@@ -1,10 +1,8 @@
 "use client";
 
 import { OrderDepartmentFulfillmentPanel } from "@/components/portal/shared/OrderDepartmentFulfillmentPanel";
-import {
-  largeModalBackdropClass,
-  largeModalPanelClass,
-} from "@/components/portal/shared/modalLayout";
+import { LargeModalBackdrop } from "@/components/portal/shared/LargeModalBackdrop";
+import { largeModalPanelClass } from "@/components/portal/shared/modalLayout";
 
 type ItemFulfillmentDetailsModalProps = {
   isOpen: boolean;
@@ -27,7 +25,7 @@ export function ItemFulfillmentDetailsModal({
   if (!isOpen) return null;
 
   return (
-    <div className={largeModalBackdropClass}>
+    <LargeModalBackdrop>
       <div className={`${largeModalPanelClass} p-5 sm:p-6`}>
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 sm:text-xl">
@@ -66,6 +64,6 @@ export function ItemFulfillmentDetailsModal({
           </button>
         </div>
       </div>
-    </div>
+    </LargeModalBackdrop>
   );
 }

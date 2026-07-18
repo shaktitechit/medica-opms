@@ -9,10 +9,8 @@ import {
   useListTransportAgentsQuery,
   useListVehiclesQuery,
 } from "@/store/api";
-import {
-  largeModalBackdropClass,
-  largeModalPanelScrollClass,
-} from "@/components/portal/shared/modalLayout";
+import { LargeModalBackdrop } from "@/components/portal/shared/LargeModalBackdrop";
+import { largeModalPanelScrollClass } from "@/components/portal/shared/modalLayout";
 
 type CreateTransportModalProps = {
   open: boolean;
@@ -380,7 +378,7 @@ export function CreateTransportModal({
   if (!open) return null;
 
   return (
-    <div className={largeModalBackdropClass}>
+    <LargeModalBackdrop>
       <div className={largeModalPanelScrollClass}>
         <div className="flex flex-col gap-1.5 border-b border-slate-100 pb-3 dark:border-white/5">
           <div className="flex items-center justify-between">
@@ -883,6 +881,6 @@ export function CreateTransportModal({
           </form>
         )}
       </div>
-    </div>
+    </LargeModalBackdrop>
   );
 }

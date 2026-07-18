@@ -14,6 +14,7 @@ import {
   useGetProductMetaOptionsQuery,
 } from "@/store/api";
 import { productRefLabel } from "./productRefLabel";
+import { LargeModalPortal } from "./LargeModalPortal";
 
 export type ProductDetailModalProps = {
   productId: string | null;
@@ -288,8 +289,9 @@ export function ProductDetailModal({
   if (!show) return null;
 
   return (
+    <LargeModalPortal>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
       role="presentation"
       onClick={() => !isSaving && onClose()}
     >
@@ -626,5 +628,6 @@ export function ProductDetailModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

@@ -5,10 +5,8 @@ import { useMemo, useState } from "react";
 import { Flag, ExternalLink, X } from "lucide-react";
 import { useListFlagsQuery, useListOrdersQuery } from "@/store/api";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import {
-  largeModalBackdropClass,
-  largeModalPanelClass,
-} from "@/components/portal/shared/modalLayout";
+import { LargeModalBackdrop } from "@/components/portal/shared/LargeModalBackdrop";
+import { largeModalPanelClass } from "@/components/portal/shared/modalLayout";
 
 export interface OverviewFlagsWidgetProps {
   currentDepartment: "sales" | "finance" | "account" | "dispatch" | "admin";
@@ -232,7 +230,7 @@ export function OverviewFlagsWidget({
         </button>
 
         {showModal && (
-          <div className={largeModalBackdropClass}>
+          <LargeModalBackdrop>
             <div className={`${largeModalPanelClass} max-w-2xl h-[min(90vh,720px)]`}>
               <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-white/5">
                 <div className="flex items-center gap-2">
@@ -267,7 +265,7 @@ export function OverviewFlagsWidget({
                 </button>
               </div>
             </div>
-          </div>
+          </LargeModalBackdrop>
         )}
       </>
     );

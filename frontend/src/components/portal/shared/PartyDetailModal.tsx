@@ -21,6 +21,7 @@ import {
   usePatchPartyMutation,
 } from "@/store/api";
 import { resolvePortalPresentation } from "@/components/portal/shared/portalPresentation";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 
 export type PartyDetailModalProps = {
   partyId: string | null;
@@ -323,8 +324,9 @@ export function PartyDetailModal({
   if (!show) return null;
 
   return (
+    <LargeModalPortal>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
       role="presentation"
       onClick={() => !isSaving && onClose()}
     >
@@ -805,5 +807,6 @@ export function PartyDetailModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
+
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
 const labelClass = "text-xs font-medium text-slate-700 dark:text-slate-300";
@@ -32,7 +34,8 @@ export function ResolveFlagModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]">
+    <LargeModalPortal>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]">
       <div className="w-full max-w-md rounded-2xl border border-slate-200/90 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900">
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4 dark:border-white/5">
           <div>
@@ -111,5 +114,6 @@ export function ResolveFlagModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

@@ -19,6 +19,7 @@ import {
   OrderFulfillmentPipelineStrip,
   buildListOrderFulfillmentPipeline,
 } from "@/components/portal/shared/FulfillmentCircleStep";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 
 export type OrderDetailModalProps = {
   orderId: string | null;
@@ -474,8 +475,9 @@ export function OrderDetailModal({
   const busy = isPatching || isSubmitting;
 
   return (
+    <LargeModalPortal>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
       role="presentation"
       onClick={onClose}
     >
@@ -869,5 +871,6 @@ export function OrderDetailModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

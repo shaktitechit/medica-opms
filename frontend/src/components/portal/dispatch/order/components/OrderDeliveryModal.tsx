@@ -2,10 +2,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import {
-  largeModalBackdropClass,
-  largeModalPanelClass,
-} from "@/components/portal/shared/modalLayout";
+import { LargeModalBackdrop } from "@/components/portal/shared/LargeModalBackdrop";
+import { largeModalPanelClass } from "@/components/portal/shared/modalLayout";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import { useLogShipmentDeliveryMutation } from "@/store/api";
@@ -141,7 +139,7 @@ export function OrderDeliveryModal({
   if (!open) return null;
 
   return (
-    <div className={largeModalBackdropClass}>
+    <LargeModalBackdrop>
       <div className={largeModalPanelClass}>
         <header className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-emerald-50/40 px-6 py-4 dark:border-white/5 dark:bg-emerald-950/10">
           <div>
@@ -241,6 +239,6 @@ export function OrderDeliveryModal({
           </button>
         </footer>
       </div>
-    </div>
+    </LargeModalBackdrop>
   );
 }
