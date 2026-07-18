@@ -114,8 +114,8 @@ export const ORDER_WORKFLOW_TAB_LABELS: Record<OrderWorkflowTabCategory, string>
   open_dispatched: "Open/Dispatch Pending",
   closed_delivered: "Closed/Delivered",
   on_hold: "On Hold",
-  rejected: "Rejected",
   cancelled: "Cancelled",
+  rejected: "Rejected",
 };
 
 export const ORDER_PRIORITY_TABS: ReadonlyArray<{ id: string; label: string }> = [

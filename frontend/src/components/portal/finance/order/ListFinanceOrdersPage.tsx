@@ -416,6 +416,7 @@ export default function ListFinanceOrdersPage() {
 
   const isPendingTab =
     activeTab === "pending_admin_approval" ||
+    activeTab === "due_sheet_pending" ||
     activeTab === "pending_finance_approval" ||
     activeTab === "pending_account_approval";
 

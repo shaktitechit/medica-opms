@@ -1787,9 +1787,27 @@ function registerModels() {
   
   mongoose.model("Notification", notificationSchema);
 
+  // --- Schemas for PushSubscription (Web Push) ---
+  const pushSubscriptionSchema = new mongoose.Schema(
+    {
+      user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+      endpoint: { type: String, required: true, unique: true },
+      expirationTime: { type: Number, default: null },
+      keys: {
+        p256dh: { type: String, required: true },
+        auth: { type: String, required: true },
+      },
+      userAgent: { type: String },
+    },
+    { timestamps: true }
+  );
+
+  mongoose.model("PushSubscription", pushSubscriptionSchema);
+
   // --- Schemas for Message ---
   const messageSchema = new mongoose.Schema(
     {
+      order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", index: true },
       recipient: { type: String, required: true, index: true },
       channel: { type: String, enum: ['email', 'whatsapp'], required: true, index: true },
       status: {
@@ -1893,6 +1911,8 @@ function registerModels() {
     OrderDueSheet: mongoose.models.OrderDueSheet || mongoose.model('OrderDueSheet', orderDueSheetSchema),
     ActivityLog: mongoose.models.ActivityLog || mongoose.model('ActivityLog', activityLogSchema),
     Notification: mongoose.models.Notification || mongoose.model('Notification', notificationSchema),
+    PushSubscription:
+      mongoose.models.PushSubscription || mongoose.model('PushSubscription', pushSubscriptionSchema),
     Message: mongoose.models.Message || mongoose.model('Message', messageSchema),
     Reminder: mongoose.models.Reminder || mongoose.model('Reminder', reminderSchema),
     PartyProductMapping:

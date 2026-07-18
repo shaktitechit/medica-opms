@@ -6,6 +6,7 @@ import mongoose from "mongoose";
 
 const messageSchema = new mongoose.Schema(
   {
+    order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", index: true },
     recipient: { type: String, required: true, index: true },
     channel: { type: String, enum: ['email', 'whatsapp'], required: true, index: true },
     status: {

@@ -62,6 +62,11 @@ module.exports = {
   WHATSAPP_VERIFY_TOKEN: process.env.WHATSAPP_VERIFY_TOKEN || 'medica_verify_token_default_value',
   WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET || 'medica_app_secret_default_value',
 
+  /** Web Push (VAPID) — generate with: npx web-push generate-vapid-keys */
+  VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY || '',
+  VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY || '',
+  VAPID_SUBJECT: process.env.VAPID_SUBJECT || 'mailto:admin@medica.local',
+
   /** Bull / ioredis / future queue driver */
   REDIS_URL: process.env.REDIS_URL || '',
 

@@ -32,7 +32,10 @@ export const FINANCE_ORDER_TABS: ReadonlyArray<{
   label: string;
 }> = [
   { id: "all", label: "All Orders" },
+  { id: "pending_admin_approval", label: "Admin Pending" },
+  { id: "due_sheet_pending", label: "Due Sheet Pending" },
   { id: "pending_finance_approval", label: "Finance Pending" },
+  { id: "pending_account_approval", label: "Account Pending" },
   { id: "open_dispatched", label: "Open/Dispatch Pending" },
   { id: "transport_return_pending", label: "Transport/Return Pending" },
   { id: "closed_delivered", label: "Closed/Delivered" },
@@ -51,8 +54,8 @@ export const FINANCE_ORDER_TAB_LABELS: Record<FinanceOrderTabCategory, string> =
   transport_return_pending: "Transport/Return Pending",
   closed_delivered: "Closed/Delivered",
   on_hold: "On Hold",
-  rejected: "Rejected",
   cancelled: "Cancelled",
+  rejected: "Rejected",
 };
 
 /** Order is delivered (fulfillment complete) but may not yet be account-closed. */
@@ -197,6 +200,7 @@ export function financeTabQueryParams(
 export function normalizeFinanceTabFromUrl(value: string | null): FinanceOrderTabCategory {
   if (!value) return "pending_finance_approval";
   if (value === "pending_finance_review") return "pending_finance_approval";
+  if (value === "pending_account_review") return "pending_account_approval";
   if (value === "open") return "open_dispatched";
   if (value === "closed") return "closed_delivered";
   if (value === "pending_approvals") return "all";
@@ -209,7 +213,6 @@ export function normalizeFinanceTabFromUrl(value: string | null): FinanceOrderTa
     return "transport_return_pending";
   }
   if (isFinanceOrderTabCategory(value)) return value;
-  // Removed tabs (e.g. due_sheet_pending) fall back to Finance Pending
   return "pending_finance_approval";
 }
 
@@ -335,17 +338,17 @@ export const FINANCE_STATUS_COLORS: Record<
     dot: "bg-amber-500 dark:bg-amber-450",
     label: "On Hold",
   },
-  rejected: {
-    fill: "fill-red-500/85 dark:fill-red-550/60",
-    hover: "fill-red-600 dark:fill-red-400",
-    dot: "bg-red-500 dark:bg-red-450",
-    label: "Rejected",
-  },
   cancelled: {
     fill: "fill-rose-500/85 dark:fill-rose-500/60",
     hover: "fill-rose-600 dark:fill-rose-450",
     dot: "bg-rose-500 dark:bg-rose-400",
     label: "Cancelled",
+  },
+  rejected: {
+    fill: "fill-red-500/85 dark:fill-red-550/60",
+    hover: "fill-red-600 dark:fill-red-400",
+    dot: "bg-red-500 dark:bg-red-450",
+    label: "Rejected",
   },
 };
 

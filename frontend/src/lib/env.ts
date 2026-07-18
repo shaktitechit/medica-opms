@@ -8,6 +8,14 @@ export function publicApiOrigin(): string {
   return raw.replace(/\/+$/, "");
 }
 
+/**
+ * Web Push VAPID public key (`NEXT_PUBLIC_VAPID_PUBLIC_KEY`).
+ * Must match backend `VAPID_PUBLIC_KEY`. Falls back to API fetch when empty.
+ */
+export function publicVapidKey(): string {
+  return process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() || "";
+}
+
 /** Company name for PDF letterheads and branded exports (`NEXT_PUBLIC_COMPANY_NAME`). */
 export function companyLetterheadName(): string {
   const raw = process.env.NEXT_PUBLIC_COMPANY_NAME?.trim();

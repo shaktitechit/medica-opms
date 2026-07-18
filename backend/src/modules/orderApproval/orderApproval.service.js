@@ -5,9 +5,6 @@
 const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
-const messageService = require('../messages/message.service');
-const { logger } = require('../../config/logger');
-const { WHATSAPP_TEMPLATES } = require('../messages/whatsappTemplates.registry');
 const { softDeleteActiveById, restoreSoftDeletedById, listDeletedLean } = require('../../utils/mongoSoftDelete');
 const activityService = require('../activity/activity.service');
 const workflowService = require('../workflow/workflow.service');
@@ -587,56 +584,8 @@ async function createAdminApproval(body, user) {
   order.last_admin_approval = doc._id;
   await order.save();
 
-  // Send WhatsApp notification if recipient number(s) provided in body
-  const recipientsRaw = body.contact_number || body.whatsapp_number;
-  if (recipientsRaw) {
-    const recipients = Array.isArray(recipientsRaw)
-      ? recipientsRaw
-      : typeof recipientsRaw === 'string'
-        ? recipientsRaw.split(',').map(r => r.trim()).filter(Boolean)
-        : [recipientsRaw];
-
-    const orderDateStr = order.order_date
-      ? new Date(order.order_date).toLocaleDateString('en-GB')
-      : '';
-
-    const itemsSummary = (order.order_items || [])
-      .map(item => `${item.product_name || 'Item'} (${item.ordered_quantity || item.quantity || 0})`)
-      .join(', ');
-
-    for (let i = 0; i < recipients.length; i++) {
-      const recipient = recipients[i];
-      const contactName = Array.isArray(body.contact_name)
-        ? body.contact_name[i]
-        : typeof body.contact_name === 'string'
-          ? body.contact_name.split(',')[i]?.trim()
-          : body.contact_name;
-
-      try {
-        await messageService.createAndQueueMessage({
-          recipient,
-          channel: 'whatsapp',
-          templateName: body.template_name || WHATSAPP_TEMPLATES.ORDER_RECEIVED,
-          templateParams: {
-            languageCode: body.language_code || 'en_US',
-            components: body.template_components || [
-              {
-                type: 'body',
-                parameters: [
-                  { type: 'text', text: contactName || 'Sir/Madam' },
-                  { type: 'text', text: order.order_no || '' },
-                  { type: 'text', text: orderDateStr },
-                  { type: 'text', text: itemsSummary || 'No items' }
-                ]
-              }
-            ]
-          }
-        });
-      } catch (err) {
-        logger.error(`[OrderApproval Service] Failed to queue WhatsApp message for admin approval to ${recipient}: ${err.message}`);
-      }
-    }
-  }
+  // Outbound WhatsApp/email queues: modules/communication
+  // e.g. communicationService.queueOrderReceivedMessages({ order: order._id, recipient, contact_name })
 
   if (body.approve_finance_only === true) {
     await decideFinance(doc._id, 'approved', { ...body, replace_snapshot: true }, user);

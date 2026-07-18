@@ -15,6 +15,7 @@ import OrderDetailsModal from "./components/OrderDetailsModal";
 import PartyDetailsModal from "./components/PartyDetailsModal";
 import { RemindersTab } from "@/components/portal/shared/RemindersTab";
 import { DueSheetTab } from "@/components/portal/shared/DueSheetTab";
+import CommunicationTab from "./components/CommunicationTab";
 import {
   buildPartyNameById,
   buildPartySraById,
@@ -228,6 +229,15 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     skip: !currentPartyId,
   });
 
+  const partyContact = useMemo(() => {
+    const p = partyDetailQ.data as Record<string, unknown> | undefined;
+    if (!p) return { mobile: "", email: "" };
+    return {
+      mobile: String(p.mobile || p.phone || p.whatsapp || "").trim(),
+      email: String(p.email || "").trim(),
+    };
+  }, [partyDetailQ.data]);
+
   const salesUsers = useMemo(() => pickList(salesUsersQ.data), [salesUsersQ.data]);
   const financeUsers = useMemo(() => pickList(financeUsersQ.data), [financeUsersQ.data]);
   const dispatchUsers = useMemo(() => pickList(dispatchUsersQ.data), [dispatchUsersQ.data]);
@@ -318,6 +328,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     | "transports"
     | "reminders"
     | "due_sheet"
+    | "communication"
   >("admin_approvals");
   const [mobileTabOpen, setMobileTabOpen] = useState(false);
 
@@ -712,6 +723,15 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
             {activeTab === "transports" && (<TransportsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
             {activeTab === "reminders" && (<RemindersTab orderId={orderId} />)}
             {activeTab === "due_sheet" && (<DueSheetTab orderId={orderId} onUploadSuccess={handleRefetch} />)}
+            {activeTab === "communication" && (
+              <CommunicationTab
+                orderId={orderId}
+                orderNo={String(detail?.order_no ?? "")}
+                partyLabel={custLabel}
+                partyMobile={partyContact.mobile}
+                partyEmail={partyContact.email}
+              />
+            )}
           </div>
 
           {/* ── DESKTOP: Footer Tab Nav ── */}
@@ -725,6 +745,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
                 { id: "attachments", name: "Attachments", count: attachmentsList.length },
                 { id: "reminders", name: "Reminders", count: remindersCount },
                 { id: "due_sheet", name: "Due Sheet" },
+                { id: "communication", name: "Communication" },
               ]}
               activeId={activeTab}
               onChange={(id) => setActiveTab(id as typeof activeTab)}
@@ -743,6 +764,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
                   {activeTab === "transports" && "Transports"}
                   {activeTab === "reminders" && "Reminders"}
                   {activeTab === "due_sheet" && "Due Sheet"}
+                  {activeTab === "communication" && "Communication"}
                 </h2>
                 <button type="button" onClick={() => setMobileTabOpen(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10 transition" aria-label="Close panel">
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -765,6 +787,15 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
                 {activeTab === "transports" && (<TransportsTab orderId={orderId} detail={detail} refetchOrder={handleRefetch} />)}
                 {activeTab === "reminders" && (<RemindersTab orderId={orderId} />)}
                 {activeTab === "due_sheet" && (<DueSheetTab orderId={orderId} onUploadSuccess={handleRefetch} />)}
+                {activeTab === "communication" && (
+                  <CommunicationTab
+                    orderId={orderId}
+                    orderNo={String(detail?.order_no ?? "")}
+                    partyLabel={custLabel}
+                    partyMobile={partyContact.mobile}
+                    partyEmail={partyContact.email}
+                  />
+                )}
               </div>
             </div>
           )}
@@ -783,6 +814,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
               { id: "attachments" as const, name: "Files", count: attachmentsList.length, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg> },
               { id: "reminders" as const, name: "Reminders", count: remindersCount, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
               { id: "due_sheet" as const, name: "Due Sheet", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
+              { id: "communication" as const, name: "Comm", count: undefined, dangerBadge: false, icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg> },
             ]).map((tab) => {
               const isActive = activeTab === tab.id && mobileTabOpen;
               return (

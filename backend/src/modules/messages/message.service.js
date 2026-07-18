@@ -1,5 +1,6 @@
 /**
- * @fileoverview Message Service: business logic for creating, queueing, and processing messages.
+ * @fileoverview Message Service: low-level create, enqueue, process, and list Message docs.
+ * Typed outbound flows live in modules/communication.
  * @module modules/messages/message.service
  */
 const { getModels } = require('../../data/mongoRegistry');
@@ -7,6 +8,7 @@ const { toPlain } = require('../../utils/mongoJson');
 const messageQueue = require('../../queues/message.queue');
 const whatsappHelper = require('./helpers/whatsapp.helper');
 const emailHelper = require('./helpers/email.helper');
+const { WHATSAPP_TEMPLATE_LANGUAGE } = require('./whatsappTemplates.registry');
 const { logger } = require('../../config/logger');
 
 /**
@@ -18,6 +20,7 @@ async function createAndQueueMessage(messageData) {
   const { Message } = getModels();
 
   const msg = await Message.create({
+    order: messageData.order || undefined,
     recipient: messageData.recipient,
     channel: messageData.channel,
     status: 'pending',
@@ -30,13 +33,11 @@ async function createAndQueueMessage(messageData) {
   logger.info(`[Message Service] Created message record: ${msg._id} for ${msg.recipient}`);
 
   try {
-    // Add job to BullMQ messages queue
     await messageQueue.enqueue({ messageId: String(msg._id) });
-    
-    // Update status to queued
+
     msg.status = 'queued';
     await msg.save();
-    
+
     logger.info(`[Message Service] Enqueued message job: ${msg._id}`);
   } catch (err) {
     logger.error(`[Message Service] Failed to enqueue message job: ${msg._id}. Error: ${err.message}`);
@@ -55,14 +56,13 @@ async function createAndQueueMessage(messageData) {
  */
 async function processMessageJob(messageId) {
   const { Message } = getModels();
-  
+
   const msg = await Message.findById(messageId);
   if (!msg) {
     logger.warn(`[Message Service] Message document not found: ${messageId}`);
     return;
   }
 
-  // If already sent, skip
   if (msg.status === 'sent') {
     logger.info(`[Message Service] Message ${messageId} is already sent. Skipping.`);
     return;
@@ -85,12 +85,10 @@ async function processMessageJob(messageId) {
       }
     } else if (msg.channel === 'whatsapp') {
       if (msg.templateName) {
-        // If templateParams contains languageCode / components
-        const lang = msg.templateParams?.languageCode || 'en_US';
+        const lang = msg.templateParams?.languageCode || WHATSAPP_TEMPLATE_LANGUAGE;
         const comps = msg.templateParams?.components || [];
         result = await whatsappHelper.sendTemplateMessage(msg.recipient, msg.templateName, lang, comps);
       } else if (msg.templateParams?.mediaType && msg.templateParams?.mediaUrl) {
-        // Handle media message
         const { mediaType, mediaUrl, caption, filename } = msg.templateParams;
         result = await whatsappHelper.sendMediaMessage(msg.recipient, mediaType, mediaUrl, caption, filename);
       } else {
@@ -100,7 +98,6 @@ async function processMessageJob(messageId) {
       throw new Error(`Unsupported communication channel: ${msg.channel}`);
     }
 
-    // Update message on success
     msg.status = 'sent';
     msg.sentAt = new Date();
     msg.metadata = result;
@@ -115,7 +112,6 @@ async function processMessageJob(messageId) {
     await msg.save();
 
     logger.error(`[Message Service] Message ${messageId} failed to send: ${error.message}`);
-    // Rethrow error so BullMQ knows the job failed and can handle retries/failure logging
     throw error;
   }
 }
@@ -130,6 +126,7 @@ async function listMessages(filter = {}, options = {}) {
   const skip = (page - 1) * limit;
 
   const mongoFilter = {};
+  if (filter.order) mongoFilter.order = filter.order;
   if (filter.channel) mongoFilter.channel = filter.channel;
   if (filter.status) mongoFilter.status = filter.status;
   if (filter.recipient) {

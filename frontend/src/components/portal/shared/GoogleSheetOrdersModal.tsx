@@ -28,19 +28,13 @@ import {
 } from "@/store/api";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 
-// Extended tab type that covers all three portals
-type PortalTabId =
-  | AdminOrderTabCategory
-  | "pending_finance_approval"
-  | "pending_account_approval";
-
 export type GoogleSheetOrdersModalProps = {
   isOpen: boolean;
   onClose: () => void;
   partyNameById: Map<string, string>;
   /** Pre-select a tab when the modal opens */
-  initialTab?: PortalTabId;
-  /** Controls which portal-specific "pending" tab is shown */
+  initialTab?: AdminOrderTabCategory;
+  /** Portal context (tabs are shared across portals) */
   portal?: "admin" | "finance" | "account";
 };
 
@@ -115,7 +109,7 @@ export function GoogleSheetOrdersModal({
   onClose,
   partyNameById,
   initialTab,
-  portal = "admin"
+  portal: _portal = "admin"
 }: GoogleSheetOrdersModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCell, setSelectedCell] = useState<SelectedCell>(null);
@@ -153,7 +147,7 @@ export function GoogleSheetOrdersModal({
   const [filterMaxAmount, setFilterMaxAmount] = useState<string>("");
   const [filterCity, setFilterCity] = useState<string>("all");
   const [filterSalesPerson, setFilterSalesPerson] = useState<string>("all");
-  const [activeSheetTab, setActiveSheetTab] = useState<PortalTabId | "all">("all");
+  const [activeSheetTab, setActiveSheetTab] = useState<AdminOrderTabCategory>("all");
 
   useEffect(() => {
     if (isOpen) {
@@ -1135,61 +1129,21 @@ export function GoogleSheetOrdersModal({
               <span className="cursor-pointer hover:text-slate-655 dark:hover:text-slate-300">▶</span>
             </div>
             
-              {/* Tab list */}
+              {/* Tab list — same shared workflow steps across portals */}
               <div className="flex items-center h-full relative top-[1px]">
-                {ADMIN_ORDER_TABS.filter(
-                  (tab) => portal === "admin" || tab.id !== "pending_admin_approval",
-                ).flatMap((tab) => {
-                  const tabBtn = (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveSheetTab(tab.id)}
-                      className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
-                        activeSheetTab === tab.id
-                          ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
-                          : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  );
-
-                  // Insert portal-specific pending tab right after All Orders
-                  if (tab.id === "all" && portal === "finance") {
-                    return [
-                      tabBtn,
-                      <button
-                        key="pending_finance_approval"
-                        onClick={() => setActiveSheetTab("pending_finance_approval")}
-                        className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
-                          activeSheetTab === "pending_finance_approval"
-                            ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
-                            : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
-                        }`}
-                      >
-                        Pending Finance Approval
-                      </button>,
-                    ];
-                  }
-                  if (tab.id === "all" && portal === "account") {
-                    return [
-                      tabBtn,
-                      <button
-                        key="pending_account_approval"
-                        onClick={() => setActiveSheetTab("pending_account_approval")}
-                        className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
-                          activeSheetTab === "pending_account_approval"
-                            ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
-                            : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
-                        }`}
-                      >
-                        Pending Account Approval
-                      </button>,
-                    ];
-                  }
-
-                  return [tabBtn];
-                })}
+                {ADMIN_ORDER_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveSheetTab(tab.id)}
+                    className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
+                      activeSheetTab === tab.id
+                        ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
+                        : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
             </div>
 

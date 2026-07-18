@@ -1,12 +1,10 @@
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
-  getOrderWorkflowTabCategory,
   isDueSheetPending,
   isOrderClosedOrDelivered,
   isOrderDelivered,
   normalizeWorkflowTabFromUrl,
   ORDER_WORKFLOW_TAB_LABELS,
-  orderMatchesWorkflowTab,
   resolveApprovalPending,
   type OrderWorkflowTabCategory,
 } from "@/components/portal/shared/orderList/orderWorkflowTabs";
@@ -31,6 +29,9 @@ export const ADMIN_ORDER_TABS: ReadonlyArray<{
 }> = [
   { id: "all", label: "All Orders" },
   { id: "pending_admin_approval", label: "Admin Pending" },
+  { id: "due_sheet_pending", label: "Due Sheet Pending" },
+  { id: "pending_finance_approval", label: "Finance Pending" },
+  { id: "pending_account_approval", label: "Account Pending" },
   { id: "open_dispatched", label: "Open/Dispatch Pending" },
   { id: "transport_return_pending", label: "Transport/Return Pending" },
   { id: "closed_delivered", label: "Closed/Delivered" },
@@ -50,17 +51,35 @@ export {
   isOrderDelivered,
 };
 
+/**
+ * Admin list tab bucket. Draft orders are excluded (return null).
+ * Same exclusive priority as account/finance/dispatch/sales:
+ * terminal → transport/return → closed → admin → due sheet → finance → open.
+ */
 export function getAdminOrderTabCategory(
   order: unknown,
   options?: AdminOrderCategoryOptions,
 ): AdminOrderTabCategory | null {
   if (!order || typeof order !== "object") return null;
+  const row = order as Record<string, unknown>;
+  const status = deriveOrderWorkflowStatus(row);
 
-  const workflowCat = getOrderWorkflowTabCategory(order);
-  if (!workflowCat) return null;
+  if (status === "draft") return null;
+
+  if (status === "on_hold") return "on_hold";
+  if (status === "cancelled") return "cancelled";
+  if (status === "finance_rejected") return "rejected";
 
   if (isTransportOrReturnPending(order, options)) return "transport_return_pending";
-  return workflowCat;
+  if (isOrderClosedOrDelivered(row)) return "closed_delivered";
+
+  const pending = resolveApprovalPending(row);
+  if (pending.admin) return "pending_admin_approval";
+  if (isDueSheetPending(row)) return "due_sheet_pending";
+  if (pending.finance) return "pending_finance_approval";
+  if (pending.account) return "pending_account_approval";
+
+  return "open_dispatched";
 }
 
 export function orderMatchesAdminTab(
@@ -70,22 +89,11 @@ export function orderMatchesAdminTab(
 ): boolean {
   if (!order || typeof order !== "object") return false;
 
-  if (tab === "transport_return_pending") {
-    return isTransportOrReturnPending(order, options);
-  }
-
-  if (tab === "open_dispatched") {
-    return (
-      getOrderWorkflowTabCategory(order) === "open_dispatched" &&
-      !isTransportOrReturnPending(order, options)
-    );
-  }
-
   if (tab === "all") {
     return deriveOrderWorkflowStatus(order as Record<string, unknown>) !== "draft";
   }
 
-  return orderMatchesWorkflowTab(order, tab);
+  return getAdminOrderTabCategory(order, options) === tab;
 }
 
 export function adminTabQueryParams(
@@ -202,65 +210,13 @@ export function computeAdminOrderStats(
     stats.all.quantity += qty;
     stats.all.amount += amount;
 
-    if (status === "on_hold") {
-      stats.on_hold.count += 1;
-      stats.on_hold.quantity += qty;
-      stats.on_hold.amount += amount;
-    }
-    if (status === "cancelled") {
-      stats.cancelled.count += 1;
-      stats.cancelled.quantity += qty;
-      stats.cancelled.amount += amount;
-    }
-    if (status === "finance_rejected") {
-      stats.rejected.count += 1;
-      stats.rejected.quantity += qty;
-      stats.rejected.amount += amount;
-    }
-    if (orderMatchesAdminTab(order, "transport_return_pending", options)) {
-      stats.transport_return_pending.count += 1;
-      stats.transport_return_pending.quantity += qty;
-      stats.transport_return_pending.amount += amount;
-    }
-    if (isOrderClosedOrDelivered(row)) {
-      stats.closed_delivered.count += 1;
-      stats.closed_delivered.quantity += qty;
-      stats.closed_delivered.amount += amount;
-    }
+    // One exclusive primary bucket — same as list tabs / orderMatchesAdminTab.
+    const cat = getAdminOrderTabCategory(order, options);
+    if (!cat || cat === "all") continue;
 
-    const isPipelineActive =
-      status !== "on_hold" &&
-      status !== "cancelled" &&
-      status !== "finance_rejected" &&
-      !isOrderClosedOrDelivered(row);
-
-    const pending = resolveApprovalPending(row);
-    if (isPipelineActive && pending.admin) {
-      stats.pending_admin_approval.count += 1;
-      stats.pending_admin_approval.quantity += qty;
-      stats.pending_admin_approval.amount += amount;
-    }
-    if (isPipelineActive && isDueSheetPending(row)) {
-      stats.due_sheet_pending.count += 1;
-      stats.due_sheet_pending.quantity += qty;
-      stats.due_sheet_pending.amount += amount;
-    }
-    if (isPipelineActive && pending.finance) {
-      stats.pending_finance_approval.count += 1;
-      stats.pending_finance_approval.quantity += qty;
-      stats.pending_finance_approval.amount += amount;
-    }
-    if (isPipelineActive && pending.account) {
-      stats.pending_account_approval.count += 1;
-      stats.pending_account_approval.quantity += qty;
-      stats.pending_account_approval.amount += amount;
-    }
-    // Match list/tab logic — not legacy status === "open" (derive rarely returns that).
-    if (orderMatchesAdminTab(order, "open_dispatched", options)) {
-      stats.open_dispatched.count += 1;
-      stats.open_dispatched.quantity += qty;
-      stats.open_dispatched.amount += amount;
-    }
+    stats[cat].count += 1;
+    stats[cat].quantity += qty;
+    stats[cat].amount += amount;
   }
 
   return stats;
@@ -324,17 +280,17 @@ export const ADMIN_STATUS_COLORS: Record<
     dot: "bg-amber-500 dark:bg-amber-450",
     label: "On Hold",
   },
-  rejected: {
-    fill: "fill-red-500/85 dark:fill-red-550/60",
-    hover: "fill-red-600 dark:fill-red-400",
-    dot: "bg-red-500 dark:bg-red-450",
-    label: "Rejected",
-  },
   cancelled: {
     fill: "fill-rose-500/85 dark:fill-rose-500/60",
     hover: "fill-rose-600 dark:fill-rose-450",
     dot: "bg-rose-500 dark:bg-rose-400",
     label: "Cancelled",
+  },
+  rejected: {
+    fill: "fill-red-500/85 dark:fill-red-550/60",
+    hover: "fill-red-600 dark:fill-red-400",
+    dot: "bg-red-500 dark:bg-red-450",
+    label: "Rejected",
   },
 };
 

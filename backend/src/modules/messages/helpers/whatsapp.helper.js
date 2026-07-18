@@ -5,7 +5,11 @@
 const axios = require('axios');
 const whatsappConfig = require('../../../config/whatsapp');
 const { logger } = require('../../../config/logger');
-const { WHATSAPP_TEMPLATES, isValidTemplate } = require('../whatsappTemplates.registry');
+const {
+  WHATSAPP_TEMPLATES,
+  WHATSAPP_TEMPLATE_LANGUAGE,
+  isValidTemplate,
+} = require('../whatsappTemplates.registry');
 
 /**
  * Sends a raw payload to WhatsApp Cloud API.
@@ -59,13 +63,19 @@ async function sendTextMessage(recipient, text) {
  * @param {string} languageCode - e.g. "en_US"
  * @param {Array} components - template component parameters (optional)
  */
-async function sendTemplateMessage(recipient, templateName, languageCode = 'en_US', components = []) {
+async function sendTemplateMessage(
+  recipient,
+  templateName,
+  languageCode = WHATSAPP_TEMPLATE_LANGUAGE,
+  components = [],
+) {
+  const lang = languageCode || WHATSAPP_TEMPLATE_LANGUAGE || 'en_US';
   const payload = {
     type: 'template',
     template: {
       name: templateName,
       language: {
-        code: languageCode,
+        code: lang,
       },
     },
   };
@@ -74,7 +84,25 @@ async function sendTemplateMessage(recipient, templateName, languageCode = 'en_U
     payload.template.components = components;
   }
 
-  return sendRawMessage(recipient, payload);
+  logger.info(
+    `[WhatsApp Helper] Template send name="${templateName}" language="${lang}" to ${recipient}`,
+  );
+
+  try {
+    return await sendRawMessage(recipient, payload);
+  } catch (err) {
+    const msg = String(err.message || '');
+    // Common mismatch: template approved as en_US but env sends en (or vice versa)
+    const altLang = lang === 'en' ? 'en_US' : lang === 'en_US' ? 'en' : null;
+    if (altLang && msg.includes('132001')) {
+      logger.warn(
+        `[WhatsApp Helper] (#132001) for name="${templateName}" language="${lang}"; retrying with language="${altLang}"`,
+      );
+      payload.template.language.code = altLang;
+      return sendRawMessage(recipient, payload);
+    }
+    throw err;
+  }
 }
 
 /**

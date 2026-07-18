@@ -20,7 +20,9 @@ export const ACCOUNT_ORDER_TABS: ReadonlyArray<{
   label: string;
 }> = [
   { id: "all", label: "All Orders" },
+  { id: "pending_admin_approval", label: "Admin Pending" },
   { id: "due_sheet_pending", label: "Due Sheet Pending" },
+  { id: "pending_finance_approval", label: "Finance Pending" },
   { id: "pending_account_approval", label: "Account Pending" },
   { id: "open_dispatched", label: "Open/Dispatch Pending" },
   { id: "transport_return_pending", label: "Transport/Return Pending" },
@@ -381,17 +383,17 @@ export const ACCOUNT_STATUS_COLORS: Record<
     dot: "bg-amber-500 dark:bg-amber-450",
     label: "On Hold",
   },
-  rejected: {
-    fill: "fill-red-500/85 dark:fill-red-550/60",
-    hover: "fill-red-600 dark:fill-red-400",
-    dot: "bg-red-500 dark:bg-red-450",
-    label: "Rejected",
-  },
   cancelled: {
     fill: "fill-rose-500/85 dark:fill-rose-500/60",
     hover: "fill-rose-600 dark:fill-rose-450",
     dot: "bg-rose-500 dark:bg-rose-400",
     label: "Cancelled",
+  },
+  rejected: {
+    fill: "fill-red-500/85 dark:fill-red-550/60",
+    hover: "fill-red-600 dark:fill-red-400",
+    dot: "bg-red-500 dark:bg-red-450",
+    label: "Rejected",
   },
 };
 

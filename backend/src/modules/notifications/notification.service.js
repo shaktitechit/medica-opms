@@ -6,6 +6,7 @@ const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
 const notificationQueue = require('../../queues/notification.queue');
 const sse = require('../../config/sse');
+const pushService = require('../push/push.service');
 
 async function createForUser(userId, payload) {
   const { Notification } = getModels();
@@ -23,6 +24,23 @@ async function createForUser(userId, payload) {
 
   // Push to any connected SSE clients for this user in real-time
   sse.emitToUser(String(userId), 'notification', plain);
+
+  // Browser Web Push (best-effort; does not block or fail the in-app notification)
+  void pushService
+    .sendToUser(userId, {
+      title: payload.title,
+      body: payload.message,
+      data: {
+        notificationId: plain._id,
+        type: payload.type || 'info',
+        module: payload.module || 'system',
+        entity_type: payload.entity_type,
+        entity_id: payload.entity_id ? String(payload.entity_id) : undefined,
+      },
+    })
+    .catch((err) => {
+      console.warn('[notifications] web-push failed', err?.message || err);
+    });
 
   return plain;
 }

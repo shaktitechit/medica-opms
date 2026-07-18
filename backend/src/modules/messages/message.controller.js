@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Message log + WhatsApp webhook controllers.
+ * Typed outbound queues live in modules/communication.
+ * @module modules/messages/message.controller
+ */
 const crypto = require('crypto');
 const asyncHandler = require('../../utils/asyncHandler');
 const service = require('./message.service');
@@ -17,10 +22,10 @@ exports.verifyWebhook = asyncHandler(async (req, res) => {
   if (mode === 'subscribe' && token === whatsappConfig.WHATSAPP_VERIFY_TOKEN) {
     logger.info('[WhatsApp Webhook] Verification successful');
     return res.status(200).send(challenge);
-  } else {
-    logger.warn('[WhatsApp Webhook] Verification failed - token mismatch or invalid mode');
-    throw new ApiError(403, 'Verification failed');
   }
+
+  logger.warn('[WhatsApp Webhook] Verification failed - token mismatch or invalid mode');
+  throw new ApiError(403, 'Verification failed');
 });
 
 /**
@@ -30,7 +35,6 @@ exports.verifyWebhook = asyncHandler(async (req, res) => {
 exports.receiveWebhook = asyncHandler(async (req, res) => {
   const signature = req.headers['x-hub-signature-256'];
 
-  // Validate signature if app secret is set
   const appSecret = whatsappConfig.WHATSAPP_APP_SECRET;
   if (appSecret && appSecret !== 'medica_app_secret_default_value') {
     if (!signature) {
@@ -53,42 +57,9 @@ exports.receiveWebhook = asyncHandler(async (req, res) => {
     }
   }
 
-  // Handle WhatsApp payload
   logger.info('[WhatsApp Webhook] Received webhook payload:', JSON.stringify(req.body));
 
-  // Acknowledge receipt
   res.status(200).json({ success: true });
-});
-
-/**
- * Endpoint to queue a communication message (WhatsApp or Email).
- * POST /api/messages/send
- */
-exports.queueMessage = asyncHandler(async (req, res) => {
-  const { recipient, channel, subject, body, templateName, templateParams } = req.body;
-
-  // Basic validation
-  if (!recipient) {
-    throw new ApiError(400, 'Recipient is required');
-  }
-  if (!channel || !['email', 'whatsapp'].includes(channel)) {
-    throw new ApiError(400, "Channel is required and must be either 'email' or 'whatsapp'");
-  }
-
-  const data = await service.createAndQueueMessage({
-    recipient,
-    channel,
-    subject,
-    body,
-    templateName,
-    templateParams,
-  });
-
-  res.status(201).json({
-    success: true,
-    message: 'Message queued successfully',
-    data,
-  });
 });
 
 /**
@@ -96,9 +67,9 @@ exports.queueMessage = asyncHandler(async (req, res) => {
  * GET /api/messages
  */
 exports.list = asyncHandler(async (req, res) => {
-  const { recipient, channel, status, page, limit } = req.query;
-  
-  const filter = { recipient, channel, status };
+  const { order, recipient, channel, status, page, limit } = req.query;
+
+  const filter = { order, recipient, channel, status };
   const options = { page, limit };
 
   const result = await service.listMessages(filter, options);

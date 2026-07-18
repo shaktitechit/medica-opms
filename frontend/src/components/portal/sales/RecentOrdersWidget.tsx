@@ -71,7 +71,6 @@ function renderWorkflowStatusBadge(status: string) {
       bgClass =
         "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
       break;
-    case "approval_pending":
     case "pending_admin_approval":
       bgClass =
         "bg-indigo-50 text-indigo-700 ring-indigo-600/10 dark:bg-indigo-955/30 dark:text-indigo-400 dark:ring-indigo-500/25";

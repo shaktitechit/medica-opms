@@ -1,5 +1,6 @@
 /**
- * @fileoverview Messages: Express router mounts + RBAC wrappers.
+ * @fileoverview Messages: log listing + WhatsApp webhook.
+ * Outbound typed queues: modules/communication.
  * @module modules/messages/message.routes
  */
 const { Router } = require('express');
@@ -11,10 +12,8 @@ const controller = require('./message.controller');
 router.get('/webhook', controller.verifyWebhook);
 router.post('/webhook', controller.receiveWebhook);
 
-// Require authentication for all other message actions
 router.use(requireAuth);
 
-router.post('/send', controller.queueMessage);
 router.get('/', controller.list);
 router.get('/:id', controller.getById);
 

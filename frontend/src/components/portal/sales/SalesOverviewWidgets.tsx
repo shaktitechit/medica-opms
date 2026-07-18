@@ -66,13 +66,6 @@ const WIDGET_META: Record<
     iconTone: "text-slate-600 dark:text-slate-400",
     Icon: LayoutGrid,
   },
-  approval_pending: {
-    accent: "bg-indigo-500",
-    labelTone: "text-indigo-500 dark:text-indigo-400",
-    iconWrap: "bg-indigo-50 dark:bg-indigo-950/30",
-    iconTone: "text-indigo-600 dark:text-indigo-400",
-    Icon: ShieldCheck,
-  },
   pending_admin_approval: {
     accent: "bg-indigo-500",
     labelTone: "text-indigo-500 dark:text-indigo-400",

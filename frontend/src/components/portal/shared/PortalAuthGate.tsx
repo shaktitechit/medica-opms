@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { persistSessionMarksFromAuth } from "@/lib/sessionCookie";
+import { usePushSubscription } from "@/lib/usePushSubscription";
 import { useAppSelector } from "@/store";
 
 type PortalAuthGateProps = { children: ReactNode };
@@ -16,6 +17,8 @@ export function PortalAuthGate({ children }: PortalAuthGateProps) {
   const token = useAppSelector((s) => s.auth.token);
   const user = useAppSelector((s) => s.auth.user);
   const [mounted, setMounted] = useState(false);
+
+  usePushSubscription(token);
 
   useEffect(() => {
     setMounted(true);

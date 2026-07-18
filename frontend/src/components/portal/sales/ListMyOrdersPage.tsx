@@ -20,6 +20,7 @@ import {
   buildPendingReturnOrderIds,
   getOrderTabCategory,
   isSalesOrderTabCategory,
+  normalizeSalesTabFromUrl,
   pendingApprovalStageLabel,
   resolveApprovalPending,
   SALES_ORDER_TAB_LABELS,
@@ -137,7 +138,6 @@ function renderWorkflowStatusBadge(status: string) {
       bgClass =
         "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-850 dark:text-slate-300 dark:ring-slate-700";
       break;
-    case "approval_pending":
     case "pending_admin_approval":
       bgClass =
         "bg-indigo-50 text-indigo-700 ring-indigo-600/10 dark:bg-indigo-950/30 dark:text-indigo-400 dark:ring-indigo-500/25";
@@ -221,7 +221,7 @@ export default function ListMyOrdersPage() {
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<SalesOrderTabCategory>(() =>
-    tabFromUrl && isSalesOrderTabCategory(tabFromUrl) ? tabFromUrl : "draft",
+    normalizeSalesTabFromUrl(tabFromUrl, "draft"),
   );
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
@@ -231,10 +231,8 @@ export default function ListMyOrdersPage() {
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (tabFromUrl && isSalesOrderTabCategory(tabFromUrl)) {
-      setActiveTab(tabFromUrl);
-      setCurrentPage(1);
-    }
+    setActiveTab(normalizeSalesTabFromUrl(tabFromUrl, "draft"));
+    setCurrentPage(1);
   }, [tabFromUrl]);
 
   const queryParams = useMemo(() => {
@@ -606,7 +604,10 @@ export default function ListMyOrdersPage() {
                           {renderPriorityBadge(pri)}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
-                          {activeTab === "approval_pending"
+                          {activeTab === "pending_admin_approval" ||
+                          activeTab === "due_sheet_pending" ||
+                          activeTab === "pending_finance_approval" ||
+                          activeTab === "pending_account_approval"
                             ? renderPendingApprovalBadge(o)
                             : renderWorkflowStatusBadge(
                                 getOrderTabCategory(o, categoryOptions),
