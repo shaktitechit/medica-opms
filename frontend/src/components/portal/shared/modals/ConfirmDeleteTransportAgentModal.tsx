@@ -1,4 +1,5 @@
 "use client";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { useEffect } from "react";
 
 export type ConfirmDeleteTransportAgentModalProps = {
@@ -37,8 +38,9 @@ export function ConfirmDeleteTransportAgentModal({
   const label = transportAgentLabel.trim() || transportAgentId;
 
   return (
+    <LargeModalPortal>
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
       role="presentation"
       onClick={() => !isDeleting && onClose()}
     >
@@ -88,6 +90,7 @@ export function ConfirmDeleteTransportAgentModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }
 

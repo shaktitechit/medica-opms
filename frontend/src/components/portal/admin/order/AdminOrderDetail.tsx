@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 
 import { FlagsTab } from "./components/FlagsTab";
 import AttachmentsTab from "./components/AttachmentsTab";
@@ -546,7 +547,8 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
 
       {/* Transitions Dialog */}
       {transitioningTo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 capitalize">
               {getTransitionLabel(transitioningTo, status)}
@@ -596,6 +598,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
             </div>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       <ItemFulfillmentDetailsModal

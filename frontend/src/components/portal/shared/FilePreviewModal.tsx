@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "./LargeModalPortal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 
@@ -44,8 +45,9 @@ export function FilePreviewModal({
   if (!doc) return null;
 
   return (
+    <LargeModalPortal>
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
       onClick={onClose}
       role="presentation"
     >
@@ -141,6 +143,7 @@ export function FilePreviewModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }
 

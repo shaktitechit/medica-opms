@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { OrderTab } from "./OrderTab";
 
 interface OrderItemsModalProps {
@@ -27,7 +28,8 @@ export default function OrderItemsModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
+    <LargeModalPortal>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
       <div className="w-full max-w-4xl rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5 font-sans">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-550 dark:text-slate-50">
@@ -66,5 +68,6 @@ export default function OrderItemsModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

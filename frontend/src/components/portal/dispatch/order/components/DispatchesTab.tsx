@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { useCallback, useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import { toast } from "@/lib/toast";
@@ -657,7 +658,8 @@ export function DispatchesTab({
       />
 
       {confirmCancelDispatchId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-white/5 flex items-center gap-3 bg-rose-50/60 dark:bg-rose-950/20">
               <div className="h-9 w-9 rounded-full flex items-center justify-center shrink-0 bg-rose-100 dark:bg-rose-950/50">
@@ -721,6 +723,7 @@ export function DispatchesTab({
             </div>
           </div>
         </div>
+        </LargeModalPortal>
       )}
     </div>
   );

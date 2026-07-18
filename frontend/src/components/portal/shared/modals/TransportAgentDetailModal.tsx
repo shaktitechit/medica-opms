@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { useCallback, useEffect, useState } from "react";
 import { mutationRejectedMessage, mutationSuccessCopy } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
@@ -242,7 +243,8 @@ export function TransportAgentDetailModal({
   const showReadOnly = !isCreate && !editing && detail;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]" role="presentation" onClick={onClose}>
+    <LargeModalPortal>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]" role="presentation" onClick={onClose}>
       <div
         className="w-full max-w-4xl overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900"
         role="dialog"
@@ -367,6 +369,7 @@ export function TransportAgentDetailModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }
 

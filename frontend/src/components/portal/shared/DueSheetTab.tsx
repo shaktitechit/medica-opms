@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "./LargeModalPortal";
 import { useEffect, useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import {
@@ -290,7 +291,8 @@ export function DueSheetTab({ orderId, onUploadSuccess }: DueSheetTabProps) {
       />
 
       {isUploadModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-lg rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
               <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
@@ -394,10 +396,12 @@ export function DueSheetTab({ orderId, onUploadSuccess }: DueSheetTabProps) {
             </form>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       {replaceTargetId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
               Replace Document
@@ -458,6 +462,7 @@ export function DueSheetTab({ orderId, onUploadSuccess }: DueSheetTabProps) {
             </form>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       <div className="flex flex-col justify-between gap-4 rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 sm:flex-row sm:items-center">

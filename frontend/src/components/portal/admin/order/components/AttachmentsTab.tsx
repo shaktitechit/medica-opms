@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import {
@@ -230,7 +231,8 @@ export default function AttachmentsTab({
 
       {/* Upload Attachment Modal */}
       {isUploadModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-lg rounded-xl border border-slate-200/90 bg-white p-6 shadow-xl dark:border-white/10 dark:bg-slate-900 transition-all">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
               <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 font-sans">
@@ -346,6 +348,7 @@ export default function AttachmentsTab({
             </form>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       {/* Header banner with Upload button */}

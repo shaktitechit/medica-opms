@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { useCallback, useEffect, useState } from "react";
 import {
   mutationRejectedMessage,
@@ -349,8 +350,9 @@ export function VehicleDetailModal({
   const showReadOnly = !isCreate && !editing && detail;
 
   return (
+    <LargeModalPortal>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
       role="presentation"
       onClick={onClose}
     >
@@ -833,5 +835,6 @@ export function VehicleDetailModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

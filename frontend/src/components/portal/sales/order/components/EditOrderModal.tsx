@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { useCallback, useMemo, useState, useEffect } from "react";
 import {
   MapOrderLinePriceModal,
@@ -551,11 +552,12 @@ export default function EditOrderModal({
   if (!isOpen) return null;
 
   return (
+    <LargeModalPortal>
     <div
       className={
         itemsOnly
-          ? "fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 backdrop-blur-[2px] sm:p-4 md:p-5"
-          : "fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]"
+          ? "fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-3 backdrop-blur-[2px] sm:p-4 md:p-5"
+          : "fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]"
       }
     >
       <div
@@ -987,5 +989,6 @@ export default function EditOrderModal({
         />
       ) : null}
     </div>
+    </LargeModalPortal>
   );
 }

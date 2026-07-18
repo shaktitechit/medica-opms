@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 
 import {
   buildPartyNameById,
@@ -684,7 +685,8 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     <div className="h-[calc(100vh-150px)] md:h-[calc(100vh-160px)] flex flex-col min-h-0 overflow-hidden space-y-0 pb-20 md:pb-0">
       {/* Transitions Dialog */}
       {transitioningTo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-555 dark:text-slate-50 capitalize">
               Transition to {transitioningTo.replace("_", " ")}
@@ -737,11 +739,13 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
             </div>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       {/* Resolve Confirmation Modal */}
       {confirmResolveOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-555 dark:text-slate-50 font-sans font-medium">
               Confirm Resolve Partial Release
@@ -768,6 +772,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
             </div>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       <ItemFulfillmentDetailsModal

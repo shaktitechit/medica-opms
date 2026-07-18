@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "./LargeModalPortal";
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { useBulkCreatePartyMutation } from "@/store/api";
 import {
@@ -320,8 +321,9 @@ export function BulkUploadPartiesModal({
   if (!open) return null;
 
   return (
+    <LargeModalPortal>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
       role="presentation"
       onClick={() => !isLoading && onClose()}
     >
@@ -575,5 +577,6 @@ export function BulkUploadPartiesModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

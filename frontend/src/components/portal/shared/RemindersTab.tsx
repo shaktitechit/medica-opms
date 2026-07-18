@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { DashboardCard } from "@/components/widgets";
+import { LargeModalPortal } from "./LargeModalPortal";
 import {
   useListRemindersQuery,
   useCreateReminderMutation,
@@ -342,7 +343,8 @@ export function RemindersTab({ orderId }: RemindersTabProps) {
 
       {/* CREATE REMINDER MODAL */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans animate-in zoom-in-95 duration-150">
             <h3 className="text-base font-bold text-slate-900 dark:text-slate-50">Create Reminder</h3>
             <form onSubmit={handleCreateReminder} className="mt-4 space-y-4">
@@ -406,11 +408,13 @@ export function RemindersTab({ orderId }: RemindersTabProps) {
             </form>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       {/* ADD FOLLOW-UP MODAL */}
       {showFollowUpModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans animate-in zoom-in-95 duration-150">
             <h3 className="text-base font-bold text-slate-900 dark:text-slate-555 dark:text-slate-50">Log Follow-up Remark</h3>
             <form onSubmit={handleAddFollowUp} className="mt-4 space-y-4">
@@ -475,11 +479,13 @@ export function RemindersTab({ orderId }: RemindersTabProps) {
             </form>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       {/* CONFIRM COMPLETE MODAL */}
       {completingReminderId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans animate-in zoom-in-95 duration-150">
             <h3 className="text-base font-bold text-slate-900 dark:text-slate-50">Complete Reminder</h3>
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
@@ -504,11 +510,13 @@ export function RemindersTab({ orderId }: RemindersTabProps) {
             </div>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       {/* CONFIRM DELETE MODAL */}
       {deletingReminderId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-slate-900 font-sans animate-in zoom-in-95 duration-150">
             <h3 className="text-base font-bold text-slate-900 dark:text-slate-50">Delete Reminder</h3>
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
@@ -533,6 +541,7 @@ export function RemindersTab({ orderId }: RemindersTabProps) {
             </div>
           </div>
         </div>
+        </LargeModalPortal>
       )}
     </DashboardCard>
   );

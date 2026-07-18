@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "./LargeModalPortal";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useGetFinalOrderStatementQuery } from "@/store/api";
 import { toast } from "@/lib/toast";
@@ -140,7 +141,8 @@ export default function FinalOrderStatementModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+    <LargeModalPortal>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
       <PortalBusyOverlay active={isLoading} message="Loading final statement…" />
       <div
         aria-hidden
@@ -491,5 +493,6 @@ export default function FinalOrderStatementModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

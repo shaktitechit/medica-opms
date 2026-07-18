@@ -1,5 +1,7 @@
 "use client";
 
+import { LargeModalPortal } from "./LargeModalPortal";
+
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   X,
@@ -775,7 +777,8 @@ function onEdit(e) {
   const isSavingAny = Object.values(savingRows).some(Boolean);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans" role="dialog" aria-modal="true">
+    <LargeModalPortal>
+    <div className="fixed inset-0 z-[100] flex flex-col bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans" role="dialog" aria-modal="true">
       {/* Top Main Google Sheets-Style Header */}
       <div className="flex flex-wrap items-center justify-between border-b border-slate-200 dark:border-slate-700 bg-slate-55 dark:bg-slate-900 px-4 py-2.5 shrink-0 select-none">
         <div className="flex items-center gap-3">
@@ -1789,5 +1792,6 @@ function onEdit(e) {
         </div>
       )}
     </div>
+    </LargeModalPortal>
   );
 }

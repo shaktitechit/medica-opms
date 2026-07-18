@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "./LargeModalPortal";
 import { useEffect } from "react";
 
 export type ConfirmDeleteProductModalProps = {
@@ -38,8 +39,9 @@ export function ConfirmDeleteProductModal({
   const label = productLabel.trim() || productId;
 
   return (
+    <LargeModalPortal>
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
       role="presentation"
       onClick={() => !isDeleting && onClose()}
     >
@@ -89,5 +91,6 @@ export function ConfirmDeleteProductModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

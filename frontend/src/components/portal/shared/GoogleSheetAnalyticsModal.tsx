@@ -1,5 +1,7 @@
 "use client";
 
+import { LargeModalPortal } from "./LargeModalPortal";
+
 import React, { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import {
   X,
@@ -570,7 +572,8 @@ export function GoogleSheetAnalyticsModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-sans">
+    <LargeModalPortal>
+    <div className="fixed inset-0 z-[100] flex flex-col bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-sans">
       {/* Top Header */}
       <header className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 px-6 py-4 shrink-0">
         <div className="flex items-center gap-3">
@@ -1383,6 +1386,7 @@ export function GoogleSheetAnalyticsModal({
         )}
       </main>
     </div>
+    </LargeModalPortal>
   );
 }
 

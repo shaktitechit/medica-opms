@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "./LargeModalPortal";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Edit,
@@ -1942,7 +1943,8 @@ function MapNewProductModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <LargeModalPortal>
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
         <div className="p-5 border-b border-slate-100 dark:border-white/5 flex items-center justify-between shrink-0">
           <h3 className="text-md font-bold text-slate-905 dark:text-slate-50 flex items-center gap-2">
@@ -2147,6 +2149,7 @@ function MapNewProductModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }
 
@@ -2190,7 +2193,8 @@ function EditMappingModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <LargeModalPortal>
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col">
         <div className="p-5 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
           <h3 className="text-md font-bold text-slate-905 dark:text-slate-50 flex items-center gap-2">
@@ -2285,6 +2289,7 @@ function EditMappingModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }
 
@@ -2373,7 +2378,8 @@ function AddRateModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <LargeModalPortal>
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col">
         <div className="p-5 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
           <h3 className="text-md font-bold text-slate-905 dark:text-slate-50 flex items-center gap-2">
@@ -2495,6 +2501,7 @@ function AddRateModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }
 
@@ -2559,7 +2566,8 @@ function EditRateModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <LargeModalPortal>
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col">
         <div className="p-5 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
           <h3 className="text-md font-bold text-slate-905 dark:text-slate-50 flex items-center gap-2">
@@ -2682,6 +2690,7 @@ function EditRateModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }
 
@@ -2709,7 +2718,8 @@ function ConfirmDeleteMappingModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <LargeModalPortal>
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col">
         <div className="p-5 flex items-start gap-3">
           <div className="p-2 bg-red-50 dark:bg-red-500/10 text-red-600 rounded-full shrink-0">
@@ -2749,6 +2759,7 @@ function ConfirmDeleteMappingModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }
 
@@ -2776,7 +2787,8 @@ function ConfirmDeleteRateModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <LargeModalPortal>
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col">
         <div className="p-5 flex items-start gap-3">
           <div className="p-2 bg-red-50 dark:bg-red-500/10 text-red-600 rounded-full shrink-0">
@@ -2813,5 +2825,6 @@ function ConfirmDeleteRateModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

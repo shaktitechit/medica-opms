@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "./LargeModalPortal";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
@@ -295,7 +296,8 @@ export default function ListProductGroupsPage({
 
       {/* Create/Edit Modal */}
       {(createOpen || editTarget) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-white/10 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-white/5">
               <h2 className="font-semibold text-slate-955 dark:text-white">
@@ -385,11 +387,13 @@ export default function ListProductGroupsPage({
             </form>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       {/* Delete Confirmation */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-white/10 p-6 space-y-4">
             <h3 className="font-bold text-slate-950 dark:text-white">Delete Product Group</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -412,6 +416,7 @@ export default function ListProductGroupsPage({
             </div>
           </div>
         </div>
+        </LargeModalPortal>
       )}
       {/* Busy Overlay */}
       <PortalBusyOverlay active={isSaving} />

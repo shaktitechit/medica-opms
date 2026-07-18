@@ -1,5 +1,6 @@
 "use client";
 
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { useRef, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import {
@@ -529,7 +530,8 @@ export function TransportsTab({
 
       {/* ── Confirmation Modal ── */}
       {confirmPending && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+        <LargeModalPortal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900 overflow-hidden">
             {/* Modal header */}
             <div
@@ -753,6 +755,7 @@ export function TransportsTab({
             </div>
           </div>
         </div>
+        </LargeModalPortal>
       )}
 
       <OrderDeliveryModal
