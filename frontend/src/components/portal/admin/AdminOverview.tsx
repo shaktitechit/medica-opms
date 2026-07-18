@@ -10,6 +10,8 @@ import AdminProductLeaderboard from "./components/AdminProductLeaderboard";
 import AdminSalesLeaderboard from "./components/AdminSalesLeaderboard";
 import FeaturedProductSalesUserTable from "./components/FeaturedProductSalesUserTable";
 import FeaturedProductFeaturePartyTable from "./components/FeaturedProductFeaturePartyTable";
+import FeaturedProductGroupSalesUserTable from "./components/FeaturedProductGroupSalesUserTable";
+import FeaturedProductGroupFeaturedPartyTable from "./components/FeaturedProductGroupFeaturedPartyTable";
 import {
   buildPendingReturnOrderIds,
   computeAdminOrderStats,
@@ -174,11 +176,19 @@ export default function AdminOverview() {
       </div>
 
       <div className="space-y-6">
-        <FeaturedProductSalesUserTable
+        {/* <FeaturedProductSalesUserTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />
         <FeaturedProductFeaturePartyTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        /> */}
+        <FeaturedProductGroupSalesUserTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        />
+        <FeaturedProductGroupFeaturedPartyTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />

@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import type { MatrixMetric } from "./featuredMatrixUtils";
 import AdminPeriodFilter from "./AdminPeriodFilter";
+import PeriodHeadingCaption from "./PeriodHeadingCaption";
+import ReportDownloadButton from "./ReportDownloadButton";
 
 interface FeaturedMatrixTableFrameProps {
   title: string;
@@ -18,6 +20,8 @@ interface FeaturedMatrixTableFrameProps {
   selectedMonths: number[];
   onYearsChange: (years: number[]) => void;
   onMonthsChange: (months: number[]) => void;
+  onDownload?: () => void;
+  downloadDisabled?: boolean;
   children: ReactNode;
 }
 
@@ -34,6 +38,8 @@ export default function FeaturedMatrixTableFrame({
   selectedMonths,
   onYearsChange,
   onMonthsChange,
+  onDownload,
+  downloadDisabled = false,
   children,
 }: FeaturedMatrixTableFrameProps) {
   return (
@@ -46,6 +52,10 @@ export default function FeaturedMatrixTableFrame({
               <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
                 {title}
               </h3>
+              <PeriodHeadingCaption
+                selectedYears={selectedYears}
+                selectedMonths={selectedMonths}
+              />
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 {subtitle}
               </p>
@@ -87,6 +97,13 @@ export default function FeaturedMatrixTableFrame({
               onMonthsChange={onMonthsChange}
               size="sm"
             />
+            {onDownload && (
+              <ReportDownloadButton
+                onDownload={onDownload}
+                disabled={downloadDisabled}
+                size="sm"
+              />
+            )}
           </div>
         </div>
       </div>

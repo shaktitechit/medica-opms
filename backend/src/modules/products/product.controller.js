@@ -59,3 +59,8 @@ exports.googleSheetWebhook = asyncHandler(async (req, res) => {
   const data = await service.syncFromGoogleSheet(req.body);
   res.json({ success: true, data });
 });
+
+exports.getMetaOptions = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await service.getMetaOptions() });
+});
+

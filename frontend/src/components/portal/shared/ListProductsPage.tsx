@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Package,
@@ -35,6 +36,14 @@ import {
 import { OrderListPaginationBar } from "@/components/portal/shared/orderList/OrderListPaginationBar";
 import { ListEntitySearchPanel } from "@/components/portal/shared/orderList/ListEntitySearchPanel";
 import { OrderListBottomTabStrip } from "@/components/portal/shared/orderList/OrderListBottomTabStrip";
+import ListProductGroupsPage from "./ListProductGroupsPage";
+import ListProductSubgroupsPage from "./ListProductSubgroupsPage";
+import ListProductBrandsPage from "./ListProductBrandsPage";
+import ListProductManufacturersPage from "./ListProductManufacturersPage";
+import GroupProductsPage from "./GroupProductsPage";
+import SubgroupProductsPage from "./SubgroupProductsPage";
+import BrandProductsPage from "./BrandProductsPage";
+import ManufacturerProductsPage from "./ManufacturerProductsPage";
 
 const btnCompactClass =
   "inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer";
@@ -123,6 +132,9 @@ export type ListProductsPageProps = {
 export default function ListProductsPage({
   portalHome,
 }: ListProductsPageProps) {
+  const searchParams = useSearchParams();
+  const view = searchParams.get("view") || "products";
+
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
@@ -341,6 +353,31 @@ export default function ListProductsPage({
     [uniqueGroups],
   );
 
+  if (view === "groups") {
+    return <ListProductGroupsPage portalHome={portalHome} />;
+  }
+  if (view === "subgroups") {
+    return <ListProductSubgroupsPage portalHome={portalHome} />;
+  }
+  if (view === "brands") {
+    return <ListProductBrandsPage portalHome={portalHome} />;
+  }
+  if (view === "manufacturers") {
+    return <ListProductManufacturersPage portalHome={portalHome} />;
+  }
+  if (view === "group-products") {
+    return <GroupProductsPage portalHome={portalHome} />;
+  }
+  if (view === "subgroup-products") {
+    return <SubgroupProductsPage portalHome={portalHome} />;
+  }
+  if (view === "brand-products") {
+    return <BrandProductsPage portalHome={portalHome} />;
+  }
+  if (view === "manufacturer-products") {
+    return <ManufacturerProductsPage portalHome={portalHome} />;
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       <PortalBusyOverlay active={isLoading} message="Loading products…" />
@@ -537,16 +574,20 @@ export default function ListProductsPage({
                     const id = rowKey(p);
                     const label = rowLabel(p, id);
                     const name = p.product_name || "—";
-                    const generic = p.generic_name?.trim() || "";
-                    const sku = p.sku?.trim() || "";
-
-                    const groupPart = p.product_group?.trim() || "";
-                    const subgroupPart = p.product_subgroup?.trim() || "";
+                    const groupObj = p.product_group as any;
+                    const groupPart = (groupObj?.name || p.product_group || "").trim();
+                    const subgroupObj = p.product_subgroup as any;
+                    const subgroupPart = (subgroupObj?.name || p.product_subgroup || "").trim();
                     const groupText = [groupPart, subgroupPart].filter(Boolean).join(" / ") || "—";
 
-                    const brandPart = p.brand?.trim() || "";
-                    const mfrPart = p.manufacturer?.trim() || "";
+                    const brandObj = p.brand as any;
+                    const brandPart = (brandObj?.name || p.brand || "").trim();
+                    const mfrObj = p.manufacturer as any;
+                    const mfrPart = (mfrObj?.name || p.manufacturer || "").trim();
                     const brandText = [brandPart, mfrPart].filter(Boolean).join(" / ") || "—";
+
+                    const generic = p.generic_name?.trim() || "";
+                    const sku = p.sku?.trim() || "";
 
                     const unit = p.unit || "pcs";
                     const basePrice = formatMoney(p.base_price);

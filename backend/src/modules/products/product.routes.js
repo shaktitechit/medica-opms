@@ -35,6 +35,7 @@ router.post(
   requireDepartment(...manageDepartments),
   controller.restore,
 );
+router.get('/meta-options', requireDepartment(...readDepartments), controller.getMetaOptions);
 router.get('/:id', requireDepartment(...readDepartments), controller.get);
 router.post('/', requireDepartment(...manageDepartments), controller.create);
 router.patch('/:id', requireDepartment(...manageDepartments), controller.update);

@@ -9,6 +9,8 @@ import FinanceProductLeaderboard from "./components/FinanceProductLeaderboard";
 import FinanceSalesLeaderboard from "./components/FinanceSalesLeaderboard";
 import FinanceFeaturedProductSalesUserTable from "./components/FinanceFeaturedProductSalesUserTable";
 import FinanceFeaturedProductFeaturePartyTable from "./components/FinanceFeaturedProductFeaturePartyTable";
+import FinanceFeaturedProductGroupSalesUserTable from "./components/FinanceFeaturedProductGroupSalesUserTable";
+import FinanceFeaturedProductGroupFeaturedPartyTable from "./components/FinanceFeaturedProductGroupFeaturedPartyTable";
 import {
   buildPendingReturnOrderIds,
   computeFinanceOrderStats,
@@ -163,11 +165,19 @@ export default function FinanceOverview() {
       </div>
 
       <div className="space-y-6">
-        <FinanceFeaturedProductSalesUserTable
+        {/* <FinanceFeaturedProductSalesUserTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />
         <FinanceFeaturedProductFeaturePartyTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        /> */}
+        <FinanceFeaturedProductGroupSalesUserTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        />
+        <FinanceFeaturedProductGroupFeaturedPartyTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />

@@ -69,8 +69,8 @@ const productSchema = new mongoose.Schema(
      * Inverter
      */
     product_group: {
-      type: String,
-      trim: true,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductGroup",
       index: true,
     },
 
@@ -81,8 +81,8 @@ const productSchema = new mongoose.Schema(
      * Lithium Battery
      */
     product_subgroup: {
-      type: String,
-      trim: true,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductSubgroup",
       index: true,
     },
 
@@ -90,8 +90,8 @@ const productSchema = new mongoose.Schema(
      * Brand name
      */
     brand: {
-      type: String,
-      trim: true,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductBrand",
       index: true,
     },
 
@@ -99,8 +99,8 @@ const productSchema = new mongoose.Schema(
      * Manufacturer name
      */
     manufacturer: {
-      type: String,
-      trim: true,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductManufacturer",
       index: true,
     },
 

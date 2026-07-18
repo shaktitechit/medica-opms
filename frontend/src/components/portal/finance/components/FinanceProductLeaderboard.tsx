@@ -8,6 +8,10 @@ import {
 } from "@/components/portal/shared/modalLayout";
 import AdminPeriodFilter from "@/components/portal/admin/components/AdminPeriodFilter";
 import { useAdminPeriodFilter } from "@/components/portal/admin/components/useAdminPeriodFilter";
+import PeriodHeadingCaption from "@/components/portal/admin/components/PeriodHeadingCaption";
+import ReportDownloadButton from "@/components/portal/admin/components/ReportDownloadButton";
+import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
+import { downloadCsvFile, reportFilename } from "@/components/portal/admin/components/reportDownloadUtils";
 
 interface FinanceProductLeaderboardProps {
   orders: any[];
@@ -139,6 +143,24 @@ export default function FinanceProductLeaderboard({
     </div>
   );
 
+
+  const handleDownload = () => {
+    if (productRows.length === 0) return;
+    const netLabel = metric === "quantity" ? "Net Qty" : "Net Vol";
+    const headers = ["Product", netLabel, "SR", "SRA", "CR"];
+    const rows = productRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
+    downloadCsvFile(
+      reportFilename("financeproductleaderboard", selectedYears, selectedMonths),
+      headers,
+      rows,
+      [
+        `Report: FinanceProductLeaderboard`,
+        `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
+        `Metric: ${metric}`,
+      ],
+    );
+  };
+
   const periodFilter = (
     <AdminPeriodFilter
       availableYears={availableYears}
@@ -158,9 +180,15 @@ export default function FinanceProductLeaderboard({
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <Package className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
-                  Top 5 Products
-                </h3>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
+                    Top 5 Products
+                  </h3>
+                  <PeriodHeadingCaption
+                    selectedYears={selectedYears}
+                    selectedMonths={selectedMonths}
+                  />
+                </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {metricToggle}
@@ -173,7 +201,14 @@ export default function FinanceProductLeaderboard({
                 </button>
               </div>
             </div>
-            <div className="flex justify-end">{periodFilter}</div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {periodFilter}
+              <ReportDownloadButton
+                onDownload={handleDownload}
+                disabled={isOrdersFetching || productRows.length === 0}
+                size="sm"
+              />
+            </div>
           </div>
 
           <div className="mt-3 overflow-x-auto">
@@ -234,9 +269,15 @@ export default function FinanceProductLeaderboard({
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <Package className="h-5 w-5 shrink-0 text-emerald-600" />
-                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
-                    {breakdownTitle}
-                  </h3>
+                  <div className="min-w-0">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
+                      {breakdownTitle}
+                    </h3>
+                    <PeriodHeadingCaption
+                      selectedYears={selectedYears}
+                      selectedMonths={selectedMonths}
+                    />
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {metricToggle}
@@ -249,7 +290,14 @@ export default function FinanceProductLeaderboard({
                   </button>
                 </div>
               </div>
-              <div className="flex justify-end">{periodFilter}</div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+              {periodFilter}
+              <ReportDownloadButton
+                onDownload={handleDownload}
+                disabled={isOrdersFetching || productRows.length === 0}
+                size="sm"
+              />
+            </div>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-5">

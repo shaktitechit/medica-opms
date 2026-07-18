@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Check, ChevronDown, Info } from "lucide-react";
+import PeriodHeadingCaption from "./PeriodHeadingCaption";
+import ReportDownloadButton from "./ReportDownloadButton";
+import { formatPeriodLabel } from "./periodFilterUtils";
+import { downloadCsvFile, reportFilename } from "./reportDownloadUtils";
 
 interface AdminMonthlyPerformanceChartProps {
   orders: any[];
@@ -188,6 +192,26 @@ export default function AdminMonthlyPerformanceChart({
         ? String(selectedYears[0])
         : `${selectedYears.length} years`;
 
+  const handleDownload = () => {
+    if (activeYears.length === 0) return;
+    const headers = ["Month", ...activeYears.map(String)];
+    const rows = MONTH_LABELS.map((monthLabel, monthIdx) => [
+      monthLabel,
+      ...activeYears.map((year) => monthlyByYear.get(year)?.[monthIdx] ?? 0),
+    ]);
+    downloadCsvFile(
+      reportFilename("adminmonthlyperformancechart", selectedYears),
+      headers,
+      rows,
+      [
+        `Report: Monthly Performance`,
+        `Period: ${formatPeriodLabel(selectedYears)}`,
+        `Metric: ${metric}`,
+      ],
+    );
+  };
+
+
   const chartEmpty = !isOrdersFetching && orders.length === 0;
 
   return (
@@ -199,6 +223,7 @@ export default function AdminMonthlyPerformanceChart({
             <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
               Monthly Performance
             </h2>
+            <PeriodHeadingCaption selectedYears={selectedYears} />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {metric === "quantity"
                 ? "System-wide net sales quantity by month across selected years"
@@ -208,6 +233,12 @@ export default function AdminMonthlyPerformanceChart({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
+          <ReportDownloadButton
+            onDownload={handleDownload}
+            disabled={isOrdersFetching || activeYears.length === 0}
+            size="sm"
+          />
+
           <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
             <button
               type="button"

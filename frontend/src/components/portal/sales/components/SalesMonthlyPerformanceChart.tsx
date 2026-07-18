@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Check, ChevronDown, Info } from "lucide-react";
+import PeriodHeadingCaption from "@/components/portal/admin/components/PeriodHeadingCaption";
+import ReportDownloadButton from "@/components/portal/admin/components/ReportDownloadButton";
+import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
+import { downloadCsvFile, reportFilename } from "@/components/portal/admin/components/reportDownloadUtils";
 
 interface SalesMonthlyPerformanceChartProps {
   orders: any[];
@@ -159,6 +163,25 @@ export default function SalesMonthlyPerformanceChart({
         ? String(selectedYears[0])
         : `${selectedYears.length} years`;
 
+  const handleDownload = () => {
+    if (activeYears.length === 0) return;
+    const headers = ["Month", ...activeYears.map(String)];
+    const rows = MONTH_LABELS.map((monthLabel, monthIdx) => [
+      monthLabel,
+      ...activeYears.map((year) => monthlyByYear.get(year)?.[monthIdx] ?? 0),
+    ]);
+    downloadCsvFile(
+      reportFilename("salesmonthlyperformancechart", selectedYears),
+      headers,
+      rows,
+      [
+        `Report: Monthly Performance`,
+        `Period: ${formatPeriodLabel(selectedYears)}`,
+      ],
+    );
+  };
+
+
   const chartEmpty = !isOrdersFetching && orders.length === 0;
 
   return (
@@ -170,53 +193,61 @@ export default function SalesMonthlyPerformanceChart({
             <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
               Monthly Performance
             </h2>
+            <PeriodHeadingCaption selectedYears={selectedYears} />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Net sales quantity by month across selected years
             </p>
           </div>
         </div>
 
-        <div className="relative self-end sm:self-auto" ref={yearMenuRef}>
-          <button
-            type="button"
-            onClick={() => setYearMenuOpen((o) => !o)}
-            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer"
-          >
-            <span className="text-slate-500 dark:text-slate-400 font-medium">Year</span>
-            <span>{yearFilterLabel}</span>
-            <ChevronDown
-              className={`h-3.5 w-3.5 text-slate-400 transition ${yearMenuOpen ? "rotate-180" : ""}`}
-            />
-          </button>
+        <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
+          <ReportDownloadButton
+            onDownload={handleDownload}
+            disabled={isOrdersFetching || activeYears.length === 0}
+            size="sm"
+          />
+          <div className="relative" ref={yearMenuRef}>
+            <button
+              type="button"
+              onClick={() => setYearMenuOpen((o) => !o)}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+            >
+              <span className="text-slate-500 dark:text-slate-400 font-medium">Year</span>
+              <span>{yearFilterLabel}</span>
+              <ChevronDown
+                className={`h-3.5 w-3.5 text-slate-400 transition ${yearMenuOpen ? "rotate-180" : ""}`}
+              />
+            </button>
 
-          {yearMenuOpen && (
-            <div className="absolute right-0 z-30 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-slate-900">
-              <div className="border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:border-white/5">
-                Select years
+            {yearMenuOpen && (
+              <div className="absolute right-0 z-30 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-slate-900">
+                <div className="border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:border-white/5">
+                  Select years
+                </div>
+                <ul className="max-h-56 overflow-y-auto py-1">
+                  {availableYears.map((year) => {
+                    const checked = selectedYears.includes(year);
+                    return (
+                      <li key={year}>
+                        <button
+                          type="button"
+                          onClick={() => toggleYear(year)}
+                          className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer"
+                        >
+                          <span>{year}</span>
+                          {checked ? (
+                            <Check className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                          ) : (
+                            <span className="h-3.5 w-3.5 rounded border border-slate-300 dark:border-slate-600" />
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
-              <ul className="max-h-56 overflow-y-auto py-1">
-                {availableYears.map((year) => {
-                  const checked = selectedYears.includes(year);
-                  return (
-                    <li key={year}>
-                      <button
-                        type="button"
-                        onClick={() => toggleYear(year)}
-                        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer"
-                      >
-                        <span>{year}</span>
-                        {checked ? (
-                          <Check className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                        ) : (
-                          <span className="h-3.5 w-3.5 rounded border border-slate-300 dark:border-slate-600" />
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 

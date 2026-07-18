@@ -18,6 +18,12 @@ import {
   resolveProductId,
   type MatrixEntity,
 } from "@/components/portal/admin/components/featuredMatrixUtils";
+import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
+import {
+  buildMatrixCsvPayload,
+  downloadCsvFile,
+  reportFilename,
+} from "@/components/portal/admin/components/reportDownloadUtils";
 
 interface SalesFeaturedProductFeaturePartyTableProps {
   orders: any[];
@@ -93,6 +99,27 @@ export default function SalesFeaturedProductFeaturePartyTable({
 
   const isLoading = isOrdersFetching || isProductsFetching || isPartiesFetching;
 
+  const handleDownload = () => {
+    if (featuredProducts.length === 0 || featuredParties.length === 0) return;
+    const { headers, rows } = buildMatrixCsvPayload({
+      rowLabel: "Featured Product",
+      rows: featuredProducts,
+      cols: featuredParties,
+      matrix,
+    });
+    downloadCsvFile(
+      reportFilename("sales_product_feature_party", selectedYears, selectedMonths),
+      headers,
+      rows,
+      [
+        `Report: Featured Products × Featured Parties`,
+        `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
+        `Metric: ${METRIC}`,
+      ],
+    );
+  };
+
+
   return (
     <FeaturedMatrixTableFrame
       title="Featured Products × Featured Parties"
@@ -105,6 +132,8 @@ export default function SalesFeaturedProductFeaturePartyTable({
       selectedMonths={selectedMonths}
       onYearsChange={setSelectedYears}
       onMonthsChange={setSelectedMonths}
+      onDownload={handleDownload}
+      downloadDisabled={isLoading}
     >
       {isLoading ? (
         <div className="space-y-2 py-4">

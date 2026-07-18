@@ -8,6 +8,10 @@ import {
 } from "@/components/portal/shared/modalLayout";
 import AdminPeriodFilter from "@/components/portal/admin/components/AdminPeriodFilter";
 import { useAdminPeriodFilter } from "@/components/portal/admin/components/useAdminPeriodFilter";
+import PeriodHeadingCaption from "@/components/portal/admin/components/PeriodHeadingCaption";
+import ReportDownloadButton from "@/components/portal/admin/components/ReportDownloadButton";
+import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
+import { downloadCsvFile, reportFilename } from "@/components/portal/admin/components/reportDownloadUtils";
 
 interface SalesProductLeaderboardProps {
   orders: any[];
@@ -87,6 +91,22 @@ export default function SalesProductLeaderboard({
     [productQuantities]
   );
 
+
+  const handleDownload = () => {
+    if (productQuantities.length === 0) return;
+    const headers = ["Product", "Net Qty", "SR", "SRA", "CR"];
+    const rows = productQuantities.map((r) => [r.name, r.qty, r.sr, r.sra, r.cr]);
+    downloadCsvFile(
+      reportFilename("salesproductleaderboard", selectedYears, selectedMonths),
+      headers,
+      rows,
+      [
+        `Report: SalesProductLeaderboard`,
+        `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
+      ],
+    );
+  };
+
   const periodFilter = (
     <AdminPeriodFilter
       availableYears={availableYears}
@@ -106,9 +126,15 @@ export default function SalesProductLeaderboard({
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <Package className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
-                <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
-                  Top 5 Products
-                </h3>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
+                    Top 5 Products
+                  </h3>
+                  <PeriodHeadingCaption
+                    selectedYears={selectedYears}
+                    selectedMonths={selectedMonths}
+                  />
+                </div>
               </div>
               <button
                 type="button"
@@ -118,7 +144,14 @@ export default function SalesProductLeaderboard({
                 View All
               </button>
             </div>
-            <div className="flex justify-end">{periodFilter}</div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {periodFilter}
+              <ReportDownloadButton
+                onDownload={handleDownload}
+                disabled={isOrdersFetching || productQuantities.length === 0}
+                size="sm"
+              />
+            </div>
           </div>
 
           <div className="mt-3 overflow-x-auto">
@@ -179,9 +212,15 @@ export default function SalesProductLeaderboard({
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <Package className="h-5 w-5 shrink-0 text-blue-600" />
-                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
-                    Product Sales breakdown (Net Quantity)
-                  </h3>
+                  <div className="min-w-0">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
+                      Product Sales breakdown (Net Quantity)
+                    </h3>
+                    <PeriodHeadingCaption
+                      selectedYears={selectedYears}
+                      selectedMonths={selectedMonths}
+                    />
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -191,7 +230,14 @@ export default function SalesProductLeaderboard({
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <div className="flex justify-end">{periodFilter}</div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+              {periodFilter}
+              <ReportDownloadButton
+                onDownload={handleDownload}
+                disabled={isOrdersFetching || productQuantities.length === 0}
+                size="sm"
+              />
+            </div>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-5">

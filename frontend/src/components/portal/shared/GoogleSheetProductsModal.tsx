@@ -26,7 +26,8 @@ import {
   usePatchProductMutation,
   useCreateProductMutation,
   useDeleteProductMutation,
-  useBulkDeleteProductsMutation
+  useBulkDeleteProductsMutation,
+  useGetProductMetaOptionsQuery
 } from "@/store/api";
 import { toast } from "@/lib/toast";
 
@@ -140,7 +141,8 @@ export function GoogleSheetProductsModal({
   const uniqueBrands = useMemo(() => {
     const values = new Set<string>();
     localRows.forEach(r => {
-      if (r.brand?.trim()) values.add(r.brand.trim());
+      const b = (r.brand && typeof r.brand === "object" && "name" in r.brand) ? (r.brand as any).name : r.brand;
+      if (b?.trim()) values.add(b.trim());
     });
     return Array.from(values).sort();
   }, [localRows]);
@@ -148,7 +150,8 @@ export function GoogleSheetProductsModal({
   const uniqueManufacturers = useMemo(() => {
     const values = new Set<string>();
     localRows.forEach(r => {
-      if (r.manufacturer?.trim()) values.add(r.manufacturer.trim());
+      const m = (r.manufacturer && typeof r.manufacturer === "object" && "name" in r.manufacturer) ? (r.manufacturer as any).name : r.manufacturer;
+      if (m?.trim()) values.add(m.trim());
     });
     return Array.from(values).sort();
   }, [localRows]);
@@ -156,7 +159,8 @@ export function GoogleSheetProductsModal({
   const uniqueProductGroups = useMemo(() => {
     const values = new Set<string>();
     localRows.forEach(r => {
-      if (r.product_group?.trim()) values.add(r.product_group.trim());
+      const pg = (r.product_group && typeof r.product_group === "object" && "name" in r.product_group) ? (r.product_group as any).name : r.product_group;
+      if (pg?.trim()) values.add(pg.trim());
     });
     return Array.from(values).sort();
   }, [localRows]);
@@ -164,7 +168,8 @@ export function GoogleSheetProductsModal({
   const uniqueProductSubgroups = useMemo(() => {
     const values = new Set<string>();
     localRows.forEach(r => {
-      if (r.product_subgroup?.trim()) values.add(r.product_subgroup.trim());
+      const psg = (r.product_subgroup && typeof r.product_subgroup === "object" && "name" in r.product_subgroup) ? (r.product_subgroup as any).name : r.product_subgroup;
+      if (psg?.trim()) values.add(psg.trim());
     });
     return Array.from(values).sort();
   }, [localRows]);
@@ -285,6 +290,7 @@ export function GoogleSheetProductsModal({
     { skip: !isOpen }
   );
 
+  const { data: metaOptions } = useGetProductMetaOptionsQuery(undefined, { skip: !isOpen });
   const [patchProduct] = usePatchProductMutation();
   const [createProduct, { isLoading: isCreating }] = useCreateProductMutation();
   const [deleteProduct, { isLoading: isDeleting }] = useDeleteProductMutation();
@@ -323,7 +329,10 @@ export function GoogleSheetProductsModal({
       const row = localRows.find(r => r._id === selectedCell.productId);
       if (row) {
         const val = row[selectedCell.colKey];
-        setFormulaValue(val !== undefined && val !== null ? String(val) : "");
+        const valStr = (val && typeof val === "object" && "name" in val)
+          ? String((val as any).name || "")
+          : (val !== undefined && val !== null ? String(val) : "");
+        setFormulaValue(valStr);
       }
     } else {
       setFormulaValue("");
@@ -392,7 +401,9 @@ export function GoogleSheetProductsModal({
     };
 
     // Don't patch if value didn't change
-    if (areEqual(originalRow[colKey], parsedVal)) return;
+    const orig = originalRow[colKey];
+    const origVal = (orig && typeof orig === "object" && "name" in orig) ? (orig as any).name : orig;
+    if (areEqual(origVal, parsedVal)) return;
 
     setSavingRows(prev => ({ ...prev, [productId]: true }));
     try {
@@ -1211,7 +1222,10 @@ function onEdit(e) {
 
                       {/* Spreadsheet Columns */}
                       {COLUMNS.map(col => {
-                        const cellVal = row[col.key];
+                        const rawCellVal = row[col.key];
+                        const cellVal = (rawCellVal && typeof rawCellVal === "object" && "name" in rawCellVal)
+                          ? (rawCellVal as any).name
+                          : rawCellVal;
                         const isSelected = selectedCell?.productId === row._id && selectedCell?.colKey === col.key;
                         const isReadonly = col.readonly;
 
@@ -1249,6 +1263,44 @@ function onEdit(e) {
                                       className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-offset-transparent cursor-pointer"
                                     />
                                   </div>
+                                ) : ["product_group", "product_subgroup", "brand", "manufacturer"].includes(col.key) ? (
+                                  <select
+                                    value={
+                                      (cellVal && typeof cellVal === "object" && "name" in cellVal)
+                                        ? (cellVal as any).name
+                                        : String(cellVal || "")
+                                    }
+                                    onChange={e => {
+                                      const newVal = e.target.value;
+                                      setLocalRows(prev =>
+                                        prev.map(r => r._id === row._id ? { ...r, [col.key]: newVal } : r)
+                                      );
+                                      saveCell(row._id, col.key, newVal);
+                                    }}
+                                    className="w-full bg-transparent border-none outline-none focus:ring-0 text-xs px-3 py-2 text-slate-800 dark:text-slate-100 cursor-pointer"
+                                  >
+                                    <option value="" className="bg-white dark:bg-slate-900 text-slate-400">-- None --</option>
+                                    {col.key === "product_group" && metaOptions?.groups?.map(g => (
+                                      <option key={g._id} value={g.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                                        {g.name}
+                                      </option>
+                                    ))}
+                                    {col.key === "product_subgroup" && metaOptions?.subgroups?.map(sg => (
+                                      <option key={sg._id} value={sg.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                                        {sg.name}
+                                      </option>
+                                    ))}
+                                    {col.key === "brand" && metaOptions?.brands?.map(b => (
+                                      <option key={b._id} value={b.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                                        {b.name}
+                                      </option>
+                                    ))}
+                                    {col.key === "manufacturer" && metaOptions?.manufacturers?.map(m => (
+                                      <option key={m._id} value={m.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                                        {m.name}
+                                      </option>
+                                    ))}
+                                  </select>
                                 ) : col.type === "select" ? (
                                   <select
                                     value={String(cellVal || "pcs")}
@@ -1270,6 +1322,12 @@ function onEdit(e) {
                                 ) : (
                                   <input
                                     type={col.type === "number" ? "number" : "text"}
+                                    list={
+                                      col.key === "product_group" ? "grid-group-options" :
+                                      col.key === "product_subgroup" ? "grid-subgroup-options" :
+                                      col.key === "brand" ? "grid-brand-options" :
+                                      col.key === "manufacturer" ? "grid-manufacturer-options" : undefined
+                                    }
                                     value={cellVal !== undefined && cellVal !== null ? String(cellVal) : ""}
                                     onChange={e => {
                                       const rawVal = e.target.value;

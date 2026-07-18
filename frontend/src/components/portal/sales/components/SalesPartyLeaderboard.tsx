@@ -9,6 +9,10 @@ import {
 import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
 import AdminPeriodFilter from "@/components/portal/admin/components/AdminPeriodFilter";
 import { useAdminPeriodFilter } from "@/components/portal/admin/components/useAdminPeriodFilter";
+import PeriodHeadingCaption from "@/components/portal/admin/components/PeriodHeadingCaption";
+import ReportDownloadButton from "@/components/portal/admin/components/ReportDownloadButton";
+import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
+import { downloadCsvFile, reportFilename } from "@/components/portal/admin/components/reportDownloadUtils";
 
 interface SalesPartyLeaderboardProps {
   orders: any[];
@@ -80,6 +84,22 @@ export default function SalesPartyLeaderboard({
     [partyQuantities]
   );
 
+
+  const handleDownload = () => {
+    if (partyQuantities.length === 0) return;
+    const headers = ["Party", "Net Qty", "SR", "SRA", "CR"];
+    const rows = partyQuantities.map((r) => [r.name, r.qty, r.sr, r.sra, r.cr]);
+    downloadCsvFile(
+      reportFilename("salespartyleaderboard", selectedYears, selectedMonths),
+      headers,
+      rows,
+      [
+        `Report: SalesPartyLeaderboard`,
+        `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
+      ],
+    );
+  };
+
   const periodFilter = (
     <AdminPeriodFilter
       availableYears={availableYears}
@@ -99,9 +119,15 @@ export default function SalesPartyLeaderboard({
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <Users className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
-                  Top 5 Parties
-                </h3>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
+                    Top 5 Parties
+                  </h3>
+                  <PeriodHeadingCaption
+                    selectedYears={selectedYears}
+                    selectedMonths={selectedMonths}
+                  />
+                </div>
               </div>
               <button
                 type="button"
@@ -111,7 +137,14 @@ export default function SalesPartyLeaderboard({
                 View All
               </button>
             </div>
-            <div className="flex justify-end">{periodFilter}</div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {periodFilter}
+              <ReportDownloadButton
+                onDownload={handleDownload}
+                disabled={isOrdersFetching || partyQuantities.length === 0}
+                size="sm"
+              />
+            </div>
           </div>
 
           <div className="mt-3 overflow-x-auto">
@@ -172,9 +205,15 @@ export default function SalesPartyLeaderboard({
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <Users className="h-5 w-5 shrink-0 text-emerald-600" />
-                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
-                    Party Sales breakdown (Net Quantity)
-                  </h3>
+                  <div className="min-w-0">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
+                      Party Sales breakdown (Net Quantity)
+                    </h3>
+                    <PeriodHeadingCaption
+                      selectedYears={selectedYears}
+                      selectedMonths={selectedMonths}
+                    />
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -184,7 +223,14 @@ export default function SalesPartyLeaderboard({
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <div className="flex justify-end">{periodFilter}</div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+              {periodFilter}
+              <ReportDownloadButton
+                onDownload={handleDownload}
+                disabled={isOrdersFetching || partyQuantities.length === 0}
+                size="sm"
+              />
+            </div>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-5">

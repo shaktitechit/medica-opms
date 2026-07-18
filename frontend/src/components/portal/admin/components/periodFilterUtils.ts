@@ -70,3 +70,57 @@ export function formatMultiSelectLabel(
 }
 
 export const ALL_MONTHS = MONTH_OPTIONS.map((m) => m.value);
+
+function monthLabel(value: number): string {
+  return MONTH_OPTIONS.find((m) => m.value === value)?.label ?? String(value);
+}
+
+function formatSortedRangeOrList(
+  sorted: number[],
+  allCount: number,
+  allLabel: string,
+  resolveLabel: (value: number) => string,
+  countNoun: string,
+): string {
+  if (sorted.length === 0) return `No ${countNoun}`;
+  if (sorted.length === allCount) return allLabel;
+  if (sorted.length === 1) return resolveLabel(sorted[0]);
+
+  const isContiguous =
+    sorted[sorted.length - 1] - sorted[0] === sorted.length - 1;
+  if (isContiguous) {
+    return `${resolveLabel(sorted[0])}–${resolveLabel(sorted[sorted.length - 1])}`;
+  }
+  if (sorted.length <= 4) {
+    return sorted.map(resolveLabel).join(", ");
+  }
+  return `${sorted.length} ${countNoun}`;
+}
+
+/** Human-readable period for report headings, e.g. "2026 · Jan–Mar". */
+export function formatPeriodLabel(
+  selectedYears: number[],
+  selectedMonths?: number[],
+): string {
+  const yearsSorted = [...selectedYears].sort((a, b) => a - b);
+  const yearPart = formatSortedRangeOrList(
+    yearsSorted,
+    Number.POSITIVE_INFINITY,
+    "All years",
+    String,
+    "years",
+  );
+
+  if (selectedMonths == null) return yearPart;
+
+  const monthsSorted = [...selectedMonths].sort((a, b) => a - b);
+  const monthPart = formatSortedRangeOrList(
+    monthsSorted,
+    ALL_MONTHS.length,
+    "All months",
+    monthLabel,
+    "months",
+  );
+
+  return `${yearPart} · ${monthPart}`;
+}

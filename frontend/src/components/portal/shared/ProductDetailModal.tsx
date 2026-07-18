@@ -11,6 +11,7 @@ import {
   useCreateProductMutation,
   useGetProductQuery,
   usePatchProductMutation,
+  useGetProductMetaOptionsQuery,
 } from "@/store/api";
 
 export type ProductDetailModalProps = {
@@ -112,6 +113,7 @@ export function ProductDetailModal({
 
   const [createProduct, { isLoading: isCreating }] = useCreateProductMutation();
   const [patchProduct, { isLoading: isPatching }] = usePatchProductMutation();
+  const { data: metaOptions } = useGetProductMetaOptionsQuery(undefined, { skip: !show });
   const isSaving = isCreating || isPatching;
 
   // Local Form state
@@ -129,10 +131,10 @@ export function ProductDetailModal({
         product_name: stringField(p.product_name),
         generic_name: stringField(p.generic_name),
         sku: stringField(p.sku),
-        product_group: stringField(p.product_group),
-        product_subgroup: stringField(p.product_subgroup),
-        brand: stringField(p.brand),
-        manufacturer: stringField(p.manufacturer),
+        product_group: stringField(p.product_group?.name || p.product_group),
+        product_subgroup: stringField(p.product_subgroup?.name || p.product_subgroup),
+        brand: stringField(p.brand?.name || p.brand),
+        manufacturer: stringField(p.manufacturer?.name || p.manufacturer),
         unit: UNIT_OPTIONS.includes(p.unit) ? p.unit : "pcs",
         base_price: numField(p.base_price),
         minimum_sale_rate: numField(p.minimum_sale_rate),
@@ -230,13 +232,18 @@ export function ProductDetailModal({
         const pObj = rawProduct as any;
         const patch: Record<string, any> = {};
 
+        const oldGroup = pObj.product_group?.name || pObj.product_group;
+        const oldSubgroup = pObj.product_subgroup?.name || pObj.product_subgroup;
+        const oldBrand = pObj.brand?.name || pObj.brand;
+        const oldManufacturer = pObj.manufacturer?.name || pObj.manufacturer;
+
         if (!valsEqual(form.product_name.trim(), pObj.product_name)) patch.product_name = form.product_name.trim();
         if (!valsEqual(form.generic_name.trim(), pObj.generic_name)) patch.generic_name = form.generic_name.trim() || null;
         if (!valsEqual(form.sku.trim(), pObj.sku)) patch.sku = form.sku.trim() || null;
-        if (!valsEqual(form.product_group.trim(), pObj.product_group)) patch.product_group = form.product_group.trim() || null;
-        if (!valsEqual(form.product_subgroup.trim(), pObj.product_subgroup)) patch.product_subgroup = form.product_subgroup.trim() || null;
-        if (!valsEqual(form.brand.trim(), pObj.brand)) patch.brand = form.brand.trim() || null;
-        if (!valsEqual(form.manufacturer.trim(), pObj.manufacturer)) patch.manufacturer = form.manufacturer.trim() || null;
+        if (!valsEqual(form.product_group.trim(), oldGroup)) patch.product_group = form.product_group.trim() || null;
+        if (!valsEqual(form.product_subgroup.trim(), oldSubgroup)) patch.product_subgroup = form.product_subgroup.trim() || null;
+        if (!valsEqual(form.brand.trim(), oldBrand)) patch.brand = form.brand.trim() || null;
+        if (!valsEqual(form.manufacturer.trim(), oldManufacturer)) patch.manufacturer = form.manufacturer.trim() || null;
         if (form.unit !== pObj.unit) patch.unit = form.unit;
         if (bp !== pObj.base_price) patch.base_price = bp;
         if (msr !== pObj.minimum_sale_rate) patch.minimum_sale_rate = msr;
@@ -384,48 +391,72 @@ export function ProductDetailModal({
                 <label className={labelClass}>Commercial Group</label>
                 <input
                   type="text"
+                  list="group-options"
                   className={inputClass}
                   placeholder="e.g. Tablets"
                   value={form.product_group}
                   onChange={(e) => setForm((f) => ({ ...f, product_group: e.target.value }))}
                   disabled={isSaving}
                 />
+                <datalist id="group-options">
+                  {metaOptions?.groups?.map(g => (
+                    <option key={g._id} value={g.name} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-1">
                 <label className={labelClass}>Subgroup</label>
                 <input
                   type="text"
+                  list="subgroup-options"
                   className={inputClass}
                   placeholder="e.g. Analgesics"
                   value={form.product_subgroup}
                   onChange={(e) => setForm((f) => ({ ...f, product_subgroup: e.target.value }))}
                   disabled={isSaving}
                 />
+                <datalist id="subgroup-options">
+                  {metaOptions?.subgroups?.map(sg => (
+                    <option key={sg._id} value={sg.name} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-1">
                 <label className={labelClass}>Brand</label>
                 <input
                   type="text"
+                  list="brand-options"
                   className={inputClass}
                   placeholder="e.g. Crocin"
                   value={form.brand}
                   onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))}
                   disabled={isSaving}
                 />
+                <datalist id="brand-options">
+                  {metaOptions?.brands?.map(b => (
+                    <option key={b._id} value={b.name} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-1">
                 <label className={labelClass}>Manufacturer</label>
                 <input
                   type="text"
+                  list="manufacturer-options"
                   className={inputClass}
                   placeholder="e.g. GSK Ltd"
                   value={form.manufacturer}
                   onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
                   disabled={isSaving}
                 />
+                <datalist id="manufacturer-options">
+                  {metaOptions?.manufacturers?.map(m => (
+                    <option key={m._id} value={m.name} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-1">

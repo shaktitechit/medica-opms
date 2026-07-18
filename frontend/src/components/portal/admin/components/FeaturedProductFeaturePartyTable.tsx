@@ -19,6 +19,12 @@ import {
   type MatrixEntity,
   type MatrixMetric,
 } from "./featuredMatrixUtils";
+import { formatPeriodLabel } from "./periodFilterUtils";
+import {
+  buildMatrixCsvPayload,
+  downloadCsvFile,
+  reportFilename,
+} from "./reportDownloadUtils";
 
 interface FeaturedProductFeaturePartyTableProps {
   orders: any[];
@@ -93,6 +99,27 @@ export default function FeaturedProductFeaturePartyTable({
 
   const isLoading = isOrdersFetching || isProductsFetching || isPartiesFetching;
 
+  const handleDownload = () => {
+    if (featuredProducts.length === 0 || featuredParties.length === 0) return;
+    const { headers, rows } = buildMatrixCsvPayload({
+      rowLabel: "Featured Product",
+      rows: featuredProducts,
+      cols: featuredParties,
+      matrix,
+    });
+    downloadCsvFile(
+      reportFilename("product_feature_party", selectedYears, selectedMonths),
+      headers,
+      rows,
+      [
+        `Report: Featured Products × Featured Parties`,
+        `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
+        `Metric: ${metric}`,
+      ],
+    );
+  };
+
+
   return (
     <FeaturedMatrixTableFrame
       title="Featured Products × Featured Parties"
@@ -106,6 +133,8 @@ export default function FeaturedProductFeaturePartyTable({
       selectedMonths={selectedMonths}
       onYearsChange={setSelectedYears}
       onMonthsChange={setSelectedMonths}
+      onDownload={handleDownload}
+      downloadDisabled={isLoading}
     >
       {isLoading ? (
         <div className="space-y-2 py-4">

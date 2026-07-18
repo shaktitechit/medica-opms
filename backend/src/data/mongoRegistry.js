@@ -192,23 +192,23 @@ function registerModels() {
         index: true,
       },
       product_group: {
-        type: String,
-        trim: true,
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "ProductGroup",
         index: true,
       },
       product_subgroup: {
-        type: String,
-        trim: true,
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "ProductSubgroup",
         index: true,
       },
       brand: {
-        type: String,
-        trim: true,
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "ProductBrand",
         index: true,
       },
       manufacturer: {
-        type: String,
-        trim: true,
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "ProductManufacturer",
         index: true,
       },
       unit: {
@@ -318,6 +318,73 @@ function registerModels() {
   productSchema.plugin(softDeletePlugin);
 
   mongoose.model("Product", productSchema);
+
+  // --- Schemas from ProductGroup.js ---
+  const productGroupSchema = new mongoose.Schema(
+    {
+      name: { type: String, required: true, unique: true, trim: true, index: true },
+      description: { type: String, trim: true },
+      is_active: { type: Boolean, default: true, index: true },
+      is_featured: { type: Boolean, default: false, index: true },
+      deletedAt: { type: Date, default: null, index: true },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    },
+    { timestamps: true }
+  );
+  productGroupSchema.plugin(softDeletePlugin);
+  mongoose.model("ProductGroup", productGroupSchema);
+
+  // --- Schemas from ProductSubgroup.js ---
+  const productSubgroupSchema = new mongoose.Schema(
+    {
+      name: { type: String, required: true, trim: true, index: true },
+      group: { type: mongoose.Schema.Types.ObjectId, ref: "ProductGroup", required: true, index: true },
+      description: { type: String, trim: true },
+      is_active: { type: Boolean, default: true, index: true },
+      is_featured: { type: Boolean, default: false, index: true },
+      deletedAt: { type: Date, default: null, index: true },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    },
+    { timestamps: true }
+  );
+  productSubgroupSchema.index({ name: 1, group: 1 }, { unique: true });
+  productSubgroupSchema.plugin(softDeletePlugin);
+  mongoose.model("ProductSubgroup", productSubgroupSchema);
+
+  // --- Schemas from ProductBrand.js ---
+  const productBrandSchema = new mongoose.Schema(
+    {
+      name: { type: String, required: true, unique: true, trim: true, index: true },
+      description: { type: String, trim: true },
+      is_active: { type: Boolean, default: true, index: true },
+      is_featured: { type: Boolean, default: false, index: true },
+      deletedAt: { type: Date, default: null, index: true },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    },
+    { timestamps: true }
+  );
+  productBrandSchema.plugin(softDeletePlugin);
+  mongoose.model("ProductBrand", productBrandSchema);
+
+  // --- Schemas from ProductManufecturer.js ---
+  const productManufacturerSchema = new mongoose.Schema(
+    {
+      name: { type: String, required: true, unique: true, trim: true, index: true },
+      description: { type: String, trim: true },
+      is_active: { type: Boolean, default: true, index: true },
+      is_featured: { type: Boolean, default: false, index: true },
+      deletedAt: { type: Date, default: null, index: true },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    },
+    { timestamps: true }
+  );
+  productManufacturerSchema.plugin(softDeletePlugin);
+  mongoose.model("ProductManufacturer", productManufacturerSchema);
+
 
 
 
@@ -1634,6 +1701,10 @@ function registerModels() {
           "delivery",
           "return",
           "order_due_sheet",
+          "product_group",
+          "product_subgroup",
+          "product_brand",
+          "product_manufacturer",
         ],
       },
   
@@ -1796,6 +1867,11 @@ function registerModels() {
     PartyProductLastRate:
       mongoose.models.PartyProductLastRate || mongoose.model('PartyProductLastRate', partyProductLastRateSchema),
     Product: mongoose.models.Product || mongoose.model('Product', productSchema),
+    ProductGroup: mongoose.models.ProductGroup || mongoose.model('ProductGroup', productGroupSchema),
+    ProductSubgroup: mongoose.models.ProductSubgroup || mongoose.model('ProductSubgroup', productSubgroupSchema),
+    ProductBrand: mongoose.models.ProductBrand || mongoose.model('ProductBrand', productBrandSchema),
+    ProductManufacturer:
+      mongoose.models.ProductManufacturer || mongoose.models.ProductManufecturer || mongoose.model('ProductManufacturer', productManufacturerSchema),
     TransportAgent:
       mongoose.models.TransportAgent || mongoose.model('TransportAgent', transportAgentSchema),
     Vehicle: mongoose.models.Vehicle || mongoose.model('Vehicle', vehicleSchema),

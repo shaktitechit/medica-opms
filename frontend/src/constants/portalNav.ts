@@ -45,7 +45,18 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
     { segments: ["parties"], label: "Party Master", icon: "Users" },
-    { segments: ["products"], label: "Product Master", icon: "Package" },
+    {
+      segments: ["products"],
+      label: "Product Master",
+      icon: "Package",
+      children: [
+        { label: "Master Product List", query: "view=products", icon: "Package" },
+        { label: "Product Group List", query: "view=groups", icon: "Boxes" },
+        { label: "Product Subgroup List", query: "view=subgroups", icon: "FolderOpen" },
+        { label: "Product Brand List", query: "view=brands", icon: "Building2" },
+        { label: "Product Manufacturer List", query: "view=manufacturers", icon: "Landmark" },
+      ],
+    },
     { segments: ["transport-agents"], label: "Transport Agent Master", icon: "Building2" },
   ],
   sales: [
@@ -74,7 +85,18 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
     { segments: ["parties"], label: "Party Master", icon: "Users" },
-    { segments: ["products"], label: "Product Master", icon: "Package" },
+    {
+      segments: ["products"],
+      label: "Product Master",
+      icon: "Package",
+      children: [
+        { label: "Master Product List", query: "view=products", icon: "Package" },
+        { label: "Product Group List", query: "view=groups", icon: "Boxes" },
+        { label: "Product Subgroup List", query: "view=subgroups", icon: "FolderOpen" },
+        { label: "Product Brand List", query: "view=brands", icon: "Building2" },
+        { label: "Product Manufacturer List", query: "view=manufacturers", icon: "Landmark" },
+      ],
+    },
     { segments: ["transport-agents"], label: "Transport Agent Master", icon: "Building2" },
   ],
   account: [
@@ -90,7 +112,18 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
     { segments: ["parties"], label: "Party Master", icon: "Users" },
-    { segments: ["products"], label: "Product Master", icon: "Package" },
+    {
+      segments: ["products"],
+      label: "Product Master",
+      icon: "Package",
+      children: [
+        { label: "Master Product List", query: "view=products", icon: "Package" },
+        { label: "Product Group List", query: "view=groups", icon: "Boxes" },
+        { label: "Product Subgroup List", query: "view=subgroups", icon: "FolderOpen" },
+        { label: "Product Brand List", query: "view=brands", icon: "Building2" },
+        { label: "Product Manufacturer List", query: "view=manufacturers", icon: "Landmark" },
+      ],
+    },
     { segments: ["transport-agents"], label: "Transport Agent Master", icon: "Building2" },
   ],
   dispatch: [
@@ -111,7 +144,18 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
     { segments: ["orders"], label: "All Orders", icon: "ClipboardList" },
     { segments: ["users"], label: "Users", icon: "Users" },
     { segments: ["parties"], label: "Party Master", icon: "Building2" },
-    { segments: ["products"], label: "Product Master", icon: "Package" },
+    {
+      segments: ["products"],
+      label: "Product Master",
+      icon: "Package",
+      children: [
+        { label: "Master Product List", query: "view=products", icon: "Package" },
+        { label: "Product Group List", query: "view=groups", icon: "Boxes" },
+        { label: "Product Subgroup List", query: "view=subgroups", icon: "FolderOpen" },
+        { label: "Product Brand List", query: "view=brands", icon: "Building2" },
+        { label: "Product Manufacturer List", query: "view=manufacturers", icon: "Landmark" },
+      ],
+    },
   ],
 };
 

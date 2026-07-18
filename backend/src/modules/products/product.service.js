@@ -12,6 +12,12 @@ const activityService = require('../activity/activity.service');
 const nf = 'Product not found';
 const { PRODUCT_UNITS } = require('./product.validation');
 
+function isObjectId(id) {
+  if (!id) return false;
+  if (id instanceof mongoose.Types.ObjectId) return true;
+  return typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+}
+
 const PATCHABLE_KEYS = Object.freeze([
   'product_name',
   'generic_name',
@@ -45,6 +51,66 @@ function coerceNonNegInt(raw, label) {
     throw new ApiError(400, `${label} must be a non-negative integer`);
   }
   return n;
+}
+
+async function resolveProductRefs(payload, user) {
+  const { ProductGroup, ProductSubgroup, ProductBrand, ProductManufacturer } = getModels();
+
+  const fields = [
+    { key: 'product_group', model: ProductGroup },
+    { key: 'brand', model: ProductBrand },
+    { key: 'manufacturer', model: ProductManufacturer }
+  ];
+
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(payload, field.key)) {
+      const val = payload[field.key];
+      if (val === null || val === '') {
+        payload[field.key] = null;
+      } else if (typeof val === 'string' && val.trim()) {
+        const trimmed = val.trim();
+        if (isObjectId(trimmed)) {
+          payload[field.key] = trimmed;
+        } else {
+          let doc = await field.model.findOne({ name: { $regex: new RegExp(`^${trimmed}$`, 'i') } });
+          if (!doc) {
+            doc = await field.model.create({ name: trimmed, created_by: user?._id });
+          }
+          payload[field.key] = doc._id;
+        }
+      }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'product_subgroup')) {
+    const subVal = payload.product_subgroup;
+    if (subVal === null || subVal === '') {
+      payload.product_subgroup = null;
+    } else if (typeof subVal === 'string' && subVal.trim()) {
+      const trimmedSub = subVal.trim();
+      if (isObjectId(trimmedSub)) {
+        payload.product_subgroup = trimmedSub;
+      } else {
+        const groupRef = payload.product_group;
+        if (groupRef) {
+          let subgroup = await ProductSubgroup.findOne({
+            name: { $regex: new RegExp(`^${trimmedSub}$`, 'i') },
+            group: groupRef
+          });
+          if (!subgroup) {
+            subgroup = await ProductSubgroup.create({
+              name: trimmedSub,
+              group: groupRef,
+              created_by: user?._id
+            });
+          }
+          payload.product_subgroup = subgroup._id;
+        } else {
+          payload.product_subgroup = null;
+        }
+      }
+    }
+  }
 }
 
 /** Allowlisted PATCH aligned with mongoRegistry Product schema. */
@@ -134,7 +200,7 @@ function sanitizePatch(patch) {
 }
 
 async function list(query = {}) {
-  const { Product } = getModels();
+  const { Product, ProductGroup, ProductBrand, ProductManufacturer } = getModels();
 
   const paginate = query.paginate === 'true';
   const page = Math.max(Number(query.page) || 1, 1);
@@ -145,17 +211,29 @@ async function list(query = {}) {
 
   if (query.search && String(query.search).trim()) {
     const s = String(query.search).trim();
+    const [matchingGroups, matchingBrands, matchingMfrs] = await Promise.all([
+      ProductGroup.find({ name: { $regex: s, $options: 'i' } }, '_id'),
+      ProductBrand.find({ name: { $regex: s, $options: 'i' } }, '_id'),
+      ProductManufacturer.find({ name: { $regex: s, $options: 'i' } }, '_id'),
+    ]);
+
     mongoFilter.$or = [
       { product_name: { $regex: s, $options: 'i' } },
       { generic_name: { $regex: s, $options: 'i' } },
       { sku: { $regex: s, $options: 'i' } },
-      { brand: { $regex: s, $options: 'i' } },
-      { manufacturer: { $regex: s, $options: 'i' } }
+      { product_group: { $in: matchingGroups.map(g => g._id) } },
+      { brand: { $in: matchingBrands.map(b => b._id) } },
+      { manufacturer: { $in: matchingMfrs.map(m => m._id) } }
     ];
   }
 
   if (query.group && query.group !== 'all') {
-    mongoFilter.product_group = query.group;
+    const groupDoc = await ProductGroup.findOne({ name: { $regex: new RegExp(`^${query.group.trim()}$`, 'i') } });
+    if (groupDoc) {
+      mongoFilter.product_group = groupDoc._id;
+    } else {
+      mongoFilter.product_group = new mongoose.Types.ObjectId();
+    }
   }
 
   if (query.status && query.status !== 'all') {
@@ -176,15 +254,24 @@ async function list(query = {}) {
   }
 
   if (paginate) {
-    const [total, rows, groups] = await Promise.all([
+    const [total, rows, distinctGroupIds] = await Promise.all([
       Product.countDocuments(mongoFilter),
       Product.find(mongoFilter)
+        .populate('product_group')
+        .populate('product_subgroup')
+        .populate('brand')
+        .populate('manufacturer')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
       Product.distinct('product_group', { deletedAt: null }),
     ]);
+
+    const validGroupIds = distinctGroupIds.filter(id => id && isObjectId(id));
+    const legacyGroupNames = distinctGroupIds.filter(id => id && !isObjectId(id));
+    const groupsList = await ProductGroup.find({ _id: { $in: validGroupIds } }, 'name').lean();
+    const groups = [...groupsList.map(g => g.name), ...legacyGroupNames];
 
     return {
       total,
@@ -196,12 +283,22 @@ async function list(query = {}) {
     };
   }
 
-  const rows = await Product.find(mongoFilter).sort({ createdAt: -1 }).lean();
+  const rows = await Product.find(mongoFilter)
+    .populate('product_group')
+    .populate('product_subgroup')
+    .populate('brand')
+    .populate('manufacturer')
+    .sort({ createdAt: -1 })
+    .lean();
   return rows.map(toPlain);
 }
 
 async function get(id) {
   const row = await getModels().Product.findOne({ _id: id, deletedAt: null })
+    .populate('product_group')
+    .populate('product_subgroup')
+    .populate('brand')
+    .populate('manufacturer')
     .lean();
   if (!row) throw new ApiError(404, nf);
   return toPlain(row);
@@ -232,10 +329,10 @@ async function create(body, user) {
     generic_name: body.generic_name != null ? String(body.generic_name).trim() : '',
     aliases: Array.isArray(body.aliases) ? body.aliases.map(x => String(x ?? '').trim().toLowerCase()).filter(Boolean) : [],
     sku: skuTrim || undefined,
-    product_group: body.product_group != null ? String(body.product_group).trim() : '',
-    product_subgroup: body.product_subgroup != null ? String(body.product_subgroup).trim() : '',
-    brand: body.brand != null ? String(body.brand).trim() : '',
-    manufacturer: body.manufacturer != null ? String(body.manufacturer).trim() : '',
+    product_group: body.product_group,
+    product_subgroup: body.product_subgroup,
+    brand: body.brand,
+    manufacturer: body.manufacturer,
     unit: unitRaw,
     base_price: basePrice,
     minimum_sale_rate: minSaleRate,
@@ -263,8 +360,17 @@ async function create(body, user) {
     payload.created_by = user._id;
   }
 
+  await resolveProductRefs(payload, user);
+
   const doc = await getModels().Product.create(payload);
-  const plain = toPlain(doc.toObject());
+  const populatedDoc = await getModels().Product.findById(doc._id)
+    .populate('product_group')
+    .populate('product_subgroup')
+    .populate('brand')
+    .populate('manufacturer')
+    .lean();
+  const plain = toPlain(populatedDoc);
+
   if (user) {
     await activityService.create({
       actor: user._id,
@@ -286,6 +392,8 @@ async function update(id, patch, user) {
     throw new ApiError(400, 'No valid fields to patch');
   }
 
+  await resolveProductRefs(sanitized, user);
+
   if (user) {
     sanitized.updated_by = user._id;
   }
@@ -305,7 +413,15 @@ async function update(id, patch, user) {
       message: 'Product updated',
     });
   }
-  return toPlain(doc.toObject());
+
+  const populatedDoc = await getModels().Product.findById(id)
+    .populate('product_group')
+    .populate('product_subgroup')
+    .populate('brand')
+    .populate('manufacturer')
+    .lean();
+
+  return toPlain(populatedDoc);
 }
 
 async function listDeleted() {
@@ -371,8 +487,8 @@ async function bulkCreate(items, user) {
       generic_name: item.generic_name != null ? String(item.generic_name).trim() : '',
       aliases: Array.isArray(item.aliases) ? item.aliases.map(x => String(x ?? '').trim().toLowerCase()).filter(Boolean) : [],
       sku: skuTrim || undefined,
-      product_group: item.product_group != null ? String(item.product_group).trim() : '',
-      product_subgroup: item.product_subgroup != null ? String(item.product_subgroup).trim() : '',
+      product_group: item.product_group,
+      product_subgroup: item.product_subgroup,
       brand: brandName || undefined,
       manufacturer: mfrName || undefined,
       unit: ['pcs', 'box', 'kg', 'ltr', 'meter', 'set', 'kit', 'bottle'].includes(unitRaw) ? unitRaw : 'pcs',
@@ -395,8 +511,16 @@ async function bulkCreate(items, user) {
       payload.created_by = user._id;
     }
 
+    await resolveProductRefs(payload, user);
+
     const doc = await Product.create(payload);
-    createdProducts.push(toPlain(doc.toObject()));
+    const populatedDoc = await Product.findById(doc._id)
+      .populate('product_group')
+      .populate('product_subgroup')
+      .populate('brand')
+      .populate('manufacturer')
+      .lean();
+    createdProducts.push(toPlain(populatedDoc));
   }
 
   if (createdProducts.length > 0 && user) {
@@ -550,6 +674,24 @@ async function syncFromGoogleSheet(row) {
   }
 }
 
+async function getMetaOptions() {
+  const { ProductGroup, ProductSubgroup, ProductBrand, ProductManufacturer } = getModels();
+
+  const [groups, subgroups, brands, manufacturers] = await Promise.all([
+    ProductGroup.find({ deletedAt: null }).sort({ name: 1 }).lean(),
+    ProductSubgroup.find({ deletedAt: null }).sort({ name: 1 }).lean(),
+    ProductBrand.find({ deletedAt: null }).sort({ name: 1 }).lean(),
+    ProductManufacturer.find({ deletedAt: null }).sort({ name: 1 }).lean(),
+  ]);
+
+  return {
+    groups: groups.map(toPlain),
+    subgroups: subgroups.map(toPlain),
+    brands: brands.map(toPlain),
+    manufacturers: manufacturers.map(toPlain),
+  };
+}
+
 module.exports = {
   list,
   get,
@@ -561,4 +703,6 @@ module.exports = {
   bulkCreate,
   bulkDelete,
   syncFromGoogleSheet,
+  getMetaOptions,
 };
+

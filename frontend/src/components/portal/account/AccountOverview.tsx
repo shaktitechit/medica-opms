@@ -9,6 +9,8 @@ import AccountProductLeaderboard from "./components/AccountProductLeaderboard";
 import AccountSalesLeaderboard from "./components/AccountSalesLeaderboard";
 import AccountFeaturedProductSalesUserTable from "./components/AccountFeaturedProductSalesUserTable";
 import AccountFeaturedProductFeaturePartyTable from "./components/AccountFeaturedProductFeaturePartyTable";
+import AccountFeaturedProductGroupSalesUserTable from "./components/AccountFeaturedProductGroupSalesUserTable";
+import AccountFeaturedProductGroupFeaturedPartyTable from "./components/AccountFeaturedProductGroupFeaturedPartyTable";
 import {
   buildPendingReturnOrderIds,
   computeAccountOrderStats,
@@ -164,11 +166,19 @@ export default function AccountOverview() {
       </div>
 
       <div className="space-y-6">
-        <AccountFeaturedProductSalesUserTable
+        {/* <AccountFeaturedProductSalesUserTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />
         <AccountFeaturedProductFeaturePartyTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        /> */}
+        <AccountFeaturedProductGroupSalesUserTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        />
+        <AccountFeaturedProductGroupFeaturedPartyTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />

@@ -23,6 +23,10 @@ const activityLogSchema = new mongoose.Schema(
         "vehicle",
         "driver",
         "attachment",
+        "product_group",
+        "product_subgroup",
+        "product_brand",
+        "product_manufacturer",
       ],
     },
 

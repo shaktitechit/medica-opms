@@ -9,6 +9,10 @@ import {
 import { resolveUserDisplay } from "@/components/portal/shared/userDisplay";
 import AdminPeriodFilter from "@/components/portal/admin/components/AdminPeriodFilter";
 import { useAdminPeriodFilter } from "@/components/portal/admin/components/useAdminPeriodFilter";
+import PeriodHeadingCaption from "@/components/portal/admin/components/PeriodHeadingCaption";
+import ReportDownloadButton from "@/components/portal/admin/components/ReportDownloadButton";
+import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
+import { downloadCsvFile, reportFilename } from "@/components/portal/admin/components/reportDownloadUtils";
 
 interface AccountSalesLeaderboardProps {
   orders: any[];
@@ -140,6 +144,24 @@ export default function AccountSalesLeaderboard({
     </div>
   );
 
+
+  const handleDownload = () => {
+    if (salesRows.length === 0) return;
+    const netLabel = metric === "quantity" ? "Net Qty" : "Net Vol";
+    const headers = ["Sales Person", netLabel, "SR", "SRA", "CR"];
+    const rows = salesRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
+    downloadCsvFile(
+      reportFilename("accountsalesleaderboard", selectedYears, selectedMonths),
+      headers,
+      rows,
+      [
+        `Report: AccountSalesLeaderboard`,
+        `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
+        `Metric: ${metric}`,
+      ],
+    );
+  };
+
   const periodFilter = (
     <AdminPeriodFilter
       availableYears={availableYears}
@@ -159,9 +181,15 @@ export default function AccountSalesLeaderboard({
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <Briefcase className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
-                  Top 5 Sales Persons
-                </h3>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
+                    Top 5 Sales Persons
+                  </h3>
+                  <PeriodHeadingCaption
+                    selectedYears={selectedYears}
+                    selectedMonths={selectedMonths}
+                  />
+                </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {metricToggle}
@@ -174,7 +202,14 @@ export default function AccountSalesLeaderboard({
                 </button>
               </div>
             </div>
-            <div className="flex justify-end">{periodFilter}</div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {periodFilter}
+              <ReportDownloadButton
+                onDownload={handleDownload}
+                disabled={isOrdersFetching || salesRows.length === 0}
+                size="sm"
+              />
+            </div>
           </div>
 
           <div className="mt-3 overflow-x-auto">
@@ -235,9 +270,15 @@ export default function AccountSalesLeaderboard({
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <Briefcase className="h-5 w-5 shrink-0 text-violet-600" />
-                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
-                    {breakdownTitle}
-                  </h3>
+                  <div className="min-w-0">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
+                      {breakdownTitle}
+                    </h3>
+                    <PeriodHeadingCaption
+                      selectedYears={selectedYears}
+                      selectedMonths={selectedMonths}
+                    />
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {metricToggle}
@@ -250,7 +291,14 @@ export default function AccountSalesLeaderboard({
                   </button>
                 </div>
               </div>
-              <div className="flex justify-end">{periodFilter}</div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+              {periodFilter}
+              <ReportDownloadButton
+                onDownload={handleDownload}
+                disabled={isOrdersFetching || salesRows.length === 0}
+                size="sm"
+              />
+            </div>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-5">

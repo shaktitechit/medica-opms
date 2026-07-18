@@ -30,6 +30,10 @@ import {
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import AdminPeriodFilter from "@/components/portal/admin/components/AdminPeriodFilter";
 import { useAdminPeriodFilter } from "@/components/portal/admin/components/useAdminPeriodFilter";
+import PeriodHeadingCaption from "@/components/portal/admin/components/PeriodHeadingCaption";
+import ReportDownloadButton from "@/components/portal/admin/components/ReportDownloadButton";
+import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
+import { downloadCsvFile, reportFilename } from "@/components/portal/admin/components/reportDownloadUtils";
 
 interface AccountOverviewWidgetsProps {
   orders: unknown[];
@@ -245,6 +249,30 @@ export default function AccountOverviewWidgets({
     };
   }, [filteredOrders]);
 
+
+  const handleKpiDownload = () => {
+    const headers = ["KPI", "Quantity", "Amount (INR)"];
+    const rows = [
+      ["Order", orderQty, orderAmt],
+      ["Sales (Net)", salesQty, salesAmt],
+      ["Approved", approvedQty, approvedAmt],
+      ["Returned", returnedQty, returnedAmt],
+      ["Cancelled", cancelledQty, cancelledAmt],
+      ["Rejected", rejectedQty, rejectedAmt],
+      ["On Hold", onHoldQty, onHoldAmt],
+      ["In Transit", inTransitQty, inTransitAmt],
+    ];
+    downloadCsvFile(
+      reportFilename("kpi_overview", selectedYears, selectedMonths),
+      headers,
+      rows,
+      [
+        "Report: KPI Overview",
+        `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
+      ],
+    );
+  };
+
   function formatMoney(v: number): string {
     return v.toLocaleString("en-IN", {
       minimumFractionDigits: 2,
@@ -257,17 +285,30 @@ export default function AccountOverviewWidgets({
       {/* KPI Section */}
       <div className="space-y-2.5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            KPI
-          </h3>
-          <AdminPeriodFilter
-            availableYears={availableYears}
-            selectedYears={selectedYears}
-            selectedMonths={selectedMonths}
-            onYearsChange={setSelectedYears}
-            onMonthsChange={setSelectedMonths}
-            size="sm"
-          />
+          <div className="min-w-0">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              KPI
+            </h3>
+            <PeriodHeadingCaption
+              selectedYears={selectedYears}
+              selectedMonths={selectedMonths}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <AdminPeriodFilter
+              availableYears={availableYears}
+              selectedYears={selectedYears}
+              selectedMonths={selectedMonths}
+              onYearsChange={setSelectedYears}
+              onMonthsChange={setSelectedMonths}
+              size="sm"
+            />
+            <ReportDownloadButton
+              onDownload={handleKpiDownload}
+              disabled={isOrdersFetching}
+              size="sm"
+            />
+          </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 w-full">
           {(

@@ -8,6 +8,8 @@ import SalesPartyLeaderboard from "./components/SalesPartyLeaderboard";
 import SalesMonthlyPerformanceChart from "./components/SalesMonthlyPerformanceChart";
 import SalesFeaturedProductSalesUserTable from "./components/SalesFeaturedProductSalesUserTable";
 import SalesFeaturedProductFeaturePartyTable from "./components/SalesFeaturedProductFeaturePartyTable";
+import SalesFeaturedProductGroupSalesUserTable from "./components/SalesFeaturedProductGroupSalesUserTable";
+import SalesFeaturedProductGroupFeaturedPartyTable from "./components/SalesFeaturedProductGroupFeaturedPartyTable";
 import {
   useGetDashboardSalesQuery,
   useListOrdersQuery,
@@ -154,11 +156,19 @@ export default function SalesOverview() {
       </div>
 
       <div className="space-y-6">
-        <SalesFeaturedProductSalesUserTable
+        {/* <SalesFeaturedProductSalesUserTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />
         <SalesFeaturedProductFeaturePartyTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        /> */}
+        <SalesFeaturedProductGroupSalesUserTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        />
+        <SalesFeaturedProductGroupFeaturedPartyTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />

@@ -111,3 +111,60 @@ export function matrixGrandTotal(matrix: Map<string, Map<string, number>>): numb
   }
   return sum;
 }
+
+export type GroupProductRef = { id: string; name: string };
+
+/**
+ * Map catalog products onto featured groups by ObjectId, with a name fallback
+ * for populated / legacy group references.
+ */
+export function buildFeaturedGroupProductMaps(
+  productsRaw: unknown,
+  featuredGroups: MatrixEntity[],
+): {
+  productToGroupMap: Map<string, string>;
+  productsByGroup: Map<string, GroupProductRef[]>;
+} {
+  const productToGroupMap = new Map<string, string>();
+  const productsByGroup = new Map<string, GroupProductRef[]>();
+
+  const groupById = new Map(featuredGroups.map((g) => [g.id, g]));
+  const groupByName = new Map(
+    featuredGroups.map((g) => [g.name.trim().toLowerCase(), g]),
+  );
+
+  for (const g of featuredGroups) {
+    productsByGroup.set(g.id, []);
+  }
+
+  for (const p of pickEntities(productsRaw)) {
+    const productId = resolveEntityId(p._id ?? p.id);
+    if (!productId) continue;
+
+    const groupRef = p.product_group;
+    let matched =
+      groupById.get(resolveEntityId(groupRef)) ??
+      (groupRef && typeof groupRef === "object"
+        ? groupByName.get(
+            String((groupRef as { name?: unknown }).name ?? "")
+              .trim()
+              .toLowerCase(),
+          )
+        : undefined) ??
+      (typeof groupRef === "string" && groupRef.trim()
+        ? groupByName.get(groupRef.trim().toLowerCase())
+        : undefined);
+
+    if (!matched) continue;
+
+    productToGroupMap.set(productId, matched.id);
+    const name = String(p.product_name ?? p.name ?? "Untitled Product");
+    productsByGroup.get(matched.id)!.push({ id: productId, name });
+  }
+
+  for (const list of productsByGroup.values()) {
+    list.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  return { productToGroupMap, productsByGroup };
+}

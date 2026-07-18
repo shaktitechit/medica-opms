@@ -63,6 +63,16 @@ export const productsApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       providesTags: (_r, _e, id) => [{ type: "Products", id }],
     }),
+    getProductMetaOptions: build.query<{
+      groups: { _id: string; name: string }[];
+      subgroups: { _id: string; name: string; group: string }[];
+      brands: { _id: string; name: string }[];
+      manufacturers: { _id: string; name: string }[];
+    }, void>({
+      query: () => "products/meta-options",
+      transformResponse: (raw: ApiEnvelope<any>) => unwrapEnvelope(raw),
+      providesTags: ["Products"],
+    }),
     createProduct: build.mutation<unknown, ProductWriteBody>({
       query: (body) => ({ url: "products", method: "POST", body }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
@@ -131,6 +141,8 @@ export const {
   useLazyListProductsDeletedQuery,
   useGetProductQuery,
   useLazyGetProductQuery,
+  useGetProductMetaOptionsQuery,
+  useLazyGetProductMetaOptionsQuery,
   useCreateProductMutation,
   usePatchProductMutation,
   useDeleteProductMutation,

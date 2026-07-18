@@ -200,25 +200,25 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
               {/* Group */}
               <div className="space-y-1">
                 <label className={labelClass}>Commercial Group</label>
-                <div className={valueClass}>{p.product_group || "—"}</div>
+                <div className={valueClass}>{p.product_group?.name || p.product_group || "—"}</div>
               </div>
 
               {/* Subgroup */}
               <div className="space-y-1">
                 <label className={labelClass}>Subgroup</label>
-                <div className={valueClass}>{p.product_subgroup || "—"}</div>
+                <div className={valueClass}>{p.product_subgroup?.name || p.product_subgroup || "—"}</div>
               </div>
 
               {/* Brand */}
               <div className="space-y-1">
                 <label className={labelClass}>Brand</label>
-                <div className={valueClass}>{p.brand || "—"}</div>
+                <div className={valueClass}>{p.brand?.name || p.brand || "—"}</div>
               </div>
 
               {/* Manufacturer */}
               <div className="space-y-1">
                 <label className={labelClass}>Manufacturer</label>
-                <div className={valueClass}>{p.manufacturer || "—"}</div>
+                <div className={valueClass}>{p.manufacturer?.name || p.manufacturer || "—"}</div>
               </div>
 
               {/* Unit of Measurement */}
