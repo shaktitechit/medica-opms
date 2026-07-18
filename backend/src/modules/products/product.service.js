@@ -8,15 +8,10 @@ const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
 const { softDeleteActiveById, restoreSoftDeletedById, listDeletedLean } = require('../../utils/mongoSoftDelete');
 const activityService = require('../activity/activity.service');
+const { isObjectId, findProductsLean } = require('./productRefs');
 
 const nf = 'Product not found';
 const { PRODUCT_UNITS } = require('./product.validation');
-
-function isObjectId(id) {
-  if (!id) return false;
-  if (id instanceof mongoose.Types.ObjectId) return true;
-  return typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
-}
 
 const PATCHABLE_KEYS = Object.freeze([
   'product_name',
@@ -256,22 +251,34 @@ async function list(query = {}) {
   if (paginate) {
     const [total, rows, distinctGroupIds] = await Promise.all([
       Product.countDocuments(mongoFilter),
-      Product.find(mongoFilter)
-        .populate('product_group')
-        .populate('product_subgroup')
-        .populate('brand')
-        .populate('manufacturer')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      findProductsLean(mongoFilter, {
+        sort: { createdAt: -1 },
+        skip,
+        limit,
+      }),
       Product.distinct('product_group', { deletedAt: null }),
     ]);
 
-    const validGroupIds = distinctGroupIds.filter(id => id && isObjectId(id));
-    const legacyGroupNames = distinctGroupIds.filter(id => id && !isObjectId(id));
-    const groupsList = await ProductGroup.find({ _id: { $in: validGroupIds } }, 'name').lean();
-    const groups = [...groupsList.map(g => g.name), ...legacyGroupNames];
+    const validGroupIds = [];
+    const legacyGroupNames = [];
+    for (const id of distinctGroupIds) {
+      if (id == null || id === '') continue;
+      if (isObjectId(id)) validGroupIds.push(id);
+      else legacyGroupNames.push(String(id));
+    }
+
+    let groupsList = [];
+    if (validGroupIds.length) {
+      try {
+        groupsList = await ProductGroup.find(
+          { _id: { $in: validGroupIds }, deletedAt: null },
+          'name',
+        ).lean();
+      } catch {
+        groupsList = [];
+      }
+    }
+    const groups = [...groupsList.map((g) => g.name), ...legacyGroupNames];
 
     return {
       total,
@@ -283,23 +290,13 @@ async function list(query = {}) {
     };
   }
 
-  const rows = await Product.find(mongoFilter)
-    .populate('product_group')
-    .populate('product_subgroup')
-    .populate('brand')
-    .populate('manufacturer')
-    .sort({ createdAt: -1 })
-    .lean();
+  const rows = await findProductsLean(mongoFilter, { sort: { createdAt: -1 } });
   return rows.map(toPlain);
 }
 
 async function get(id) {
-  const row = await getModels().Product.findOne({ _id: id, deletedAt: null })
-    .populate('product_group')
-    .populate('product_subgroup')
-    .populate('brand')
-    .populate('manufacturer')
-    .lean();
+  const rows = await findProductsLean({ _id: id, deletedAt: null });
+  const row = rows[0];
   if (!row) throw new ApiError(404, nf);
   return toPlain(row);
 }
@@ -363,12 +360,7 @@ async function create(body, user) {
   await resolveProductRefs(payload, user);
 
   const doc = await getModels().Product.create(payload);
-  const populatedDoc = await getModels().Product.findById(doc._id)
-    .populate('product_group')
-    .populate('product_subgroup')
-    .populate('brand')
-    .populate('manufacturer')
-    .lean();
+  const [populatedDoc] = await findProductsLean({ _id: doc._id });
   const plain = toPlain(populatedDoc);
 
   if (user) {
@@ -414,13 +406,7 @@ async function update(id, patch, user) {
     });
   }
 
-  const populatedDoc = await getModels().Product.findById(id)
-    .populate('product_group')
-    .populate('product_subgroup')
-    .populate('brand')
-    .populate('manufacturer')
-    .lean();
-
+  const [populatedDoc] = await findProductsLean({ _id: id, deletedAt: null });
   return toPlain(populatedDoc);
 }
 
@@ -514,12 +500,7 @@ async function bulkCreate(items, user) {
     await resolveProductRefs(payload, user);
 
     const doc = await Product.create(payload);
-    const populatedDoc = await Product.findById(doc._id)
-      .populate('product_group')
-      .populate('product_subgroup')
-      .populate('brand')
-      .populate('manufacturer')
-      .lean();
+    const [populatedDoc] = await findProductsLean({ _id: doc._id });
     createdProducts.push(toPlain(populatedDoc));
   }
 

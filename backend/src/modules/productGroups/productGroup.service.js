@@ -184,14 +184,25 @@ async function bulkDelete(ids, user) {
 }
 
 async function getProducts(id) {
-  const { Product } = getModels();
-  // Return all active products referencing this group
-  const rows = await Product.find({ product_group: id, deletedAt: null })
-    .populate('product_group')
-    .populate('product_subgroup')
-    .populate('brand')
-    .populate('manufacturer')
-    .lean();
+  const { findProductsLean, attachProductRefs } = require('../products/productRefs');
+  const { Product, ProductGroup } = getModels();
+  const group = await ProductGroup.findOne({ _id: id, deletedAt: null }).lean();
+
+  const rows = await findProductsLean({ product_group: id, deletedAt: null });
+
+  // Legacy rows may still store the group name as a plain string (not ObjectId).
+  // Query those via the native collection to avoid Mongoose cast errors.
+  if (group?.name) {
+    const legacy = await Product.collection
+      .find({ deletedAt: null, product_group: group.name })
+      .toArray();
+    await attachProductRefs(legacy);
+    const seen = new Set(rows.map((r) => String(r._id)));
+    for (const row of legacy) {
+      if (!seen.has(String(row._id))) rows.push(row);
+    }
+  }
+
   return rows.map(toPlain);
 }
 

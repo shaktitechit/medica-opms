@@ -167,13 +167,23 @@ async function bulkDelete(ids, user) {
 }
 
 async function getProducts(id) {
-  const { Product } = getModels();
-  const rows = await Product.find({ brand: id, deletedAt: null })
-    .populate('product_group')
-    .populate('product_subgroup')
-    .populate('brand')
-    .populate('manufacturer')
-    .lean();
+  const { findProductsLean, attachProductRefs } = require('../products/productRefs');
+  const { Product, ProductBrand } = getModels();
+  const brand = await ProductBrand.findOne({ _id: id, deletedAt: null }).lean();
+
+  const rows = await findProductsLean({ brand: id, deletedAt: null });
+
+  if (brand?.name) {
+    const legacy = await Product.collection
+      .find({ deletedAt: null, brand: brand.name })
+      .toArray();
+    await attachProductRefs(legacy);
+    const seen = new Set(rows.map((r) => String(r._id)));
+    for (const row of legacy) {
+      if (!seen.has(String(row._id))) rows.push(row);
+    }
+  }
+
   return rows.map(toPlain);
 }
 
