@@ -5,6 +5,7 @@ import {
   largeModalBackdropClass,
   largeModalPanelClass,
 } from "@/components/portal/shared/modalLayout";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 
 type SubmitOrderPreviewModalProps = {
   isOpen: boolean;
@@ -70,6 +71,7 @@ export default function SubmitOrderPreviewModal({
   if (!isOpen) return null;
 
   return (
+    <LargeModalPortal>
     <div className={largeModalBackdropClass}>
       <div className={largeModalPanelClass}>
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-white/5">
@@ -268,5 +270,6 @@ export default function SubmitOrderPreviewModal({
         </div>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }

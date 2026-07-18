@@ -27,6 +27,7 @@ import {
   largeModalBackdropClass,
   largeModalPanelClass,
 } from "@/components/portal/shared/modalLayout";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 
 type LineStatus = "fully_approved" | "partially_approved" | "rejected";
 
@@ -589,6 +590,7 @@ export function FinanceAmendSalesApprovalModal({
   const SubmitIcon = isFinanceApproved ? Pencil : CheckCircle2;
 
   return (
+    <LargeModalPortal>
     <>
       <div className={largeModalBackdropClass}>
         <div className={largeModalPanelClass}>
@@ -947,6 +949,7 @@ export function FinanceAmendSalesApprovalModal({
         onSuccess={(result) => void handleMapPriceSuccess(result)}
       />
     </>
+    </LargeModalPortal>
   );
 }
 

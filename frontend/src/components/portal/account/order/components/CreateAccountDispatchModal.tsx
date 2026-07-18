@@ -16,6 +16,7 @@ import {
   largeModalBackdropClass,
   largeModalPanelClass,
 } from "@/components/portal/shared/modalLayout";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 
 type CreateAccountDispatchModalProps = {
   open: boolean;
@@ -288,6 +289,7 @@ export function CreateAccountDispatchModal({
   const orderNo = String(detail?.order_no ?? detail?.order_number ?? orderId);
 
   return (
+    <LargeModalPortal>
     <div className={largeModalBackdropClass}>
       <div className={largeModalPanelClass}>
         <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4 dark:border-white/5">
@@ -650,6 +652,7 @@ export function CreateAccountDispatchModal({
         </form>
       </div>
     </div>
+    </LargeModalPortal>
   );
 }
 

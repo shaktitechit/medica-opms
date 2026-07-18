@@ -28,6 +28,7 @@ import {
   largeModalBackdropClass,
   largeModalPanelClass,
 } from "@/components/portal/shared/modalLayout";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 
 type ApprovalLineStatus =
   | "fully_approved"
@@ -473,6 +474,7 @@ export function ApprovalModal({
   if (!open) return null;
 
   return (
+    <LargeModalPortal>
     <div className={largeModalBackdropClass}>
       <div className={largeModalPanelClass}>
         <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4 dark:border-white/5">
@@ -860,6 +862,7 @@ export function ApprovalModal({
         />
       )}
     </div>
+    </LargeModalPortal>
   );
 }
 
