@@ -44,6 +44,7 @@ const partyOrderProductsRateRoutes = require('./modules/partyOrderProductsRate/p
 const messageRoutes = require('./modules/messages/message.routes');
 const communicationRoutes = require('./modules/communication/communication.routes');
 const reminderRoutes = require('./modules/reminders/reminder.routes');
+const workPlannerRoutes = require('./modules/workPlanner/workPlanner.routes');
 const pushRoutes = require('./modules/push/push.routes');
 
 const app = express();
@@ -107,6 +108,7 @@ app.use('/api/party-order-products-rate', partyOrderProductsRateRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/communication', communicationRoutes);
 app.use('/api/reminders', reminderRoutes);
+app.use('/api/work-plans', workPlannerRoutes);
 app.use('/api', pushRoutes);
 app.use('/api', filesRoutes);
 

@@ -21,6 +21,7 @@ const MODULE_ENUM = [
   'dashboard',
   'report',
   'system',
+  'work_planner',
 ];
 
 /** @type {Record<string, mongoose.Model> | null} */
@@ -1705,6 +1706,7 @@ function registerModels() {
           "product_subgroup",
           "product_brand",
           "product_manufacturer",
+          "work_plan",
         ],
       },
   
@@ -1870,6 +1872,98 @@ function registerModels() {
   reminderSchema.plugin(softDeletePlugin);
   mongoose.model("Reminder", reminderSchema);
 
+  // --- Work Planner ---
+  const WORK_PLAN_STATUSES = ['draft', 'submitted', 'approved', 'rejected', 'completed'];
+  const WORK_PLAN_VISIT_STATUSES = [
+    'pending',
+    'checked_in',
+    'completed',
+    'cancelled',
+    'skipped',
+    'rescheduled',
+  ];
+
+  const workPlanSchema = new mongoose.Schema(
+    {
+      plan_date: { type: Date, required: true, index: true },
+      sales_user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+        index: true,
+      },
+      status: {
+        type: String,
+        enum: WORK_PLAN_STATUSES,
+        default: 'draft',
+        index: true,
+      },
+      remarks: { type: String, trim: true },
+      submitted_at: Date,
+      approved_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      approved_at: Date,
+      rejection_reason: { type: String, trim: true },
+      deletedAt: { type: Date, default: null, index: true },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    },
+    { timestamps: true }
+  );
+  workPlanSchema.index(
+    { sales_user: 1, plan_date: 1 },
+    {
+      unique: true,
+      partialFilterExpression: { deletedAt: null },
+    }
+  );
+  workPlanSchema.plugin(softDeletePlugin);
+  mongoose.model('WorkPlan', workPlanSchema);
+
+  const workPlanVisitSchema = new mongoose.Schema(
+    {
+      work_plan: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'WorkPlan',
+        required: true,
+        index: true,
+      },
+      sequence: { type: Number, required: true, min: 1 },
+      party: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Party',
+        required: true,
+        index: true,
+      },
+      contact_person: { type: String, trim: true },
+      contact_number: { type: String, trim: true },
+      address: { type: String, trim: true },
+      planned_start_time: Date,
+      planned_end_time: Date,
+      purpose: { type: String, trim: true },
+      notes: { type: String, trim: true },
+      status: {
+        type: String,
+        enum: WORK_PLAN_VISIT_STATUSES,
+        default: 'pending',
+        index: true,
+      },
+      actual_check_in: Date,
+      actual_check_out: Date,
+      outcome: { type: String, trim: true },
+      next_followup_date: Date,
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true }
+  );
+  workPlanVisitSchema.index(
+    { work_plan: 1, sequence: 1 },
+    {
+      unique: true,
+      partialFilterExpression: { deletedAt: null },
+    }
+  );
+  workPlanVisitSchema.plugin(softDeletePlugin);
+  mongoose.model('WorkPlanVisit', workPlanVisitSchema);
 
   // --- Apply plugins ---
   // Plugins are applied immediately after schema definitions to ensure correct compilation of models.
@@ -1915,6 +2009,8 @@ function registerModels() {
       mongoose.models.PushSubscription || mongoose.model('PushSubscription', pushSubscriptionSchema),
     Message: mongoose.models.Message || mongoose.model('Message', messageSchema),
     Reminder: mongoose.models.Reminder || mongoose.model('Reminder', reminderSchema),
+    WorkPlan: mongoose.models.WorkPlan || mongoose.model('WorkPlan', workPlanSchema),
+    WorkPlanVisit: mongoose.models.WorkPlanVisit || mongoose.model('WorkPlanVisit', workPlanVisitSchema),
     PartyProductMapping:
       mongoose.models.PartyProductMapping || mongoose.model('PartyProductMapping', partyProductMappingSchema),
     PartyProductRate:

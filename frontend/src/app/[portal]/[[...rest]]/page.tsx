@@ -6,6 +6,10 @@ import {
   PortalOverview,
   PortalSectionPlaceholder,
   ListMyOrdersPage,
+  ListWorkPlansPage,
+  WorkPlanFormPage,
+  WorkPlanDetailPage,
+  WorkPlanCalendarPage,
   ListPartiesPage,
   ListProductsPage,
   PartyDetailPage,
@@ -67,6 +71,26 @@ export default function PortalCatchAllPage() {
   if (portal === "admin" && restArr.length === 1 && restArr[0] === "create-order") {
     return <AdminCreateOrderPage />;
   }
+  if (portal === "admin" && restArr.length === 1 && restArr[0] === "work-planner") {
+    return <ListWorkPlansPage portalHome="/admin" />;
+  }
+  if (portal === "admin" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "calendar") {
+    return <WorkPlanCalendarPage portalHome="/admin" />;
+  }
+  if (portal === "admin" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "new") {
+    return <WorkPlanFormPage mode="create" portalHome="/admin" />;
+  }
+  if (
+    portal === "admin" &&
+    restArr.length === 3 &&
+    restArr[0] === "work-planner" &&
+    restArr[2] === "edit"
+  ) {
+    return <WorkPlanFormPage mode="edit" planId={restArr[1]} portalHome="/admin" />;
+  }
+  if (portal === "admin" && restArr.length === 2 && restArr[0] === "work-planner") {
+    return <WorkPlanDetailPage planId={restArr[1]} portalHome="/admin" />;
+  }
   if (portal === "admin" && restArr.length === 1 && restArr[0] === "parties") {
     return <ListPartiesPage portalHome="/admin" />;
   }
@@ -83,6 +107,26 @@ export default function PortalCatchAllPage() {
   }
   if (portal === "sales" && restArr.length === 1 && restArr[0] === "orders") {
     return <ListMyOrdersPage />;
+  }
+  if (portal === "sales" && restArr.length === 1 && restArr[0] === "work-planner") {
+    return <ListWorkPlansPage portalHome="/sales" />;
+  }
+  if (portal === "sales" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "calendar") {
+    return <WorkPlanCalendarPage portalHome="/sales" />;
+  }
+  if (portal === "sales" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "new") {
+    return <WorkPlanFormPage mode="create" portalHome="/sales" />;
+  }
+  if (
+    portal === "sales" &&
+    restArr.length === 3 &&
+    restArr[0] === "work-planner" &&
+    restArr[2] === "edit"
+  ) {
+    return <WorkPlanFormPage mode="edit" planId={restArr[1]} portalHome="/sales" />;
+  }
+  if (portal === "sales" && restArr.length === 2 && restArr[0] === "work-planner") {
+    return <WorkPlanDetailPage planId={restArr[1]} portalHome="/sales" />;
   }
 
   // ── FINANCE ──────────────────────────────────────────────────────────────

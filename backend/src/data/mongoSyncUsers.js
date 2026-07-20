@@ -17,7 +17,16 @@ const ROLE_SEED_DEFS = [
     name: 'Sales',
     code: 'sales',
     department: 'sales',
-    permCodes: ['parties:manage', 'products:manage', 'orders:read', 'orders:write', 'flags:suite', 'dashboard:view','records:delete'],
+    permCodes: [
+      'parties:manage',
+      'products:manage',
+      'orders:read',
+      'orders:write',
+      'flags:suite',
+      'dashboard:view',
+      'records:delete',
+      'work_planner:suite',
+    ],
   },
   {
     name: 'Finance',

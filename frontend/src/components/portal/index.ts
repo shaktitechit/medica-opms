@@ -29,6 +29,10 @@ export { default as ProductDetailPage } from "./shared/ProductDetailPage";
 export { default as SalesOverview } from "./sales/SalesOverview";
 export { default as SalesCreateOrderPage } from "./sales/CreateOrderPage";
 export { default as ListMyOrdersPage } from "./sales/ListMyOrdersPage";
+export { default as ListWorkPlansPage } from "./shared/workPlanner/ListWorkPlansPage";
+export { default as WorkPlanFormPage } from "./shared/workPlanner/WorkPlanFormPage";
+export { default as WorkPlanDetailPage } from "./shared/workPlanner/WorkPlanDetailPage";
+export { default as WorkPlanCalendarPage } from "./shared/workPlanner/WorkPlanCalendarPage";
 
 export { default as FinanceOverview } from "./finance/FinanceOverview";
 export { default as ListFinanceOrdersPage } from "./finance/order/ListFinanceOrdersPage";

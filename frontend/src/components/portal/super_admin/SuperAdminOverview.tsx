@@ -5,12 +5,20 @@ import { useMemo, useState } from "react";
 import {
   useGetDashboardSuperQuery,
   useListOrdersQuery,
+  useListOrderReturnsQuery,
   useListPartiesQuery,
   useListFlagsQuery,
   useListUsersQuery,
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
+import { pickList } from "@/components/portal/sales/partyDisplay";
+import {
+  ADMIN_ORDER_TABS,
+  buildPendingReturnOrderIds,
+  computeAdminOrderStats,
+  type AdminOrderTabCategory,
+} from "@/components/portal/admin/adminOrderUtils";
 import {
   LayoutDashboard,
   RefreshCw,
@@ -29,7 +37,104 @@ import {
   TrendingUp,
   Info,
   ExternalLink,
+  Ban,
+  Clock,
+  FileEdit,
+  LayoutGrid,
+  Layers,
+  PauseCircle,
+  XCircle,
+  type LucideIcon,
 } from "lucide-react";
+
+const ORDER_QUICK_ACCESS_META: Record<
+  AdminOrderTabCategory,
+  {
+    accent: string;
+    labelTone: string;
+    iconWrap: string;
+    iconTone: string;
+    Icon: LucideIcon;
+  }
+> = {
+  all: {
+    accent: "bg-slate-500",
+    labelTone: "text-slate-500 dark:text-slate-400",
+    iconWrap: "bg-slate-50 dark:bg-slate-950/30 border border-slate-100/45 dark:border-slate-500/10",
+    iconTone: "text-slate-600 dark:text-slate-400",
+    Icon: LayoutGrid,
+  },
+  pending_admin_approval: {
+    accent: "bg-indigo-500",
+    labelTone: "text-indigo-500 dark:text-indigo-400",
+    iconWrap: "bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100/45 dark:border-indigo-500/10",
+    iconTone: "text-indigo-600 dark:text-indigo-400",
+    Icon: ShieldCheck,
+  },
+  due_sheet_pending: {
+    accent: "bg-orange-500",
+    labelTone: "text-orange-500 dark:text-orange-400",
+    iconWrap: "bg-orange-50 dark:bg-orange-950/30 border border-orange-100/45 dark:border-orange-500/10",
+    iconTone: "text-orange-600 dark:text-orange-400",
+    Icon: FileEdit,
+  },
+  pending_finance_approval: {
+    accent: "bg-purple-500",
+    labelTone: "text-purple-500 dark:text-purple-400",
+    iconWrap: "bg-purple-50 dark:bg-purple-950/30 border border-purple-100/45 dark:border-purple-500/10",
+    iconTone: "text-purple-600 dark:text-purple-400",
+    Icon: Clock,
+  },
+  pending_account_approval: {
+    accent: "bg-violet-500",
+    labelTone: "text-violet-500 dark:text-violet-400",
+    iconWrap: "bg-violet-50 dark:bg-violet-950/30 border border-violet-100/45 dark:border-violet-500/10",
+    iconTone: "text-violet-600 dark:text-violet-400",
+    Icon: Layers,
+  },
+  open_dispatched: {
+    accent: "bg-teal-500",
+    labelTone: "text-teal-500 dark:text-teal-400",
+    iconWrap: "bg-teal-50 dark:bg-teal-950/30 border border-teal-100/45 dark:border-teal-500/10",
+    iconTone: "text-teal-600 dark:text-teal-400",
+    Icon: Truck,
+  },
+  transport_return_pending: {
+    accent: "bg-amber-500",
+    labelTone: "text-amber-500 dark:text-amber-400",
+    iconWrap: "bg-amber-50 dark:bg-amber-950/30 border border-amber-100/45 dark:border-amber-500/10",
+    iconTone: "text-amber-600 dark:text-amber-400",
+    Icon: Truck,
+  },
+  closed_delivered: {
+    accent: "bg-emerald-500",
+    labelTone: "text-emerald-500 dark:text-emerald-400",
+    iconWrap: "bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100/45 dark:border-emerald-500/10",
+    iconTone: "text-emerald-600 dark:text-emerald-400",
+    Icon: Package,
+  },
+  on_hold: {
+    accent: "bg-amber-500",
+    labelTone: "text-amber-500 dark:text-amber-400",
+    iconWrap: "bg-amber-50 dark:bg-amber-950/30 border border-amber-100/45 dark:border-amber-500/10",
+    iconTone: "text-amber-600 dark:text-amber-400",
+    Icon: PauseCircle,
+  },
+  cancelled: {
+    accent: "bg-rose-500",
+    labelTone: "text-rose-500 dark:text-rose-400",
+    iconWrap: "bg-rose-50 dark:bg-rose-950/30 border border-rose-100/45 dark:border-rose-500/10",
+    iconTone: "text-rose-600 dark:text-rose-400",
+    Icon: Ban,
+  },
+  rejected: {
+    accent: "bg-red-500",
+    labelTone: "text-red-500 dark:text-red-400",
+    iconWrap: "bg-rose-50 dark:bg-rose-950/30 border border-rose-100/45 dark:border-rose-500/10",
+    iconTone: "text-red-500 dark:text-red-400",
+    Icon: XCircle,
+  },
+};
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -154,6 +259,7 @@ export default function SuperAdminOverview() {
 
   const { data: kpiRaw, isFetching: kpiFetching, isError: kpiError, refetch: refetchKpi } = useGetDashboardSuperQuery();
   const { data: ordersRaw, isFetching: ordersFetching, isError: ordersError, refetch: refetchOrders } = useListOrdersQuery({});
+  const { data: returnsRaw } = useListOrderReturnsQuery({});
   const { data: partiesRaw, isFetching: partiesFetching, refetch: refetchParties } = useListPartiesQuery({});
   const { data: flagsRaw, isFetching: flagsFetching, isError: flagsError, refetch: refetchFlags } = useListFlagsQuery({});
   const { data: usersRaw, isFetching: usersFetching, refetch: refetchUsers } = useListUsersQuery({});
@@ -212,15 +318,30 @@ export default function SuperAdminOverview() {
   const completedPct = totalOrders > 0 ? (completedCount / totalOrders) * 100 : 0;
   const otherPct = totalOrders > 0 ? (otherCount / totalOrders) * 100 : 0;
 
+  // ── order workflow KPIs (same buckets as admin/account/finance/dispatch) ──
+  const orders = useMemo(() => pickOrders(ordersRaw), [ordersRaw]);
+  const pendingReturnOrderIds = useMemo(
+    () => buildPendingReturnOrderIds(pickList(returnsRaw)),
+    [returnsRaw],
+  );
+  const orderCategoryOptions = useMemo(
+    () => ({ pendingReturnOrderIds }),
+    [pendingReturnOrderIds],
+  );
+  const orderStats = useMemo(
+    () => computeAdminOrderStats(orders, orderCategoryOptions),
+    [orders, orderCategoryOptions],
+  );
+
   // ── derived lists ─────────────────────────────────────────────────────────
   const recentOrders = useMemo(() => {
-    const list = pickOrders(ordersRaw) as any[];
-    return [...list].sort((a, b) => {
+    const list = [...orders] as any[];
+    return list.sort((a, b) => {
       const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return bt - at;
     }).slice(0, 6);
-  }, [ordersRaw]);
+  }, [orders]);
 
   const partyList = useMemo(() => extractList(partiesRaw) as any[], [partiesRaw]);
   const partyNameById = useMemo(() => {
@@ -404,6 +525,47 @@ export default function SuperAdminOverview() {
           href="/super_admin/parties"
           hrefLabel="View Parties"
         />
+      </div>
+
+      {/* ── ORDER WORKFLOW QUICK ACCESS ───────────────────────────────── */}
+      <div className="space-y-2.5">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Order Pipeline
+        </h3>
+        <div className="grid grid-cols-3 lg:grid-cols-11 gap-4 w-full">
+          {ADMIN_ORDER_TABS.map((tab) => {
+            const meta = ORDER_QUICK_ACCESS_META[tab.id];
+            const { Icon } = meta;
+            const stat = orderStats[tab.id];
+
+            return (
+              <Link
+                key={tab.id}
+                href={`/super_admin/orders${tab.id === "all" ? "" : `?tab=${tab.id}`}`}
+                className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-violet-500/20 hover:shadow-md dark:border-white/10 dark:bg-slate-900 dark:hover:border-violet-500/30 flex flex-col justify-between"
+              >
+                <div className={`absolute top-0 left-0 h-1 w-full ${meta.accent}`} />
+                <div className="flex items-start justify-between gap-1.5">
+                  <span className={`text-2xs font-bold tracking-wider uppercase line-clamp-2 ${meta.labelTone}`}>
+                    {tab.label}
+                  </span>
+                  <div className={`rounded p-1 shrink-0 ${meta.iconWrap}`}>
+                    <Icon className={`h-3.5 w-3.5 ${meta.iconTone}`} />
+                  </div>
+                </div>
+                <div className="mt-2.5">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 font-sans">
+                    {ordersFetching ? (
+                      <span className="inline-block h-5 w-10 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+                    ) : (
+                      stat.count
+                    )}
+                  </h3>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
       </div>
 
       {/* ── QUICK ACTIONS ──────────────────────────────────────────────── */}

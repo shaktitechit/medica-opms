@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import {
-  AlertTriangle,
   Ban,
   Clock,
   FileEdit,
@@ -108,7 +107,14 @@ const WIDGET_META: Record<
     labelTone: "text-amber-500 dark:text-amber-400",
     iconWrap: "bg-amber-50 dark:bg-amber-950/30 border border-amber-100/45 dark:border-amber-500/10",
     iconTone: "text-amber-600 dark:text-amber-400",
-    Icon: Clock,
+    Icon: PauseCircle,
+  },
+  cancelled: {
+    accent: "bg-rose-500",
+    labelTone: "text-rose-500 dark:text-rose-400",
+    iconWrap: "bg-rose-50 dark:bg-rose-950/30 border border-rose-100/45 dark:border-rose-500/10",
+    iconTone: "text-rose-600 dark:text-rose-400",
+    Icon: Ban,
   },
   rejected: {
     accent: "bg-red-500",
@@ -116,13 +122,6 @@ const WIDGET_META: Record<
     iconWrap: "bg-rose-50 dark:bg-rose-950/30 border border-rose-100/45 dark:border-rose-500/10",
     iconTone: "text-red-500 dark:text-red-400",
     Icon: XCircle,
-  },
-  cancelled: {
-    accent: "bg-rose-500",
-    labelTone: "text-rose-500 dark:text-rose-400",
-    iconWrap: "bg-rose-50 dark:bg-rose-950/30 border border-rose-100/45 dark:border-rose-500/10",
-    iconTone: "text-rose-600 dark:text-rose-400",
-    Icon: AlertTriangle,
   },
 };
 
@@ -392,7 +391,7 @@ export default function DispatchOverviewWidgets({
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           Quick Access
         </h3>
-        <div className="grid grid-cols-3 lg:grid-cols-6 gap-4 w-full">
+        <div className="grid grid-cols-3 lg:grid-cols-11 gap-4 w-full">
           {DISPATCH_ORDER_TABS.map((tab) => {
             const meta = WIDGET_META[tab.id];
             const { Icon } = meta;
