@@ -45,6 +45,7 @@ const messageRoutes = require('./modules/messages/message.routes');
 const communicationRoutes = require('./modules/communication/communication.routes');
 const reminderRoutes = require('./modules/reminders/reminder.routes');
 const workPlannerRoutes = require('./modules/workPlanner/workPlanner.routes');
+const transportPlannerRoutes = require('./modules/transportPlanner/transportPlanner.routes');
 const pushRoutes = require('./modules/push/push.routes');
 
 const app = express();
@@ -109,6 +110,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/communication', communicationRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/work-plans', workPlannerRoutes);
+app.use('/api/transport-plans', transportPlannerRoutes);
 app.use('/api', pushRoutes);
 app.use('/api', filesRoutes);
 

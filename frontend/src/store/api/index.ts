@@ -38,5 +38,6 @@ export * from "./slices/orderDueSheetApi";
 export * from "./slices/finalOrderStatementApi";
 export * from "./slices/remindersApi";
 export * from "./slices/workPlansApi";
+export * from "./slices/transportPlansApi";
 
 

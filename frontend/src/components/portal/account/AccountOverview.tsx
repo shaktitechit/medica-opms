@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccountTabAlertOverride } from "./AccountTabAlert";
 import AccountOverviewWidgets from "./components/AccountOverviewWidgets";
+import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
 import AccountMonthlyPerformanceChart from "./components/AccountMonthlyPerformanceChart";
 import AccountPartyLeaderboard from "./components/AccountPartyLeaderboard";
 import AccountProductLeaderboard from "./components/AccountProductLeaderboard";
@@ -250,11 +251,11 @@ export default function AccountOverview() {
     const count = pendingOpenDispatchCountRef.current;
     if (count <= 0) return;
 
-    const title = `${count} Open/Dispatch Pending`;
+    const title = `${count} Dispatch Pending`;
     const body =
       count === 1
-        ? "1 order is open / awaiting dispatch. Open Account Orders to review."
-        : `${count} orders are open / awaiting dispatch. Open Account Orders to review.`;
+        ? "1 order is awaiting dispatch. Open Account Orders to review."
+        : `${count} orders are awaiting dispatch. Open Account Orders to review.`;
 
     toast.message(title, {
       id: `open-dispatch-pending-${Date.now()}`,
@@ -348,7 +349,7 @@ export default function AccountOverview() {
     };
   }, [hasPendingAccount]);
 
-  // Separate 5-minute stream for open/dispatch pending
+  // Separate 5-minute stream for dispatch pending
   useEffect(() => {
     if (!hasPendingOpenDispatch) {
       syncDocumentTitle();
@@ -440,8 +441,8 @@ export default function AccountOverview() {
       }
 
       if (openDispatch > 0) {
-        const title = `${openDispatch} Open/Dispatch Pending`;
-        const body = `${openDispatch} order${openDispatch === 1 ? "" : "s"} open / awaiting dispatch.`;
+        const title = `${openDispatch} Dispatch Pending`;
+        const body = `${openDispatch} order${openDispatch === 1 ? "" : "s"} awaiting dispatch.`;
         toast.success(title, { description: body, duration: 8_000 });
         results.push(
           await showLocalNotification({
@@ -457,7 +458,7 @@ export default function AccountOverview() {
       if (dueSheet <= 0 && account <= 0 && openDispatch <= 0) {
         const title = "Medica test alert";
         const body =
-          "OS notifications are working. You will be alerted for due sheet, account, and open/dispatch pending orders.";
+          "OS notifications are working. You will be alerted for due sheet, account, and dispatch pending orders.";
         toast.success(title, { description: body, duration: 8_000 });
         results.push(
           await showLocalNotification({
@@ -482,11 +483,11 @@ export default function AccountOverview() {
       const hasCounts = dueSheet > 0 || account > 0 || openDispatch > 0;
       setLastTestAlert({
         title: hasCounts
-          ? `Due sheet: ${dueSheet} · Account: ${account} · Open/Dispatch: ${openDispatch}`
+          ? `Due sheet: ${dueSheet} · Account: ${account} · Dispatch Pending: ${openDispatch}`
           : "Medica test alert",
         body: hasCounts
           ? "Separate notifications were sent for each pending type that has items."
-          : "Alerts are enabled for due sheet, account, and open/dispatch pending.",
+          : "Alerts are enabled for due sheet, account, and dispatch pending.",
         at: new Date().toLocaleTimeString(),
         osOk: anyOk,
         detail,
@@ -604,7 +605,7 @@ export default function AccountOverview() {
             <BellOff className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
               Browser alerts are off. Enable them to get separate OS
-              notifications every 5 minutes for due sheet, account, and open/dispatch
+              notifications every 5 minutes for due sheet, account, and dispatch
               pending.
             </p>
           </div>
@@ -677,6 +678,8 @@ export default function AccountOverview() {
         isOrdersFetching={isOrdersFetching}
         categoryOptions={categoryOptions}
       />
+
+      <TransportPlannerStatsWidgets portalHome="/account" />
 
       <AccountMonthlyPerformanceChart
         orders={orders}

@@ -25,9 +25,11 @@ import {
   LayoutDashboard,
   TrendingUp,
   TableProperties,
+  FolderOpen,
 } from "lucide-react";
 import { GoogleSheetOrdersModal } from "@/components/portal/shared/GoogleSheetOrdersModal";
 import { GoogleSheetAnalyticsModal } from "@/components/portal/shared/GoogleSheetAnalyticsModal";
+import { OpenOrdersModal } from "@/components/portal/shared/orderList/OpenOrdersModal";
 import {
   OrderFulfillmentPipelineStrip,
   buildListOrderFulfillmentPipeline,
@@ -158,9 +160,13 @@ function renderWorkflowStatusBadge(category: AccountOrderTabCategory) {
       bgClass =
         "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-955/30 dark:text-teal-400 dark:ring-teal-500/25";
       break;
-    case "transport_return_pending":
+    case "transport_pending":
       bgClass =
         "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "return_pending":
+      bgClass =
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25";
       break;
     case "closed_delivered":
       bgClass =
@@ -234,6 +240,7 @@ export default function ListAccountOrdersPage() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+  const [isOpenOrdersOpen, setIsOpenOrdersOpen] = useState(false);
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -390,6 +397,15 @@ export default function ListAccountOrdersPage() {
             </h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsOpenOrdersOpen(true)}
+              className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-cyan-300 bg-cyan-50 px-2.5 py-1.5 text-xs font-semibold text-cyan-700 shadow-sm transition hover:bg-cyan-100 dark:border-cyan-700/50 dark:bg-cyan-950/40 dark:text-cyan-400 dark:hover:bg-cyan-900/30"
+              title="View open orders (past approvals, not fully delivered)"
+            >
+              <FolderOpen className="h-3 w-3" />
+              Open Orders
+            </button>
             <button
               type="button"
               onClick={() => setIsSheetOpen(true)}
@@ -661,6 +677,17 @@ export default function ListAccountOrdersPage() {
         />
       )}
 
+      <OpenOrdersModal
+        isOpen={isOpenOrdersOpen}
+        onClose={() => setIsOpenOrdersOpen(false)}
+        orders={orders}
+        partyNameById={partyNameById}
+        portalBasePath="/account"
+        renderStatusBadge={(order) => {
+          const cat = getAccountOrderTabCategory(order, categoryOptions);
+          return cat ? renderWorkflowStatusBadge(cat) : null;
+        }}
+      />
       <GoogleSheetOrdersModal
         isOpen={isSheetOpen}
         onClose={() => setIsSheetOpen(false)}

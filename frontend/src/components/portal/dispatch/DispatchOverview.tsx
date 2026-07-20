@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatchTabAlertOverride } from "./DispatchTabAlert";
 import DispatchOverviewWidgets from "./components/DispatchOverviewWidgets";
+import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
 import {
   buildPendingReturnOrderIds,
   computeDispatchOrderStats,
@@ -33,9 +34,9 @@ import {
   X,
 } from "lucide-react";
 
-const TRANSPORT_RETURN_PENDING_PUSH_INTERVAL_MS = 300_000;
-const TRANSPORT_RETURN_PENDING_ALERT_URL =
-  "/dispatch/orders?tab=transport_return_pending";
+const TRANSPORT_PENDING_PUSH_INTERVAL_MS = 300_000;
+const TRANSPORT_PENDING_ALERT_URL =
+  "/dispatch/orders?tab=transport_pending";
 
 function notificationsSupported(): boolean {
   return typeof window !== "undefined" && "Notification" in window;
@@ -101,25 +102,25 @@ export default function DispatchOverview() {
     [orders, categoryOptions],
   );
 
-  const pendingTransportReturnCount = orderStats.transport_return_pending.count;
-  const pendingTransportReturnCountRef = useRef(pendingTransportReturnCount);
-  pendingTransportReturnCountRef.current = pendingTransportReturnCount;
-  const hasPendingTransportReturn = pendingTransportReturnCount > 0;
+  const pendingTransportCount = orderStats.transport_pending.count;
+  const pendingTransportCountRef = useRef(pendingTransportCount);
+  pendingTransportCountRef.current = pendingTransportCount;
+  const hasPendingTransport = pendingTransportCount > 0;
 
-  useDispatchTabAlertOverride(pendingTransportReturnCount);
+  useDispatchTabAlertOverride(pendingTransportCount);
 
   const sendPendingReminder = async () => {
-    const count = pendingTransportReturnCountRef.current;
+    const count = pendingTransportCountRef.current;
     if (count <= 0) return;
 
-    const title = `${count} Transport/Return Pending`;
+    const title = `${count} Transport Pending`;
     const body =
       count === 1
-        ? "1 order is awaiting transport or return handling. Open Dispatch Orders to review."
-        : `${count} orders are awaiting transport or return handling. Open Dispatch Orders to review.`;
+        ? "1 order is awaiting transport. Open Dispatch Orders to review."
+        : `${count} orders are awaiting transport. Open Dispatch Orders to review.`;
 
     toast.message(title, {
-      id: `transport-return-pending-${Date.now()}`,
+      id: `transport-pending-${Date.now()}`,
       description: body,
       duration: 8_000,
     });
@@ -131,8 +132,8 @@ export default function DispatchOverview() {
     await showLocalNotification({
       title,
       body,
-      url: TRANSPORT_RETURN_PENDING_ALERT_URL,
-      tag: "transport-return-pending-reminder",
+      url: TRANSPORT_PENDING_ALERT_URL,
+      tag: "transport-pending-reminder",
       requireInteraction: false,
     }).catch(() => undefined);
 
@@ -140,12 +141,12 @@ export default function DispatchOverview() {
       await notifyPush({
         title,
         body,
-        url: TRANSPORT_RETURN_PENDING_ALERT_URL,
+        url: TRANSPORT_PENDING_ALERT_URL,
         data: {
           module: "order",
-          kind: "transport_return_pending_reminder",
+          kind: "transport_pending_reminder",
           count,
-          tag: "transport-return-pending-reminder",
+          tag: "transport-pending-reminder",
         },
       }).unwrap();
     } catch {
@@ -162,7 +163,7 @@ export default function DispatchOverview() {
 
   // Alert immediately when pending exists, then every 5 minutes while overview stays open.
   useEffect(() => {
-    if (!hasPendingTransportReturn) {
+    if (!hasPendingTransport) {
       if (typeof document !== "undefined" && document.title.startsWith("(")) {
         document.title = "Dispatch Overview";
       }
@@ -181,7 +182,7 @@ export default function DispatchOverview() {
     const first = window.setTimeout(tick, 1_000);
     const id = window.setInterval(
       tick,
-      TRANSPORT_RETURN_PENDING_PUSH_INTERVAL_MS,
+      TRANSPORT_PENDING_PUSH_INTERVAL_MS,
     );
 
     return () => {
@@ -192,7 +193,7 @@ export default function DispatchOverview() {
         document.title = "Dispatch Overview";
       }
     };
-  }, [hasPendingTransportReturn]);
+  }, [hasPendingTransport]);
 
   const handleEnableAlerts = async () => {
     setEnablingAlerts(true);
@@ -219,21 +220,21 @@ export default function DispatchOverview() {
 
       await unlockNotificationAudio();
 
-      const count = pendingTransportReturnCountRef.current;
+      const count = pendingTransportCountRef.current;
       const title =
-        count > 0 ? `${count} Transport/Return Pending` : "Medica test alert";
+        count > 0 ? `${count} Transport Pending` : "Medica test alert";
       const body =
         count > 0
-          ? `${count} order${count === 1 ? "" : "s"} awaiting transport or return handling.`
-          : "Alerts are working. You will be notified when transport/return orders are pending.";
+          ? `${count} order${count === 1 ? "" : "s"} awaiting transport.`
+          : "Alerts are working. You will be notified when transport orders are pending.";
 
       toast.success(title, { description: body, duration: 8_000 });
 
       const shown = await showLocalNotification({
         title,
         body,
-        url: TRANSPORT_RETURN_PENDING_ALERT_URL,
-        tag: "transport-return-test-alert",
+        url: TRANSPORT_PENDING_ALERT_URL,
+        tag: "transport-test-alert",
         requireInteraction: true,
       });
 
@@ -307,7 +308,7 @@ export default function DispatchOverview() {
     isKpiFetching || isOrdersFetching || isRefreshing;
 
   const showEnableBanner =
-    hasPendingTransportReturn &&
+    hasPendingTransport &&
     notifPermission !== "granted" &&
     notifPermission !== "unsupported";
 
@@ -351,7 +352,7 @@ export default function DispatchOverview() {
             <BellOff className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
               Browser alerts are off. Enable them to get an OS notification
-              (with system sound) every 5 minutes while transport/return orders are
+              (with system sound) every 5 minutes while transport orders are
               pending.
             </p>
           </div>
@@ -424,6 +425,8 @@ export default function DispatchOverview() {
         isOrdersFetching={isOrdersFetching}
         categoryOptions={categoryOptions}
       />
+
+      <TransportPlannerStatsWidgets portalHome="/dispatch" />
     </div>
   );
 }

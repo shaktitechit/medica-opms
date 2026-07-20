@@ -26,7 +26,7 @@ export const orderDeliveryApi = medicaApi.injectEndpoints({
         body,
       }),
       transformResponse: (raw: ApiEnvelope<any>) => unwrapEnvelope(raw),
-      invalidatesTags: ["Order", "Orders", "Transport"],
+      invalidatesTags: ["Order", "Orders", "Transport", "TransportPlans", "Dispatch"],
     }),
   }),
 });

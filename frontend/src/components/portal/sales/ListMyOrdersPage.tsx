@@ -52,7 +52,9 @@ import {
   LayoutDashboard,
   Plus,
   Trash2,
+  FolderOpen,
 } from "lucide-react";
+import { OpenOrdersModal } from "@/components/portal/shared/orderList/OpenOrdersModal";
 
 type OrderRow = {
   _id?: string;
@@ -158,9 +160,13 @@ function renderWorkflowStatusBadge(status: string) {
       bgClass =
         "bg-teal-50 text-teal-700 ring-teal-600/10 dark:bg-teal-950/30 dark:text-teal-400 dark:ring-teal-500/25";
       break;
-    case "transport_return_pending":
+    case "transport_pending":
       bgClass =
         "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-950/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "return_pending":
+      bgClass =
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-950/30 dark:text-rose-400 dark:ring-rose-500/25";
       break;
     case "closed_delivered":
       bgClass =
@@ -231,6 +237,7 @@ export default function ListMyOrdersPage() {
   const [customDateTo, setCustomDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
+  const [isOpenOrdersOpen, setIsOpenOrdersOpen] = useState(false);
 
   useEffect(() => {
     setActiveTab(normalizeSalesTabFromUrl(tabFromUrl, "draft"));
@@ -435,6 +442,15 @@ export default function ListMyOrdersPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsOpenOrdersOpen(true)}
+              className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-cyan-300 bg-cyan-50 px-2.5 py-1.5 text-xs font-semibold text-cyan-700 shadow-sm transition hover:bg-cyan-100 dark:border-cyan-700/50 dark:bg-cyan-950/40 dark:text-cyan-400 dark:hover:bg-cyan-900/30"
+              title="View open orders (past approvals, not fully delivered)"
+            >
+              <FolderOpen className="h-3 w-3" />
+              Open Orders
+            </button>
             <button
               type="button"
               onClick={() => refetch()}
@@ -672,6 +688,17 @@ export default function ListMyOrdersPage() {
         onReset={handleResetFilters}
       />
 
+      <OpenOrdersModal
+        isOpen={isOpenOrdersOpen}
+        onClose={() => setIsOpenOrdersOpen(false)}
+        orders={orders}
+        partyNameById={partyNameById}
+        portalBasePath="/sales"
+        renderStatusBadge={(order) => {
+          const cat = getOrderTabCategory(order, categoryOptions);
+          return renderWorkflowStatusBadge(cat);
+        }}
+      />
       {viewOrderId && (
         <OrderDetailModal
           orderId={viewOrderId}

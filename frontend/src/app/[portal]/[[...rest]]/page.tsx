@@ -10,6 +10,10 @@ import {
   WorkPlanFormPage,
   WorkPlanDetailPage,
   WorkPlanCalendarPage,
+  ListTransportPlansPage,
+  TransportPlanFormPage,
+  TransportPlanDetailPage,
+  TransportPlanCalendarPage,
   ListPartiesPage,
   ListProductsPage,
   PartyDetailPage,
@@ -91,6 +95,26 @@ export default function PortalCatchAllPage() {
   if (portal === "admin" && restArr.length === 2 && restArr[0] === "work-planner") {
     return <WorkPlanDetailPage planId={restArr[1]} portalHome="/admin" />;
   }
+  if (portal === "admin" && restArr.length === 1 && restArr[0] === "transport-planner") {
+    return <ListTransportPlansPage portalHome="/admin" />;
+  }
+  if (portal === "admin" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "calendar") {
+    return <TransportPlanCalendarPage portalHome="/admin" />;
+  }
+  if (portal === "admin" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "new") {
+    return <TransportPlanFormPage mode="create" portalHome="/admin" />;
+  }
+  if (
+    portal === "admin" &&
+    restArr.length === 3 &&
+    restArr[0] === "transport-planner" &&
+    restArr[2] === "edit"
+  ) {
+    return <TransportPlanFormPage mode="edit" planId={restArr[1]} portalHome="/admin" />;
+  }
+  if (portal === "admin" && restArr.length === 2 && restArr[0] === "transport-planner") {
+    return <TransportPlanDetailPage planId={restArr[1]} portalHome="/admin" />;
+  }
   if (portal === "admin" && restArr.length === 1 && restArr[0] === "parties") {
     return <ListPartiesPage portalHome="/admin" />;
   }
@@ -162,6 +186,26 @@ export default function PortalCatchAllPage() {
   if (portal === "account" && restArr.length === 1 && restArr[0] === "transport-agents") {
     return <ListTransportAgentsPage portalHome="/account" />;
   }
+  if (portal === "account" && restArr.length === 1 && restArr[0] === "transport-planner") {
+    return <ListTransportPlansPage portalHome="/account" />;
+  }
+  if (portal === "account" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "calendar") {
+    return <TransportPlanCalendarPage portalHome="/account" />;
+  }
+  if (portal === "account" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "new") {
+    return <TransportPlanFormPage mode="create" portalHome="/account" />;
+  }
+  if (
+    portal === "account" &&
+    restArr.length === 3 &&
+    restArr[0] === "transport-planner" &&
+    restArr[2] === "edit"
+  ) {
+    return <TransportPlanFormPage mode="edit" planId={restArr[1]} portalHome="/account" />;
+  }
+  if (portal === "account" && restArr.length === 2 && restArr[0] === "transport-planner") {
+    return <TransportPlanDetailPage planId={restArr[1]} portalHome="/account" />;
+  }
 
   // ── DISPATCH ─────────────────────────────────────────────────────────────
   if (portal === "dispatch" && restArr.length === 1 && restArr[0] === "orders") {
@@ -175,6 +219,15 @@ export default function PortalCatchAllPage() {
   }
   if (portal === "dispatch" && restArr.length === 1 && restArr[0] === "transport-agents") {
     return <ListTransportAgentsPage />;
+  }
+  if (portal === "dispatch" && restArr.length === 1 && restArr[0] === "transport-planner") {
+    return <ListTransportPlansPage portalHome="/dispatch" />;
+  }
+  if (portal === "dispatch" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "calendar") {
+    return <TransportPlanCalendarPage portalHome="/dispatch" />;
+  }
+  if (portal === "dispatch" && restArr.length === 2 && restArr[0] === "transport-planner") {
+    return <TransportPlanDetailPage planId={restArr[1]} portalHome="/dispatch" />;
   }
   if (portal === "dispatch" && restArr.length === 2 && restArr[0] === "vehicles") {
     return <VehicleDetailPage id={restArr[1]} />;

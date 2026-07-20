@@ -22,6 +22,11 @@ const PERMISSION_DEFS = [
   { code: 'flags:suite', module: 'flag', description: 'Flags lifecycle' },
   { code: 'dashboard:view', module: 'dashboard', description: 'Department dashboards' },
   { code: 'work_planner:suite', module: 'work_planner', description: 'Work planner plans & visits' },
+  {
+    code: 'transport_planner:suite',
+    module: 'transport_planner',
+    description: 'Transport planner plans & dispatch execution',
+  },
 ];
 
 module.exports = {

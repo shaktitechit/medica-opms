@@ -6,7 +6,8 @@ import {
 } from "@/components/portal/sales/orderUtils";
 import {
   buildPendingReturnOrderIds,
-  isTransportOrReturnPending,
+  isReturnPendingOrder,
+  isTransportPending,
   type AccountOrderCategoryOptions,
 } from "@/components/portal/account/accountOrderUtils";
 
@@ -17,7 +18,8 @@ export type FinanceOrderTabCategory =
   | "pending_finance_approval"
   | "pending_account_approval"
   | "open_dispatched"
-  | "transport_return_pending"
+  | "transport_pending"
+  | "return_pending"
   | "closed_delivered"
   | "on_hold"
   | "cancelled"
@@ -36,8 +38,9 @@ export const FINANCE_ORDER_TABS: ReadonlyArray<{
   { id: "due_sheet_pending", label: "Due Sheet Pending" },
   { id: "pending_finance_approval", label: "Finance Pending" },
   { id: "pending_account_approval", label: "Account Pending" },
-  { id: "open_dispatched", label: "Open/Dispatch Pending" },
-  { id: "transport_return_pending", label: "Transport/Return Pending" },
+  { id: "open_dispatched", label: "Dispatch Pending" },
+  { id: "transport_pending", label: "Transport Pending" },
+  { id: "return_pending", label: "Return Pending" },
   { id: "closed_delivered", label: "Closed/Delivered" },
   { id: "on_hold", label: "On Hold" },
   { id: "cancelled", label: "Cancelled" },
@@ -50,8 +53,9 @@ export const FINANCE_ORDER_TAB_LABELS: Record<FinanceOrderTabCategory, string> =
   due_sheet_pending: "Due Sheet Pending",
   pending_finance_approval: "Finance Pending",
   pending_account_approval: "Account Pending",
-  open_dispatched: "Open/Dispatch Pending",
-  transport_return_pending: "Transport/Return Pending",
+  open_dispatched: "Dispatch Pending",
+  transport_pending: "Transport Pending",
+  return_pending: "Return Pending",
   closed_delivered: "Closed/Delivered",
   on_hold: "On Hold",
   cancelled: "Cancelled",
@@ -94,10 +98,8 @@ export function isDueSheetPending(order: unknown): boolean {
 
 /**
  * Finance list tab bucket. Draft orders are excluded (return null).
- * Each non-draft order maps to exactly one primary bucket for badges and stats.
- *
- * Transport/return (dispatch pipeline + pending returns) wins over open/dispatch
- * so those two buckets stay mutually exclusive — same as admin/sales.
+ * Priority: terminal → return → transport → closed → approvals → dispatch pending.
+ * Open orders are outside workflow tabs (see OpenOrdersModal).
  */
 export function getFinanceOrderTabCategory(
   order: unknown,
@@ -109,12 +111,12 @@ export function getFinanceOrderTabCategory(
 
   if (status === "draft") return null;
 
-  // Terminal buckets before transport so on-hold/cancelled/rejected stay put.
   if (status === "on_hold") return "on_hold";
   if (status === "cancelled") return "cancelled";
   if (status === "finance_rejected") return "rejected";
 
-  if (isTransportOrReturnPending(order, options)) return "transport_return_pending";
+  if (isReturnPendingOrder(order, options)) return "return_pending";
+  if (isTransportPending(order)) return "transport_pending";
   if (isOrderClosedOrDelivered(row)) return "closed_delivered";
 
   const pending = resolveApprovalPending(row);
@@ -138,7 +140,6 @@ export function orderMatchesFinanceTab(
     return deriveOrderWorkflowStatus(order as Record<string, unknown>) !== "draft";
   }
 
-  // Use the same exclusive primary bucket as badges (incl. open vs transport).
   return getFinanceOrderTabCategory(order, options) === tab;
 }
 
@@ -163,7 +164,7 @@ export function isFinanceOrderTabCategory(value: string): value is FinanceOrderT
 export function financeTabQueryParams(
   tab: FinanceOrderTabCategory,
 ): Record<string, string | undefined> {
-  if (tab === "transport_return_pending") {
+  if (tab === "transport_pending" || tab === "return_pending") {
     return { exclude_status: "draft,on_hold,cancelled,finance_rejected" };
   }
 
@@ -175,9 +176,6 @@ export function financeTabQueryParams(
     case "due_sheet_pending":
       return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     case "pending_finance_approval":
-      // Broad fetch; exclusive client filter (getFinanceOrderTabCategory) decides
-      // membership. Avoids empty tabs when API returns pre-finance stages that
-      // still carry a finance-pending flag, and rows not keyed only by aliases.
       return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     case "pending_account_approval":
       return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
@@ -202,16 +200,13 @@ export function normalizeFinanceTabFromUrl(value: string | null): FinanceOrderTa
   if (value === "pending_finance_review") return "pending_finance_approval";
   if (value === "pending_account_review") return "pending_account_approval";
   if (value === "open") return "open_dispatched";
+  if (value === "dispatch_pending") return "open_dispatched";
   if (value === "closed") return "closed_delivered";
   if (value === "pending_approvals") return "all";
-  if (
-    value === "transport_pending" ||
-    value === "returns_pending" ||
-    value === "pending_transport" ||
-    value === "pending_delivery"
-  ) {
-    return "transport_return_pending";
+  if (value === "transport_return_pending" || value === "pending_transport" || value === "pending_delivery") {
+    return "transport_pending";
   }
+  if (value === "returns_pending") return "return_pending";
   if (isFinanceOrderTabCategory(value)) return value;
   return "pending_finance_approval";
 }
@@ -222,8 +217,6 @@ export type FinanceOrderStats = Record<
 >;
 
 export function createEmptyFinanceOrderStats(): FinanceOrderStats {
-  // Keyed by every category (not just visible tabs) so stats[cat] is always defined
-  // even for orders whose category tab isn't rendered on the finance strip.
   return Object.fromEntries(
     Object.keys(FINANCE_ORDER_TAB_LABELS).map((id) => [
       id,
@@ -266,9 +259,6 @@ export function computeFinanceOrderStats(
     stats.all.quantity += qty;
     stats.all.amount += amount;
 
-    // One exclusive primary bucket — same as list tabs / orderMatchesFinanceTab.
-    // (Do not count overlapping approval flags; e.g. finance may still be
-    // "pending" while the order belongs in Admin or Due Sheet Pending.)
     const cat = getFinanceOrderTabCategory(order, options);
     if (!cat || cat === "all") continue;
 
@@ -318,13 +308,19 @@ export const FINANCE_STATUS_COLORS: Record<
     fill: "fill-teal-500/85 dark:fill-teal-500/60",
     hover: "fill-teal-600 dark:fill-teal-400",
     dot: "bg-teal-500 dark:bg-teal-400",
-    label: "Open/Dispatch Pending",
+    label: "Dispatch Pending",
   },
-  transport_return_pending: {
+  transport_pending: {
     fill: "fill-amber-500/85 dark:fill-amber-500/60",
     hover: "fill-amber-600 dark:fill-amber-400",
     dot: "bg-amber-500 dark:bg-amber-400",
-    label: "Transport/Return Pending",
+    label: "Transport Pending",
+  },
+  return_pending: {
+    fill: "fill-rose-500/85 dark:fill-rose-500/60",
+    hover: "fill-rose-600 dark:fill-rose-400",
+    dot: "bg-rose-500 dark:bg-rose-400",
+    label: "Return Pending",
   },
   closed_delivered: {
     fill: "fill-emerald-500/85 dark:fill-emerald-550/60",

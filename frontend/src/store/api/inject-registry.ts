@@ -19,6 +19,7 @@ import "./slices/communicationApi";
 import "./slices/pushApi";
 import "./slices/remindersApi";
 import "./slices/workPlansApi";
+import "./slices/transportPlansApi";
 import "./slices/ordersApi";
 import "./slices/orderApprovalApi";
 import "./slices/productsApi";

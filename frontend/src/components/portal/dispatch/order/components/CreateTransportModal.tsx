@@ -21,6 +21,7 @@ type CreateTransportModalProps = {
   transports?: any[];
   expectedDeliveryDate?: string;
   shippingAddress?: any;
+  defaultTransportAgentId?: string;
   onCreated?: () => void;
 };
 
@@ -69,6 +70,7 @@ export function CreateTransportModal({
   transports = [],
   expectedDeliveryDate,
   shippingAddress,
+  defaultTransportAgentId,
   onCreated,
 }: CreateTransportModalProps) {
   const [transportAgentId, setTransportAgentId] = useState("");
@@ -180,6 +182,10 @@ export function CreateTransportModal({
   useEffect(() => {
     if (!open) return;
 
+    if (!transportAgentId && defaultTransportAgentId) {
+      setTransportAgentId(String(defaultTransportAgentId));
+    }
+
     if (!destinationLocation && shippingAddress) {
       const a = shippingAddress as Record<string, any>;
       const parts: string[] = [];
@@ -194,7 +200,15 @@ export function CreateTransportModal({
     if (!expectedDelivDate && expectedDeliveryDate) {
       setExpectedDelivDate(new Date(String(expectedDeliveryDate)).toISOString().split("T")[0]);
     }
-  }, [open, shippingAddress, expectedDeliveryDate, destinationLocation, expectedDelivDate]);
+  }, [
+    open,
+    shippingAddress,
+    expectedDeliveryDate,
+    destinationLocation,
+    expectedDelivDate,
+    defaultTransportAgentId,
+    transportAgentId,
+  ]);
 
   useEffect(() => {
     if (!open || !dispatchId) return;

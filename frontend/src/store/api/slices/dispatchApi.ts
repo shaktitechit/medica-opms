@@ -1,7 +1,27 @@
 import { medicaApi } from "../baseApi";
 import { unwrapEnvelope, type ApiEnvelope } from "../unwrap";
 
+export type OrderDispatchStatus =
+  | "draft"
+  | "submitted"
+  | "transport_created"
+  | "cancelled";
+
+export const ORDER_DISPATCH_STATUSES: readonly OrderDispatchStatus[] = [
+  "draft",
+  "submitted",
+  "transport_created",
+  "cancelled",
+] as const;
+
 type LooseRecord = Record<string, unknown>;
+
+function isOrderDispatchStatus(value: unknown): value is OrderDispatchStatus {
+  return (
+    typeof value === "string" &&
+    (ORDER_DISPATCH_STATUSES as readonly string[]).includes(value)
+  );
+}
 
 function normalizeDispatchBody(body: LooseRecord): LooseRecord {
   const dispatchItems = Array.isArray(body.dispatch_items)
@@ -10,9 +30,16 @@ function normalizeDispatchBody(body: LooseRecord): LooseRecord {
       ? body.items
       : undefined;
 
+  const rawStatus = body.dispatch_status ?? body.status;
+  const { status: _legacyStatus, ...rest } = body;
+
   return {
-    ...body,
-    dispatch_status: body.dispatch_status ?? body.status,
+    ...rest,
+    ...(rawStatus == null
+      ? {}
+      : isOrderDispatchStatus(rawStatus)
+        ? { dispatch_status: rawStatus }
+        : {}),
     dispatch_items: dispatchItems,
   };
 }

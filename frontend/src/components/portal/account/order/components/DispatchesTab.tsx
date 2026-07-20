@@ -20,9 +20,11 @@ import {
   useListTransportsQuery,
   useListUsersQuery,
   useListTransportAgentsQuery,
+  usePatchDispatchMutation,
 } from "@/store/api";
 import { publicApiOrigin } from "@/lib/env";
 import { toast } from "@/lib/toast";
+import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { useAppSelector } from "@/store/hooks";
 import {
   FilePreviewModal,
@@ -127,6 +129,9 @@ export function DispatchesTab({
 
   const [isCreateDispatchModalOpen, setIsCreateDispatchModalOpen] = useState(false);
   const [createDispatchApprovalId, setCreateDispatchApprovalId] = useState("");
+  const [editingDispatch, setEditingDispatch] = useState<Record<string, any> | null>(null);
+  const [submittingDispatchId, setSubmittingDispatchId] = useState<string | null>(null);
+  const [patchDispatch] = usePatchDispatchMutation();
 
   const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
   const orderReturns = useMemo(() => pickList(returnsQ.data), [returnsQ.data]);
@@ -184,7 +189,14 @@ export function DispatchesTab({
     });
 
   const openCreateDispatch = useCallback((approvalId?: string) => {
+    setEditingDispatch(null);
     setCreateDispatchApprovalId(approvalId ?? "");
+    setIsCreateDispatchModalOpen(true);
+  }, []);
+
+  const openEditDispatch = useCallback((disp: Record<string, any>) => {
+    setCreateDispatchApprovalId("");
+    setEditingDispatch(disp);
     setIsCreateDispatchModalOpen(true);
   }, []);
 
@@ -195,6 +207,27 @@ export function DispatchesTab({
     if (!approvalsQ.isUninitialized) void approvalsQ.refetch();
     if (!transportsQ.isUninitialized) void transportsQ.refetch();
   }, [refetchOrder, dispatchesQ, returnsQ, approvalsQ, transportsQ]);
+
+  const handleSubmitDispatch = useCallback(
+    async (disp: Record<string, any>) => {
+      const dispId = String(disp._id ?? disp.id ?? "");
+      if (!dispId) return;
+      setSubmittingDispatchId(dispId);
+      try {
+        await patchDispatch({
+          id: dispId,
+          patch: { dispatch_status: "submitted" },
+        }).unwrap();
+        toast.success("Dispatch submitted to Dispatch team");
+        handleRefetch();
+      } catch (err) {
+        toast.error(mutationRejectedMessage(err));
+      } finally {
+        setSubmittingDispatchId(null);
+      }
+    },
+    [patchDispatch, handleRefetch],
+  );
 
   const handleDownloadBillDocument = useCallback(
     async (fileUrl: string, fileName: string) => {
@@ -293,7 +326,7 @@ export function DispatchesTab({
           <div className="space-y-8 font-sans">
             {releaseGroups.map((group) => {
               const activeReleaseDispatches = group.dispatches.filter((disp) => {
-                const status = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
+                const status = String(disp.dispatch_status ?? disp.status ?? "draft");
                 return status !== "cancelled";
               });
               const releaseSummary = summarizeReleaseDispatchState(
@@ -352,6 +385,11 @@ export function DispatchesTab({
                   <div className="space-y-6">
                     {group.dispatches.map((disp: any) => {
               const dispId = String(disp._id ?? disp.id ?? "");
+              const dispatchStatus = String(disp.dispatch_status ?? disp.status ?? "draft");
+              const canEditDispatch =
+                dispatchStatus === "draft" || dispatchStatus === "cancelled";
+              const canSubmitDispatch = canEditDispatch;
+              const isSubmitting = submittingDispatchId === dispId;
               const dispatchItems = Array.isArray(disp.dispatch_items) ? disp.dispatch_items : disp.items || [];
 
               const packedByVal = disp.packed_by;
@@ -387,6 +425,15 @@ export function DispatchesTab({
 
               const transport = activeTransport || dispatchTransports[dispatchTransports.length - 1];
 
+              const statusBadgeClass =
+                dispatchStatus === "cancelled"
+                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400"
+                  : dispatchStatus === "submitted"
+                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400"
+                    : dispatchStatus === "transport_created"
+                      ? "bg-blue-50 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400"
+                      : "bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400";
+
               return (
                 <div
                   key={dispId}
@@ -394,10 +441,13 @@ export function DispatchesTab({
                 >
                   <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4 dark:border-white/5">
                     <div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <h4 className="text-base font-bold text-slate-900 dark:text-slate-50">
                           {disp.dispatch_no || "Batch Details"}
                         </h4>
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${statusBadgeClass}`}>
+                          {dispatchStatus.replace(/_/g, " ")}
+                        </span>
                         {disp.finance_approval && (
                           <span className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-mono">
                             Release: {typeof disp.finance_approval === "object" ? disp.finance_approval.approval_no : disp.finance_approval}
@@ -408,6 +458,26 @@ export function DispatchesTab({
                         Dispatch Date: {formatDate(disp.dispatched_at ?? disp.dispatch_date)}
                       </p>
                     </div>
+
+                    {canEditDispatch ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openEditDispatch(disp)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/15 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-white/5"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleSubmitDispatch(disp)}
+                          disabled={isSubmitting || !canSubmitDispatch}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+                        >
+                          {isSubmitting ? "Submitting…" : "Submit"}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="grid gap-6 mt-4 sm:grid-cols-3">
@@ -724,6 +794,7 @@ export function DispatchesTab({
         onClose={() => {
           setIsCreateDispatchModalOpen(false);
           setCreateDispatchApprovalId("");
+          setEditingDispatch(null);
         }}
         orderId={orderId}
         detail={detail}
@@ -732,6 +803,7 @@ export function DispatchesTab({
         dispatches={dispatches}
         approvals={dispatchableApprovals}
         initialApprovalId={createDispatchApprovalId || undefined}
+        editingDispatch={editingDispatch}
         onCreated={handleRefetch}
       />
     </div>

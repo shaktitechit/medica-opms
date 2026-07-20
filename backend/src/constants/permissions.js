@@ -20,6 +20,7 @@ const PERMISSION_CODES = Object.freeze([
   'flags:suite',
   'dashboard:view',
   'work_planner:suite',
+  'transport_planner:suite',
 ]);
 
 module.exports = { PERMISSION_CODES };

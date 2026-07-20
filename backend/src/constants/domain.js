@@ -23,8 +23,9 @@ const ORDER_STATUS = {
 };
 
 const DISPATCH_STATUS = {
-  PARTIALLY_DISPATCHED: 'partially_dispatched',
-  FULLY_DISPATCHED: 'fully_dispatched',
+  DRAFT: 'draft',
+  SUBMITTED: 'submitted',
+  TRANSPORT_CREATED: 'transport_created',
   CANCELLED: 'cancelled',
 };
 

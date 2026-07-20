@@ -92,11 +92,8 @@ const orderDispatchSchema = new mongoose.Schema(
       type: String,
       enum: [
         "draft",
-        "allocation_pending",
-        "allocated",
-        "packing",
-        "partially_dispatched",
-        "fully_dispatched",
+        "submitted",
+        "transport_created",
         "cancelled",
       ],
       default: "draft",

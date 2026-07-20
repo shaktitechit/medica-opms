@@ -284,6 +284,102 @@ async function processPostTransportShipmentJob(payload = {}) {
   };
 }
 
+async function syncTransportPlanLineFromShipment(shipment, user, { event = 'created' } = {}) {
+  const { OrderDispatch, TransportPlan, TransportPlanOrder } = getModels();
+  const dispatchId = shipment?.dispatch;
+  if (!dispatchId) return null;
+
+  if (event === 'created') {
+    await OrderDispatch.updateOne(
+      { _id: dispatchId, deletedAt: null, dispatch_status: { $ne: 'cancelled' } },
+      {
+        $set: {
+          dispatch_status: 'transport_created',
+          dispatched_by: user?._id || user?.id || undefined,
+          dispatched_at: shipment.dispatch_date || new Date(),
+        },
+      }
+    );
+  }
+
+  const line = await TransportPlanOrder.findOne({
+    dispatch: dispatchId,
+    deletedAt: null,
+    status: { $in: ['pending', 'packed', 'dispatched', 'delivered'] },
+  });
+  if (!line) return null;
+
+  const dispatch = await OrderDispatch.findById(dispatchId)
+    .select('bill_number')
+    .lean();
+
+  if (event === 'created') {
+    const packed = Number(shipment.packed_boxes);
+    const open = Number(shipment.open_boxes);
+    const packages =
+      Number.isFinite(packed) || Number.isFinite(open)
+        ? (Number.isFinite(packed) ? packed : 0) + (Number.isFinite(open) ? open : 0)
+        : undefined;
+
+    if (shipment.lr_number) line.lr_number = shipment.lr_number;
+    if (dispatch?.bill_number) line.invoice_number = dispatch.bill_number;
+    if (packages !== undefined) line.packages = packages;
+    if (shipment.weight !== undefined && shipment.weight !== null) {
+      line.weight = Number(shipment.weight);
+    }
+    if (shipment.dispatch_date) line.dispatch_date = new Date(shipment.dispatch_date);
+    else if (!line.dispatch_date) line.dispatch_date = new Date();
+    line.status = 'dispatched';
+  }
+
+  if (event === 'delivered' || shipment.shipment_status === 'delivered') {
+    line.status = 'delivered';
+  }
+
+  // Keep LR / weight in sync if later patched on the shipment
+  if (event === 'updated') {
+    if (shipment.lr_number) line.lr_number = shipment.lr_number;
+    if (shipment.weight !== undefined && shipment.weight !== null) {
+      line.weight = Number(shipment.weight);
+    }
+    const packed = Number(shipment.packed_boxes);
+    const open = Number(shipment.open_boxes);
+    if (Number.isFinite(packed) || Number.isFinite(open)) {
+      line.packages =
+        (Number.isFinite(packed) ? packed : 0) + (Number.isFinite(open) ? open : 0);
+    }
+  }
+
+  await line.save();
+
+  const plan = await TransportPlan.findOne({ _id: line.transport_plan, deletedAt: null });
+  if (plan) {
+    if (line.status === 'dispatched' && plan.status === 'submitted') {
+      plan.status = 'in_transit';
+      plan.updated_by = user?._id || user?.id || undefined;
+      await plan.save();
+    } else if (line.status === 'delivered') {
+      const openLines = await TransportPlanOrder.countDocuments({
+        transport_plan: plan._id,
+        deletedAt: null,
+        status: { $nin: ['cancelled', 'delivered'] },
+      });
+      if (openLines === 0 && !['completed', 'cancelled'].includes(plan.status)) {
+        plan.status = 'completed';
+        plan.completed_at = new Date();
+        plan.updated_by = user?._id || user?.id || undefined;
+        await plan.save();
+      } else if (plan.status === 'submitted') {
+        plan.status = 'in_transit';
+        plan.updated_by = user?._id || user?.id || undefined;
+        await plan.save();
+      }
+    }
+  }
+
+  return line;
+}
+
 async function create(body, user) {
   const { Order, OrderDispatch, TransportShipment } = getModels();
   const order = await Order.findById(body.order).lean();
@@ -328,6 +424,8 @@ async function create(body, user) {
     total_quantity: body.total_quantity !== undefined ? Number(body.total_quantity) : undefined,
     created_by: user._id,
   });
+
+  await syncTransportPlanLineFromShipment(doc, user, { event: 'created' });
 
   await enqueuePostTransportJobs(body.order, user._id, {
     remarks: body.remarks || `Shipment ${doc.shipment_no} created`,
@@ -422,6 +520,10 @@ async function patch(id, patchBody, user) {
     await recomputeOrderFlagAggregates(String(doc.order));
   }
 
+  await syncTransportPlanLineFromShipment(doc, user, {
+    event: doc.shipment_status === 'delivered' ? 'delivered' : 'updated',
+  });
+
   await enqueuePostTransportJobs(doc.order, user._id, {
     remarks: patch.remarks || '',
     shipmentStatus: doc.shipment_status,
@@ -507,6 +609,9 @@ async function applyTransportDeliveryOutcome(transportId, { status, remarks }, u
   }
 
   await doc.save();
+  await syncTransportPlanLineFromShipment(doc, user, {
+    event: doc.shipment_status === 'delivered' ? 'delivered' : 'updated',
+  });
   return toPlain(doc.toObject());
 }
 

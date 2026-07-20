@@ -107,11 +107,8 @@ function getOrderedQuantity(line) {
 function normalizeDispatchStatus(value, fallback = 'draft') {
   const allowed = new Set([
     'draft',
-    'allocation_pending',
-    'allocated',
-    'packing',
-    'partially_dispatched',
-    'fully_dispatched',
+    'submitted',
+    'transport_created',
     'cancelled',
   ]);
   return allowed.has(value) ? value : fallback;
@@ -372,6 +369,7 @@ async function list({ order, dispatch_status } = {}) {
     .populate('finance_approval', 'approval_no')
     .populate('bill_document', 'original_name url mime_type')
     .populate('dispatch_assignee_user', 'name username email department')
+    .populate('dispatch_items.product', 'product_name sku hsn_code')
     .sort({ createdAt: -1 })
     .lean();
   return rows.map(toPlain);
@@ -382,6 +380,7 @@ async function get(id) {
     .populate('finance_approval')
     .populate('bill_document', 'original_name url mime_type')
     .populate('dispatch_assignee_user', 'name username email department')
+    .populate('dispatch_items.product', 'product_name sku hsn_code')
     .lean();
   if (!row) throw new ApiError(404, DISP_NF);
   return toPlain(row);
@@ -432,7 +431,6 @@ async function settleReleaseDispatchFulfillment(releaseDispatches, netSettledByL
   allocateNetDispatchedAcrossReleaseItems(dispatchDocs, netSettledByLine);
 
   for (const doc of dispatchDocs) {
-    doc.dispatch_status = 'fully_dispatched';
     doc.markModified('dispatch_items');
     await doc.save();
   }
@@ -462,6 +460,8 @@ async function create(body, user, options = {}) {
     body.finance_approval || null,
   );
   const requestedStatus = normalizeDispatchStatus(body.dispatch_status || body.status, null);
+  const dispatchStatus =
+    requestedStatus || (user.department === 'account' ? 'draft' : 'submitted');
 
   const warehouseFields = resolveWarehouseFields(body);
 
@@ -476,7 +476,7 @@ async function create(body, user, options = {}) {
     finance_approval: body.finance_approval || undefined,
     warehouse: warehouseFields.warehouse,
     warehouse_location: warehouseFields.warehouse_location,
-    dispatch_status: requestedStatus || 'partially_dispatched',
+    dispatch_status: dispatchStatus,
     dispatch_items: dispatchItems,
     packed_by: body.packed_by || undefined,
     dispatched_by: body.dispatched_by || user._id,
@@ -502,15 +502,16 @@ async function create(body, user, options = {}) {
     await doc.save();
   }
 
-  await workflowService.transitionOrderStatus({
-    orderId: body.order,
-    nextStatus: 'partial_dispatch_created',
-    userId: user._id,
-    remarks: body.remarks || `Dispatch ${doc.dispatch_no} recorded`,
-    _systemCall: true,
-  });
-
-  await enqueuePostDispatchJobs(body.order, user._id);
+  if (dispatchStatus === 'submitted') {
+    await workflowService.transitionOrderStatus({
+      orderId: body.order,
+      nextStatus: 'partial_dispatch_created',
+      userId: user._id,
+      remarks: body.remarks || `Dispatch ${doc.dispatch_no} recorded`,
+      _systemCall: true,
+    });
+    await enqueuePostDispatchJobs(body.order, user._id);
+  }
 
   const populated = await OrderDispatch.findById(doc._id)
     .populate('bill_document', 'original_name url mime_type')
@@ -533,11 +534,36 @@ async function patch(id, patchBody, user) {
   if (!existing) throw new ApiError(404, DISP_NF);
 
   const patch = patchBody || {};
+  const previousStatus = existing.dispatch_status;
+  const editableByAccount = previousStatus === 'draft' || previousStatus === 'cancelled';
+
   if (user.department === 'account') {
-    const allowed = new Set(['bill_number', 'billing_date', 'bill_document', 'dispatch_assignee_user']);
-    const keys = Object.keys(patch);
-    if (keys.some((key) => !allowed.has(key))) {
-      throw new ApiError(403, 'Account users may only update billing fields on a dispatch');
+    if (editableByAccount) {
+      const allowed = new Set([
+        'bill_number',
+        'billing_date',
+        'bill_document',
+        'dispatch_assignee_user',
+        'dispatch_status',
+        'status',
+        'dispatch_items',
+        'items',
+        'warehouse',
+        'warehouse_location',
+        'remarks',
+        'dispatched_at',
+        'dispatch_date',
+      ]);
+      const keys = Object.keys(patch);
+      if (keys.some((key) => !allowed.has(key))) {
+        throw new ApiError(403, 'Account users may only update editable draft/cancelled dispatch fields');
+      }
+    } else {
+      const allowed = new Set(['bill_number', 'billing_date', 'bill_document', 'dispatch_assignee_user']);
+      const keys = Object.keys(patch);
+      if (keys.some((key) => !allowed.has(key))) {
+        throw new ApiError(403, 'Account users may only update billing fields on a dispatch');
+      }
     }
   }
   if (patch.dispatch_status || patch.status) {
@@ -581,12 +607,29 @@ async function patch(id, patchBody, user) {
   }
   if (patch.remarks !== undefined) existing.remarks = patch.remarks || '';
   if (patch.packed_at !== undefined) existing.packed_at = patch.packed_at ? new Date(patch.packed_at) : undefined;
-  if (patch.dispatched_at !== undefined) {
-    existing.dispatched_at = patch.dispatched_at ? new Date(patch.dispatched_at) : undefined;
+  if (patch.dispatched_at !== undefined || patch.dispatch_date !== undefined) {
+    const nextDate = patch.dispatched_at !== undefined ? patch.dispatched_at : patch.dispatch_date;
+    existing.dispatched_at = nextDate ? new Date(nextDate) : undefined;
   }
-  if (existing.dispatch_status === 'fully_dispatched') existing.dispatched_by = user._id;
+  if (existing.dispatch_status === 'submitted' || existing.dispatch_status === 'transport_created') {
+    existing.dispatched_by = user._id;
+  }
 
   await existing.save();
+
+  const becameSubmitted =
+    previousStatus !== 'submitted' && existing.dispatch_status === 'submitted';
+  if (becameSubmitted) {
+    await workflowService.transitionOrderStatus({
+      orderId: existing.order,
+      nextStatus: 'partial_dispatch_created',
+      userId: user._id,
+      remarks: existing.remarks || `Dispatch ${existing.dispatch_no} submitted`,
+      _systemCall: true,
+    });
+    await enqueuePostDispatchJobs(existing.order, user._id);
+  }
+
   await recalculateOrderDispatchState(existing.order, user);
   return toPlain(existing.toObject());
 }
@@ -654,25 +697,7 @@ async function processDispatchJob({ type, payload = {} }) {
       const { OrderDispatch } = getModels();
       const doc = await OrderDispatch.findById(dispatchId);
       if (!doc) return { dispatchId, skipped: true };
-
-      const allDelivered = (doc.dispatch_items || []).every(
-        (item) => Number(item.delivered_quantity || 0) >= Number(item.dispatched_quantity || 0),
-      );
-      const anyDelivered = (doc.dispatch_items || []).some(
-        (item) => Number(item.delivered_quantity || 0) > 0,
-      );
-
-      let nextStatus = doc.dispatch_status;
-      if (allDelivered && doc.dispatch_items.length > 0) {
-        nextStatus = 'fully_dispatched';
-      } else if (anyDelivered) {
-        nextStatus = 'partially_dispatched';
-      }
-
-      if (nextStatus !== doc.dispatch_status) {
-        doc.dispatch_status = nextStatus;
-        await doc.save();
-      }
+      // Status is workflow-driven (draft → submitted → transport_created), not quantity-derived.
       return { dispatchId, dispatch_status: doc.dispatch_status };
     }
 

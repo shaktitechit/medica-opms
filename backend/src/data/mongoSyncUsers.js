@@ -38,13 +38,29 @@ const ROLE_SEED_DEFS = [
     name: 'Account',
     code: 'account',
     department: 'account',
-    permCodes: ['orders:read', 'orders:write', 'finance:suite', 'dispatch:suite', 'flags:suite', 'dashboard:view'],
+    permCodes: [
+      'orders:read',
+      'orders:write',
+      'finance:suite',
+      'dispatch:suite',
+      'flags:suite',
+      'dashboard:view',
+      'transport_planner:suite',
+    ],
   },
   {
     name: 'Dispatch',
     code: 'dispatch',
     department: 'dispatch',
-    permCodes: ['orders:read', 'dispatch:suite', 'transport:suite', 'flags:suite', 'dashboard:view', 'parties:manage'],
+    permCodes: [
+      'orders:read',
+      'dispatch:suite',
+      'transport:suite',
+      'flags:suite',
+      'dashboard:view',
+      'parties:manage',
+      'transport_planner:suite',
+    ],
   },
 ];
 

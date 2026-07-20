@@ -22,6 +22,7 @@ const MODULE_ENUM = [
   'report',
   'system',
   'work_planner',
+  'transport_planner',
 ];
 
 /** @type {Record<string, mongoose.Model> | null} */
@@ -1477,11 +1478,8 @@ function registerModels() {
         type: String,
         enum: [
           "draft",
-          "allocation_pending",
-          "allocated",
-          "packing",
-          "partially_dispatched",
-          "fully_dispatched",
+          "submitted",
+          "transport_created",
           "cancelled",
         ],
         default: "draft",
@@ -1707,6 +1705,7 @@ function registerModels() {
           "product_brand",
           "product_manufacturer",
           "work_plan",
+          "transport_plan",
         ],
       },
   
@@ -1965,6 +1964,123 @@ function registerModels() {
   workPlanVisitSchema.plugin(softDeletePlugin);
   mongoose.model('WorkPlanVisit', workPlanVisitSchema);
 
+  // --- Transport Planner ---
+  const TRANSPORT_PLAN_STATUSES = [
+    'draft',
+    'planned',
+    'submitted',
+    'in_transit',
+    'completed',
+    'cancelled',
+  ];
+  const TRANSPORT_PLAN_ORDER_STATUSES = [
+    'pending',
+    'packed',
+    'dispatched',
+    'delivered',
+    'cancelled',
+  ];
+
+  const transportPlanSchema = new mongoose.Schema(
+    {
+      plan_date: { type: Date, required: true, index: true },
+      transport_agent: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'TransportAgent',
+        required: true,
+        index: true,
+      },
+      status: {
+        type: String,
+        enum: TRANSPORT_PLAN_STATUSES,
+        default: 'planned',
+        index: true,
+      },
+      remarks: { type: String, trim: true },
+      submitted_at: Date,
+      completed_at: Date,
+      cancelled_at: Date,
+      cancellation_reason: { type: String, trim: true },
+      deletedAt: { type: Date, default: null, index: true },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    },
+    { timestamps: true }
+  );
+  transportPlanSchema.index({ plan_date: 1, status: 1 });
+  transportPlanSchema.index({ transport_agent: 1, plan_date: -1 });
+  transportPlanSchema.plugin(softDeletePlugin);
+  mongoose.model('TransportPlan', transportPlanSchema);
+
+  const transportPlanOrderSchema = new mongoose.Schema(
+    {
+      transport_plan: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'TransportPlan',
+        required: true,
+        index: true,
+      },
+      order: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Order',
+        required: true,
+      },
+      party: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Party',
+        index: true,
+      },
+      customer: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Customer',
+        index: true,
+      },
+      dispatch: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'OrderDispatch',
+        required: true,
+      },
+      dispatch_date: Date,
+      lr_number: { type: String, trim: true },
+      invoice_number: { type: String, trim: true },
+      packages: { type: Number, min: 0 },
+      weight: { type: Number, min: 0 },
+      status: {
+        type: String,
+        enum: TRANSPORT_PLAN_ORDER_STATUSES,
+        default: 'pending',
+        index: true,
+      },
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true }
+  );
+  transportPlanOrderSchema.index(
+    { transport_plan: 1, dispatch: 1 },
+    {
+      name: 'transport_plan_1_dispatch_1_unique',
+      unique: true,
+      partialFilterExpression: {
+        deletedAt: null,
+        dispatch: { $type: 'objectId' },
+      },
+    }
+  );
+  transportPlanOrderSchema.index(
+    { dispatch: 1 },
+    {
+      name: 'dispatch_1_active_unique',
+      unique: true,
+      partialFilterExpression: {
+        deletedAt: null,
+        dispatch: { $type: 'objectId' },
+        status: { $in: ['pending', 'packed', 'dispatched'] },
+      },
+    }
+  );
+  transportPlanOrderSchema.plugin(softDeletePlugin);
+  mongoose.model('TransportPlanOrder', transportPlanOrderSchema);
+
   // --- Apply plugins ---
   // Plugins are applied immediately after schema definitions to ensure correct compilation of models.
 
@@ -2011,6 +2127,11 @@ function registerModels() {
     Reminder: mongoose.models.Reminder || mongoose.model('Reminder', reminderSchema),
     WorkPlan: mongoose.models.WorkPlan || mongoose.model('WorkPlan', workPlanSchema),
     WorkPlanVisit: mongoose.models.WorkPlanVisit || mongoose.model('WorkPlanVisit', workPlanVisitSchema),
+    TransportPlan:
+      mongoose.models.TransportPlan || mongoose.model('TransportPlan', transportPlanSchema),
+    TransportPlanOrder:
+      mongoose.models.TransportPlanOrder ||
+      mongoose.model('TransportPlanOrder', transportPlanOrderSchema),
     PartyProductMapping:
       mongoose.models.PartyProductMapping || mongoose.model('PartyProductMapping', partyProductMappingSchema),
     PartyProductRate:

@@ -13,11 +13,15 @@ import {
 } from "@/components/portal/sales/orderUtils";
 import {
   buildPendingReturnOrderIds,
-  isTransportOrReturnPending,
+  isReturnPendingOrder,
+  isTransportPending,
   type AccountOrderCategoryOptions,
 } from "@/components/portal/account/accountOrderUtils";
 
-export type AdminOrderTabCategory = OrderWorkflowTabCategory | "transport_return_pending";
+export type AdminOrderTabCategory =
+  | OrderWorkflowTabCategory
+  | "transport_pending"
+  | "return_pending";
 
 export type AdminOrderCategoryOptions = AccountOrderCategoryOptions;
 
@@ -32,8 +36,9 @@ export const ADMIN_ORDER_TABS: ReadonlyArray<{
   { id: "due_sheet_pending", label: "Due Sheet Pending" },
   { id: "pending_finance_approval", label: "Finance Pending" },
   { id: "pending_account_approval", label: "Account Pending" },
-  { id: "open_dispatched", label: "Open/Dispatch Pending" },
-  { id: "transport_return_pending", label: "Transport/Return Pending" },
+  { id: "open_dispatched", label: "Dispatch Pending" },
+  { id: "transport_pending", label: "Transport Pending" },
+  { id: "return_pending", label: "Return Pending" },
   { id: "closed_delivered", label: "Closed/Delivered" },
   { id: "on_hold", label: "On Hold" },
   { id: "cancelled", label: "Cancelled" },
@@ -42,7 +47,8 @@ export const ADMIN_ORDER_TABS: ReadonlyArray<{
 
 export const ADMIN_ORDER_TAB_LABELS: Record<AdminOrderTabCategory, string> = {
   ...ORDER_WORKFLOW_TAB_LABELS,
-  transport_return_pending: "Transport/Return Pending",
+  transport_pending: "Transport Pending",
+  return_pending: "Return Pending",
 };
 
 export {
@@ -54,7 +60,8 @@ export {
 /**
  * Admin list tab bucket. Draft orders are excluded (return null).
  * Same exclusive priority as account/finance/dispatch/sales:
- * terminal → transport/return → closed → admin → due sheet → finance → open.
+ * terminal → return → transport → closed → approvals → dispatch pending.
+ * Open orders are outside workflow tabs (see OpenOrdersModal).
  */
 export function getAdminOrderTabCategory(
   order: unknown,
@@ -70,7 +77,8 @@ export function getAdminOrderTabCategory(
   if (status === "cancelled") return "cancelled";
   if (status === "finance_rejected") return "rejected";
 
-  if (isTransportOrReturnPending(order, options)) return "transport_return_pending";
+  if (isReturnPendingOrder(order, options)) return "return_pending";
+  if (isTransportPending(order)) return "transport_pending";
   if (isOrderClosedOrDelivered(row)) return "closed_delivered";
 
   const pending = resolveApprovalPending(row);
@@ -99,7 +107,7 @@ export function orderMatchesAdminTab(
 export function adminTabQueryParams(
   tab: AdminOrderTabCategory,
 ): Record<string, string | undefined> {
-  if (tab === "transport_return_pending") {
+  if (tab === "transport_pending" || tab === "return_pending") {
     return { exclude_status: "draft,on_hold,cancelled,finance_rejected" };
   }
 
@@ -148,14 +156,11 @@ export function isAdminOrderTabCategory(value: string): value is AdminOrderTabCa
 
 export function normalizeAdminTabFromUrl(value: string | null): AdminOrderTabCategory {
   if (!value) return "pending_admin_approval";
-  if (
-    value === "transport_pending" ||
-    value === "returns_pending" ||
-    value === "pending_transport" ||
-    value === "pending_delivery"
-  ) {
-    return "transport_return_pending";
+  if (value === "transport_return_pending" || value === "pending_transport" || value === "pending_delivery") {
+    return "transport_pending";
   }
+  if (value === "returns_pending") return "return_pending";
+  if (value === "dispatch_pending") return "open_dispatched";
   if (isAdminOrderTabCategory(value)) return value;
   const normalized = normalizeWorkflowTabFromUrl(value, "all");
   return isAdminOrderTabCategory(normalized) ? normalized : "pending_admin_approval";
@@ -167,8 +172,6 @@ export type AdminOrderStats = Record<
 >;
 
 export function createEmptyAdminOrderStats(): AdminOrderStats {
-  // Keyed by every category (not just visible tabs) so stats[cat] is always defined
-  // even for orders whose category tab isn't rendered on the admin strip.
   return Object.fromEntries(
     Object.keys(ADMIN_ORDER_TAB_LABELS).map((id) => [
       id,
@@ -210,7 +213,6 @@ export function computeAdminOrderStats(
     stats.all.quantity += qty;
     stats.all.amount += amount;
 
-    // One exclusive primary bucket — same as list tabs / orderMatchesAdminTab.
     const cat = getAdminOrderTabCategory(order, options);
     if (!cat || cat === "all") continue;
 
@@ -260,13 +262,19 @@ export const ADMIN_STATUS_COLORS: Record<
     fill: "fill-teal-500/85 dark:fill-teal-500/60",
     hover: "fill-teal-600 dark:fill-teal-400",
     dot: "bg-teal-500 dark:bg-teal-400",
-    label: "Open/Dispatch Pending",
+    label: "Dispatch Pending",
   },
-  transport_return_pending: {
+  transport_pending: {
     fill: "fill-amber-500/85 dark:fill-amber-500/60",
     hover: "fill-amber-600 dark:fill-amber-400",
     dot: "bg-amber-500 dark:bg-amber-400",
-    label: "Transport/Return Pending",
+    label: "Transport Pending",
+  },
+  return_pending: {
+    fill: "fill-rose-500/85 dark:fill-rose-500/60",
+    hover: "fill-rose-600 dark:fill-rose-400",
+    dot: "bg-rose-500 dark:bg-rose-400",
+    label: "Return Pending",
   },
   closed_delivered: {
     fill: "fill-emerald-500/85 dark:fill-emerald-550/60",

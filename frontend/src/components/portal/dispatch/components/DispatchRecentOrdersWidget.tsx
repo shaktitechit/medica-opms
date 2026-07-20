@@ -102,9 +102,13 @@ function renderWorkflowStatusBadge(category: DispatchOrderTabCategory) {
       bgClass =
         "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-955/30 dark:text-violet-400 dark:ring-violet-500/25";
       break;
-    case "transport_return_pending":
+    case "transport_pending":
       bgClass =
         "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
+      break;
+    case "return_pending":
+      bgClass =
+        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25";
       break;
     case "open_dispatched":
       bgClass =

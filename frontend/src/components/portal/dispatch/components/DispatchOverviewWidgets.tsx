@@ -10,6 +10,7 @@ import {
   Layers,
   Package,
   PauseCircle,
+  RotateCcw,
   ShoppingCart,
   ShieldCheck,
   Truck,
@@ -88,12 +89,19 @@ const WIDGET_META: Record<
     iconTone: "text-teal-600 dark:text-teal-400",
     Icon: Truck,
   },
-  transport_return_pending: {
+  transport_pending: {
     accent: "bg-amber-500",
     labelTone: "text-amber-500 dark:text-amber-400",
     iconWrap: "bg-amber-50 dark:bg-amber-950/30 border border-amber-100/45 dark:border-amber-500/10",
     iconTone: "text-amber-600 dark:text-amber-400",
     Icon: Truck,
+  },
+  return_pending: {
+    accent: "bg-rose-500",
+    labelTone: "text-rose-500 dark:text-rose-400",
+    iconWrap: "bg-rose-50 dark:bg-rose-950/30 border border-rose-100/45 dark:border-rose-500/10",
+    iconTone: "text-rose-600 dark:text-rose-400",
+    Icon: RotateCcw,
   },
   closed_delivered: {
     accent: "bg-emerald-500",

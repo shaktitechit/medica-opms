@@ -145,12 +145,7 @@ const PARTY_ORDER_TABS: ReadonlyArray<{ id: PartyOrderStageTab; label: string }>
       tab.id !== "pending_admin_approval",
   ).map(({ id, label }) => ({
     id,
-    label:
-      id === "open_dispatched"
-        ? "Open Orders"
-        : id === "closed_delivered"
-          ? "Closed Orders"
-          : label,
+    label: id === "closed_delivered" ? "Closed Orders" : label,
   })),
 ];
 

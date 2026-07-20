@@ -32,7 +32,7 @@ export function getReleaseDispatches(
   approvalId: string,
 ): Record<string, unknown>[] {
   return dispatches.filter((disp) => {
-    const statusValue = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
+    const statusValue = String(disp.dispatch_status ?? disp.status ?? "draft");
     if (statusValue === "cancelled") return false;
 
     const dispApproval = disp.finance_approval;

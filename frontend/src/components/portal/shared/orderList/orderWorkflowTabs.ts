@@ -98,7 +98,7 @@ export const ORDER_WORKFLOW_TABS: ReadonlyArray<{
   { id: "due_sheet_pending", label: "Due Sheet Pending" },
   { id: "pending_finance_approval", label: "Finance Pending" },
   { id: "pending_account_approval", label: "Account Pending" },
-  { id: "open_dispatched", label: "Open/Dispatch Pending" },
+  { id: "open_dispatched", label: "Dispatch Pending" },
   { id: "closed_delivered", label: "Closed/Delivered" },
   { id: "on_hold", label: "On Hold" },
   { id: "cancelled", label: "Cancelled" },
@@ -111,7 +111,7 @@ export const ORDER_WORKFLOW_TAB_LABELS: Record<OrderWorkflowTabCategory, string>
   due_sheet_pending: "Due Sheet Pending",
   pending_finance_approval: "Finance Pending",
   pending_account_approval: "Account Pending",
-  open_dispatched: "Open/Dispatch Pending",
+  open_dispatched: "Dispatch Pending",
   closed_delivered: "Closed/Delivered",
   on_hold: "On Hold",
   cancelled: "Cancelled",
@@ -219,6 +219,7 @@ export function normalizeWorkflowTabFromUrl(
   if (value === "pending_account_review") return "pending_account_approval";
   if (value === "pending_review") return "pending_admin_approval";
   if (value === "open") return "open_dispatched";
+  if (value === "dispatch_pending") return "open_dispatched";
   if (value === "closed") return "closed_delivered";
   if (value === "pending_approvals") return "all";
   if (value === "pending_approval") return "pending_finance_approval";

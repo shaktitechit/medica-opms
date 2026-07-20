@@ -61,6 +61,26 @@ function formatDateOnly(v: unknown): string {
   return d.toLocaleDateString();
 }
 
+/** Map legacy OrderDispatch statuses onto the current workflow. */
+function normalizeDispatchBatchStatus(raw: unknown): string {
+  const status = String(raw ?? "").toLowerCase().trim();
+  if (
+    status === "partially_dispatched" ||
+    status === "fully_dispatched" ||
+    status === "allocated" ||
+    status === "allocation_pending" ||
+    status === "packing"
+  ) {
+    return "submitted";
+  }
+  return status || "submitted";
+}
+
+function isVisibleInDispatchPortal(rawStatus: unknown): boolean {
+  const status = normalizeDispatchBatchStatus(rawStatus);
+  return status !== "draft";
+}
+
 interface DispatchesTabProps {
   dispatches: any[];
   transports?: any[];
@@ -163,6 +183,14 @@ export function DispatchesTab({
     [transportAgentsQ.data],
   );
 
+  const hasVisibleDispatches = useMemo(
+    () =>
+      dispatches.some((disp) =>
+        isVisibleInDispatchPortal(disp.dispatch_status ?? disp.status),
+      ),
+    [dispatches],
+  );
+
   return (
     <div className="space-y-6">
       <FilePreviewModal
@@ -180,13 +208,20 @@ export function DispatchesTab({
       >
         {isFetching || approvalsQ.isLoading ? (
           <p className="text-sm text-slate-500 font-sans">Loading dispatches...</p>
-        ) : dispatches.length === 0 ? (
-          <p className="text-sm text-slate-500 font-sans">No dispatch batches recorded yet.</p>
+        ) : !hasVisibleDispatches ? (
+          <p className="text-sm text-slate-500 font-sans">
+            No submitted dispatch batches yet. Account drafts appear here after they are submitted.
+          </p>
         ) : (
           <div className="space-y-8 font-sans">
             {releaseGroups.map((group) => {
-              const activeReleaseDispatches = group.dispatches.filter((disp) => {
-                const status = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
+              const visibleDispatches = group.dispatches.filter((disp) =>
+                isVisibleInDispatchPortal(disp.dispatch_status ?? disp.status),
+              );
+              if (visibleDispatches.length === 0) return null;
+
+              const activeReleaseDispatches = visibleDispatches.filter((disp) => {
+                const status = normalizeDispatchBatchStatus(disp.dispatch_status ?? disp.status);
                 return status !== "cancelled";
               });
               return (
@@ -197,16 +232,20 @@ export function DispatchesTab({
                         Release {group.releaseNo}
                       </h3>
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                        {activeReleaseDispatches.length} dispatch batch
-                        {activeReleaseDispatches.length === 1 ? "" : "es"} recorded
+                        {activeReleaseDispatches.length} submitted dispatch batch
+                        {activeReleaseDispatches.length === 1 ? "" : "es"}
                       </p>
                     </div>
                   </div>
 
                   <div className="space-y-6">
-                    {group.dispatches.map((disp: any) => {
+                    {visibleDispatches.map((disp: any) => {
                       const dispId = String(disp._id ?? disp.id ?? "");
-                      const dispatchStatus = String(disp.dispatch_status ?? disp.status ?? "partially_dispatched");
+                      const dispatchStatus = normalizeDispatchBatchStatus(
+                        disp.dispatch_status ?? disp.status,
+                      );
+                      const isSubmitted = dispatchStatus === "submitted";
+                      const isTransportCreated = dispatchStatus === "transport_created";
                       const dispatchItems = Array.isArray(disp.dispatch_items) ? disp.dispatch_items : disp.items || [];
 
                       // Resolve packing and dispatch staff names
@@ -278,44 +317,33 @@ export function DispatchesTab({
                           </svg>
                           Cancelled
                         </span>
-                      ) : (
+                      ) : isTransportCreated || hasTransport ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400">
+                            Transport Created
+                          </span>
+                        </div>
+                      ) : isSubmitted ? (
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
                             onClick={() => setCreateTransportDispatchId(dispId)}
-                            disabled={hasTransport || isPatchingDispatch}
-                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${hasTransport
-                                ? "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed"
-                                : "bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
-                              }`}
+                            disabled={isPatchingDispatch}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
                           >
-                            {hasTransport ? (
-                              <>
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
-                                Transport Created
-                              </>
-                            ) : (
-                              <>
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10M13 16h6a1 1 0 001-1v-4a1 1 0 00-.316-.707l-4-4A1 1 0 0015 6h-2m6 10a2 2 0 100-4 2 2 0 000 4z" />
-                                </svg>
-                                Create Transport
-                              </>
-                            )}
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10M13 16h6a1 1 0 001-1v-4a1 1 0 00-.316-.707l-4-4A1 1 0 0015 6h-2m6 10a2 2 0 100-4 2 2 0 000 4z" />
+                            </svg>
+                            Create Transport
                           </button>
 
                           <button
                             type="button"
                             onClick={() => setConfirmCancelDispatchId(dispId)}
-                            disabled={hasTransport || isPatchingDispatch}
-                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${hasTransport
-                                ? "bg-slate-100 text-slate-300 dark:bg-slate-800 dark:text-slate-600 cursor-not-allowed"
-                                : "bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-900/30"
-                              }`}
-                            title={hasTransport ? "Cannot cancel once a transport assignment exists" : "Cancel this dispatch batch"}
+                            disabled={isPatchingDispatch}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-rose-100 dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-900/30"
+                            title="Cancel this dispatch batch"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
                               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -323,7 +351,7 @@ export function DispatchesTab({
                             Cancel
                           </button>
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   </div>
 

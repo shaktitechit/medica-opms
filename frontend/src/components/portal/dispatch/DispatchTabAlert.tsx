@@ -75,7 +75,7 @@ function DispatchTabAlertInner({
     const pendingReturnOrderIds = buildPendingReturnOrderIds(pickList(returnsQ.data));
     const orders = pickOrders(data);
     const stats = computeDispatchOrderStats(orders, { pendingReturnOrderIds });
-    return stats.transport_return_pending.count;
+    return stats.transport_pending.count;
   }, [data, returnsQ.data]);
 
   const count = overrideCount ?? queryCount;

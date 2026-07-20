@@ -5,10 +5,12 @@ import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import {
   useCreateDispatchMutation,
+  usePatchDispatchMutation,
 } from "@/store/api";
 import {
   buildAccountDispatchPreviewRows,
   computeReleaseDispatchedByLine,
+  idFromRef,
   isFullyClearedApproval,
   summarizeReleaseDispatchState,
 } from "./accountDispatchAvailability";
@@ -28,6 +30,8 @@ type CreateAccountDispatchModalProps = {
   dispatches: Record<string, unknown>[];
   approvals: Record<string, unknown>[];
   initialApprovalId?: string;
+  /** When set, modal edits this draft/cancelled dispatch instead of creating. */
+  editingDispatch?: Record<string, unknown> | null;
   onCreated?: () => void;
 };
 
@@ -51,9 +55,17 @@ export function CreateAccountDispatchModal({
   dispatches,
   approvals,
   initialApprovalId,
+  editingDispatch = null,
   onCreated,
 }: CreateAccountDispatchModalProps) {
   const [createDispatch, { isLoading: isCreating }] = useCreateDispatchMutation();
+  const [patchDispatch, { isLoading: isPatching }] = usePatchDispatchMutation();
+  const isSaving = isCreating || isPatching;
+  const isEditMode = Boolean(editingDispatch);
+  const editingDispatchId = editingDispatch
+    ? idFromRef(editingDispatch._id ?? editingDispatch.id)
+    : "";
+
   const [dispatchDate, setDispatchDate] = useState("");
   const [billNumber, setBillNumber] = useState("");
   const [billingDate, setBillingDate] = useState("");
@@ -62,6 +74,13 @@ export function CreateAccountDispatchModal({
   const [dispatchRemarks, setDispatchRemarks] = useState("");
   const [dispatchItemsQuantities, setDispatchItemsQuantities] = useState<Record<string, number>>({});
   const [activeApprovalId, setActiveApprovalId] = useState("");
+
+  const dispatchesForAvailability = useMemo(() => {
+    if (!editingDispatchId) return dispatches;
+    return dispatches.filter(
+      (disp) => idFromRef(disp._id ?? disp.id) !== editingDispatchId,
+    );
+  }, [dispatches, editingDispatchId]);
 
   const dispatchableApprovals = useMemo(
     () => approvals.filter(isFullyClearedApproval),
@@ -80,8 +99,14 @@ export function CreateAccountDispatchModal({
   const activeApprovalRefId = activeApproval ? approvalId(activeApproval) : "";
 
   const dispatchedByLine = useMemo(
-    () => computeReleaseDispatchedByLine(dispatches, activeApprovalRefId, orderItems, activeApproval),
-    [dispatches, activeApprovalRefId, orderItems, activeApproval],
+    () =>
+      computeReleaseDispatchedByLine(
+        dispatchesForAvailability,
+        activeApprovalRefId,
+        orderItems,
+        activeApproval,
+      ),
+    [dispatchesForAvailability, activeApprovalRefId, orderItems, activeApproval],
   );
 
   const previewRows = useMemo(
@@ -97,7 +122,12 @@ export function CreateAccountDispatchModal({
   const buildInitialDispatchQuantities = useCallback(
     (app: Record<string, unknown> | null) => {
       const appRefId = app ? approvalId(app) : "";
-      const dispatchedMap = computeReleaseDispatchedByLine(dispatches, appRefId, orderItems, app);
+      const dispatchedMap = computeReleaseDispatchedByLine(
+        dispatchesForAvailability,
+        appRefId,
+        orderItems,
+        app,
+      );
       const rows = buildAccountDispatchPreviewRows(app, orderItems, dispatchedMap);
       const init: Record<string, number> = {};
       for (const row of rows) {
@@ -105,11 +135,59 @@ export function CreateAccountDispatchModal({
       }
       return init;
     },
-    [orderItems, dispatches],
+    [orderItems, dispatchesForAvailability],
+  );
+
+  const buildQuantitiesFromDispatch = useCallback(
+    (disp: Record<string, unknown>) => {
+      const rawItems = Array.isArray(disp.dispatch_items)
+        ? disp.dispatch_items
+        : (disp.items as Record<string, unknown>[]) || [];
+      const init: Record<string, number> = {};
+      for (const item of rawItems) {
+        const lineId = idFromRef(item.order_item_id);
+        const qty = Number(item.dispatched_quantity ?? item.dispatch_quantity ?? 0);
+        if (lineId && qty > 0) init[lineId] = qty;
+      }
+      return init;
+    },
+    [],
   );
 
   useEffect(() => {
     if (!open) return;
+
+    if (editingDispatch) {
+      const approvalRef = editingDispatch.finance_approval;
+      const approvalFromEdit =
+        typeof approvalRef === "object" && approvalRef !== null
+          ? idFromRef(
+              (approvalRef as Record<string, unknown>)._id ??
+                (approvalRef as Record<string, unknown>).id,
+            )
+          : idFromRef(approvalRef);
+      setActiveApprovalId(approvalFromEdit);
+      setDispatchItemsQuantities(buildQuantitiesFromDispatch(editingDispatch));
+      const dispatchedAt = editingDispatch.dispatched_at ?? editingDispatch.dispatch_date;
+      setDispatchDate(
+        dispatchedAt
+          ? new Date(String(dispatchedAt)).toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0],
+      );
+      setBillNumber(String(editingDispatch.bill_number ?? "").trim());
+      setBillingDate(
+        editingDispatch.billing_date
+          ? new Date(String(editingDispatch.billing_date)).toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0],
+      );
+      setBillDocumentFile(null);
+      setWarehouseLocation(
+        String(editingDispatch.warehouse_location ?? editingDispatch.warehouse ?? ""),
+      );
+      setDispatchRemarks(String(editingDispatch.remarks ?? ""));
+      return;
+    }
+
     const preferred =
       (initialApprovalId &&
         dispatchableApprovals.find((app) => approvalId(app) === initialApprovalId)) ||
@@ -123,12 +201,19 @@ export function CreateAccountDispatchModal({
     setBillDocumentFile(null);
     setWarehouseLocation("");
     setDispatchRemarks("");
-  }, [open, dispatchableApprovals, buildInitialDispatchQuantities, initialApprovalId]);
+  }, [
+    open,
+    editingDispatch,
+    dispatchableApprovals,
+    buildInitialDispatchQuantities,
+    buildQuantitiesFromDispatch,
+    initialApprovalId,
+  ]);
 
   useEffect(() => {
-    if (!open || !activeApproval) return;
+    if (!open || !activeApproval || isEditMode) return;
     setDispatchItemsQuantities(buildInitialDispatchQuantities(activeApproval));
-  }, [open, activeApproval, buildInitialDispatchQuantities]);
+  }, [open, activeApproval, buildInitialDispatchQuantities, isEditMode]);
 
   useEffect(() => {
     const handleGlobalPaste = (event: ClipboardEvent) => {
@@ -174,21 +259,30 @@ export function CreateAccountDispatchModal({
     [dispatchItemsQuantities],
   );
 
+  const hasExistingBillDocument = Boolean(
+    editingDispatch &&
+      (typeof editingDispatch.bill_document === "object"
+        ? (editingDispatch.bill_document as Record<string, unknown>)?.url ||
+          (editingDispatch.bill_document as Record<string, unknown>)?._id
+        : editingDispatch.bill_document),
+  );
+
   const canSubmit =
     modalDispatchableTotal > 0 &&
     hasDispatchQtyEntered &&
-    !isCreating &&
+    !isSaving &&
     Boolean(activeApproval) &&
     billNumber.trim().length > 0 &&
     Boolean(billingDate) &&
-    Boolean(billDocumentFile);
+    (Boolean(billDocumentFile) || hasExistingBillDocument);
 
   const releaseSummary = useMemo(
-    () => summarizeReleaseDispatchState(activeApproval, dispatches, orderItems),
-    [activeApproval, dispatches, orderItems],
+    () => summarizeReleaseDispatchState(activeApproval, dispatchesForAvailability, orderItems),
+    [activeApproval, dispatchesForAvailability, orderItems],
   );
 
-  const isContinueMode = releaseSummary.hasDispatches && releaseSummary.canContinueDispatch;
+  const isContinueMode =
+    !isEditMode && releaseSummary.hasDispatches && releaseSummary.canContinueDispatch;
 
   const handleClose = useCallback(() => {
     onClose();
@@ -232,35 +326,57 @@ export function CreateAccountDispatchModal({
         return;
       }
 
-      if (!billDocumentFile) {
+      if (!billDocumentFile && !hasExistingBillDocument) {
         toast.error("Bill document is required.");
         return;
       }
 
       try {
-        const formData = new FormData();
-        formData.append("order", orderId);
-        formData.append("finance_approval", approvalId(activeApproval));
-        formData.append(
-          "dispatch_date",
-          dispatchDate
-            ? new Date(dispatchDate).toISOString()
-            : new Date().toISOString(),
-        );
-        formData.append("bill_number", billNumber.trim());
-        formData.append("billing_date", new Date(billingDate).toISOString());
-        formData.append("items", JSON.stringify(items));
-        if (warehouseLocation.trim()) {
-          formData.append("warehouse_location", warehouseLocation.trim());
-        }
-        if (dispatchRemarks.trim()) {
-          formData.append("remarks", dispatchRemarks.trim());
-        }
-        formData.append("bill_document", billDocumentFile);
+        if (isEditMode && editingDispatchId) {
+          const patch: Record<string, unknown> = {
+            dispatch_date: dispatchDate
+              ? new Date(dispatchDate).toISOString()
+              : new Date().toISOString(),
+            bill_number: billNumber.trim(),
+            billing_date: new Date(billingDate).toISOString(),
+            items,
+            warehouse_location: warehouseLocation.trim() || undefined,
+            remarks: dispatchRemarks.trim() || "",
+            dispatch_status: "draft",
+          };
+          if (billDocumentFile) {
+            // Multipart patch is not supported; keep existing bill_document.
+          }
+          await patchDispatch({ id: editingDispatchId, patch }).unwrap();
+          toast.success("Dispatch draft updated successfully.");
+        } else {
+          const formData = new FormData();
+          formData.append("order", orderId);
+          formData.append("finance_approval", approvalId(activeApproval));
+          formData.append("dispatch_status", "draft");
+          formData.append(
+            "dispatch_date",
+            dispatchDate
+              ? new Date(dispatchDate).toISOString()
+              : new Date().toISOString(),
+          );
+          formData.append("bill_number", billNumber.trim());
+          formData.append("billing_date", new Date(billingDate).toISOString());
+          formData.append("items", JSON.stringify(items));
+          if (warehouseLocation.trim()) {
+            formData.append("warehouse_location", warehouseLocation.trim());
+          }
+          if (dispatchRemarks.trim()) {
+            formData.append("remarks", dispatchRemarks.trim());
+          }
+          if (billDocumentFile) {
+            formData.append("bill_document", billDocumentFile);
+          }
 
-        await createDispatch(formData).unwrap();
+          await createDispatch(formData).unwrap();
+          toast.success("Dispatch draft created successfully.");
+        }
 
-        toast.success("Dispatch batch created successfully.");
         handleClose();
         onCreated?.();
       } catch (err) {
@@ -276,9 +392,13 @@ export function CreateAccountDispatchModal({
       billNumber,
       billingDate,
       billDocumentFile,
+      hasExistingBillDocument,
       warehouseLocation,
       dispatchRemarks,
       createDispatch,
+      patchDispatch,
+      isEditMode,
+      editingDispatchId,
       handleClose,
       onCreated,
     ],
@@ -295,18 +415,24 @@ export function CreateAccountDispatchModal({
         <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4 dark:border-white/5">
           <div>
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-              {isContinueMode ? "Continue dispatch" : "Create dispatch"}
+              {isEditMode
+                ? "Edit dispatch draft"
+                : isContinueMode
+                  ? "Continue dispatch"
+                  : "Create dispatch"}
             </h3>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              {isContinueMode
-                ? "Record another dispatch batch from remaining account-cleared quantities on this approval."
-                : "Dispatch quantities come from the linked approval batch after admin, finance, and account clearance."}
+              {isEditMode
+                ? "Update this draft or cancelled batch, then submit it from the dispatch card."
+                : isContinueMode
+                  ? "Record another dispatch batch from remaining account-cleared quantities on this approval."
+                  : "Dispatch quantities come from the linked approval batch after admin, finance, and account clearance."}
             </p>
           </div>
           <button
             type="button"
             onClick={handleClose}
-            disabled={isCreating}
+            disabled={isSaving}
             className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10"
             aria-label="Close"
           >
@@ -378,7 +504,7 @@ export function CreateAccountDispatchModal({
                       value={activeApproval ? approvalId(activeApproval) : ""}
                       onChange={(e) => setActiveApprovalId(e.target.value)}
                       className={inputClass}
-                      disabled={isCreating}
+                      disabled={isSaving}
                     >
                       {dispatchableApprovals.map((app) => (
                         <option key={approvalId(app)} value={approvalId(app)}>
@@ -402,7 +528,7 @@ export function CreateAccountDispatchModal({
                       onChange={(e) => setDispatchDate(e.target.value)}
                       className={inputClass}
                       required
-                      disabled={isCreating}
+                      disabled={isSaving}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -416,7 +542,7 @@ export function CreateAccountDispatchModal({
                       onChange={(e) => setWarehouseLocation(e.target.value)}
                       className={inputClass}
                       placeholder="E.g., Aisle 4, Shelf B"
-                      disabled={isCreating}
+                      disabled={isSaving}
                     />
                   </div>
                 </div>
@@ -438,7 +564,7 @@ export function CreateAccountDispatchModal({
                         className={inputClass}
                         placeholder="E.g., INV-2026-0042"
                         required
-                        disabled={isCreating}
+                        disabled={isSaving}
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -452,13 +578,13 @@ export function CreateAccountDispatchModal({
                         onChange={(e) => setBillingDate(e.target.value)}
                         className={inputClass}
                         required
-                        disabled={isCreating}
+                        disabled={isSaving}
                       />
                     </div>
                   </div>
                   <div className="mt-4 space-y-1.5">
                     <label className={labelClass} htmlFor="account-bill-document">
-                      Bill document *
+                      Bill document {hasExistingBillDocument && !billDocumentFile ? "(existing kept)" : "*"}
                     </label>
                     <input
                       id="account-bill-document"
@@ -468,8 +594,8 @@ export function CreateAccountDispatchModal({
                         setBillDocumentFile(e.target.files?.[0] ?? null);
                       }}
                       className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-blue-700 hover:file:bg-blue-100 dark:text-slate-300 dark:file:bg-blue-950/40 dark:file:text-blue-300"
-                      required={!billDocumentFile}
-                      disabled={isCreating}
+                      required={!billDocumentFile && !hasExistingBillDocument}
+                      disabled={isSaving}
                     />
                     {billDocumentFile ? (
                       <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 p-2.5 dark:border-white/5 dark:bg-slate-950 mt-2">
@@ -508,7 +634,7 @@ export function CreateAccountDispatchModal({
                     onChange={(e) => setDispatchRemarks(e.target.value)}
                     className={inputClass}
                     placeholder="E.g., Fragile items, pack with bubble wrap"
-                    disabled={isCreating}
+                    disabled={isSaving}
                   />
                 </div>
 
@@ -589,7 +715,7 @@ export function CreateAccountDispatchModal({
                                     }}
                                     className="w-20 text-right rounded border border-slate-200 px-2 py-1 text-xs dark:border-white/10 dark:bg-slate-950 text-slate-900 dark:text-slate-50 focus:border-blue-600 focus:outline-none"
                                     placeholder="0"
-                                    disabled={isCreating}
+                                    disabled={isSaving}
                                   />
                                 </td>
                               </tr>
@@ -630,7 +756,7 @@ export function CreateAccountDispatchModal({
             <button
               type="button"
               onClick={handleClose}
-              disabled={isCreating}
+              disabled={isSaving}
               className={btnSecondaryClass}
             >
               Cancel
@@ -640,13 +766,17 @@ export function CreateAccountDispatchModal({
               disabled={!canSubmit}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
             >
-              {isCreating
-                ? isContinueMode
-                  ? "Recording dispatch…"
-                  : "Creating dispatch…"
-                : isContinueMode
-                  ? "Continue dispatch"
-                  : "Create dispatch"}
+              {isSaving
+                ? isEditMode
+                  ? "Saving draft…"
+                  : isContinueMode
+                    ? "Recording dispatch…"
+                    : "Creating draft…"
+                : isEditMode
+                  ? "Save draft"
+                  : isContinueMode
+                    ? "Continue dispatch"
+                    : "Save as draft"}
             </button>
           </div>
         </form>

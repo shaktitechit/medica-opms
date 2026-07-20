@@ -60,19 +60,24 @@ export function OrderDeliveryModal({
         const orderItem = orderItems.find(
           (row) => String(row._id ?? row.id ?? "") === String(item.order_item_id),
         );
-        const product =
+        const productFromItem =
           item.product && typeof item.product === "object"
             ? (item.product as Record<string, unknown>)
             : null;
+        const productFromOrderItem =
+          orderItem?.product && typeof orderItem.product === "object"
+            ? (orderItem.product as Record<string, unknown>)
+            : null;
+        const product = productFromItem || productFromOrderItem;
         return {
           product:
             product
               ? String(product._id ?? product.id ?? "")
-              : String(item.product ?? ""),
+              : String(item.product ?? orderItem?.product ?? ""),
           productName: String(
             orderItem?.product_name ||
-            item.product_name ||
             product?.product_name ||
+            item.product_name ||
             "—",
           ),
           dispatchedQty: Number(

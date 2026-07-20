@@ -28,6 +28,7 @@ const activityLogSchema = new mongoose.Schema(
         "product_brand",
         "product_manufacturer",
         "work_plan",
+        "transport_plan",
       ],
     },
 

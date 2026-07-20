@@ -1845,7 +1845,7 @@ const spec = {
             items: { $ref: '#/components/schemas/DispatchLine' },
             description: 'Legacy alias for dispatch_items',
           },
-          dispatch_status: { type: 'string', enum: ['draft', 'allocation_pending', 'allocated', 'packing', 'partially_dispatched', 'fully_dispatched', 'cancelled'] },
+          dispatch_status: { type: 'string', enum: ['draft', 'submitted', 'transport_created', 'cancelled'] },
           status: { type: 'string', description: 'Legacy alias for dispatch_status' },
           warehouse: { type: 'string', description: 'Warehouse ObjectId or free-text location' },
           warehouse_location: { type: 'string' },

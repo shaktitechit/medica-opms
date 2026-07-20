@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminTabAlertOverride } from "./AdminTabAlert";
 import AdminOverviewWidgets from "./AdminOverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/shared/workPlanner/WorkPlannerStatsWidgets";
+import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
 import AdminMonthlyPerformanceChart from "./components/AdminMonthlyPerformanceChart";
 import AdminPartyLeaderboard from "./components/AdminPartyLeaderboard";
 import AdminProductLeaderboard from "./components/AdminProductLeaderboard";
@@ -456,6 +457,7 @@ export default function AdminOverview() {
       />
 
       <WorkPlannerStatsWidgets portalHome="/admin" />
+      <TransportPlannerStatsWidgets portalHome="/admin" />
 
       <AdminMonthlyPerformanceChart
         orders={orders}
