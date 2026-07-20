@@ -95,26 +95,6 @@ export default function PortalCatchAllPage() {
   if (portal === "admin" && restArr.length === 2 && restArr[0] === "work-planner") {
     return <WorkPlanDetailPage planId={restArr[1]} portalHome="/admin" />;
   }
-  if (portal === "admin" && restArr.length === 1 && restArr[0] === "transport-planner") {
-    return <ListTransportPlansPage portalHome="/admin" />;
-  }
-  if (portal === "admin" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "calendar") {
-    return <TransportPlanCalendarPage portalHome="/admin" />;
-  }
-  if (portal === "admin" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "new") {
-    return <TransportPlanFormPage mode="create" portalHome="/admin" />;
-  }
-  if (
-    portal === "admin" &&
-    restArr.length === 3 &&
-    restArr[0] === "transport-planner" &&
-    restArr[2] === "edit"
-  ) {
-    return <TransportPlanFormPage mode="edit" planId={restArr[1]} portalHome="/admin" />;
-  }
-  if (portal === "admin" && restArr.length === 2 && restArr[0] === "transport-planner") {
-    return <TransportPlanDetailPage planId={restArr[1]} portalHome="/admin" />;
-  }
   if (portal === "admin" && restArr.length === 1 && restArr[0] === "parties") {
     return <ListPartiesPage portalHome="/admin" />;
   }

@@ -59,7 +59,6 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
       ],
     },
     { segments: ["transport-agents"], label: "Transport Agent Master", icon: "Building2" },
-    { segments: ["transport-planner"], label: "Transport Planner", icon: "Truck" },
   ],
   sales: [
     { segments: [], label: "Overview", icon: "LayoutDashboard" },
