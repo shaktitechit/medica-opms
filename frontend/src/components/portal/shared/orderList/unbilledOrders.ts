@@ -15,6 +15,18 @@ const SUBMITTED_DISPATCH_STATUSES = new Set(["submitted", "transport_created"]);
 export type UnbilledOrderOptions = {
   /** Qty from OrderDispatch rows with status submitted / transport_created, keyed by order id. */
   submittedDispatchQtyByOrderId?: Map<string, number>;
+  /** Same qty keyed by `${orderId}:${orderItemId}`. */
+  submittedDispatchQtyByOrderLineId?: Map<string, number>;
+};
+
+export type UnbilledOrderLine = {
+  orderItemId: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  approved: number;
+  submittedDispatch: number;
+  remaining: number;
 };
 
 function refId(value: unknown): string {
@@ -24,6 +36,38 @@ function refId(value: unknown): string {
     return String(o._id ?? o.id ?? "");
   }
   return String(value);
+}
+
+function orderLineKey(orderId: string, orderItemId: string): string {
+  return `${orderId}:${orderItemId}`;
+}
+
+function resolveProductLabel(line: Record<string, unknown>): {
+  id: string;
+  name: string;
+  sku: string;
+} {
+  const product = line.product;
+  if (product && typeof product === "object") {
+    const p = product as Record<string, unknown>;
+    return {
+      id: String(p._id ?? p.id ?? ""),
+      name: String(p.product_name ?? p.name ?? line.product_name ?? "Item"),
+      sku: String(p.sku ?? line.sku ?? ""),
+    };
+  }
+  if (typeof product === "string" && product) {
+    return {
+      id: product,
+      name: String(line.product_name ?? line.name ?? "Item"),
+      sku: String(line.sku ?? ""),
+    };
+  }
+  return {
+    id: "",
+    name: String(line.product_name ?? line.name ?? "Item"),
+    sku: String(line.sku ?? ""),
+  };
 }
 
 /**
@@ -61,6 +105,39 @@ export function buildSubmittedDispatchQtyByOrderId(
     const qty = dispatchSubmittedQuantity(row);
     if (qty <= 0) continue;
     map.set(orderId, (map.get(orderId) ?? 0) + qty);
+  }
+  return map;
+}
+
+/**
+ * Build `${orderId}:${orderItemId}` → submitted dispatch qty from created+submitted batches.
+ */
+export function buildSubmittedDispatchQtyByOrderLineId(
+  dispatches: unknown[],
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const raw of dispatches) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const status = String(row.dispatch_status ?? row.status ?? "").toLowerCase();
+    if (!SUBMITTED_DISPATCH_STATUSES.has(status)) continue;
+    const orderId = refId(row.order);
+    if (!orderId) continue;
+    const items = Array.isArray(row.dispatch_items)
+      ? row.dispatch_items
+      : Array.isArray(row.items)
+        ? row.items
+        : [];
+    for (const itemRaw of items) {
+      if (!itemRaw || typeof itemRaw !== "object") continue;
+      const item = itemRaw as Record<string, unknown>;
+      const orderItemId = refId(item.order_item_id ?? item.order_item);
+      if (!orderItemId) continue;
+      const qty = num(item.dispatched_quantity ?? item.dispatch_quantity ?? item.allocated_quantity);
+      if (qty <= 0) continue;
+      const key = orderLineKey(orderId, orderItemId);
+      map.set(key, (map.get(key) ?? 0) + qty);
+    }
   }
   return map;
 }
@@ -110,6 +187,47 @@ export function orderUnbilledQuantityTotals(
     approved,
     submittedDispatch: fromMap ?? 0,
   };
+}
+
+/** Per-line approved vs submitted-dispatch breakdown for an unbilled order. */
+export function listUnbilledOrderLines(
+  order: unknown,
+  options?: UnbilledOrderOptions,
+): UnbilledOrderLine[] {
+  if (!order || typeof order !== "object") return [];
+  const row = order as Record<string, unknown>;
+  const orderId = refId(row._id ?? row.id);
+  const items = Array.isArray(row.order_items) ? row.order_items : [];
+  const accountStatus = resolveAccountApprovalStatus(row);
+  const lines: UnbilledOrderLine[] = [];
+
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const line = raw as Record<string, unknown>;
+    const orderItemId = refId(line._id ?? line.id);
+    if (!orderItemId) continue;
+
+    const q = lineApprovalQuantities(line, { accountApprovalStatus: accountStatus });
+    const approved = q.accountCleared > 0 ? q.accountCleared : q.financeApproved;
+    if (approved <= 0) continue;
+
+    const lineKey = orderLineKey(orderId, orderItemId);
+    const submittedDispatch =
+      options?.submittedDispatchQtyByOrderLineId?.get(lineKey) ?? 0;
+    const { id: productId, name, sku } = resolveProductLabel(line);
+
+    lines.push({
+      orderItemId,
+      productId,
+      productName: name,
+      sku,
+      approved,
+      submittedDispatch,
+      remaining: Math.max(0, approved - submittedDispatch),
+    });
+  }
+
+  return lines;
 }
 
 function hasClearedDepartmentApproval(statusValue: unknown): boolean {

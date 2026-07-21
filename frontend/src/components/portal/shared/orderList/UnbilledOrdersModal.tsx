@@ -8,7 +8,9 @@ import { downloadCsvFile } from "@/components/portal/admin/components/reportDown
 import { ModalOverlay } from "@/components/portal/shared/ModalOverlay";
 import {
   buildSubmittedDispatchQtyByOrderId,
+  buildSubmittedDispatchQtyByOrderLineId,
   filterUnbilledOrders,
+  listUnbilledOrderLines,
   orderUnbilledQuantityTotals,
 } from "@/components/portal/shared/orderList/unbilledOrders";
 import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
@@ -31,6 +33,37 @@ export type UnbilledOrdersModalProps = {
    * Kept for call-site compatibility; ignored.
    */
   orders?: unknown[];
+};
+
+type ViewTab = "order" | "item";
+
+type UnbilledOrderView = {
+  orderId: string;
+  orderNo: string;
+  party: string;
+  approved: number;
+  submittedDispatch: number;
+  remaining: number;
+  total: number;
+  created: string;
+  href: string;
+};
+
+type UnbilledItemOrderRef = {
+  orderId: string;
+  orderNo: string;
+  party: string;
+  href: string;
+};
+
+type UnbilledItemView = {
+  key: string;
+  productName: string;
+  sku: string;
+  approved: number;
+  submittedDispatch: number;
+  remaining: number;
+  orders: UnbilledItemOrderRef[];
 };
 
 function pickList(raw: unknown): unknown[] {
@@ -64,9 +97,13 @@ function formatDateShort(v: unknown): string {
   });
 }
 
+function productAggregateKey(productId: string, productName: string, sku: string): string {
+  if (productId) return `id:${productId}`;
+  return `name:${productName.toLowerCase()}|sku:${sku.toLowerCase()}`;
+}
+
 /**
- * Lists unbilled orders: all departments approved, with OrderDispatch created
- * and submitted, where that submitted qty is still less than approved qty.
+ * Un Billed Orders modal with Order-wise and Item-wise tabs.
  */
 export function UnbilledOrdersModal({
   isOpen,
@@ -75,18 +112,20 @@ export function UnbilledOrdersModal({
   portalBasePath,
 }: UnbilledOrdersModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<ViewTab>("order");
 
   const ordersQ = useListOrdersQuery(UNBILLED_LIST_PARAMS, { skip: !isOpen });
   const dispatchesQ = useListDispatchesQuery({}, { skip: !isOpen });
 
   const loadedOrders = useMemo(() => pickOrders(ordersQ.data), [ordersQ.data]);
-  const submittedDispatchQtyByOrderId = useMemo(
-    () => buildSubmittedDispatchQtyByOrderId(pickList(dispatchesQ.data)),
-    [dispatchesQ.data],
-  );
+  const dispatchRows = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
+
   const categoryOptions = useMemo(
-    () => ({ submittedDispatchQtyByOrderId }),
-    [submittedDispatchQtyByOrderId],
+    () => ({
+      submittedDispatchQtyByOrderId: buildSubmittedDispatchQtyByOrderId(dispatchRows),
+      submittedDispatchQtyByOrderLineId: buildSubmittedDispatchQtyByOrderLineId(dispatchRows),
+    }),
+    [dispatchRows],
   );
 
   const unbilledOrders = useMemo(
@@ -94,55 +133,148 @@ export function UnbilledOrdersModal({
     [loadedOrders, categoryOptions],
   );
 
-  const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return unbilledOrders;
-    return unbilledOrders.filter((raw) => {
-      if (!raw || typeof raw !== "object") return false;
-      const o = raw as Record<string, unknown>;
-      const ref = String(o.order_no ?? o.order_number ?? o._id ?? o.id ?? "");
-      const party = resolveOrderCounterparty(o, partyNameById);
-      return ref.toLowerCase().includes(q) || party.toLowerCase().includes(q);
-    });
-  }, [unbilledOrders, searchQuery, partyNameById]);
-
-  const handleDownloadCsv = useCallback(() => {
-    const headers = [
-      "Order No",
-      "Party",
-      "Approved Qty",
-      "Dispatch Submitted Qty",
-      "Remaining Qty",
-      "Grand Total",
-      "Created",
-      "Order Id",
-    ];
-    const rows = filtered.map((raw) => {
+  const orderViews = useMemo((): UnbilledOrderView[] => {
+    return unbilledOrders.map((raw) => {
       const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-      const id = orderKey(o);
-      const ref = String(o.order_no ?? o.order_number ?? id ?? "");
-      const party = resolveOrderCounterparty(o, partyNameById);
+      const orderId = orderKey(o);
+      const orderNo = String(o.order_no ?? o.order_number ?? orderId ?? "—");
       const { approved, submittedDispatch } = orderUnbilledQuantityTotals(o, categoryOptions);
-      const remaining = Math.max(0, approved - submittedDispatch);
-      const total = Number(o.grand_total ?? o.total ?? 0);
-      const created = formatDateShort(o.order_date ?? o.created_at ?? o.createdAt);
-      return [
-        ref,
-        party,
+      return {
+        orderId,
+        orderNo,
+        party: resolveOrderCounterparty(o, partyNameById),
         approved,
         submittedDispatch,
-        remaining,
-        total.toFixed(2),
-        created === "—" ? "" : created,
-        id,
-      ];
+        remaining: Math.max(0, approved - submittedDispatch),
+        total: Number(o.grand_total ?? o.total ?? 0),
+        created: formatDateShort(o.order_date ?? o.created_at ?? o.createdAt),
+        href: orderId ? `${portalBasePath}/order/${orderId}` : portalBasePath,
+      };
     });
+  }, [unbilledOrders, partyNameById, categoryOptions, portalBasePath]);
+
+  const itemViews = useMemo((): UnbilledItemView[] => {
+    const map = new Map<string, UnbilledItemView>();
+
+    for (const raw of unbilledOrders) {
+      const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+      const orderId = orderKey(o);
+      const orderNo = String(o.order_no ?? o.order_number ?? orderId ?? "—");
+      const party = resolveOrderCounterparty(o, partyNameById);
+      const href = orderId ? `${portalBasePath}/order/${orderId}` : portalBasePath;
+      const lines = listUnbilledOrderLines(o, categoryOptions);
+
+      for (const line of lines) {
+        if (line.remaining <= 0) continue;
+        const key = productAggregateKey(line.productId, line.productName, line.sku);
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, {
+            key,
+            productName: line.productName,
+            sku: line.sku,
+            approved: line.approved,
+            submittedDispatch: line.submittedDispatch,
+            remaining: line.remaining,
+            orders: [{ orderId, orderNo, party, href }],
+          });
+          continue;
+        }
+        existing.approved += line.approved;
+        existing.submittedDispatch += line.submittedDispatch;
+        existing.remaining += line.remaining;
+        if (!existing.orders.some((ref) => ref.orderId === orderId || ref.orderNo === orderNo)) {
+          existing.orders.push({ orderId, orderNo, party, href });
+        }
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.productName.localeCompare(b.productName, undefined, { sensitivity: "base" }),
+    );
+  }, [unbilledOrders, categoryOptions, portalBasePath, partyNameById]);
+
+  const filteredOrders = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return orderViews;
+    return orderViews.filter(
+      (view) =>
+        view.orderNo.toLowerCase().includes(q) || view.party.toLowerCase().includes(q),
+    );
+  }, [orderViews, searchQuery]);
+
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return itemViews;
+    return itemViews.filter((view) => {
+      if (
+        view.productName.toLowerCase().includes(q) ||
+        view.sku.toLowerCase().includes(q)
+      ) {
+        return true;
+      }
+      return view.orders.some(
+        (ref) =>
+          ref.orderNo.toLowerCase().includes(q) || ref.party.toLowerCase().includes(q),
+      );
+    });
+  }, [itemViews, searchQuery]);
+
+  const handleDownloadCsv = useCallback(() => {
     const dateStamp = new Date().toISOString().slice(0, 10);
-    downloadCsvFile(`un_billed_orders_${dateStamp}.csv`, headers, rows, [
-      `Un Billed Orders export · ${dateStamp}`,
+    if (activeTab === "order") {
+      const headers = [
+        "Order No",
+        "Party",
+        "Approved Qty",
+        "Dispatch Submitted Qty",
+        "Unbilled Qty",
+        "Grand Total",
+        "Created",
+        "Order Id",
+      ];
+      const rows = filteredOrders.map((view) => [
+        view.orderNo,
+        view.party,
+        view.approved,
+        view.submittedDispatch,
+        view.remaining,
+        view.total.toFixed(2),
+        view.created === "—" ? "" : view.created,
+        view.orderId,
+      ]);
+      downloadCsvFile(`un_billed_orders_${dateStamp}.csv`, headers, rows, [
+        `Un Billed Orders export (order-wise) · ${dateStamp}`,
+        `Rows: ${rows.length}`,
+      ]);
+      return;
+    }
+
+    const headers = [
+      "Product",
+      "SKU",
+      "Approved Qty",
+      "Dispatch Submitted Qty",
+      "Unbilled Qty",
+      "Order Numbers",
+    ];
+    const rows = filteredItems.map((view) => [
+      view.productName,
+      view.sku,
+      view.approved,
+      view.submittedDispatch,
+      view.remaining,
+      view.orders
+        .map((ref) =>
+          ref.party ? `${ref.orderNo} (${ref.party})` : ref.orderNo,
+        )
+        .join("; "),
+    ]);
+    downloadCsvFile(`un_billed_items_${dateStamp}.csv`, headers, rows, [
+      `Un Billed Orders export (item-wise) · ${dateStamp}`,
       `Rows: ${rows.length}`,
     ]);
-  }, [filtered, partyNameById, categoryOptions]);
+  }, [activeTab, filteredOrders, filteredItems]);
 
   if (!isOpen) return null;
 
@@ -152,7 +284,8 @@ export function UnbilledOrdersModal({
     dispatchesQ.isLoading ||
     dispatchesQ.isFetching;
   const isError = ordersQ.isError || dispatchesQ.isError;
-  const canDownload = !busy && !isError && filtered.length > 0;
+  const visibleCount = activeTab === "order" ? filteredOrders.length : filteredItems.length;
+  const canDownload = !busy && !isError && visibleCount > 0;
 
   return (
     <ModalOverlay onClick={onClose}>
@@ -160,7 +293,7 @@ export function UnbilledOrdersModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="unbilled-orders-title"
-        className="flex max-h-[min(90vh,820px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900"
+        className="flex max-h-[min(90vh,820px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-white/5">
@@ -178,8 +311,8 @@ export function UnbilledOrdersModal({
                 </h2>
                 <p className="mt-0.5 text-2xs text-slate-500 dark:text-slate-400">
                   Fully approved with dispatch created &amp; submitted — qty still below approved
-                  {!busy && unbilledOrders.length > 0
-                    ? ` · ${unbilledOrders.length} order${unbilledOrders.length === 1 ? "" : "s"}`
+                  {!busy && orderViews.length > 0
+                    ? ` · ${orderViews.length} order${orderViews.length === 1 ? "" : "s"} · ${itemViews.length} item${itemViews.length === 1 ? "" : "s"}`
                     : ""}
                 </p>
               </div>
@@ -191,11 +324,7 @@ export function UnbilledOrdersModal({
               onClick={handleDownloadCsv}
               disabled={!canDownload}
               className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-300 bg-cyan-50 px-2.5 py-1.5 text-xs font-semibold text-cyan-700 shadow-sm transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-cyan-700/50 dark:bg-cyan-950/40 dark:text-cyan-400 dark:hover:bg-cyan-900/30"
-              title={
-                canDownload
-                  ? "Download visible un billed orders as CSV"
-                  : "Nothing to download"
-              }
+              title={canDownload ? "Download visible rows as CSV" : "Nothing to download"}
             >
               <Download className="h-3.5 w-3.5" />
               Download
@@ -211,6 +340,33 @@ export function UnbilledOrdersModal({
           </div>
         </div>
 
+        <div className="shrink-0 border-b border-slate-100 px-5 pt-3 dark:border-white/5">
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab("order")}
+              className={`rounded-t-lg px-3 py-2 text-xs font-semibold transition ${
+                activeTab === "order"
+                  ? "bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-300 dark:ring-cyan-800"
+                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5"
+              }`}
+            >
+              Order wise
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("item")}
+              className={`rounded-t-lg px-3 py-2 text-xs font-semibold transition ${
+                activeTab === "item"
+                  ? "bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-300 dark:ring-cyan-800"
+                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5"
+              }`}
+            >
+              Item wise
+            </button>
+          </div>
+        </div>
+
         <div className="shrink-0 border-b border-slate-100 px-5 py-3 dark:border-white/5">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -218,7 +374,11 @@ export function UnbilledOrdersModal({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by order no or party…"
+              placeholder={
+                activeTab === "order"
+                  ? "Search by order no or party…"
+                  : "Search by product, SKU, or order no…"
+              }
               className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-xs text-slate-800 outline-none ring-cyan-500/30 placeholder:text-slate-400 focus:border-cyan-400 focus:bg-white focus:ring-2 dark:border-white/10 dark:bg-slate-950 dark:text-slate-100"
             />
           </div>
@@ -240,18 +400,18 @@ export function UnbilledOrdersModal({
                 Loading un billed orders…
               </p>
             </div>
-          ) : filtered.length === 0 ? (
+          ) : visibleCount === 0 ? (
             <div className="px-5 py-16 text-center">
               <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                No un billed orders
+                No un billed {activeTab === "order" ? "orders" : "items"}
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 {unbilledOrders.length === 0
                   ? "No fully approved orders have a created & submitted dispatch with qty still below approved."
-                  : "No orders match your search."}
+                  : "No rows match your search."}
               </p>
             </div>
-          ) : (
+          ) : activeTab === "order" ? (
             <table className="w-full border-collapse text-left text-xs">
               <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur dark:bg-slate-900/95">
                 <tr className="border-b border-slate-100 dark:border-white/5">
@@ -265,7 +425,7 @@ export function UnbilledOrdersModal({
                     Qty (approved / dispatch submitted)
                   </th>
                   <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
-                    Remaining
+                    Unbilled
                   </th>
                   <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
                     Total
@@ -279,51 +439,96 @@ export function UnbilledOrdersModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {filtered.map((raw) => {
-                  const o = raw as Record<string, unknown>;
-                  const id = orderKey(o);
-                  const ref = String(o.order_no ?? o.order_number ?? id ?? "—");
-                  const party = resolveOrderCounterparty(o, partyNameById);
-                  const { approved, submittedDispatch } = orderUnbilledQuantityTotals(
-                    o,
-                    categoryOptions,
-                  );
-                  const remaining = Math.max(0, approved - submittedDispatch);
-                  const total = Number(o.grand_total ?? o.total ?? 0);
-                  const created = formatDateShort(o.order_date ?? o.created_at ?? o.createdAt);
-                  const href = id ? `${portalBasePath}/order/${id}` : portalBasePath;
-
-                  return (
-                    <tr
-                      key={id || ref}
-                      className="transition-colors hover:bg-slate-50/80 dark:hover:bg-white/[0.03]"
-                    >
-                      <td className="px-4 py-2.5 font-mono font-bold text-slate-800 dark:text-slate-100">
-                        {ref}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300">{party}</td>
-                      <td className="px-4 py-2.5 tabular-nums text-slate-600 dark:text-slate-400">
-                        {approved} / {submittedDispatch}
-                      </td>
-                      <td className="px-4 py-2.5 tabular-nums font-semibold text-cyan-700 dark:text-cyan-400">
-                        {remaining}
-                      </td>
-                      <td className="px-4 py-2.5 tabular-nums text-slate-700 dark:text-slate-300">
-                        ₹{formatMoney(total)}
-                      </td>
-                      <td className="px-4 py-2.5 whitespace-nowrap text-slate-500">{created}</td>
-                      <td className="px-4 py-2.5 text-right">
-                        <Link
-                          href={href}
-                          onClick={onClose}
-                          className="inline-flex rounded-md bg-cyan-600 px-2.5 py-1 text-2xs font-semibold text-white transition hover:bg-cyan-700"
-                        >
-                          View
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {filteredOrders.map((view) => (
+                  <tr
+                    key={view.orderId || view.orderNo}
+                    className="transition-colors hover:bg-slate-50/80 dark:hover:bg-white/[0.03]"
+                  >
+                    <td className="px-4 py-2.5 font-mono font-bold text-slate-800 dark:text-slate-100">
+                      {view.orderNo}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300">{view.party}</td>
+                    <td className="px-4 py-2.5 tabular-nums text-slate-600 dark:text-slate-400">
+                      {view.approved} / {view.submittedDispatch}
+                    </td>
+                    <td className="px-4 py-2.5 tabular-nums font-semibold text-cyan-700 dark:text-cyan-400">
+                      {view.remaining}
+                    </td>
+                    <td className="px-4 py-2.5 tabular-nums text-slate-700 dark:text-slate-300">
+                      ₹{formatMoney(view.total)}
+                    </td>
+                    <td className="px-4 py-2.5 whitespace-nowrap text-slate-500">{view.created}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      <Link
+                        href={view.href}
+                        onClick={onClose}
+                        className="inline-flex rounded-md bg-cyan-600 px-2.5 py-1 text-2xs font-semibold text-white transition hover:bg-cyan-700"
+                      >
+                        View
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full border-collapse text-left text-xs">
+              <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur dark:bg-slate-900/95">
+                <tr className="border-b border-slate-100 dark:border-white/5">
+                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
+                    Item
+                  </th>
+                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
+                    Qty (approved / dispatch submitted)
+                  </th>
+                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
+                    Unbilled Qty
+                  </th>
+                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
+                    Orders
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                {filteredItems.map((view) => (
+                  <tr
+                    key={view.key}
+                    className="transition-colors hover:bg-slate-50/80 dark:hover:bg-white/[0.03]"
+                  >
+                    <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100">
+                      <div className="font-medium">{view.productName}</div>
+                      {view.sku ? (
+                        <div className="text-2xs text-slate-400">SKU {view.sku}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-2.5 tabular-nums text-slate-600 dark:text-slate-400">
+                      {view.approved} / {view.submittedDispatch}
+                    </td>
+                    <td className="px-4 py-2.5 tabular-nums font-semibold text-cyan-700 dark:text-cyan-400">
+                      {view.remaining}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-1.5">
+                        {view.orders.map((ref) => (
+                          <Link
+                            key={ref.orderId || ref.orderNo}
+                            href={ref.href}
+                            onClick={onClose}
+                            className="inline-flex max-w-full items-center rounded-md bg-slate-100 px-2 py-0.5 text-2xs font-semibold text-cyan-700 transition hover:bg-cyan-50 hover:text-cyan-800 dark:bg-white/5 dark:text-cyan-400 dark:hover:bg-cyan-950/40"
+                            title={`Go to ${ref.orderNo}${ref.party ? ` · ${ref.party}` : ""}`}
+                          >
+                            <span className="font-mono">{ref.orderNo}</span>
+                            {ref.party ? (
+                              <span className="ml-1 truncate font-sans font-medium text-slate-500 dark:text-slate-400">
+                                ({ref.party})
+                              </span>
+                            ) : null}
+                          </Link>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}
