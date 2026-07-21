@@ -29,11 +29,11 @@ import {
   LayoutDashboard,
   TrendingUp,
   TableProperties,
-  FolderOpen,
+  Receipt,
 } from "lucide-react";
 import { GoogleSheetOrdersModal } from "@/components/portal/shared/GoogleSheetOrdersModal";
 import { GoogleSheetAnalyticsModal } from "@/components/portal/shared/GoogleSheetAnalyticsModal";
-import { OpenOrdersModal } from "@/components/portal/shared/orderList/OpenOrdersModal";
+import { UnbilledOrdersModal } from "@/components/portal/shared/orderList/UnbilledOrdersModal";
 import {
   OrderFulfillmentPipelineStrip,
   buildListOrderFulfillmentPipeline,
@@ -257,7 +257,7 @@ export default function ListFinanceOrdersPage() {
   const [customDateTo, setCustomDateTo] = useState("");
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
-  const [isOpenOrdersOpen, setIsOpenOrdersOpen] = useState(false);
+  const [isUnbilledOrdersOpen, setIsUnbilledOrdersOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
@@ -435,12 +435,12 @@ export default function ListFinanceOrdersPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setIsOpenOrdersOpen(true)}
+              onClick={() => setIsUnbilledOrdersOpen(true)}
               className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-cyan-300 bg-cyan-50 px-2.5 py-1.5 text-xs font-semibold text-cyan-700 shadow-sm transition hover:bg-cyan-100 dark:border-cyan-700/50 dark:bg-cyan-950/40 dark:text-cyan-400 dark:hover:bg-cyan-900/30"
-              title="View open orders (past approvals, not fully delivered)"
+              title="View un billed orders (approved, dispatch created & submitted, qty below approved)"
             >
-              <FolderOpen className="h-3 w-3" />
-              Open Orders
+              <Receipt className="h-3 w-3" />
+              Un Billed Orders
             </button>
             <button
               type="button"
@@ -708,9 +708,9 @@ export default function ListFinanceOrdersPage() {
         />
       )}
 
-      <OpenOrdersModal
-        isOpen={isOpenOrdersOpen}
-        onClose={() => setIsOpenOrdersOpen(false)}
+      <UnbilledOrdersModal
+        isOpen={isUnbilledOrdersOpen}
+        onClose={() => setIsUnbilledOrdersOpen(false)}
         orders={orders}
         partyNameById={partyNameById}
         portalBasePath="/finance"

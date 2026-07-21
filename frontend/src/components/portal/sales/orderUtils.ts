@@ -73,7 +73,7 @@ export type { ApprovalPendingStage, ApprovalPendingSummary };
 /**
  * Sales list tab bucket — same exclusive priority as other portals:
  * draft → terminal → return → transport → closed → approvals → dispatch pending.
- * Open orders are outside workflow tabs (see OpenOrdersModal).
+ * Unbilled orders are outside workflow tabs (see UnbilledOrdersModal).
  */
 export function getOrderTabCategory(
   order: unknown,

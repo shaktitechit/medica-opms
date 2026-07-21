@@ -61,7 +61,7 @@ export {
  * Admin list tab bucket. Draft orders are excluded (return null).
  * Same exclusive priority as account/finance/dispatch/sales:
  * terminal → return → transport → closed → approvals → dispatch pending.
- * Open orders are outside workflow tabs (see OpenOrdersModal).
+ * Unbilled orders are outside workflow tabs (see UnbilledOrdersModal).
  */
 export function getAdminOrderTabCategory(
   order: unknown,

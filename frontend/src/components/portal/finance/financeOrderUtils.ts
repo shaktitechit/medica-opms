@@ -99,7 +99,7 @@ export function isDueSheetPending(order: unknown): boolean {
 /**
  * Finance list tab bucket. Draft orders are excluded (return null).
  * Priority: terminal → return → transport → closed → approvals → dispatch pending.
- * Open orders are outside workflow tabs (see OpenOrdersModal).
+ * Unbilled orders are outside workflow tabs (see UnbilledOrdersModal).
  */
 export function getFinanceOrderTabCategory(
   order: unknown,

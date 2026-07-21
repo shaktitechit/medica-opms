@@ -52,9 +52,9 @@ import {
   LayoutDashboard,
   Plus,
   Trash2,
-  FolderOpen,
+  Receipt,
 } from "lucide-react";
-import { OpenOrdersModal } from "@/components/portal/shared/orderList/OpenOrdersModal";
+import { UnbilledOrdersModal } from "@/components/portal/shared/orderList/UnbilledOrdersModal";
 
 type OrderRow = {
   _id?: string;
@@ -237,7 +237,7 @@ export default function ListMyOrdersPage() {
   const [customDateTo, setCustomDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
-  const [isOpenOrdersOpen, setIsOpenOrdersOpen] = useState(false);
+  const [isUnbilledOrdersOpen, setIsUnbilledOrdersOpen] = useState(false);
 
   useEffect(() => {
     setActiveTab(normalizeSalesTabFromUrl(tabFromUrl, "draft"));
@@ -444,12 +444,12 @@ export default function ListMyOrdersPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setIsOpenOrdersOpen(true)}
+              onClick={() => setIsUnbilledOrdersOpen(true)}
               className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-cyan-300 bg-cyan-50 px-2.5 py-1.5 text-xs font-semibold text-cyan-700 shadow-sm transition hover:bg-cyan-100 dark:border-cyan-700/50 dark:bg-cyan-950/40 dark:text-cyan-400 dark:hover:bg-cyan-900/30"
-              title="View open orders (past approvals, not fully delivered)"
+              title="View un billed orders (approved, dispatch created & submitted, qty below approved)"
             >
-              <FolderOpen className="h-3 w-3" />
-              Open Orders
+              <Receipt className="h-3 w-3" />
+              Un Billed Orders
             </button>
             <button
               type="button"
@@ -688,9 +688,9 @@ export default function ListMyOrdersPage() {
         onReset={handleResetFilters}
       />
 
-      <OpenOrdersModal
-        isOpen={isOpenOrdersOpen}
-        onClose={() => setIsOpenOrdersOpen(false)}
+      <UnbilledOrdersModal
+        isOpen={isUnbilledOrdersOpen}
+        onClose={() => setIsUnbilledOrdersOpen(false)}
         orders={orders}
         partyNameById={partyNameById}
         portalBasePath="/sales"

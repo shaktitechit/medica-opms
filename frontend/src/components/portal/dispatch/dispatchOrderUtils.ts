@@ -66,7 +66,7 @@ export type DispatchOrderCategoryOptions = {
  * Dispatch list tab bucket. Draft orders are excluded (return null).
  * Same exclusive priority as admin/account/finance/sales:
  * terminal → return → transport → closed → approvals → dispatch pending.
- * Open orders are outside workflow tabs (see OpenOrdersModal).
+ * Unbilled orders are outside workflow tabs (see UnbilledOrdersModal).
  */
 export function getDispatchOrderTabCategory(
   order: unknown,

@@ -14,8 +14,8 @@ import { isReturnPending } from "@/constants/orderReturnStatus";
 
 export { pendingApprovalStageLabel };
 export type { ApprovalPendingStage };
-/** Compatibility re-export — open orders live outside workflow tabs. */
-export { isOpenOrder } from "@/components/portal/shared/orderList/openOrders";
+/** Compatibility re-export — unbilled orders live outside workflow tabs. */
+export { isUnbilledOrder } from "@/components/portal/shared/orderList/unbilledOrders";
 
 export type AccountOrderTabCategory =
   | OrderWorkflowTabCategory
@@ -133,7 +133,7 @@ export function isTransportOrReturnPending(
 /**
  * Account list tab bucket. Draft orders are excluded (return null).
  * Priority: terminal → return → transport → closed → approvals → dispatch pending.
- * Open orders are outside workflow tabs (see OpenOrdersModal).
+ * Unbilled orders are outside workflow tabs (see UnbilledOrdersModal).
  */
 export function getAccountOrderTabCategory(
   order: unknown,
