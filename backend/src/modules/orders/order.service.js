@@ -1402,6 +1402,328 @@ async function submitOrder(id, body, user, reqMeta) {
   return { success: true, orderId: id };
 }
 
+function parseDateOrNull(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Live-sync a single Google Sheet row into an existing Order.
+ * Lookup by Mongo `_id` or unique `order_no`. Creates are not supported
+ * (orders require line items + party). Status / workflow fields are ignored.
+ */
+async function syncFromGoogleSheet(row) {
+  const { Order, Party } = getModels();
+
+  if (!row || typeof row !== 'object') {
+    throw new ApiError(400, 'Invalid row payload');
+  }
+
+  const rawId = row._id || row.id || row.order_id;
+  const isMongoId = rawId && mongoose.Types.ObjectId.isValid(String(rawId));
+  const orderNoRaw = row.order_no || row.order_number || row.order_ref;
+  const orderNo = orderNoRaw != null ? String(orderNoRaw).trim() : '';
+
+  let doc = null;
+  if (isMongoId) {
+    doc = await Order.findOne({ _id: rawId, deletedAt: null });
+  }
+  if (!doc && orderNo) {
+    doc = await Order.findOne({ order_no: orderNo, deletedAt: null });
+  }
+
+  if (!doc) {
+    throw new ApiError(
+      404,
+      orderNo || rawId
+        ? `Order not found for ${orderNo || rawId}. Export from Virtual Sheet first, then edit existing rows.`
+        : 'Order ID or Order Number is required to sync',
+    );
+  }
+
+  const PRIORITY_VALUES = new Set(['low', 'normal', 'high', 'urgent']);
+  const PAYMENT_VALUES = new Set(['unpaid', 'partial', 'paid']);
+
+  const payload = {};
+
+  const priorityRaw = row.priority != null ? String(row.priority).trim().toLowerCase() : undefined;
+  if (priorityRaw && PRIORITY_VALUES.has(priorityRaw)) {
+    payload.priority = priorityRaw;
+  }
+
+  if (row.expected_delivery_date !== undefined || row.expected_delivery !== undefined) {
+    const eddRaw = row.expected_delivery_date ?? row.expected_delivery;
+    if (eddRaw !== '' && eddRaw != null) {
+      const edd = parseDateOrNull(eddRaw);
+      if (edd) payload.expected_delivery_date = edd;
+    }
+  }
+
+  if (row.order_date !== undefined && row.order_date !== '' && row.order_date != null) {
+    const od = parseDateOrNull(row.order_date);
+    if (od) payload.order_date = od;
+  }
+
+  if (row.remarks !== undefined || row.notes !== undefined) {
+    payload.remarks = String(row.remarks ?? row.notes ?? '').trim();
+  }
+
+  const paymentRaw =
+    row.payment_status != null ? String(row.payment_status).trim().toLowerCase() : undefined;
+  if (paymentRaw && PAYMENT_VALUES.has(paymentRaw)) {
+    payload.payment_status = paymentRaw;
+  }
+
+  // Optional party reassignment by ObjectId or party_name
+  const partyIdRaw = row.party || row.party_id;
+  if (partyIdRaw && mongoose.Types.ObjectId.isValid(String(partyIdRaw))) {
+    const partyOk = await Party.exists({ _id: partyIdRaw, deletedAt: null });
+    if (partyOk) payload.party = partyIdRaw;
+  } else if (row.party_name || row.party_name_label) {
+    const name = String(row.party_name || row.party_name_label).trim();
+    if (name) {
+      const partyDoc = await Party.findOne({
+        party_name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        deletedAt: null,
+      }).select('_id');
+      if (partyDoc) payload.party = partyDoc._id;
+    }
+  }
+
+  applyWhitelistedPatchToMongooseDoc(doc, payload);
+
+  const recalcBase = doc.toObject();
+  recalcCommercials(recalcBase);
+  doc.set('order_items', recalcBase.order_items);
+  doc.markModified('order_items');
+  doc.set('subtotal', recalcBase.subtotal);
+  doc.set('gst_amount', recalcBase.gst_amount);
+  doc.set('grand_total', recalcBase.grand_total);
+
+  await doc.save();
+  return applyDerivedPriorityToOrder(toPlain(doc.toObject()));
+}
+
+const SUPER_SHEET_STATUS_TO_STAGE = Object.freeze({
+  draft: ORDER_WORKFLOW_STAGE.SALES,
+  submitted: ORDER_WORKFLOW_STAGE.SALES,
+  sales_approved: ORDER_WORKFLOW_STAGE.ADMIN_REVIEW,
+  finance_review: ORDER_WORKFLOW_STAGE.FINANCE_REVIEW,
+  finance_approved: ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW,
+  finance_rejected: ORDER_WORKFLOW_STAGE.FINANCE_REVIEW,
+  account_review: ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW,
+  account_approved: ORDER_WORKFLOW_STAGE.DISPATCH,
+  account_rejected: ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW,
+  dispatch: ORDER_WORKFLOW_STAGE.DISPATCH,
+  in_transit: ORDER_WORKFLOW_STAGE.DISPATCH,
+  delivered: ORDER_WORKFLOW_STAGE.DISPATCH,
+  closed: ORDER_WORKFLOW_STAGE.COMPLETED,
+  cancelled: ORDER_WORKFLOW_STAGE.CANCELLED,
+  on_hold: ORDER_WORKFLOW_STAGE.ON_HOLD,
+});
+
+const SUPER_SHEET_STATUS_TO_LIFECYCLE = Object.freeze({
+  draft: ORDER_LIFECYCLE_STATUS.DRAFT,
+  submitted: ORDER_LIFECYCLE_STATUS.ACTIVE,
+  sales_approved: ORDER_LIFECYCLE_STATUS.ACTIVE,
+  finance_review: ORDER_LIFECYCLE_STATUS.ACTIVE,
+  finance_approved: ORDER_LIFECYCLE_STATUS.ACTIVE,
+  finance_rejected: ORDER_LIFECYCLE_STATUS.ACTIVE,
+  account_review: ORDER_LIFECYCLE_STATUS.ACTIVE,
+  account_approved: ORDER_LIFECYCLE_STATUS.ACTIVE,
+  account_rejected: ORDER_LIFECYCLE_STATUS.ACTIVE,
+  dispatch: ORDER_LIFECYCLE_STATUS.ACTIVE,
+  in_transit: ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED,
+  delivered: ORDER_LIFECYCLE_STATUS.FULFILLED,
+  closed: ORDER_LIFECYCLE_STATUS.FULFILLED,
+  cancelled: ORDER_LIFECYCLE_STATUS.CANCELLED,
+  on_hold: ORDER_LIFECYCLE_STATUS.ON_HOLD,
+});
+
+/**
+ * Super-admin live sheet bypass: update any Order / order_items field
+ * without workflow transition rules / department gates.
+ */
+async function superSheetUpdate(id, body, user) {
+  if (!user || user.department !== 'super_admin') {
+    throw new ApiError(403, 'Only super_admin can use the orders sheet bypass');
+  }
+  if (!id || !mongoose.Types.ObjectId.isValid(String(id))) {
+    throw new ApiError(400, 'Valid order id is required');
+  }
+  const patch = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+
+  const doc = await getModels().Order.findOne({ _id: id, deletedAt: null });
+  if (!doc) throw new ApiError(404, 'Order not found');
+
+  const BLOCKED_KEYS = new Set(['_id', 'id', '__v', 'createdAt', 'updatedAt', 'deletedAt']);
+  const DATE_KEYS = new Set([
+    'order_date',
+    'expected_delivery_date',
+    'closed_at',
+    'pricing_validity_start',
+    'pricing_validity_end',
+    'approved_at',
+  ]);
+  const BOOL_KEYS = new Set([
+    'is_locked',
+    'has_open_flags',
+    'manual_price_override',
+    'approval_required',
+  ]);
+  const NUMBER_KEYS = new Set([
+    'current_revision',
+    'subtotal',
+    'discount_amount',
+    'taxable_amount',
+    'gst_amount',
+    'grand_total',
+    'extra_charges',
+    'penalty_amount',
+    'damage_charge',
+    'open_flag_count',
+  ]);
+  const OBJECT_ID_KEYS = new Set([
+    'party',
+    'customer',
+    'current_assignee',
+    'assigned_sales_user',
+    'closed_by',
+    'created_by',
+    'updated_by',
+    'last_finance_approval',
+    'last_admin_approval',
+    'last_account_approval',
+  ]);
+  const ENUM_SETS = {
+    status: new Set(ORDER_STATUS_VALUES),
+    lifecycle_status: new Set(Object.values(ORDER_LIFECYCLE_STATUS)),
+    workflow_stage: new Set(Object.values(ORDER_WORKFLOW_STAGE)),
+    priority: new Set(['low', 'normal', 'high', 'urgent']),
+    payment_status: new Set(['unpaid', 'partial', 'paid']),
+    current_department: new Set(['super_admin', 'sales', 'admin', 'finance', 'account', 'dispatch']),
+    pending_with_role: new Set(['super_admin', 'sales', 'admin', 'finance', 'account', 'dispatch']),
+    finance_approval_status: new Set(['pending', 'partial', 'approved', 'rejected', 'full']),
+    admin_approval_status: new Set(['pending', 'partial', 'approved', 'rejected', 'full']),
+    account_approval_status: new Set(['pending', 'partial', 'approved', 'rejected', 'full']),
+    allocation_status: new Set(['pending', 'partial', 'completed']),
+    dispatch_status: new Set(['pending', 'partial', 'completed']),
+    delivery_status: new Set(['pending', 'partial', 'completed']),
+    highest_flag_severity: new Set(['none', 'low', 'medium', 'high', 'critical']),
+  };
+
+  const statusProvided = patch.status !== undefined && patch.status !== null && patch.status !== '';
+
+  for (const [key, raw] of Object.entries(patch)) {
+    if (BLOCKED_KEYS.has(key)) continue;
+    if (key === 'order_items') continue; // handled below
+    if (key.includes('$') || key.includes('.')) {
+      throw new ApiError(400, `Invalid PATCH key "${key}"`);
+    }
+
+    let value = raw;
+
+    if (ENUM_SETS[key]) {
+      if (value === '' || value == null) continue;
+      value = String(value).trim().toLowerCase();
+      if (!ENUM_SETS[key].has(value)) {
+        throw new ApiError(400, `Invalid ${key} "${raw}"`);
+      }
+    } else if (DATE_KEYS.has(key)) {
+      if (value === '' || value == null) value = null;
+      else {
+        const d = parseDateOrNull(value);
+        if (!d) throw new ApiError(400, `Invalid date for ${key}`);
+        value = d;
+      }
+    } else if (BOOL_KEYS.has(key)) {
+      value =
+        value === true ||
+        value === 'true' ||
+        value === 1 ||
+        value === '1' ||
+        value === 'yes';
+    } else if (NUMBER_KEYS.has(key)) {
+      if (value === '' || value == null) value = 0;
+      else value = Number(value);
+      if (!Number.isFinite(value)) throw new ApiError(400, `Invalid number for ${key}`);
+    } else if (OBJECT_ID_KEYS.has(key)) {
+      if (value === '' || value == null) value = null;
+      else {
+        const sid = String(value).trim();
+        if (!mongoose.Types.ObjectId.isValid(sid)) {
+          throw new ApiError(400, `Invalid ObjectId for ${key}`);
+        }
+        value = sid;
+      }
+    } else if (typeof value === 'string') {
+      value = value.trim();
+    }
+
+    doc.set(key, value);
+  }
+
+  if (Array.isArray(patch.order_items)) {
+    doc.set('order_items', normalizeItems(patch.order_items));
+    doc.markModified('order_items');
+  }
+
+  // When status changes and stage/lifecycle not explicitly set, map defaults
+  if (statusProvided) {
+    const nextStatus = String(doc.status).toLowerCase();
+    if (patch.workflow_stage === undefined || patch.workflow_stage === null || patch.workflow_stage === '') {
+      const mappedStage = SUPER_SHEET_STATUS_TO_STAGE[nextStatus];
+      if (mappedStage) doc.set('workflow_stage', mappedStage);
+    }
+    if (patch.lifecycle_status === undefined || patch.lifecycle_status === null || patch.lifecycle_status === '') {
+      const mappedLife = SUPER_SHEET_STATUS_TO_LIFECYCLE[nextStatus];
+      if (mappedLife) doc.set('lifecycle_status', mappedLife);
+    }
+    if (nextStatus === ORDER_STATUS.CLOSED && !doc.closed_at) {
+      doc.set('closed_at', new Date());
+      if (!doc.closed_by) doc.set('closed_by', user._id);
+    }
+    if (nextStatus !== ORDER_STATUS.CLOSED && patch.closed_at === undefined) {
+      // leave closed_at as patched; only clear if status left closed without explicit closed_at
+      if (patch.status !== undefined) doc.set('closed_at', doc.closed_at);
+    }
+  }
+
+  const recalcBase = doc.toObject();
+  recalcCommercials(recalcBase);
+  // Prefer sheet-provided totals when explicitly patched; otherwise use recalc
+  if (patch.subtotal === undefined) doc.set('subtotal', recalcBase.subtotal);
+  if (patch.gst_amount === undefined) doc.set('gst_amount', recalcBase.gst_amount);
+  if (patch.grand_total === undefined) doc.set('grand_total', recalcBase.grand_total);
+  if (patch.taxable_amount === undefined && recalcBase.taxable_amount != null) {
+    doc.set('taxable_amount', recalcBase.taxable_amount);
+  }
+  doc.set('order_items', recalcBase.order_items);
+  doc.markModified('order_items');
+  doc.set('updated_by', user._id);
+
+  await doc.save();
+
+  await activityService.create({
+    actor: user._id,
+    entity_type: 'order',
+    entity_id: String(doc._id),
+    action: 'updated',
+    message: `Super-admin sheet bypass update on order ${doc.order_no}`,
+    new_value: {
+      status: doc.status,
+      workflow_stage: doc.workflow_stage,
+      lifecycle_status: doc.lifecycle_status,
+      via: 'super_sheet',
+      keys: Object.keys(patch),
+    },
+  }).catch(() => undefined);
+
+  return applyDerivedPriorityToOrder(toPlain(doc.toObject()));
+}
+
 module.exports = {
   list,
   getById,
@@ -1426,4 +1748,6 @@ module.exports = {
   syncDispatchDeliveredAfterSettlement,
   syncOrderPrioritiesFromEdd,
   processOrderJob,
+  syncFromGoogleSheet,
+  superSheetUpdate,
 };

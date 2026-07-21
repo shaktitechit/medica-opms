@@ -101,6 +101,19 @@ export const ordersApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       invalidatesTags: (_r, _e, arg) => orderEntityTags(arg.id),
     }),
+    /** Super-admin sheet bypass — can set status / items without workflow. */
+    superSheetPatchOrder: build.mutation<
+      unknown,
+      { id: string; patch: LooseRecord }
+    >({
+      query: ({ id, patch }) => ({
+        url: `orders/${id}/super-sheet`,
+        method: "PATCH",
+        body: normalizeOrderBody(patch),
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: (_r, _e, arg) => orderEntityTags(arg.id),
+    }),
     deleteOrder: build.mutation<unknown, string>({
       query: (id) => ({ url: `orders/${id}`, method: "DELETE" }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
@@ -215,6 +228,7 @@ export const {
   useLazyGetOrderAssigneesQuery,
   useCreateOrderMutation,
   usePatchOrderMutation,
+  useSuperSheetPatchOrderMutation,
   useDeleteOrderMutation,
   useRestoreOrderMutation,
   useTransitionOrderMutation,

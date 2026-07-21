@@ -145,7 +145,17 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
   ],
   super_admin: [
     { segments: [], label: "Overview", icon: "LayoutDashboard" },
-    { segments: ["orders"], label: "All Orders", icon: "ClipboardList" },
+    {
+      segments: ["orders"],
+      label: "Order Master",
+      icon: "ClipboardList",
+      children: [
+        { label: "Orders by Workflow", query: "by=workflow", icon: "GanttChart" },
+        { label: "Orders by Priority", query: "by=priority", icon: "Flag" },
+      ],
+    },
+    { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
+    { segments: ["work-planner"], label: "Work Planner", icon: "CalendarDays" },
     { segments: ["users"], label: "Users", icon: "Users" },
     { segments: ["parties"], label: "Party Master", icon: "Building2" },
     {
@@ -160,6 +170,7 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
         { label: "Product Manufacturer List", query: "view=manufacturers", icon: "Landmark" },
       ],
     },
+    { segments: ["transport-agents"], label: "Transport Agent Master", icon: "Building2" },
   ],
 };
 

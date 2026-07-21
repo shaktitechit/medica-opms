@@ -40,10 +40,12 @@ import {
   useListOrderApprovalsQuery,
   useGetOrderFulfillmentQuery,
   useListRemindersQuery,
+  useListDispatchesQuery,
 } from "@/store/api";
 
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { computeOrderLifecycleActionCaps } from "@/components/portal/shared/orderLifecycleActions";
 import { withAdminApprovalQuantities } from "@/components/portal/shared/orderAdminApprovalDisplay";
 import { ItemFulfillmentDetailsModal } from "@/components/portal/shared/ItemFulfillmentDetailsModal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
@@ -200,6 +202,10 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     { skip: !orderId },
   );
   const fulfillmentQ = useGetOrderFulfillmentQuery(orderId);
+  const dispatchesQ = useListDispatchesQuery(
+    { order: orderId },
+    { skip: !orderId },
+  );
   const remindersQ = useListRemindersQuery(
     { order: orderId },
     { skip: !orderId }
@@ -364,9 +370,10 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     if (!attachmentsQ.isUninitialized) tasks.push(attachmentsQ.refetch());
     if (!adminApprovalsQ.isUninitialized) tasks.push(adminApprovalsQ.refetch());
     if (!fulfillmentQ.isUninitialized) tasks.push(fulfillmentQ.refetch());
+    if (!dispatchesQ.isUninitialized) tasks.push(dispatchesQ.refetch());
     if (!remindersQ.isUninitialized) tasks.push(remindersQ.refetch());
     return Promise.all(tasks);
-  }, [refetch, flagsQ, historyQ, attachmentsQ, adminApprovalsQ, fulfillmentQ, remindersQ]);
+  }, [refetch, flagsQ, historyQ, attachmentsQ, adminApprovalsQ, fulfillmentQ, dispatchesQ, remindersQ]);
 
 
 
@@ -382,12 +389,19 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
   const executeTransition = useCallback(
     async (nextStatus: string) => {
       if (!orderId) return;
+      if (nextStatus === "finance_rejected" && !transitionRemarks.trim()) {
+        toast.error("Rejection reason is required.");
+        return;
+      }
       try {
         await transitionOrder({
           id: orderId,
           body: {
             next_status: nextStatus,
             remarks: transitionRemarks.trim() || undefined,
+            ...(nextStatus === "finance_rejected"
+              ? { rejection_reason: transitionRemarks.trim() }
+              : {}),
           },
         }).unwrap();
         toast.success(`Order transitioned to ${nextStatus.replace("_", " ")}`);
@@ -492,7 +506,7 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     [deptBoxes, orderKpis, deliveryBox?.totalQty],
   );
 
-  // Admin allowed status transitions
+  // Admin allowed status transitions (approve / send / resume — not hold/cancel/reject)
   const allowedTransitions = useMemo(() => {
     if (status === "draft") return ["submitted", "cancelled"];
     if (status === "submitted") return ["sales_approved", "finance_review", "on_hold", "cancelled"];
@@ -515,6 +529,9 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     if (targetStatus === "cancelled") {
       return "Cancel Order";
     }
+    if (targetStatus === "finance_rejected") {
+      return "Reject Order";
+    }
     if (targetStatus === "submitted") {
       if (currentStatus === "draft") return "Submit Order";
       if (currentStatus === "finance_rejected") return "Resubmit Order";
@@ -524,9 +541,17 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
     return targetStatus.replace("_", " ");
   }, []);
 
-  const canHold = useMemo(() => allowedTransitions.includes("on_hold"), [allowedTransitions]);
+  const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
+
+  const lifecycleCaps = useMemo(
+    () => computeOrderLifecycleActionCaps({ status, dispatches }),
+    [status, dispatches],
+  );
+
+  const canHold = lifecycleCaps.canHold;
+  const canCancel = lifecycleCaps.canCancel;
+  const canReject = lifecycleCaps.canReject;
   const canResume = useMemo(() => allowedTransitions.includes("submitted"), [allowedTransitions]);
-  const canCancel = useMemo(() => allowedTransitions.includes("cancelled"), [allowedTransitions]);
 
   const resumeLabel = useMemo(() => {
     if (status === "draft") return "Submit Order";
@@ -566,20 +591,28 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
               {getTransitionLabel(transitioningTo, status)}
             </h3>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              Confirm transition and add comments.
+              {transitioningTo === "finance_rejected"
+                ? "Please specify the reason for rejection (required)."
+                : "Confirm transition and add comments."}
             </p>
 
             <div className="mt-4 space-y-4">
               <div>
                 <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                  Remarks (Optional)
+                  {transitioningTo === "finance_rejected"
+                    ? "Rejection Reason (Required)"
+                    : "Remarks (Optional)"}
                 </label>
                 <textarea
                   value={transitionRemarks}
                   onChange={(e) => setTransitionRemarks(e.target.value)}
                   rows={3}
                   className="w-full mt-1.5 rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50 font-sans"
-                  placeholder="Type remarks..."
+                  placeholder={
+                    transitioningTo === "finance_rejected"
+                      ? "Type rejection reason..."
+                      : "Type remarks..."
+                  }
                 />
               </div>
             </div>
@@ -697,9 +730,10 @@ export default function AdminOrderDetail({ orderId }: { orderId: string }) {
               {/* ── Action buttons bar ── */}
               <div className="mt-2 border-t border-slate-100 pt-2 dark:border-white/10">
                 <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 font-sans font-medium">
-                  <button type="button" disabled={!canHold || busy} onClick={() => setTransitioningTo("on_hold")} className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Hold</button>
+                  <button type="button" disabled={!canHold || busy} title={lifecycleCaps.lockReason} onClick={() => setTransitioningTo("on_hold")} className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Hold</button>
                   <button type="button" disabled={!canResume || busy} onClick={() => setTransitioningTo("submitted")} className="rounded-md bg-blue-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">{resumeLabel}</button>
-                  <button type="button" disabled={!canCancel || busy} onClick={() => setTransitioningTo("cancelled")} className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Cancel</button>
+                  <button type="button" disabled={!canReject || busy} title={lifecycleCaps.lockReason} onClick={() => setTransitioningTo("finance_rejected")} className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Reject</button>
+                  <button type="button" disabled={!canCancel || busy} title={lifecycleCaps.lockReason} onClick={() => setTransitioningTo("cancelled")} className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Cancel</button>
                 </div>
               </div>
 

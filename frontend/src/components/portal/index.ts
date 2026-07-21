@@ -63,6 +63,7 @@ export { default as SuperAdminOrdersPage } from "./super_admin/SuperAdminOrdersP
 export { default as SuperAdminUsersPage } from "./super_admin/SuperAdminUsersPage";
 export { default as ListSuperAdminOrdersPage } from "./super_admin/order/ListSuperAdminOrdersPage";
 export { default as SuperAdminOrderDetail } from "./super_admin/order/SuperAdminOrderDetail";
+export { default as SuperAdminCreateOrderPage } from "./super_admin/SuperAdminCreateOrderPage";
 
 export { default as ProfilePage } from "./shared/ProfilePage";
 export { default as PortalOverviewShell } from "./shared/PortalOverviewShell";

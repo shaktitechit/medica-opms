@@ -38,6 +38,7 @@ import {
   useListOrderDueSheetsQuery,
   useListOrderReturnsQuery,
   useListRemindersQuery,
+  useListDispatchesQuery,
 } from "@/store/api";
 import {
   buildPendingReturnOrderIds,
@@ -57,6 +58,7 @@ import { RemindersTab } from "@/components/portal/shared/RemindersTab";
 import { ALL_FLAG_TYPES, FLAGS_FOR_TARGET_DEPARTMENT } from "@/components/portal/shared/flagTypes";
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { computeOrderLifecycleActionCaps } from "@/components/portal/shared/orderLifecycleActions";
 import {
   computeFinanceApprovalCapabilities,
 } from "@/components/portal/shared/financeApprovalStatus";
@@ -219,6 +221,10 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
   const partiesQ = useListPartiesQuery({});
   const financeApprovalsQ = useListOrderApprovalsQuery({ order: orderId, is_admin_approved: true });
   const fulfillmentQ = useGetOrderFulfillmentQuery(orderId);
+  const dispatchesQ = useListDispatchesQuery(
+    { order: orderId },
+    { skip: !orderId },
+  );
   const dueSheetsQ = useListOrderDueSheetsQuery({ order: orderId });
   const remindersQ = useListRemindersQuery({ order: orderId });
   const reminders = remindersQ.data || [];
@@ -457,10 +463,11 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
     if (!attachmentsQ.isUninitialized) attachmentsQ.refetch();
     if (!financeApprovalsQ.isUninitialized) financeApprovalsQ.refetch();
     if (!fulfillmentQ.isUninitialized) fulfillmentQ.refetch();
+    if (!dispatchesQ.isUninitialized) dispatchesQ.refetch();
     if (!adminApprovalsQ.isUninitialized) adminApprovalsQ.refetch();
     if (!dueSheetsQ.isUninitialized) dueSheetsQ.refetch();
     if (!remindersQ.isUninitialized) remindersQ.refetch();
-  }, [refetch, flagsQ, historyQ, attachmentsQ, financeApprovalsQ, fulfillmentQ, adminApprovalsQ, dueSheetsQ, remindersQ]);
+  }, [refetch, flagsQ, historyQ, attachmentsQ, financeApprovalsQ, fulfillmentQ, dispatchesQ, adminApprovalsQ, dueSheetsQ, remindersQ]);
 
   const handleResolveOrder = useCallback(async () => {
     if (!detail || !Array.isArray(detail.order_items)) return;
@@ -526,26 +533,38 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                 .filter(Boolean)
               : undefined;
 
-          const approval = await createFinanceApproval({
-            order: orderId,
-            approval_status: "pending_review",
-            approval_notes: transitionRemarks.trim() || undefined,
-            rejection_reason: nextStatus === "finance_rejected" ? transitionRemarks.trim() : undefined,
-            approval_items: approvalItems,
-          }).unwrap();
-          const approvalId = readId(approval);
-          if (!approvalId) throw new Error("Finance approval id missing from response");
-
-          if (nextStatus === "finance_rejected") {
-            await rejectFinanceApproval({
-              id: approvalId,
-              body: { rejection_reason: transitionRemarks.trim() },
+          // Prefer a simple status transition when rejecting after clearance / later stages
+          if (nextStatus === "finance_rejected" && !financeCaps.canReviewAndApprove) {
+            await transitionOrder({
+              id: orderId,
+              body: {
+                next_status: nextStatus,
+                remarks: transitionRemarks.trim() || undefined,
+                rejection_reason: transitionRemarks.trim(),
+              },
             }).unwrap();
           } else {
-            await approveFinanceApproval({
-              id: approvalId,
-              body: { approval_notes: transitionRemarks.trim() || undefined },
+            const approval = await createFinanceApproval({
+              order: orderId,
+              approval_status: "pending_review",
+              approval_notes: transitionRemarks.trim() || undefined,
+              rejection_reason: nextStatus === "finance_rejected" ? transitionRemarks.trim() : undefined,
+              approval_items: approvalItems,
             }).unwrap();
+            const approvalId = readId(approval);
+            if (!approvalId) throw new Error("Finance approval id missing from response");
+
+            if (nextStatus === "finance_rejected") {
+              await rejectFinanceApproval({
+                id: approvalId,
+                body: { rejection_reason: transitionRemarks.trim() },
+              }).unwrap();
+            } else {
+              await approveFinanceApproval({
+                id: approvalId,
+                body: { approval_notes: transitionRemarks.trim() || undefined },
+              }).unwrap();
+            }
           }
         } else {
           await transitionOrder({
@@ -568,6 +587,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
       orderId,
       transitionRemarks,
       readOnlyItems,
+      financeCaps.canReviewAndApprove,
       createFinanceApproval,
       approveFinanceApproval,
       rejectFinanceApproval,
@@ -584,31 +604,17 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
 
 
 
-  const canReject = useMemo(() => {
-    if (financeCaps.isFullyApproved) return false;
-    return (
-      financeCaps.canReviewAndApprove ||
-      financeCaps.isPartiallyApproved ||
-      status === "finance_review"
-    );
-  }, [financeCaps, status]);
+  const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
 
-  const canHold = useMemo(() => {
-    return [
-      "finance_review",
-      "finance_approved",
-      "partially_finance_approved",
-      "fully_finance_approved",
-      "dispatch_pending",
-      "partial_dispatch_created",
-      "full_dispatch_created",
-      "transport_pending",
-      "transport_assigned",
-      "partially_transported",
-      "fully_transported",
-      "in_transit",
-    ].includes(status);
-  }, [status]);
+  const lifecycleCaps = useMemo(
+    () => computeOrderLifecycleActionCaps({ status, dispatches }),
+    [status, dispatches],
+  );
+
+  const canReject = lifecycleCaps.canReject;
+  const canHold = lifecycleCaps.canHold;
+  const canCancel = lifecycleCaps.canCancel;
+  const canResume = status === "on_hold" && !lifecycleCaps.hasSubmittedDispatch;
 
   const busy = isPatching || isSubmitting;
 
@@ -917,6 +923,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   <button
                     type="button"
                     disabled={!canReject || busy}
+                    title={lifecycleCaps.lockReason}
                     onClick={() => setTransitioningTo("finance_rejected")}
                     className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                   >
@@ -925,6 +932,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   <button
                     type="button"
                     disabled={!canHold || busy}
+                    title={lifecycleCaps.lockReason}
                     onClick={() => setTransitioningTo("on_hold")}
                     className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                   >
@@ -932,7 +940,7 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   </button>
                   <button
                     type="button"
-                    disabled={status !== "on_hold" || busy}
+                    disabled={!canResume || busy}
                     onClick={() => setTransitioningTo("finance_review")}
                     className="rounded-md bg-blue-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                   >
@@ -940,7 +948,8 @@ export default function FinanceOrderDetail({ orderId }: { orderId: string }) {
                   </button>
                   <button
                     type="button"
-                    disabled={!(status === "on_hold" || status === "dispatch_pending") || busy}
+                    disabled={!canCancel || busy}
+                    title={lifecycleCaps.lockReason}
                     onClick={() => setTransitioningTo("cancelled")}
                     className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                   >

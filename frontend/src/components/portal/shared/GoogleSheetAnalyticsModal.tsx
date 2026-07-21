@@ -36,7 +36,7 @@ export type GoogleSheetAnalyticsModalProps = {
   isOpen: boolean;
   onClose: () => void;
   partyNameById: Map<string, string>;
-  portal?: "admin" | "finance" | "account";
+  portal?: "admin" | "finance" | "account" | "super_admin";
 };
 
 type AnalyticalRow = {

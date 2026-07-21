@@ -39,6 +39,8 @@ interface AdminOverviewWidgetsProps {
   orders: unknown[];
   isOrdersFetching: boolean;
   categoryOptions?: AdminOrderCategoryOptions;
+  /** Base path for order-tab quick links (e.g. "/admin", "/super_admin"). */
+  portalHome?: "/admin" | "/super_admin";
 }
 
 const WIDGET_META: Record<
@@ -141,6 +143,7 @@ export default function AdminOverviewWidgets({
   orders,
   isOrdersFetching,
   categoryOptions,
+  portalHome = "/admin",
 }: AdminOverviewWidgetsProps) {
   const {
     availableYears,
@@ -449,7 +452,7 @@ export default function AdminOverviewWidgets({
             return (
               <Link
                 key={tab.id}
-                href={`/admin/orders?tab=${tab.id}`}
+                href={`${portalHome}/orders?tab=${tab.id}`}
                 className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-500/20 hover:shadow-md dark:border-white/10 dark:bg-slate-900 dark:hover:border-blue-500/30 flex flex-col justify-between"
               >
                 <div className={`absolute top-0 left-0 h-1 w-full ${meta.accent}`} />

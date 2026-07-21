@@ -519,7 +519,14 @@ function SalesAutocomplete({
   );
 }
 
-export default function AdminCreateOrderPage() {
+type AdminCreateOrderPageProps = {
+  /** Portal base path for back/success navigation (default "/admin"). */
+  portalHome?: "/admin" | "/super_admin";
+};
+
+export default function AdminCreateOrderPage({
+  portalHome = "/admin",
+}: AdminCreateOrderPageProps = {}) {
   const router = useRouter();
   const user = useAppSelector((s) => s.auth.user);
   const partiesQ = useListPartiesQuery({ status: "active" });
@@ -947,7 +954,7 @@ export default function AdminCreateOrderPage() {
             ? `Order ${orderNo} created and approved successfully`
             : "Order created and approved successfully",
         );
-        router.push("/admin/orders");
+        router.push(`${portalHome}/orders`);
       } catch (rejected) {
         toast.error(mutationRejectedMessage(rejected));
       }
@@ -959,6 +966,7 @@ export default function AdminCreateOrderPage() {
       lines,
       remarks,
       router,
+      portalHome,
       assignedSales,
       user,
       allItemsNegotiated,
@@ -985,7 +993,7 @@ export default function AdminCreateOrderPage() {
           </div>
         </div>
         <Link
-          href="/admin"
+          href={portalHome}
           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-slate-50"
         >
           <ArrowLeft className="h-3.5 w-3.5" />

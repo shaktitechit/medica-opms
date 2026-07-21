@@ -9,7 +9,12 @@ import {
   Download,
   Info,
   SlidersHorizontal,
-  RefreshCw
+  RefreshCw,
+  Cloud,
+  Copy,
+  Check,
+  Link2,
+  ExternalLink,
 } from "lucide-react";
 import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
@@ -27,6 +32,8 @@ import {
   useListOrderDeliveriesQuery
 } from "@/store/api";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
+import { publicApiOrigin } from "@/lib/env";
+import { toast } from "@/lib/toast";
 
 export type GoogleSheetOrdersModalProps = {
   isOpen: boolean;
@@ -35,7 +42,7 @@ export type GoogleSheetOrdersModalProps = {
   /** Pre-select a tab when the modal opens */
   initialTab?: AdminOrderTabCategory;
   /** Portal context (tabs are shared across portals) */
-  portal?: "admin" | "finance" | "account";
+  portal?: "admin" | "finance" | "account" | "super_admin";
 };
 
 type FlattenedOrder = {
@@ -64,19 +71,20 @@ type SelectedCell = {
 } | null;
 
 const COLUMNS: { key: keyof FlattenedOrder; label: string; headerLetter: string; type: "text" | "number" }[] = [
-  { key: "order_no", label: "Order Number", headerLetter: "A", type: "text" },
-  { key: "party_name", label: "Party Name", headerLetter: "B", type: "text" },
-  { key: "grand_total", label: "Grand Total (₹)", headerLetter: "C", type: "number" },
-  { key: "priority", label: "Priority", headerLetter: "D", type: "text" },
-  { key: "status", label: "Status", headerLetter: "E", type: "text" },
-  { key: "order_date", label: "Order Date", headerLetter: "F", type: "text" },
-  { key: "expected_delivery_date", label: "Expected Delivery Date", headerLetter: "G", type: "text" },
-  { key: "party_type", label: "Party Type", headerLetter: "H", type: "text" },
-  { key: "party_city", label: "City", headerLetter: "I", type: "text" },
-  { key: "sales_person", label: "Sales Person", headerLetter: "J", type: "text" },
-  { key: "items_list", label: "Items List", headerLetter: "K", type: "text" },
-  { key: "party_sra", label: "SRA", headerLetter: "L", type: "text" },
-  { key: "actual_delivery_date", label: "Actual Delivery Date", headerLetter: "M", type: "text" },
+  { key: "_id", label: "Order ID", headerLetter: "A", type: "text" },
+  { key: "order_no", label: "Order Number", headerLetter: "B", type: "text" },
+  { key: "party_name", label: "Party Name", headerLetter: "C", type: "text" },
+  { key: "grand_total", label: "Grand Total (₹)", headerLetter: "D", type: "number" },
+  { key: "priority", label: "Priority", headerLetter: "E", type: "text" },
+  { key: "status", label: "Status", headerLetter: "F", type: "text" },
+  { key: "order_date", label: "Order Date", headerLetter: "G", type: "text" },
+  { key: "expected_delivery_date", label: "Expected Delivery Date", headerLetter: "H", type: "text" },
+  { key: "party_type", label: "Party Type", headerLetter: "I", type: "text" },
+  { key: "party_city", label: "City", headerLetter: "J", type: "text" },
+  { key: "sales_person", label: "Sales Person", headerLetter: "K", type: "text" },
+  { key: "items_list", label: "Items List", headerLetter: "L", type: "text" },
+  { key: "party_sra", label: "SRA", headerLetter: "M", type: "text" },
+  { key: "actual_delivery_date", label: "Actual Delivery Date", headerLetter: "N", type: "text" },
 ];
 
 function parseDate(v: unknown): Date | null {
@@ -111,11 +119,15 @@ export function GoogleSheetOrdersModal({
   initialTab,
   portal: _portal = "admin"
 }: GoogleSheetOrdersModalProps) {
+  const [activeTab, setActiveTab] = useState<"virtual" | "real">("virtual");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCell, setSelectedCell] = useState<SelectedCell>(null);
+  const [realSheetUrl, setRealSheetUrl] = useState("");
+  const [copiedScript, setCopiedScript] = useState(false);
 
   // Column Resizing State
   const [colWidths, setColWidths] = useState<Record<string, number>>({
+    _id: 110,
     order_no: 130,
     party_name: 200,
     grand_total: 120,
@@ -168,7 +180,7 @@ export function GoogleSheetOrdersModal({
     return base;
   }, [activeSheetTab]);
 
-  const { data: ordersData, isFetching: isOrdersFetching, isLoading: isOrdersLoading } = useListOrdersQuery(queryParams, {
+  const { data: ordersData, isFetching: isOrdersFetching, isLoading: isOrdersLoading, refetch } = useListOrdersQuery(queryParams, {
     skip: !isOpen
   });
 
@@ -675,14 +687,137 @@ export function GoogleSheetOrdersModal({
     };
   }, [handleResizeMove, handleResizeEnd]);
 
+  // Load linked Google Sheet URL from localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("medica_linked_google_sheet_orders_url") || "";
+      setRealSheetUrl(saved);
+    }
+  }, []);
+
+  const handleSaveRealSheetUrl = (url: string) => {
+    setRealSheetUrl(url);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("medica_linked_google_sheet_orders_url", url);
+    }
+    toast.success("Google Sheet URL updated!");
+  };
+
+  const googleSheetEmbedUrl = useMemo(() => {
+    if (!realSheetUrl) return null;
+    const match = realSheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match && match[1]) {
+      return `https://docs.google.com/spreadsheets/d/${match[1]}/htmlembed?widget=true&headers=false`;
+    }
+    return null;
+  }, [realSheetUrl]);
+
+  const ordersWebhookUrl = `${publicApiOrigin()}/api/orders/google-sheet-webhook?secret=medica-gsheet-sync-secret`;
+
+  const appsScriptPreview = [
+    "function onEdit(e) {",
+    "  var sheet = e.source.getActiveSheet();",
+    "  var range = e.range;",
+    "  var row = range.getRow();",
+    "  if (row === 1) return;",
+    "",
+    "  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];",
+    "  var rowData = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0];",
+    "",
+    "  var payload = {};",
+    "  for (var i = 0; i < headers.length; i++) {",
+    '    var key = headers[i].toString().trim().toLowerCase()',
+    '      .replace(/\\*/g, "").replace(/[^a-z0-9_]/g, "_").replace(/__+/g, "_").trim();',
+    '    if (key === "order_id" || key === "id") key = "_id";',
+    '    if (key === "order_number") key = "order_no";',
+    '    if (key === "expected_delivery" || key === "edd") key = "expected_delivery_date";',
+    '    if (key === "notes") key = "remarks";',
+    '    if (key === "party") key = "party_name";',
+    "    payload[key] = rowData[i];",
+    "  }",
+    "",
+    `  UrlFetchApp.fetch("${ordersWebhookUrl}", {`,
+    '    method: "post",',
+    '    contentType: "application/json",',
+    "    payload: JSON.stringify(payload),",
+    "    muteHttpExceptions: true",
+    "  });",
+    "}",
+  ].join("\n");
+
+  const copyScriptCode = () => {
+    const code = `/**
+ * Google Sheets App Script for OPMS Orders Live-Sync
+ * Paste this inside Extensions -> Apps Script in your Google Sheet.
+ *
+ * Syncs edits on existing order rows (lookup by Order ID or Order Number).
+ * Editable: priority, order_date, expected_delivery_date, remarks, payment_status, party_name.
+ * Status / workflow columns are ignored (use the app for transitions).
+ */
+
+var BACKEND_WEBHOOK_URL = "${ordersWebhookUrl}";
+
+function onEdit(e) {
+  var sheet = e.source.getActiveSheet();
+  var range = e.range;
+  var row = range.getRow();
+
+  // Skip header row
+  if (row === 1) return;
+
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var rowData = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+  var payload = {};
+  for (var i = 0; i < headers.length; i++) {
+    var rawHeader = headers[i].toString().trim().toLowerCase();
+    var key = rawHeader
+      .replace(/\\*/g, "")
+      .replace(/[^a-z0-9_]/g, "_")
+      .replace(/__+/g, "_")
+      .trim();
+
+    if (key === "order_id" || key === "id" || key === "mongo_id") key = "_id";
+    if (key === "order_number" || key === "order_ref") key = "order_no";
+    if (key === "expected_delivery" || key === "edd") key = "expected_delivery_date";
+    if (key === "notes") key = "remarks";
+    if (key === "party" || key === "counterparty") key = "party_name";
+    if (key === "payment") key = "payment_status";
+
+    payload[key] = rowData[i];
+  }
+
+  var options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(BACKEND_WEBHOOK_URL, options);
+    var statusCode = response.getResponseCode();
+    if (statusCode !== 200 && statusCode !== 201) {
+      Logger.log("Orders sync failed (" + statusCode + "): " + response.getContentText());
+    }
+  } catch (err) {
+    Logger.log("Orders sync error: " + err.toString());
+  }
+}`;
+    navigator.clipboard.writeText(code);
+    setCopiedScript(true);
+    setTimeout(() => setCopiedScript(false), 2000);
+    toast.success("Script copied to clipboard!");
+  };
+
   if (!isOpen) return null;
 
   return (
     <LargeModalPortal>
-    <div className="fixed inset-0 z-[100] flex flex-col bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-sans">
+      <div className="fixed inset-0 z-[100] flex flex-col bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-sans">
         
         {/* Top Header Section */}
-        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 px-6 py-4 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 px-6 py-4 shrink-0">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400">
               📋
@@ -690,23 +825,62 @@ export function GoogleSheetOrdersModal({
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <span>Order Spreadsheet Registry</span>
-                <span className="rounded-full bg-slate-200/60 dark:bg-slate-800 px-2 py-0.5 text-2xs font-bold text-slate-600 dark:text-slate-400">
-                  Read Only
-                </span>
+                {activeTab === "virtual" ? (
+                  <span className="rounded-full bg-slate-200/60 dark:bg-slate-800 px-2 py-0.5 text-2xs font-bold text-slate-600 dark:text-slate-400">
+                    Read Only Grid
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100/80 dark:bg-emerald-950/40 px-2 py-0.5 text-2xs font-bold text-emerald-700 dark:text-emerald-400">
+                    <Cloud className="h-3 w-3" />
+                    Live Sync
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Interactive spreadsheet viewer for orders, filtered to {filteredRows.length} matching rows.
+                {activeTab === "virtual"
+                  ? `Interactive spreadsheet viewer for orders, filtered to ${filteredRows.length} matching rows.`
+                  : "Connect a real Google Sheet — edits sync to MongoDB via Apps Script webhook."}
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-slate-200 hover:border-slate-350 p-2 text-slate-400 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-850 hover:text-slate-700 dark:hover:text-slate-255 transition"
-          >
-            <X className="h-4 w-4" />
-          </button>
+
+          <div className="flex items-center gap-3">
+            <div className="flex rounded-lg bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setActiveTab("virtual")}
+                className={`rounded-md px-3.5 py-1 text-xs font-semibold transition ${
+                  activeTab === "virtual"
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+                }`}
+              >
+                Virtual Sheet
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("real")}
+                className={`rounded-md px-3.5 py-1 text-xs font-semibold transition ${
+                  activeTab === "real"
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+                }`}
+              >
+                Real Google Sheet Connection
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-200 hover:border-slate-350 p-2 text-slate-400 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-850 hover:text-slate-700 dark:hover:text-slate-255 transition"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
+      {activeTab === "virtual" ? (
+        <div className="flex min-h-0 flex-1 flex-col">
         {/* Toolbar Container */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-4 py-2 shrink-0">
           
@@ -718,6 +892,14 @@ export function GoogleSheetOrdersModal({
             >
               <Download className="h-3.5 w-3.5" />
               <span>Export CSV</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 transition"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isOrdersFetching ? "animate-spin" : ""}`} />
+              <span>Reload</span>
             </button>
           </div>
 
@@ -1160,8 +1342,147 @@ export function GoogleSheetOrdersModal({
             </div>
           </div>
         </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 p-6 space-y-6">
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-lg space-y-4">
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Link2 className="h-5 w-5 text-emerald-500" />
+                <span>Link a Real Google Sheet URL</span>
+              </h3>
+              <p className="text-xs text-slate-650 dark:text-slate-400 max-w-2xl leading-relaxed">
+                Paste your Google Sheet link here. Export orders from the Virtual Sheet tab as CSV,
+                import into Google Sheets, then install the Apps Script so edits sync live to OPMS.
+              </p>
 
-    </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={realSheetUrl}
+                  onChange={e => handleSaveRealSheetUrl(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                  className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-3.5 py-2 text-sm text-slate-800 dark:text-slate-100 outline-none transition focus:border-emerald-600 focus:ring-1 focus:ring-emerald-500/30"
+                />
+                {realSheetUrl && (
+                  <a
+                    href={realSheetUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-705 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200 transition"
+                  >
+                    <span>Open Sheet</span>
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {googleSheetEmbedUrl ? (
+              <div className="border border-slate-200 dark:border-slate-850 rounded-xl overflow-hidden shadow-xl bg-white dark:bg-slate-900">
+                <div className="bg-slate-100 dark:bg-slate-850 px-4 py-2 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center text-xs">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Google Sheet Embedded View</span>
+                  <span className="text-2xs text-slate-400 dark:text-slate-500">Iframe loading via Google Docs URL</span>
+                </div>
+                <iframe
+                  src={googleSheetEmbedUrl}
+                  className="w-full h-[450px] border-none bg-white"
+                  title="Google Sheet Embedded View"
+                  loading="lazy"
+                />
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl py-12 px-4 text-center bg-white dark:bg-slate-900/30">
+                <div className="text-slate-400 dark:text-slate-655 mb-3 text-3xl">📁</div>
+                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">No Google Sheet URL connected</h4>
+                <p className="text-xs text-slate-500 max-w-xs mx-auto mt-1">
+                  Paste your spreadsheet link above to enable the embedded preview panel in this tab.
+                </p>
+              </div>
+            )}
+
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-lg space-y-5">
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <Info className="h-5 w-5 text-blue-500 dark:text-blue-400" />
+                <span>Webhooks Setup Guide (How to Sync Google Sheet {"->"} Backend)</span>
+              </h3>
+
+              <div className="space-y-4 text-xs leading-relaxed text-slate-600 dark:text-slate-350">
+                <div className="space-y-2">
+                  <span className="font-bold text-slate-800 dark:text-slate-200 block">1. Sheet Columns Setup</span>
+                  <p>
+                    Set headers in Row 1 (column order does not matter). Include{" "}
+                    <strong className="text-slate-800 dark:text-slate-200">Order Number</strong> or{" "}
+                    <strong className="text-slate-800 dark:text-slate-200">Order ID</strong> so the webhook can find the order.
+                  </p>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 pt-1.5 font-mono text-2xs">
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Order ID</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Order Number*</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Party Name</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Priority</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Order Date</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Expected Delivery Date</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Remarks</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Payment Status</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Status</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Grand Total (₹)</div>
+                  </div>
+                  <span className="text-2xs text-slate-400 dark:text-slate-500 block mt-1">
+                    Editable via sync: Priority, Order Date, Expected Delivery Date, Remarks, Payment Status, Party Name.
+                    Status and totals are display-only (workflow transitions stay in the app).
+                  </span>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <span className="font-bold text-slate-800 dark:text-slate-200 block">2. Google Apps Script Configuration</span>
+                  <p>
+                    Open your sheet, select <strong className="text-slate-800 dark:text-slate-200">Extensions &gt; Apps Script</strong>, clear the editor, and copy-paste the code snippet below:
+                  </p>
+
+                  <div className="relative border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-950 font-mono text-xs leading-normal text-slate-700 dark:text-slate-300">
+                    <div className="bg-slate-100 dark:bg-slate-850 px-4 py-2 flex justify-between items-center text-xs select-none">
+                      <span className="font-semibold text-slate-550 dark:text-slate-450">GoogleAppsScriptCode.js</span>
+                      <button
+                        type="button"
+                        onClick={copyScriptCode}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 text-slate-600 dark:text-slate-250 border border-slate-200 dark:border-slate-700 transition active:scale-95"
+                      >
+                        {copiedScript ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                        <span>{copiedScript ? "Copied!" : "Copy Code"}</span>
+                      </button>
+                    </div>
+                    <pre className="p-4 overflow-x-auto max-h-60 select-all border-t border-slate-200 dark:border-slate-800 whitespace-pre-wrap">
+                      {appsScriptPreview}
+                    </pre>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <span className="font-bold text-slate-800 dark:text-slate-200 block">3. Authorize &amp; Deploy Trigger</span>
+                  <ol className="list-decimal pl-4 space-y-1">
+                    <li>In Apps Script, click <strong className="text-slate-800 dark:text-slate-200">Save</strong>, then run <code className="font-mono text-emerald-600 dark:text-emerald-400">onEdit</code> once and approve permissions.</li>
+                    <li>
+                      Optional: Triggers → Add Trigger → Function <code className="font-mono">onEdit</code> → Event source:{" "}
+                      <code className="font-mono text-emerald-600 dark:text-emerald-400">From spreadsheet</code> → Event type:{" "}
+                      <code className="font-mono text-emerald-600 dark:text-emerald-400">On edit</code>.
+                    </li>
+                    <li>
+                      Webhook target:{" "}
+                      <code className="break-all font-mono text-2xs text-emerald-700 dark:text-emerald-400">{ordersWebhookUrl}</code>
+                    </li>
+                    <li>
+                      Ensure the backend is reachable from the internet (Apps Script cannot call localhost). For local Docker, use a tunnel or set{" "}
+                      <code className="font-mono">NEXT_PUBLIC_API_ORIGIN</code> to your public API URL.
+                    </li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      </div>
     </LargeModalPortal>
   );
 }

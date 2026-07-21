@@ -5,7 +5,11 @@
 const { Router } = require('express');
 const router = Router();
 const { requireAuth, requirePermissions, requireSoftDeletePermission } = require('../../middlewares/auth.middleware');
+const { requireDepartmentOnly } = require('../../middlewares/dept.middleware');
 const controller = require('./order.controller');
+
+// Google Sheets sync webhook (auth via query secret / header — no JWT)
+router.post('/google-sheet-webhook', controller.googleSheetWebhook);
 
 router.use(requireAuth);
 router.get('/', requirePermissions('orders:read', '*'), controller.list);
@@ -23,6 +27,12 @@ router.delete('/:id', requireSoftDeletePermission, controller.softDelete);
 router.post('/:id/restore', requireSoftDeletePermission, controller.restore);
 
 router.get('/:id', requirePermissions('orders:read', '*'), controller.get);
+
+router.patch(
+  '/:id/super-sheet',
+  requireDepartmentOnly('super_admin'),
+  controller.superSheetUpdate,
+);
 
 router.patch('/:id', controller.update);
 

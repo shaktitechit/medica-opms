@@ -35,6 +35,7 @@ import {
   ListSuperAdminOrdersPage,
   SuperAdminUsersPage,
   SuperAdminOrderDetail,
+  SuperAdminCreateOrderPage,
   ProfilePage,
 } from "@/components/portal";
 import CreateOrderPage from "@/components/portal/sales/CreateOrderPage";
@@ -223,6 +224,29 @@ export default function PortalCatchAllPage() {
   if (portal === "super_admin" && restArr.length === 1 && restArr[0] === "orders") {
     return <ListSuperAdminOrdersPage />;
   }
+  if (portal === "super_admin" && restArr.length === 1 && restArr[0] === "create-order") {
+    return <SuperAdminCreateOrderPage />;
+  }
+  if (portal === "super_admin" && restArr.length === 1 && restArr[0] === "work-planner") {
+    return <ListWorkPlansPage portalHome="/super_admin" />;
+  }
+  if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "calendar") {
+    return <WorkPlanCalendarPage portalHome="/super_admin" />;
+  }
+  if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "new") {
+    return <WorkPlanFormPage mode="create" portalHome="/super_admin" />;
+  }
+  if (
+    portal === "super_admin" &&
+    restArr.length === 3 &&
+    restArr[0] === "work-planner" &&
+    restArr[2] === "edit"
+  ) {
+    return <WorkPlanFormPage mode="edit" planId={restArr[1]} portalHome="/super_admin" />;
+  }
+  if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "work-planner") {
+    return <WorkPlanDetailPage planId={restArr[1]} portalHome="/super_admin" />;
+  }
   if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "order") {
     return <SuperAdminOrderDetail orderId={restArr[1]} />;
   }
@@ -234,6 +258,9 @@ export default function PortalCatchAllPage() {
   }
   if (portal === "super_admin" && restArr.length === 1 && restArr[0] === "products") {
     return <ListProductsPage portalHome="/super_admin" />;
+  }
+  if (portal === "super_admin" && restArr.length === 1 && restArr[0] === "transport-agents") {
+    return <ListTransportAgentsPage portalHome="/super_admin" />;
   }
   if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "parties") {
     return <PartyDetailPage id={restArr[1]} portalHome="/super_admin" />;
@@ -256,7 +283,7 @@ export default function PortalCatchAllPage() {
     return <ProductDetailPage id={restArr[1]} portalHome={`/${portal}`} />;
   }
   if (
-    (portal === "admin" || portal === "finance" || portal === "account") &&
+    (portal === "admin" || portal === "finance" || portal === "account" || portal === "super_admin") &&
     restArr.length === 2 && restArr[0] === "transport-agents"
   ) {
     return <TransportAgentDetailPage id={restArr[1]} portalHome={`/${portal}`} />;

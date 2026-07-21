@@ -117,6 +117,33 @@ async function transitionOrderStatus(params) {
         });
       }
 
+      const lifecycleLockStatuses = new Set([
+        ORDER_STATUS.ON_HOLD,
+        ORDER_STATUS.CANCELLED,
+        ORDER_STATUS.FINANCE_REJECTED,
+        ORDER_STATUS.ACCOUNT_REJECTED,
+      ]);
+      if (!_systemCall && lifecycleLockStatuses.has(canonicalStatus)) {
+        const submittedDispatch = await OrderDispatch.findOne({
+          order: orderId,
+          deletedAt: null,
+          dispatch_status: { $in: ['submitted', 'transport_created'] },
+        })
+          .session(session)
+          .select('_id dispatch_status')
+          .lean();
+        if (submittedDispatch) {
+          throw new ApiError(
+            409,
+            'Cannot hold, cancel, or reject an order after a dispatch batch has been created and submitted',
+            {
+              dispatch_id: String(submittedDispatch._id),
+              dispatch_status: submittedDispatch.dispatch_status,
+            },
+          );
+        }
+      }
+
       if (canonicalStatus === ORDER_STATUS.FINANCE_REJECTED) {
         const reason = rejectionReason ?? remarks;
         if (!reason || !String(reason).trim()) {

@@ -55,6 +55,7 @@ import {
 
 import { OrderDetailTabsNav } from "@/components/portal/shared/OrderDetailTabsNav";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { computeOrderLifecycleActionCaps } from "@/components/portal/shared/orderLifecycleActions";
 import { ItemFulfillmentDetailsModal } from "@/components/portal/shared/ItemFulfillmentDetailsModal";
 import {
   OrderFulfillmentPipelineStrip,
@@ -350,12 +351,19 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
   // Handle order transition
   const handleTransition = useCallback(
     async (nextStatus: string) => {
+      if (nextStatus === "finance_rejected" && !transitionRemarks.trim()) {
+        toast.error("Rejection reason is required.");
+        return;
+      }
       try {
         await transitionOrder({
           id: orderId,
           body: {
             next_status: nextStatus,
             remarks: transitionRemarks.trim() || undefined,
+            ...(nextStatus === "finance_rejected"
+              ? { rejection_reason: transitionRemarks.trim() }
+              : {}),
           },
         }).unwrap();
         toast.success(`Order successfully transitioned to ${nextStatus.split("_").join(" ")}`);
@@ -475,19 +483,10 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
 
   const canActivateClose = hasDispatchReleases && canCloseOrder && !hasUnreceivedReturns;
 
-  // Can this user perform actions?
-  const canPerformAction = useMemo(() => {
-    if (!detail) return false;
-    const isAdminApproved = Boolean(detail.is_admin_approved);
-    const isFinanceApproved =
-      Boolean(detail.is_finance_approved) ||
-      ["fully_finance_approved", "partially_finance_approved"].includes(status);
-    return (
-      isAdminApproved &&
-      isFinanceApproved &&
-      ["fully_finance_approved", "partially_finance_approved", "on_hold"].includes(status)
-    );
-  }, [detail, status]);
+  const lifecycleCaps = useMemo(
+    () => computeOrderLifecycleActionCaps({ status, dispatches }),
+    [status, dispatches],
+  );
 
   const busy = isSubmitting || isClosingOrder || isReopeningOrder;
 
@@ -530,20 +529,28 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
               Transition to {transitioningTo.replace("_", " ")}
             </h3>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              Confirm transition and add comments.
+              {transitioningTo === "finance_rejected"
+                ? "Please specify the reason for rejection (required)."
+                : "Confirm transition and add comments."}
             </p>
 
             <div className="mt-4 space-y-4">
               <div>
                 <label className="text-xs font-medium text-slate-700 dark:text-slate-300 font-sans">
-                  Remarks / Action Notes (Optional)
+                  {transitioningTo === "finance_rejected"
+                    ? "Rejection Reason (Required)"
+                    : "Remarks / Action Notes (Optional)"}
                 </label>
                 <textarea
                   value={transitionRemarks}
                   onChange={(e) => setTransitionRemarks(e.target.value)}
                   rows={3}
                   className="w-full mt-1.5 rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-955 dark:text-slate-555 dark:text-slate-50 font-sans"
-                  placeholder="Provide notes or reasons for this clearance transition..."
+                  placeholder={
+                    transitioningTo === "finance_rejected"
+                      ? "Type rejection reason..."
+                      : "Provide notes or reasons for this clearance transition..."
+                  }
                 />
               </div>
             </div>
@@ -754,10 +761,33 @@ export default function AccountOrderDetail({ orderId }: { orderId: string }) {
                 >
                   {orderIsAccountClosed ? "Re-open" : "Close"}
                 </button>
-                {status !== "on_hold" && (
-                  <button type="button" disabled={!canPerformAction || busy} onClick={() => setTransitioningTo("on_hold")} className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Hold</button>
-                )}
-                <button type="button" disabled={!canPerformAction || busy} onClick={() => setTransitioningTo("cancelled")} className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">Cancel</button>
+                <button
+                  type="button"
+                  disabled={!lifecycleCaps.canHold || busy}
+                  title={lifecycleCaps.lockReason}
+                  onClick={() => setTransitioningTo("on_hold")}
+                  className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                >
+                  Hold
+                </button>
+                <button
+                  type="button"
+                  disabled={!lifecycleCaps.canReject || busy}
+                  title={lifecycleCaps.lockReason}
+                  onClick={() => setTransitioningTo("finance_rejected")}
+                  className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                >
+                  Reject
+                </button>
+                <button
+                  type="button"
+                  disabled={!lifecycleCaps.canCancel || busy}
+                  title={lifecycleCaps.lockReason}
+                  onClick={() => setTransitioningTo("cancelled")}
+                  className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           </div>

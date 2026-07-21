@@ -117,3 +117,24 @@ exports.submit = asyncHandler(async (req, res) => {
   );
   res.json({ success: true, data });
 });
+
+exports.googleSheetWebhook = asyncHandler(async (req, res) => {
+  const secret = req.query.secret || req.headers['x-webhook-secret'] || req.headers['x-api-key'];
+  const expectedSecret = process.env.GOOGLE_SHEET_WEBHOOK_SECRET || 'medica-gsheet-sync-secret';
+
+  if (!secret || secret !== expectedSecret) {
+    throw new ApiError(401, 'Unauthorized: Invalid secret key');
+  }
+
+  const data = await service.syncFromGoogleSheet(req.body);
+  res.json({ success: true, data });
+});
+
+/** Super-admin live sheet bypass — skips workflow transition rules. */
+exports.superSheetUpdate = asyncHandler(async (req, res) => {
+  if (!req.user || req.user.department !== 'super_admin') {
+    throw new ApiError(403, 'Only super_admin can use the orders sheet bypass');
+  }
+  const data = await service.superSheetUpdate(req.params.id, req.body || {}, req.user);
+  res.json({ success: true, data });
+});

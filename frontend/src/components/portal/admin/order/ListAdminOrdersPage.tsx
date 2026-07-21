@@ -17,6 +17,7 @@ import { pickOrders } from "@/components/portal/shared/pickOrders";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { GoogleSheetOrdersModal } from "@/components/portal/shared/GoogleSheetOrdersModal";
 import { GoogleSheetAnalyticsModal } from "@/components/portal/shared/GoogleSheetAnalyticsModal";
+import { SuperAdminOrdersSheetModal } from "@/components/portal/super_admin/order/SuperAdminOrdersSheetModal";
 import { OpenOrdersModal } from "@/components/portal/shared/orderList/OpenOrdersModal";
 import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
@@ -247,13 +248,21 @@ function renderPendingApprovalBadge(order: OrderRow) {
   );
 }
 
-export default function ListAdminOrdersPage() {
+type ListAdminOrdersPageProps = {
+  /** Portal base path for links and navigation (default "/admin"). */
+  portalHome?: "/admin" | "/super_admin";
+};
+
+export default function ListAdminOrdersPage({
+  portalHome = "/admin",
+}: ListAdminOrdersPageProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
   const viewBy = searchParams.get("by") === "priority" ? "priority" : "workflow";
   const defaultTab: AdminOrderTabCategory =
     viewBy === "priority" ? "all" : "pending_admin_approval";
+  const analyticsPortal = portalHome === "/super_admin" ? "super_admin" : "admin";
 
   const qFromUrl = searchParams.get("q") ?? "";
 
@@ -504,10 +513,14 @@ export default function ListAdminOrdersPage() {
               type="button"
               onClick={() => setIsGoogleSheetOpen(true)}
               className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 cursor-pointer"
-              title="Open spreadsheet view"
+              title={
+                portalHome === "/super_admin"
+                  ? "Open super-admin live orders sheet (bypass)"
+                  : "Open spreadsheet view"
+              }
             >
-              <FileText className="h-3 w-3 text-purple-600 dark:text-purple-400" />
-              Sheet
+              <FileText className={`h-3 w-3 ${portalHome === "/super_admin" ? "text-amber-600 dark:text-amber-400" : "text-purple-600 dark:text-purple-400"}`} />
+              {portalHome === "/super_admin" ? "Orders Sheet" : "Sheet"}
             </button>
             <button
               type="button"
@@ -519,14 +532,14 @@ export default function ListAdminOrdersPage() {
               Analytics
             </button>
             <Link
-              href="/admin"
+              href={portalHome}
               className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5"
             >
               <LayoutDashboard className="h-3 w-3" />
               Dashboard
             </Link>
             <Link
-              href="/admin/create-order"
+              href={`${portalHome}/create-order`}
               className="inline-flex items-center gap-1 rounded-lg bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition active:scale-[0.98] dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer"
             >
               <Plus className="h-3 w-3" />
@@ -779,7 +792,7 @@ export default function ListAdminOrdersPage() {
                         className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors cursor-pointer"
                         onClick={() => {
                           if (id) {
-                            router.push(`/admin/order/${id}`);
+                            router.push(`${portalHome}/order/${id}`);
                           }
                         }}
                       >
@@ -915,23 +928,32 @@ export default function ListAdminOrdersPage() {
         onClose={() => setIsOpenOrdersOpen(false)}
         orders={orders}
         partyNameById={partyNameById}
-        portalBasePath="/admin"
+        portalBasePath={portalHome}
         renderStatusBadge={(order) => {
           const cat = getAdminOrderTabCategory(order, categoryOptions);
           return cat ? renderWorkflowStatusBadge(cat) : null;
         }}
       />
-      <GoogleSheetOrdersModal
-        isOpen={isGoogleSheetOpen}
-        onClose={() => setIsGoogleSheetOpen(false)}
-        partyNameById={partyNameById}
-        initialTab={activeTab}
-      />
+      {portalHome === "/super_admin" ? (
+        <SuperAdminOrdersSheetModal
+          isOpen={isGoogleSheetOpen}
+          onClose={() => setIsGoogleSheetOpen(false)}
+          partyNameById={partyNameById}
+        />
+      ) : (
+        <GoogleSheetOrdersModal
+          isOpen={isGoogleSheetOpen}
+          onClose={() => setIsGoogleSheetOpen(false)}
+          partyNameById={partyNameById}
+          initialTab={activeTab}
+          portal={analyticsPortal}
+        />
+      )}
       <GoogleSheetAnalyticsModal
         isOpen={isAnalyticsOpen}
         onClose={() => setIsAnalyticsOpen(false)}
         partyNameById={partyNameById}
-        portal="admin"
+        portal={analyticsPortal}
       />
 
       {viewOrderId && (
