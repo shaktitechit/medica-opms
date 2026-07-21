@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import { Download, Receipt, Search, X } from "lucide-react";
 
 import { downloadCsvFile } from "@/components/portal/admin/components/reportDownloadUtils";
@@ -12,6 +12,7 @@ import {
   filterUnbilledOrders,
   listUnbilledOrderLines,
   orderUnbilledQuantityTotals,
+  type UnbilledOrderLine,
 } from "@/components/portal/shared/orderList/unbilledOrders";
 import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
@@ -35,8 +36,6 @@ export type UnbilledOrdersModalProps = {
   orders?: unknown[];
 };
 
-type ViewTab = "order" | "item";
-
 type UnbilledOrderView = {
   orderId: string;
   orderNo: string;
@@ -47,23 +46,7 @@ type UnbilledOrderView = {
   total: number;
   created: string;
   href: string;
-};
-
-type UnbilledItemOrderRef = {
-  orderId: string;
-  orderNo: string;
-  party: string;
-  href: string;
-};
-
-type UnbilledItemView = {
-  key: string;
-  productName: string;
-  sku: string;
-  approved: number;
-  submittedDispatch: number;
-  remaining: number;
-  orders: UnbilledItemOrderRef[];
+  lines: UnbilledOrderLine[];
 };
 
 function pickList(raw: unknown): unknown[] {
@@ -97,13 +80,8 @@ function formatDateShort(v: unknown): string {
   });
 }
 
-function productAggregateKey(productId: string, productName: string, sku: string): string {
-  if (productId) return `id:${productId}`;
-  return `name:${productName.toLowerCase()}|sku:${sku.toLowerCase()}`;
-}
-
 /**
- * Un Billed Orders modal with Order-wise and Item-wise tabs.
+ * Un Billed Orders modal — orders with their line items listed underneath.
  */
 export function UnbilledOrdersModal({
   isOpen,
@@ -112,7 +90,6 @@ export function UnbilledOrdersModal({
   portalBasePath,
 }: UnbilledOrdersModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<ViewTab>("order");
 
   const ordersQ = useListOrdersQuery(UNBILLED_LIST_PARAMS, { skip: !isOpen });
   const dispatchesQ = useListDispatchesQuery({}, { skip: !isOpen });
@@ -149,132 +126,77 @@ export function UnbilledOrdersModal({
         total: Number(o.grand_total ?? o.total ?? 0),
         created: formatDateShort(o.order_date ?? o.created_at ?? o.createdAt),
         href: orderId ? `${portalBasePath}/order/${orderId}` : portalBasePath,
+        lines: listUnbilledOrderLines(o, categoryOptions),
       };
     });
   }, [unbilledOrders, partyNameById, categoryOptions, portalBasePath]);
 
-  const itemViews = useMemo((): UnbilledItemView[] => {
-    const map = new Map<string, UnbilledItemView>();
-
-    for (const raw of unbilledOrders) {
-      const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-      const orderId = orderKey(o);
-      const orderNo = String(o.order_no ?? o.order_number ?? orderId ?? "—");
-      const party = resolveOrderCounterparty(o, partyNameById);
-      const href = orderId ? `${portalBasePath}/order/${orderId}` : portalBasePath;
-      const lines = listUnbilledOrderLines(o, categoryOptions);
-
-      for (const line of lines) {
-        if (line.remaining <= 0) continue;
-        const key = productAggregateKey(line.productId, line.productName, line.sku);
-        const existing = map.get(key);
-        if (!existing) {
-          map.set(key, {
-            key,
-            productName: line.productName,
-            sku: line.sku,
-            approved: line.approved,
-            submittedDispatch: line.submittedDispatch,
-            remaining: line.remaining,
-            orders: [{ orderId, orderNo, party, href }],
-          });
-          continue;
-        }
-        existing.approved += line.approved;
-        existing.submittedDispatch += line.submittedDispatch;
-        existing.remaining += line.remaining;
-        if (!existing.orders.some((ref) => ref.orderId === orderId || ref.orderNo === orderNo)) {
-          existing.orders.push({ orderId, orderNo, party, href });
-        }
-      }
-    }
-
-    return Array.from(map.values()).sort((a, b) =>
-      a.productName.localeCompare(b.productName, undefined, { sensitivity: "base" }),
-    );
-  }, [unbilledOrders, categoryOptions, portalBasePath, partyNameById]);
-
-  const filteredOrders = useMemo(() => {
+  const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return orderViews;
-    return orderViews.filter(
-      (view) =>
-        view.orderNo.toLowerCase().includes(q) || view.party.toLowerCase().includes(q),
-    );
-  }, [orderViews, searchQuery]);
-
-  const filteredItems = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return itemViews;
-    return itemViews.filter((view) => {
-      if (
-        view.productName.toLowerCase().includes(q) ||
-        view.sku.toLowerCase().includes(q)
-      ) {
+    return orderViews.filter((view) => {
+      if (view.orderNo.toLowerCase().includes(q) || view.party.toLowerCase().includes(q)) {
         return true;
       }
-      return view.orders.some(
-        (ref) =>
-          ref.orderNo.toLowerCase().includes(q) || ref.party.toLowerCase().includes(q),
+      return view.lines.some(
+        (line) =>
+          line.productName.toLowerCase().includes(q) ||
+          line.sku.toLowerCase().includes(q),
       );
     });
-  }, [itemViews, searchQuery]);
+  }, [orderViews, searchQuery]);
 
   const handleDownloadCsv = useCallback(() => {
-    const dateStamp = new Date().toISOString().slice(0, 10);
-    if (activeTab === "order") {
-      const headers = [
-        "Order No",
-        "Party",
-        "Approved Qty",
-        "Dispatch Submitted Qty",
-        "Unbilled Qty",
-        "Grand Total",
-        "Created",
-        "Order Id",
-      ];
-      const rows = filteredOrders.map((view) => [
-        view.orderNo,
-        view.party,
-        view.approved,
-        view.submittedDispatch,
-        view.remaining,
-        view.total.toFixed(2),
-        view.created === "—" ? "" : view.created,
-        view.orderId,
-      ]);
-      downloadCsvFile(`un_billed_orders_${dateStamp}.csv`, headers, rows, [
-        `Un Billed Orders export (order-wise) · ${dateStamp}`,
-        `Rows: ${rows.length}`,
-      ]);
-      return;
-    }
-
     const headers = [
+      "Order No",
+      "Party",
       "Product",
       "SKU",
       "Approved Qty",
       "Dispatch Submitted Qty",
       "Unbilled Qty",
-      "Order Numbers",
+      "Order Grand Total",
+      "Created",
+      "Order Id",
     ];
-    const rows = filteredItems.map((view) => [
-      view.productName,
-      view.sku,
-      view.approved,
-      view.submittedDispatch,
-      view.remaining,
-      view.orders
-        .map((ref) =>
-          ref.party ? `${ref.orderNo} (${ref.party})` : ref.orderNo,
-        )
-        .join("; "),
+    const rows: Array<Array<string | number>> = [];
+    for (const view of filtered) {
+      if (view.lines.length === 0) {
+        rows.push([
+          view.orderNo,
+          view.party,
+          "",
+          "",
+          view.approved,
+          view.submittedDispatch,
+          view.remaining,
+          view.total.toFixed(2),
+          view.created === "—" ? "" : view.created,
+          view.orderId,
+        ]);
+        continue;
+      }
+      for (const line of view.lines) {
+        rows.push([
+          view.orderNo,
+          view.party,
+          line.productName,
+          line.sku,
+          line.approved,
+          line.submittedDispatch,
+          line.remaining,
+          view.total.toFixed(2),
+          view.created === "—" ? "" : view.created,
+          view.orderId,
+        ]);
+      }
+    }
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadCsvFile(`un_billed_orders_${dateStamp}.csv`, headers, rows, [
+      `Un Billed Orders export · ${dateStamp}`,
+      `Orders: ${filtered.length} · Line rows: ${rows.length}`,
     ]);
-    downloadCsvFile(`un_billed_items_${dateStamp}.csv`, headers, rows, [
-      `Un Billed Orders export (item-wise) · ${dateStamp}`,
-      `Rows: ${rows.length}`,
-    ]);
-  }, [activeTab, filteredOrders, filteredItems]);
+  }, [filtered]);
 
   if (!isOpen) return null;
 
@@ -284,8 +206,8 @@ export function UnbilledOrdersModal({
     dispatchesQ.isLoading ||
     dispatchesQ.isFetching;
   const isError = ordersQ.isError || dispatchesQ.isError;
-  const visibleCount = activeTab === "order" ? filteredOrders.length : filteredItems.length;
-  const canDownload = !busy && !isError && visibleCount > 0;
+  const canDownload = !busy && !isError && filtered.length > 0;
+  const lineCount = filtered.reduce((sum, view) => sum + view.lines.length, 0);
 
   return (
     <ModalOverlay onClick={onClose}>
@@ -311,8 +233,8 @@ export function UnbilledOrdersModal({
                 </h2>
                 <p className="mt-0.5 text-2xs text-slate-500 dark:text-slate-400">
                   Fully approved with dispatch created &amp; submitted — qty still below approved
-                  {!busy && orderViews.length > 0
-                    ? ` · ${orderViews.length} order${orderViews.length === 1 ? "" : "s"} · ${itemViews.length} item${itemViews.length === 1 ? "" : "s"}`
+                  {!busy && filtered.length > 0
+                    ? ` · ${filtered.length} order${filtered.length === 1 ? "" : "s"} · ${lineCount} item${lineCount === 1 ? "" : "s"}`
                     : ""}
                 </p>
               </div>
@@ -324,7 +246,7 @@ export function UnbilledOrdersModal({
               onClick={handleDownloadCsv}
               disabled={!canDownload}
               className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-300 bg-cyan-50 px-2.5 py-1.5 text-xs font-semibold text-cyan-700 shadow-sm transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-cyan-700/50 dark:bg-cyan-950/40 dark:text-cyan-400 dark:hover:bg-cyan-900/30"
-              title={canDownload ? "Download visible rows as CSV" : "Nothing to download"}
+              title={canDownload ? "Download visible orders and items as CSV" : "Nothing to download"}
             >
               <Download className="h-3.5 w-3.5" />
               Download
@@ -340,33 +262,6 @@ export function UnbilledOrdersModal({
           </div>
         </div>
 
-        <div className="shrink-0 border-b border-slate-100 px-5 pt-3 dark:border-white/5">
-          <div className="flex gap-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab("order")}
-              className={`rounded-t-lg px-3 py-2 text-xs font-semibold transition ${
-                activeTab === "order"
-                  ? "bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-300 dark:ring-cyan-800"
-                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5"
-              }`}
-            >
-              Order wise
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("item")}
-              className={`rounded-t-lg px-3 py-2 text-xs font-semibold transition ${
-                activeTab === "item"
-                  ? "bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-300 dark:ring-cyan-800"
-                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5"
-              }`}
-            >
-              Item wise
-            </button>
-          </div>
-        </div>
-
         <div className="shrink-0 border-b border-slate-100 px-5 py-3 dark:border-white/5">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -374,11 +269,7 @@ export function UnbilledOrdersModal({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={
-                activeTab === "order"
-                  ? "Search by order no or party…"
-                  : "Search by product, SKU, or order no…"
-              }
+              placeholder="Search by order no, party, or product…"
               className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-xs text-slate-800 outline-none ring-cyan-500/30 placeholder:text-slate-400 focus:border-cyan-400 focus:bg-white focus:ring-2 dark:border-white/10 dark:bg-slate-950 dark:text-slate-100"
             />
           </div>
@@ -400,23 +291,23 @@ export function UnbilledOrdersModal({
                 Loading un billed orders…
               </p>
             </div>
-          ) : visibleCount === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="px-5 py-16 text-center">
               <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                No un billed {activeTab === "order" ? "orders" : "items"}
+                No un billed orders
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 {unbilledOrders.length === 0
                   ? "No fully approved orders have a created & submitted dispatch with qty still below approved."
-                  : "No rows match your search."}
+                  : "No orders match your search."}
               </p>
             </div>
-          ) : activeTab === "order" ? (
+          ) : (
             <table className="w-full border-collapse text-left text-xs">
               <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur dark:bg-slate-900/95">
                 <tr className="border-b border-slate-100 dark:border-white/5">
                   <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
-                    Order No
+                    Order / Item
                   </th>
                   <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
                     Party
@@ -438,96 +329,63 @@ export function UnbilledOrdersModal({
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {filteredOrders.map((view) => (
-                  <tr
-                    key={view.orderId || view.orderNo}
-                    className="transition-colors hover:bg-slate-50/80 dark:hover:bg-white/[0.03]"
-                  >
-                    <td className="px-4 py-2.5 font-mono font-bold text-slate-800 dark:text-slate-100">
-                      {view.orderNo}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300">{view.party}</td>
-                    <td className="px-4 py-2.5 tabular-nums text-slate-600 dark:text-slate-400">
-                      {view.approved} / {view.submittedDispatch}
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums font-semibold text-cyan-700 dark:text-cyan-400">
-                      {view.remaining}
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums text-slate-700 dark:text-slate-300">
-                      ₹{formatMoney(view.total)}
-                    </td>
-                    <td className="px-4 py-2.5 whitespace-nowrap text-slate-500">{view.created}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      <Link
-                        href={view.href}
-                        onClick={onClose}
-                        className="inline-flex rounded-md bg-cyan-600 px-2.5 py-1 text-2xs font-semibold text-white transition hover:bg-cyan-700"
+              <tbody>
+                {filtered.map((view) => (
+                  <Fragment key={view.orderId || view.orderNo}>
+                    <tr className="border-t border-slate-200 bg-slate-50/70 dark:border-white/10 dark:bg-slate-800/40">
+                      <td className="px-4 py-2.5 font-mono font-bold text-slate-800 dark:text-slate-100">
+                        {view.orderNo}
+                        <span className="ml-2 font-sans text-2xs font-medium text-slate-500">
+                          {view.lines.length} item{view.lines.length === 1 ? "" : "s"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 font-medium text-slate-700 dark:text-slate-300">
+                        {view.party}
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums font-semibold text-slate-700 dark:text-slate-300">
+                        {view.approved} / {view.submittedDispatch}
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums font-semibold text-cyan-700 dark:text-cyan-400">
+                        {view.remaining}
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums font-semibold text-slate-700 dark:text-slate-300">
+                        ₹{formatMoney(view.total)}
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap text-slate-500">{view.created}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <Link
+                          href={view.href}
+                          onClick={onClose}
+                          className="inline-flex rounded-md bg-cyan-600 px-2.5 py-1 text-2xs font-semibold text-white transition hover:bg-cyan-700"
+                        >
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                    {view.lines.map((line) => (
+                      <tr
+                        key={`${view.orderId}-${line.orderItemId}`}
+                        className="border-t border-slate-100 bg-white dark:border-white/5 dark:bg-slate-900"
                       >
-                        View
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <table className="w-full border-collapse text-left text-xs">
-              <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur dark:bg-slate-900/95">
-                <tr className="border-b border-slate-100 dark:border-white/5">
-                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
-                    Item
-                  </th>
-                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
-                    Qty (approved / dispatch submitted)
-                  </th>
-                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
-                    Unbilled Qty
-                  </th>
-                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
-                    Orders
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {filteredItems.map((view) => (
-                  <tr
-                    key={view.key}
-                    className="transition-colors hover:bg-slate-50/80 dark:hover:bg-white/[0.03]"
-                  >
-                    <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100">
-                      <div className="font-medium">{view.productName}</div>
-                      {view.sku ? (
-                        <div className="text-2xs text-slate-400">SKU {view.sku}</div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums text-slate-600 dark:text-slate-400">
-                      {view.approved} / {view.submittedDispatch}
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums font-semibold text-cyan-700 dark:text-cyan-400">
-                      {view.remaining}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex flex-wrap gap-1.5">
-                        {view.orders.map((ref) => (
-                          <Link
-                            key={ref.orderId || ref.orderNo}
-                            href={ref.href}
-                            onClick={onClose}
-                            className="inline-flex max-w-full items-center rounded-md bg-slate-100 px-2 py-0.5 text-2xs font-semibold text-cyan-700 transition hover:bg-cyan-50 hover:text-cyan-800 dark:bg-white/5 dark:text-cyan-400 dark:hover:bg-cyan-950/40"
-                            title={`Go to ${ref.orderNo}${ref.party ? ` · ${ref.party}` : ""}`}
-                          >
-                            <span className="font-mono">{ref.orderNo}</span>
-                            {ref.party ? (
-                              <span className="ml-1 truncate font-sans font-medium text-slate-500 dark:text-slate-400">
-                                ({ref.party})
-                              </span>
-                            ) : null}
-                          </Link>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
+                        <td className="px-4 py-2 pl-8 text-slate-700 dark:text-slate-300">
+                          <div className="font-medium">{line.productName}</div>
+                          {line.sku ? (
+                            <div className="text-2xs text-slate-400">SKU {line.sku}</div>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-2 text-slate-400">—</td>
+                        <td className="px-4 py-2 tabular-nums text-slate-600 dark:text-slate-400">
+                          {line.approved} / {line.submittedDispatch}
+                        </td>
+                        <td className="px-4 py-2 tabular-nums font-semibold text-cyan-700 dark:text-cyan-400">
+                          {line.remaining}
+                        </td>
+                        <td className="px-4 py-2 text-slate-400">—</td>
+                        <td className="px-4 py-2 text-slate-400">—</td>
+                        <td className="px-4 py-2" />
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
