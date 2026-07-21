@@ -214,6 +214,10 @@ export function listUnbilledOrderLines(
     const lineKey = orderLineKey(orderId, orderItemId);
     const submittedDispatch =
       options?.submittedDispatchQtyByOrderLineId?.get(lineKey) ?? 0;
+    const remaining = Math.max(0, approved - submittedDispatch);
+    // Only lines that still need dispatch (unbilled / pending qty).
+    if (remaining <= 0) continue;
+
     const { id: productId, name, sku } = resolveProductLabel(line);
 
     lines.push({
@@ -223,7 +227,7 @@ export function listUnbilledOrderLines(
       sku,
       approved,
       submittedDispatch,
-      remaining: Math.max(0, approved - submittedDispatch),
+      remaining,
     });
   }
 
