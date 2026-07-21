@@ -929,10 +929,6 @@ export default function ListAdminOrdersPage({
         orders={orders}
         partyNameById={partyNameById}
         portalBasePath={portalHome}
-        renderStatusBadge={(order) => {
-          const cat = getAdminOrderTabCategory(order, categoryOptions);
-          return cat ? renderWorkflowStatusBadge(cat) : null;
-        }}
       />
       {portalHome === "/super_admin" ? (
         <SuperAdminOrdersSheetModal

@@ -679,10 +679,6 @@ export default function ListDispatchOrdersPage() {
         orders={orders}
         partyNameById={partyNameById}
         portalBasePath="/dispatch"
-        renderStatusBadge={(order) => {
-          const cat = getDispatchOrderTabCategory(order, categoryOptions);
-          return cat ? renderWorkflowStatusBadge(cat) : null;
-        }}
       />
       {viewOrderId && (
         <OrderDetailModal

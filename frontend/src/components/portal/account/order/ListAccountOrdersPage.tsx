@@ -683,10 +683,6 @@ export default function ListAccountOrdersPage() {
         orders={orders}
         partyNameById={partyNameById}
         portalBasePath="/account"
-        renderStatusBadge={(order) => {
-          const cat = getAccountOrderTabCategory(order, categoryOptions);
-          return cat ? renderWorkflowStatusBadge(cat) : null;
-        }}
       />
       <GoogleSheetOrdersModal
         isOpen={isSheetOpen}

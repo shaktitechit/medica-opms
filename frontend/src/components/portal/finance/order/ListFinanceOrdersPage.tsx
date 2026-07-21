@@ -714,10 +714,6 @@ export default function ListFinanceOrdersPage() {
         orders={orders}
         partyNameById={partyNameById}
         portalBasePath="/finance"
-        renderStatusBadge={(order) => {
-          const cat = getFinanceOrderTabCategory(order, categoryOptions);
-          return cat ? renderWorkflowStatusBadge(cat) : null;
-        }}
       />
       <GoogleSheetOrdersModal
         isOpen={isSheetOpen}

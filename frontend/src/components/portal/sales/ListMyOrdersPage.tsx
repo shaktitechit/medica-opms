@@ -694,10 +694,6 @@ export default function ListMyOrdersPage() {
         orders={orders}
         partyNameById={partyNameById}
         portalBasePath="/sales"
-        renderStatusBadge={(order) => {
-          const cat = getOrderTabCategory(order, categoryOptions);
-          return renderWorkflowStatusBadge(cat);
-        }}
       />
       {viewOrderId && (
         <OrderDetailModal

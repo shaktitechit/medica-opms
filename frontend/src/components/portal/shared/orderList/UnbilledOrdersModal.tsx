@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Download, Receipt, Search, X } from "lucide-react";
 
 import { downloadCsvFile } from "@/components/portal/admin/components/reportDownloadUtils";
@@ -26,8 +26,6 @@ export type UnbilledOrdersModalProps = {
   partyNameById: Map<string, string>;
   /** Portal prefix for order detail links, e.g. "/account" */
   portalBasePath: string;
-  /** Optional workflow badge renderer */
-  renderStatusBadge?: (order: unknown) => ReactNode;
   /**
    * @deprecated Modal loads its own post-approval order pool when open.
    * Kept for call-site compatibility; ignored.
@@ -75,7 +73,6 @@ export function UnbilledOrdersModal({
   onClose,
   partyNameById,
   portalBasePath,
-  renderStatusBadge,
 }: UnbilledOrdersModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -276,9 +273,6 @@ export function UnbilledOrdersModal({
                   <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
                     Created
                   </th>
-                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
-                    Status
-                  </th>
                   <th className="px-4 py-2.5 text-right font-semibold uppercase tracking-wider text-slate-500">
                     Open
                   </th>
@@ -318,9 +312,6 @@ export function UnbilledOrdersModal({
                         ₹{formatMoney(total)}
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap text-slate-500">{created}</td>
-                      <td className="px-4 py-2.5">
-                        {renderStatusBadge ? renderStatusBadge(raw) : "—"}
-                      </td>
                       <td className="px-4 py-2.5 text-right">
                         <Link
                           href={href}
