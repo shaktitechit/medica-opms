@@ -207,7 +207,7 @@ export function MapOrderLinePriceModal({
       }
       onSuccess?.({
         productId: target.productId,
-        appliedRateType: target.appliedRateType,
+        appliedRateType: rateType,
         negotiatedRate: Number(rate),
       });
       resetAndClose();
