@@ -148,8 +148,48 @@ async function get(id) {
   };
 }
 
+async function createRatesForMapping(mappingId, partyId, productId, rates, user) {
+  const { PartyProductRate } = getModels();
+  const ratesCreated = [];
+  if (!Array.isArray(rates) || rates.length === 0) return ratesCreated;
+
+  for (const r of rates) {
+    const approvalReq = r.approval_required === true;
+    const status = approvalReq
+      ? 'draft'
+      : r.status && RATE_STATUSES.has(r.status)
+        ? r.status
+        : 'active';
+
+    const ratePayload = {
+      mapping: mappingId,
+      party: partyId,
+      product: productId,
+      rate_type: r.rate_type,
+      rate: Number(r.rate),
+      min_qty: r.min_qty !== undefined ? Number(r.min_qty) : 1,
+      max_qty: r.max_qty !== undefined ? Number(r.max_qty) : 999999,
+      validity_start: new Date(r.validity_start),
+      validity_end: new Date(r.validity_end),
+      priority: r.priority !== undefined ? Number(r.priority) : 100,
+      approval_required: approvalReq,
+      status,
+      remarks: r.remarks != null ? String(r.remarks).trim() : '',
+    };
+
+    if (user) {
+      ratePayload.created_by = user._id;
+    }
+
+    const rateDoc = await PartyProductRate.create(ratePayload);
+    ratesCreated.push(toPlain(rateDoc.toObject()));
+  }
+
+  return ratesCreated;
+}
+
 async function create(body, user) {
-  const { Party, Product, PartyProductMapping, PartyProductRate } = getModels();
+  const { Party, Product, PartyProductMapping } = getModels();
 
   // Validate existence of party and product
   const partyExists = await Party.exists({ _id: body.party, deletedAt: null });
@@ -158,64 +198,92 @@ async function create(body, user) {
   const productExists = await Product.exists({ _id: body.product, deletedAt: null });
   if (!productExists) throw new ApiError(400, 'Product not found or inactive');
 
-  // Check unique constraint party + product
-  const existingMapping = await PartyProductMapping.findOne({
+  /*
+   * Unique index is on { party, product } including soft-deleted rows.
+   * Reuse / restore an existing row instead of inserting a duplicate (E11000).
+   */
+  let mappingDoc = await PartyProductMapping.findOne({
     party: body.party,
     product: body.product,
     deletedAt: null,
-  });
-  if (existingMapping) {
-    throw new ApiError(400, 'Mapping already exists for this party and product');
+  }).sort({ createdAt: -1 });
+
+  if (!mappingDoc) {
+    mappingDoc = await PartyProductMapping.findOne({
+      party: body.party,
+      product: body.product,
+    })
+      .withDeleted()
+      .sort({ createdAt: -1 });
   }
 
-  // Create Mapping
-  const mappingPayload = {
-    party: body.party,
-    product: body.product,
+  const wasRestored = Boolean(mappingDoc && mappingDoc.deletedAt != null);
+  const wasExisting = Boolean(mappingDoc && mappingDoc.deletedAt == null);
+  let createdNew = false;
+
+  const nextFields = {
     is_active: body.is_active !== false,
     is_orderable: body.is_orderable !== false,
     priority: body.priority !== undefined ? Number(body.priority) : 100,
-    expected_order_quantity: body.expected_order_quantity !== undefined ? Number(body.expected_order_quantity) : 0,
+    expected_order_quantity:
+      body.expected_order_quantity !== undefined
+        ? Number(body.expected_order_quantity)
+        : 0,
     remarks: body.remarks != null ? String(body.remarks).trim() : '',
   };
 
-  if (user) {
-    mappingPayload.created_by = user._id;
-  }
-
-  const mappingDoc = await PartyProductMapping.create(mappingPayload);
-
-  // Create Rates if provided
-  const ratesCreated = [];
-  if (Array.isArray(body.rates) && body.rates.length > 0) {
-    for (const r of body.rates) {
-      const approvalReq = r.approval_required === true;
-      const status = approvalReq ? 'draft' : (r.status && RATE_STATUSES.has(r.status) ? r.status : 'active');
-
-      const ratePayload = {
-        mapping: mappingDoc._id,
-        party: body.party,
-        product: body.product,
-        rate_type: r.rate_type,
-        rate: Number(r.rate),
-        min_qty: r.min_qty !== undefined ? Number(r.min_qty) : 1,
-        max_qty: r.max_qty !== undefined ? Number(r.max_qty) : 999999,
-        validity_start: new Date(r.validity_start),
-        validity_end: new Date(r.validity_end),
-        priority: r.priority !== undefined ? Number(r.priority) : 100,
-        approval_required: approvalReq,
-        status,
-        remarks: r.remarks != null ? String(r.remarks).trim() : '',
-      };
-
-      if (user) {
-        ratePayload.created_by = user._id;
+  if (!mappingDoc) {
+    const mappingPayload = {
+      party: body.party,
+      product: body.product,
+      ...nextFields,
+    };
+    if (user) {
+      mappingPayload.created_by = user._id;
+    }
+    try {
+      mappingDoc = await PartyProductMapping.create(mappingPayload);
+      createdNew = true;
+    } catch (err) {
+      // Race / soft-deleted edge: unique index hit — reload and reuse
+      if (err && (err.code === 11000 || err.code === '11000')) {
+        mappingDoc = await PartyProductMapping.findOne({
+          party: body.party,
+          product: body.product,
+        })
+          .withDeleted()
+          .sort({ createdAt: -1 });
+        if (!mappingDoc) throw err;
+      } else {
+        throw err;
       }
-
-      const rateDoc = await PartyProductRate.create(ratePayload);
-      ratesCreated.push(toPlain(rateDoc.toObject()));
     }
   }
+
+  if (!createdNew && mappingDoc) {
+    if (mappingDoc.deletedAt != null) {
+      mappingDoc.deletedAt = null;
+    }
+    mappingDoc.is_active = nextFields.is_active;
+    mappingDoc.is_orderable = nextFields.is_orderable;
+    mappingDoc.priority = nextFields.priority;
+    mappingDoc.expected_order_quantity = nextFields.expected_order_quantity;
+    if (body.remarks != null) {
+      mappingDoc.remarks = nextFields.remarks;
+    }
+    if (user) {
+      mappingDoc.updated_by = user._id;
+    }
+    await mappingDoc.save();
+  }
+
+  const ratesCreated = await createRatesForMapping(
+    mappingDoc._id,
+    body.party,
+    body.product,
+    body.rates,
+    user,
+  );
 
   const populated = await PartyProductMapping.findById(mappingDoc._id)
     .populate('party')
@@ -228,12 +296,13 @@ async function create(body, user) {
   };
 
   if (user) {
+    const verb = createdNew ? 'created' : wasRestored || wasExisting ? 'reused' : 'updated';
     await activityService.create({
       actor: user._id,
       entity_type: 'product',
       entity_id: plain.product?._id || plain.product,
-      action: 'created',
-      message: `PartyProductMapping created between party ${plain.party?.party_name} and product ${plain.product?.product_name}${plain.rates.length > 0 ? ` with ${plain.rates.length} rates` : ''}`,
+      action: createdNew ? 'created' : 'updated',
+      message: `PartyProductMapping ${verb} between party ${plain.party?.party_name} and product ${plain.product?.product_name}${plain.rates.length > 0 ? ` with ${plain.rates.length} rates` : ''}`,
     });
   }
 

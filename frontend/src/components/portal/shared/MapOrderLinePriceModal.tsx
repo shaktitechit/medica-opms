@@ -193,6 +193,7 @@ export function MapOrderLinePriceModal({
         }).unwrap();
         toast.success("Negotiated rate and mapping updated successfully.");
       } else {
+        // Backend upserts: reuses/restores existing party+product mapping (avoids E11000).
         await createMapping({
           party: partyId,
           product: target.productId,
