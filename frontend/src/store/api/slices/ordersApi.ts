@@ -112,7 +112,11 @@ export const ordersApi = medicaApi.injectEndpoints({
         body: normalizeOrderBody(patch),
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, arg) => orderEntityTags(arg.id),
+      invalidatesTags: (_r, _e, arg) => [
+        ...orderEntityTags(arg.id),
+        { type: "OrderApprovals", id: "LIST" },
+        "Approvals",
+      ],
     }),
     deleteOrder: build.mutation<unknown, string>({
       query: (id) => ({ url: `orders/${id}`, method: "DELETE" }),

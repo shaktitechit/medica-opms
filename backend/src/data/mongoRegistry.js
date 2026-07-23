@@ -1718,6 +1718,7 @@ function registerModels() {
           "created",
           "updated",
           "deleted",
+          "restored",
           "submitted",
           "approved",
           "rejected",

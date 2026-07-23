@@ -14,15 +14,19 @@ import {
   Package,
   Save,
   ClipboardCheck,
+  RotateCcw,
 } from "lucide-react";
 import {
   useListOrdersQuery,
+  useListOrdersDeletedQuery,
   useListOrderApprovalsQuery,
   useListPartiesQuery,
   useListProductsQuery,
   useListUsersQuery,
   useSuperSheetPatchOrderMutation,
   useSuperSheetPatchOrderApprovalMutation,
+  useDeleteOrderMutation,
+  useRestoreOrderMutation,
 } from "@/store/api";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import {
@@ -35,6 +39,10 @@ import {
   resolveUserDisplay,
 } from "@/components/portal/shared/userDisplay";
 import { toast } from "@/lib/toast";
+import {
+  mutationRejectedMessage,
+  mutationSuccessCopy,
+} from "@/lib/mutationMessages";
 
 export type SuperAdminOrdersSheetModalProps = {
   isOpen: boolean;
@@ -1663,6 +1671,30 @@ function approvalItemFromRaw(item: any, idx: number): ApprovalItemDraft {
   };
 }
 
+function emptyApprovalLine(): ApprovalItemDraft {
+  return {
+    key: `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    order_item_id: "",
+    product: "",
+    product_label: "",
+    ordered_quantity: 0,
+    ordered_unit_price: 0,
+    ordered_total_amount: 0,
+    approved_quantity: 0,
+    approved_unit_price: 0,
+    approved_total_amount: 0,
+    applied_rate_type: "SR",
+    pricing_reference: "",
+    manual_price_override: true,
+    rate_mapped: false,
+    discount_percent: 0,
+    discount_amount: 0,
+    gst_percent: 0,
+    free_quantity: 0,
+    remarks: "",
+  };
+}
+
 function headerFromApproval(approval: Record<string, unknown>): ApprovalHeaderDraft {
   return {
     approved_total_amount: Number(approval.approved_total_amount ?? 0) || 0,
@@ -1689,6 +1721,7 @@ function OrderApprovalsForm({
   order,
   approvals,
   users,
+  products,
   saving,
   onClose,
   onSave,
@@ -1696,6 +1729,7 @@ function OrderApprovalsForm({
   order: any;
   approvals: Record<string, unknown>[];
   users: NamedOption[];
+  products: ProductOption[];
   saving: boolean;
   onClose: () => void;
   onSave: (approvalId: string, patch: Record<string, unknown>) => Promise<void>;
@@ -1711,6 +1745,12 @@ function OrderApprovalsForm({
       }),
     [approvals],
   );
+
+  const productById = useMemo(() => {
+    const map = new Map<string, ProductOption>();
+    for (const p of products) map.set(p.id, p);
+    return map;
+  }, [products]);
 
   const [selectedId, setSelectedId] = useState(
     () => refId(sortedApprovals[0]?._id || sortedApprovals[0]?.id) || "",
@@ -1796,25 +1836,98 @@ function OrderApprovalsForm({
             "approved_unit_price",
             "discount_percent",
             "gst_percent",
+            "ordered_quantity",
+            "ordered_unit_price",
           ].includes(String(field))
         ) {
-          const calc = calcApprovalLineTotal(
-            Number(next.approved_quantity) || 0,
-            Number(next.approved_unit_price) || 0,
-            Number(next.discount_percent) || 0,
-            Number(next.gst_percent) || 0,
-          );
-          return { ...next, ...calc };
+          if (
+            field === "ordered_quantity" ||
+            field === "ordered_unit_price"
+          ) {
+            const oq = Number(next.ordered_quantity) || 0;
+            const op = Number(next.ordered_unit_price) || 0;
+            next.ordered_total_amount = Number((oq * op).toFixed(2));
+          }
+          if (
+            [
+              "approved_quantity",
+              "approved_unit_price",
+              "discount_percent",
+              "gst_percent",
+            ].includes(String(field))
+          ) {
+            const calc = calcApprovalLineTotal(
+              Number(next.approved_quantity) || 0,
+              Number(next.approved_unit_price) || 0,
+              Number(next.discount_percent) || 0,
+              Number(next.gst_percent) || 0,
+            );
+            return { ...next, ...calc };
+          }
         }
         return next;
       }),
     );
   };
 
+  const selectProduct = (key: string, productId: string) => {
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.key !== key) return line;
+        const product = productId ? productById.get(productId) || null : null;
+        if (!product) {
+          return {
+            ...line,
+            product: "",
+            product_label: "",
+            gst_percent: 0,
+            approved_unit_price: 0,
+            ordered_unit_price: 0,
+            approved_total_amount: 0,
+            ordered_total_amount: 0,
+            discount_amount: 0,
+          };
+        }
+        const next: ApprovalItemDraft = {
+          ...line,
+          product: product.id,
+          product_label: product.product_name,
+          gst_percent: product.gst_percent,
+          approved_unit_price: product.base_price || line.approved_unit_price,
+          ordered_unit_price: product.base_price || line.ordered_unit_price,
+          manual_price_override: true,
+          rate_mapped: false,
+        };
+        const oq = Number(next.ordered_quantity) || 0;
+        const op = Number(next.ordered_unit_price) || 0;
+        next.ordered_total_amount = Number((oq * op).toFixed(2));
+        const calc = calcApprovalLineTotal(
+          Number(next.approved_quantity) || 0,
+          Number(next.approved_unit_price) || 0,
+          Number(next.discount_percent) || 0,
+          Number(next.gst_percent) || 0,
+        );
+        return { ...next, ...calc };
+      }),
+    );
+  };
+
+  const addLine = () => setLines((prev) => [...prev, emptyApprovalLine()]);
+
+  const removeLine = (key: string) => {
+    setLines((prev) => prev.filter((l) => l.key !== key));
+  };
+
   const handleSave = async () => {
     if (!selectedId) {
       toast.error("No approval batch selected");
       return;
+    }
+    for (const line of lines) {
+      if (!line.product?.trim()) {
+        toast.error("Every approval line needs a product");
+        return;
+      }
     }
     const approval_items = lines.map((line) => ({
       order_item_id: line.order_item_id || undefined,
@@ -2099,22 +2212,88 @@ function OrderApprovalsForm({
                 <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
                   Approval items ({lines.length})
                 </div>
-                {lines.map((line, idx) => (
+                {lines.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-500 dark:border-slate-700">
+                    No approval lines yet. Add a line below.
+                  </div>
+                ) : null}
+                {lines.map((line, idx) => {
+                  const isNew = !line.order_item_id;
+                  return (
                   <div
                     key={line.key}
                     className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-950/40"
                   >
-                    <div className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-200">
-                      Line {idx + 1} — {line.product_label || "Product"}
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                        Line {idx + 1}
+                        {isNew ? (
+                          <span className="ml-2 text-2xs font-normal text-amber-600">
+                            new
+                          </span>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeLine(line.key)}
+                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-2xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete
+                      </button>
                     </div>
                     <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
+                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500 col-span-2">
+                        product*
+                        <select
+                          className={inputClass}
+                          value={line.product}
+                          onChange={(e) =>
+                            selectProduct(line.key, e.target.value)
+                          }
+                        >
+                          <option value="">Select product…</option>
+                          {line.product && !productById.has(line.product) ? (
+                            <option value={line.product}>
+                              {line.product_label || "Current product"}
+                            </option>
+                          ) : null}
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.product_name}
+                              {p.sku ? ` (${p.sku})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
                         ordered_qty
                         <input
                           type="number"
-                          className={`${inputClass} bg-slate-100 dark:bg-slate-900`}
+                          className={inputClass}
                           value={line.ordered_quantity}
-                          readOnly
+                          onChange={(e) =>
+                            updateLine(
+                              line.key,
+                              "ordered_quantity",
+                              Number(e.target.value) || 0,
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
+                        ordered_unit_price
+                        <input
+                          type="number"
+                          className={inputClass}
+                          value={line.ordered_unit_price}
+                          onChange={(e) =>
+                            updateLine(
+                              line.key,
+                              "ordered_unit_price",
+                              Number(e.target.value) || 0,
+                            )
+                          }
                         />
                       </label>
                       <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
@@ -2233,7 +2412,17 @@ function OrderApprovalsForm({
                       </label>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
+                <button
+                  type="button"
+                  disabled={!selectedId}
+                  onClick={addLine}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-200"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add line
+                </button>
               </div>
             </>
           )}
@@ -2301,6 +2490,7 @@ export function SuperAdminOrdersSheetModal({
   partyNameById: partyNameByIdProp,
 }: SuperAdminOrdersSheetModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [sheetTab, setSheetTab] = useState<"orders" | "bin">("orders");
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
   const [savingApprovalIds, setSavingApprovalIds] = useState<
     Record<string, boolean>
@@ -2308,22 +2498,43 @@ export function SuperAdminOrdersSheetModal({
   const [localOrders, setLocalOrders] = useState<any[]>([]);
   const [itemsOrderId, setItemsOrderId] = useState<string | null>(null);
   const [approvalsOrderId, setApprovalsOrderId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{
     orderId: string;
     colKey: string;
   } | null>(null);
   const [editValue, setEditValue] = useState("");
 
-  const { data, isFetching, isLoading, refetch } = useListOrdersQuery(
+  const isBin = sheetTab === "bin";
+
+  const activeOrdersQ = useListOrdersQuery(
     {},
-    { skip: !isOpen },
+    { skip: !isOpen || isBin },
   );
+  const deletedOrdersQ = useListOrdersDeletedQuery(
+    {},
+    { skip: !isOpen || !isBin },
+  );
+  const data = isBin ? deletedOrdersQ.data : activeOrdersQ.data;
+  const isFetching = isBin
+    ? deletedOrdersQ.isFetching
+    : activeOrdersQ.isFetching;
+  const isLoading = isBin ? deletedOrdersQ.isLoading : activeOrdersQ.isLoading;
+  const refetch = isBin ? deletedOrdersQ.refetch : activeOrdersQ.refetch;
+
   const partiesQ = useListPartiesQuery({}, { skip: !isOpen });
   const usersQ = useListUsersQuery({}, { skip: !isOpen });
   const productsQ = useListProductsQuery({}, { skip: !isOpen });
   const approvalsQ = useListOrderApprovalsQuery({}, { skip: !isOpen });
   const [superSheetPatch] = useSuperSheetPatchOrderMutation();
   const [superSheetPatchApproval] = useSuperSheetPatchOrderApprovalMutation();
+  const [deleteOrder, { isLoading: isDeletingOrder }] =
+    useDeleteOrderMutation();
+  const [restoreOrder] = useRestoreOrderMutation();
 
   const partyNameById = useMemo(() => {
     if (partyNameByIdProp && partyNameByIdProp.size > 0) return partyNameByIdProp;
@@ -2374,12 +2585,24 @@ export function SuperAdminOrdersSheetModal({
   useEffect(() => {
     if (!isOpen) return;
     setLocalOrders(rawOrders.map((o) => ({ ...(o as object) })));
-  }, [isOpen, rawOrders]);
+  }, [isOpen, rawOrders, sheetTab]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setItemsOrderId(null);
+    setApprovalsOrderId(null);
+    setEditing(null);
+    setDeleteTarget(null);
+  }, [sheetTab, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (deleteTarget) {
+        if (!isDeletingOrder) setDeleteTarget(null);
+        return;
+      }
       if (approvalsOrderId) {
         setApprovalsOrderId(null);
         return;
@@ -2397,7 +2620,14 @@ export function SuperAdminOrdersSheetModal({
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [isOpen, onClose, itemsOrderId, approvalsOrderId]);
+  }, [
+    isOpen,
+    onClose,
+    itemsOrderId,
+    approvalsOrderId,
+    deleteTarget,
+    isDeletingOrder,
+  ]);
 
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -2515,6 +2745,41 @@ export function SuperAdminOrdersSheetModal({
     [superSheetPatchApproval, approvalsQ, refetch],
   );
 
+  const confirmDeleteOrder = useCallback(async () => {
+    if (!deleteTarget) return;
+    try {
+      await deleteOrder(deleteTarget.id).unwrap();
+      toast.success(mutationSuccessCopy("deleteOrder"));
+      setDeleteTarget(null);
+      setLocalOrders((list) =>
+        list.filter((o) => refId(o._id || o.id) !== deleteTarget.id),
+      );
+      // Only refetch queries that are currently subscribed (started).
+      await activeOrdersQ.refetch();
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }, [deleteOrder, deleteTarget, activeOrdersQ]);
+
+  const handleRestoreOrder = useCallback(
+    async (orderId: string) => {
+      setRestoringId(orderId);
+      try {
+        await restoreOrder(orderId).unwrap();
+        toast.success(mutationSuccessCopy("restoreOrder"));
+        setLocalOrders((list) =>
+          list.filter((o) => refId(o._id || o.id) !== orderId),
+        );
+        await deletedOrdersQ.refetch();
+      } catch (rejected) {
+        toast.error(mutationRejectedMessage(rejected));
+      } finally {
+        setRestoringId(null);
+      }
+    },
+    [restoreOrder, deletedOrdersQ],
+  );
+
   const commitOrderField = async (
     order: any,
     colKey: string,
@@ -2586,7 +2851,7 @@ export function SuperAdminOrdersSheetModal({
     const isEditing =
       editing?.orderId === orderId && editing?.colKey === col.key;
 
-    if (!col.editable) {
+    if (!col.editable || isBin) {
       return (
         <span className="block truncate text-slate-600 dark:text-slate-300">
           {displayValue || "—"}
@@ -2771,7 +3036,8 @@ export function SuperAdminOrdersSheetModal({
                 </span>
               </div>
               <p className="text-xs text-amber-900/80 dark:text-amber-200/80">
-                Package opens order items; clipboard opens approval batches (edit + save bypass).
+                Package opens items; clipboard opens approvals; trash moves to Bin
+                (soft delete) with restore.
               </p>
             </div>
           </div>
@@ -2786,6 +3052,31 @@ export function SuperAdminOrdersSheetModal({
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 shrink-0 dark:border-slate-800 dark:bg-slate-950">
           <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900">
+              <button
+                type="button"
+                onClick={() => setSheetTab("orders")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  sheetTab === "orders"
+                    ? "bg-amber-500 text-white shadow-sm"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                }`}
+              >
+                Orders
+              </button>
+              <button
+                type="button"
+                onClick={() => setSheetTab("bin")}
+                className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  sheetTab === "bin"
+                    ? "bg-rose-600 text-white shadow-sm"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                }`}
+              >
+                <Trash2 className="h-3 w-3" />
+                Bin
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => {
@@ -2799,21 +3090,23 @@ export function SuperAdminOrdersSheetModal({
               />
               Reload
             </button>
-            <button
-              type="button"
-              onClick={exportCsv}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold dark:border-slate-700 dark:bg-slate-900"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Export CSV
-            </button>
+            {!isBin ? (
+              <button
+                type="button"
+                onClick={exportCsv}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold dark:border-slate-700 dark:bg-slate-900"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+              </button>
+            ) : null}
           </div>
           <div className="relative w-64">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search orders…"
+              placeholder={isBin ? "Search bin…" : "Search orders…"}
               className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900"
             />
           </div>
@@ -2829,12 +3122,19 @@ export function SuperAdminOrdersSheetModal({
           <table className="min-w-max border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100 dark:bg-slate-900">
-                <th className="sticky top-0 left-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
-                  Items
+                <th className="sticky top-0 left-0 z-30 w-14 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
+                  {isBin ? "Restore" : "Actions"}
                 </th>
-                <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
-                  Appr
-                </th>
+                {!isBin ? (
+                  <>
+                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
+                      Items
+                    </th>
+                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
+                      Appr
+                    </th>
+                  </>
+                ) : null}
                 <th className="sticky top-0 z-20 w-10 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 text-slate-400 dark:border-slate-800 dark:bg-slate-900">
                   #
                 </th>
@@ -2845,7 +3145,7 @@ export function SuperAdminOrdersSheetModal({
                     className="sticky top-0 z-20 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 text-left font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
                   >
                     {col.label}
-                    {col.editable ? (
+                    {col.editable && !isBin ? (
                       <span className="ml-1 text-amber-600">✎</span>
                     ) : null}
                   </th>
@@ -2853,6 +3153,18 @@ export function SuperAdminOrdersSheetModal({
               </tr>
             </thead>
             <tbody>
+              {filteredOrders.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={ORDER_COLUMNS.length + (isBin ? 2 : 4)}
+                    className="px-4 py-12 text-center text-sm text-slate-500"
+                  >
+                    {isBin
+                      ? "Bin is empty — deleted orders will appear here."
+                      : "No orders found."}
+                  </td>
+                </tr>
+              ) : null}
               {filteredOrders.map((order, idx) => {
                 const orderId = refId(order._id || order.id);
                 const itemCount = Array.isArray(order.order_items)
@@ -2860,37 +3172,70 @@ export function SuperAdminOrdersSheetModal({
                   : 0;
                 const approvalCount =
                   approvalsByOrderId.get(orderId)?.length ?? 0;
+                const orderLabel =
+                  String(order.order_no || "").trim() || orderId;
                 return (
                   <tr
                     key={orderId}
                     className="bg-white hover:bg-amber-50/30 dark:bg-slate-900 dark:hover:bg-amber-950/20"
                   >
                     <td className="sticky left-0 z-10 border-b border-r border-slate-100 bg-white px-1 py-1 dark:border-slate-800 dark:bg-slate-900">
-                      <button
-                        type="button"
-                        onClick={() => setItemsOrderId(orderId)}
-                        className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
-                        title="Open order items form"
-                      >
-                        <Package className="h-4 w-4" />
-                        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-600 px-0.5 text-[9px] font-bold text-white">
-                          {itemCount}
-                        </span>
-                      </button>
+                      {isBin ? (
+                        <button
+                          type="button"
+                          disabled={restoringId === orderId}
+                          onClick={() => void handleRestoreOrder(orderId)}
+                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-2xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+                          title="Restore order from bin"
+                        >
+                          <RotateCcw
+                            className={`h-3.5 w-3.5 ${restoringId === orderId ? "animate-spin" : ""}`}
+                          />
+                          Restore
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeleteTarget({ id: orderId, label: orderLabel })
+                          }
+                          className="inline-flex items-center justify-center rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                          title="Move order to bin"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </td>
-                    <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => setApprovalsOrderId(orderId)}
-                        className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900/40"
-                        title="Open order approvals form"
-                      >
-                        <ClipboardCheck className="h-4 w-4" />
-                        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-600 px-0.5 text-[9px] font-bold text-white">
-                          {approvalCount}
-                        </span>
-                      </button>
-                    </td>
+                    {!isBin ? (
+                      <>
+                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setItemsOrderId(orderId)}
+                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
+                            title="Open order items form"
+                          >
+                            <Package className="h-4 w-4" />
+                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-600 px-0.5 text-[9px] font-bold text-white">
+                              {itemCount}
+                            </span>
+                          </button>
+                        </td>
+                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setApprovalsOrderId(orderId)}
+                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900/40"
+                            title="Open order approvals form"
+                          >
+                            <ClipboardCheck className="h-4 w-4" />
+                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-600 px-0.5 text-[9px] font-bold text-white">
+                              {approvalCount}
+                            </span>
+                          </button>
+                        </td>
+                      </>
+                    ) : null}
                     <td className="border-b border-r border-slate-100 px-2 py-1 text-center font-mono text-slate-400 dark:border-slate-800">
                       {idx + 1}
                     </td>
@@ -2898,7 +3243,7 @@ export function SuperAdminOrdersSheetModal({
                       <td
                         key={col.key}
                         className={`border-b border-r border-slate-100 px-2 py-1 dark:border-slate-800 ${
-                          col.editable
+                          col.editable && !isBin
                             ? "bg-amber-50/25 dark:bg-amber-950/10"
                             : ""
                         }`}
@@ -2917,11 +3262,16 @@ export function SuperAdminOrdersSheetModal({
 
         <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-500 shrink-0 dark:border-slate-800 dark:bg-slate-900">
           <span>
-            {filteredOrders.length} / {localOrders.length} orders · package =
-            items · clipboard = approvals
+            {filteredOrders.length} / {localOrders.length}{" "}
+            {isBin ? "deleted orders" : "orders"}
+            {!isBin
+              ? " · trash = delete · package = items · clipboard = approvals"
+              : " · restore returns the order to the active sheet"}
           </span>
           <span className="font-semibold text-amber-700 dark:text-amber-400">
-            Super-admin bypass — orders + approvals writable
+            {isBin
+              ? "Bin — soft-deleted orders"
+              : "Super-admin bypass — orders + approvals writable"}
           </span>
         </div>
 
@@ -2946,12 +3296,63 @@ export function SuperAdminOrdersSheetModal({
             order={approvalsOrder}
             approvals={approvalsForSelectedOrder}
             users={userOptions}
+            products={products}
             saving={Object.values(savingApprovalIds).some(Boolean)}
             onClose={() => setApprovalsOrderId(null)}
             onSave={async (approvalId, patch) => {
               await saveApprovalPatch(approvalId, patch);
             }}
           />
+        ) : null}
+
+        {deleteTarget ? (
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+            role="presentation"
+            onClick={() => !isDeletingOrder && setDeleteTarget(null)}
+          >
+            <div
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="super-sheet-delete-title"
+              className="w-full max-w-md overflow-hidden rounded-xl border border-rose-200/90 bg-white shadow-xl dark:border-rose-900/40 dark:bg-slate-900"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="border-b border-rose-100 px-5 py-4 dark:border-rose-900/30">
+                <h2
+                  id="super-sheet-delete-title"
+                  className="text-lg font-semibold text-rose-950 dark:text-rose-100"
+                >
+                  Move order to bin?
+                </h2>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                  This will soft-delete order{" "}
+                  <span className="font-mono font-medium text-slate-900 dark:text-slate-100">
+                    {deleteTarget.label}
+                  </span>
+                  . You can restore it later from the Bin tab.
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-end gap-2 px-5 py-4">
+                <button
+                  type="button"
+                  disabled={isDeletingOrder}
+                  onClick={() => setDeleteTarget(null)}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold dark:border-white/15"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingOrder}
+                  onClick={() => void confirmDeleteOrder()}
+                  className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                >
+                  {isDeletingOrder ? "Deleting…" : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
         ) : null}
       </div>
     </LargeModalPortal>

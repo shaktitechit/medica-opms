@@ -1706,6 +1706,15 @@ async function superSheetUpdate(id, body, user) {
 
   await doc.save();
 
+  if (Array.isArray(patch.order_items)) {
+    try {
+      const orderApprovalService = require('../orderApproval/orderApproval.service');
+      await orderApprovalService.syncApprovalsFromOrderSuperSheet(doc._id);
+    } catch (_err) {
+      // Soft-fail sync so order save still succeeds; sheet can reload approvals.
+    }
+  }
+
   await activityService.create({
     actor: user._id,
     entity_type: 'order',

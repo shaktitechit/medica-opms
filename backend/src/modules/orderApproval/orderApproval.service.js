@@ -3015,13 +3015,78 @@ async function superSheetUpdate(id, body, user) {
   }
 
   if (Array.isArray(patch.approval_items)) {
-    const normalizedItems = patch.approval_items.map((rawItem) => {
+    const { Order, Product } = getModels();
+    const order = await Order.findOne({ _id: doc.order, deletedAt: null });
+    if (!order) throw new ApiError(404, 'Order not found');
+
+    const lineById = new Map(
+      (order.order_items || []).map((line) => [String(line._id), line]),
+    );
+    /** Unclaimed order lines by product id (for reuse instead of duplicate). */
+    const unusedByProduct = new Map();
+    for (const line of order.order_items || []) {
+      const pid = String(line.product?._id || line.product || '').trim();
+      if (!pid) continue;
+      const list = unusedByProduct.get(pid) || [];
+      list.push(line);
+      unusedByProduct.set(pid, list);
+    }
+
+    const claimLine = (line) => {
+      if (!line) return;
+      const pid = String(line.product?._id || line.product || '').trim();
+      if (!pid) return;
+      const list = unusedByProduct.get(pid) || [];
+      const idx = list.findIndex((row) => String(row._id) === String(line._id));
+      if (idx >= 0) list.splice(idx, 1);
+      unusedByProduct.set(pid, list);
+    };
+
+    const applyLineFields = (line, fields) => {
+      line.product = fields.product;
+      line.ordered_quantity = fields.orderedQty || fields.approvedQty;
+      line.quantity = fields.orderedQty || fields.approvedQty;
+      line.approved_quantity = fields.approvedQty;
+      line.free_quantity = fields.freeQty;
+      line.unit_price = fields.orderedPrice || fields.approvedPrice;
+      line.discount_percent = fields.discountPercent;
+      line.discount_amount = fields.discountAmount;
+      line.gst_percent = fields.gstPercent;
+      if (fields.appliedRateType) line.applied_rate_type = fields.appliedRateType;
+      line.manual_price_override = true;
+      if (fields.productName) line.product_name = fields.productName;
+      if (fields.sku != null) line.sku = fields.sku;
+      if (fields.brand != null) line.brand = fields.brand;
+      if (fields.manufacturer != null) line.manufacturer = fields.manufacturer;
+      if (fields.unit != null) line.unit = fields.unit;
+      if (fields.hsn != null) line.hsn_code = fields.hsn;
+      line.line_status = line.line_status || 'active';
+    };
+
+    let orderDirty = false;
+    const priorLinkedIds = new Set(
+      (doc.approval_items || [])
+        .map((row) => String(row.order_item_id || ''))
+        .filter(Boolean),
+    );
+    const keptLineIds = new Set();
+    const normalizedItems = [];
+
+    for (const rawItem of patch.approval_items) {
       if (!rawItem || typeof rawItem !== 'object') {
         throw new ApiError(400, 'Each approval_items row must be an object');
       }
       const item = { ...rawItem };
-      if (item.order_item_id != null) item.order_item_id = String(item.order_item_id);
-      if (item.product != null) item.product = String(item.product);
+
+      if (item.product != null && item.product !== '') {
+        item.product = String(item.product);
+        if (!mongoose.Types.ObjectId.isValid(item.product)) {
+          throw new ApiError(400, 'Invalid product ObjectId on approval_items');
+        }
+      } else {
+        throw new ApiError(400, 'Each approval_items row requires product');
+      }
+
       if (item.pricing_reference === '' || item.pricing_reference == null) {
         item.pricing_reference = undefined;
       }
@@ -3033,6 +3098,7 @@ async function superSheetUpdate(id, body, user) {
         item.rate_mapped === true ||
         item.rate_mapped === 'true' ||
         item.rate_mapped === 1;
+
       for (const nk of [
         'ordered_quantity',
         'ordered_unit_price',
@@ -3052,9 +3118,125 @@ async function superSheetUpdate(id, body, user) {
           }
         }
       }
+
+      let orderItemId =
+        item.order_item_id != null && item.order_item_id !== ''
+          ? String(item.order_item_id).trim()
+          : '';
+      if (orderItemId && !mongoose.Types.ObjectId.isValid(orderItemId)) {
+        throw new ApiError(400, 'Invalid order_item_id on approval_items');
+      }
+
+      const approvedQty = Number(item.approved_quantity ?? 0) || 0;
+      const approvedPrice = Number(item.approved_unit_price ?? 0) || 0;
+      const orderedQty = Number(item.ordered_quantity ?? approvedQty) || 0;
+      const orderedPrice = Number(item.ordered_unit_price ?? approvedPrice) || 0;
+      const freeQty = Number(item.free_quantity ?? 0) || 0;
+      const discountPercent = Number(item.discount_percent ?? 0) || 0;
+      const discountAmount = Number(item.discount_amount ?? 0) || 0;
+      const gstPercent = Number(item.gst_percent ?? 0) || 0;
+      const appliedRateType = item.applied_rate_type || 'MANUAL';
+
+      let line = orderItemId ? lineById.get(orderItemId) : null;
+      if (line) {
+        claimLine(line);
+      } else {
+        orderItemId = '';
+        const candidates = unusedByProduct.get(item.product) || [];
+        if (candidates.length > 0) {
+          line = candidates[0];
+          claimLine(line);
+          orderItemId = String(line._id);
+        }
+      }
+
+      const productDoc = await Product.findById(item.product)
+        .select('product_name sku gst_percent brand manufacturer unit hsn_code base_price')
+        .lean();
+      const lineFields = {
+        product: item.product,
+        orderedQty,
+        approvedQty,
+        freeQty,
+        orderedPrice,
+        approvedPrice,
+        discountPercent,
+        discountAmount,
+        gstPercent: gstPercent || productDoc?.gst_percent || 0,
+        appliedRateType,
+        productName: productDoc?.product_name || '',
+        sku: productDoc?.sku || '',
+        brand: productDoc?.brand || '',
+        manufacturer: productDoc?.manufacturer || '',
+        unit: productDoc?.unit || '',
+        hsn: productDoc?.hsn_code || '',
+      };
+
+      if (!line) {
+        order.order_items.push({
+          product: item.product,
+          product_name: lineFields.productName,
+          sku: lineFields.sku,
+          brand: lineFields.brand,
+          manufacturer: lineFields.manufacturer,
+          unit: lineFields.unit,
+          hsn_code: lineFields.hsn,
+          gst_percent: lineFields.gstPercent,
+          ordered_quantity: orderedQty || approvedQty,
+          quantity: orderedQty || approvedQty,
+          approved_quantity: approvedQty,
+          free_quantity: freeQty,
+          unit_price: orderedPrice || approvedPrice,
+          discount_percent: discountPercent,
+          discount_amount: discountAmount,
+          applied_rate_type: appliedRateType,
+          manual_price_override: true,
+          line_status: 'active',
+        });
+        line = order.order_items[order.order_items.length - 1];
+        orderItemId = String(line._id);
+        lineById.set(orderItemId, line);
+        claimLine(line);
+        orderDirty = true;
+      } else {
+        applyLineFields(line, lineFields);
+        orderDirty = true;
+      }
+
+      keptLineIds.add(orderItemId);
+      item.order_item_id = orderItemId;
+      item.ordered_quantity = orderedQty;
+      item.ordered_unit_price = orderedPrice;
+      item.ordered_total_amount = Number(
+        item.ordered_total_amount ?? orderedQty * orderedPrice,
+      ) || 0;
+      item.approved_quantity = approvedQty;
+      item.approved_unit_price = approvedPrice;
+      item.free_quantity = freeQty;
+      item.discount_percent = discountPercent;
+      item.discount_amount = discountAmount;
+      item.gst_percent = gstPercent;
+      item.remarks = item.remarks != null ? String(item.remarks) : '';
+
       recalcApprovalItemTotals(item);
-      return item;
-    });
+      normalizedItems.push(item);
+    }
+
+    // Drop order lines that were linked to this approval but removed from the batch.
+    const removeIds = [...priorLinkedIds].filter((id) => id && !keptLineIds.has(id));
+    if (removeIds.length > 0) {
+      const removeSet = new Set(removeIds);
+      order.order_items = (order.order_items || []).filter(
+        (line) => !removeSet.has(String(line._id)),
+      );
+      orderDirty = true;
+    }
+
+    if (orderDirty) {
+      order.markModified('order_items');
+      await order.save();
+    }
+
     doc.set('approval_items', normalizedItems);
     doc.markModified('approval_items');
 
@@ -3096,12 +3278,98 @@ async function superSheetUpdate(id, body, user) {
   return toPlain(addDerivedStatus(doc.toObject()));
 }
 
+/**
+ * Super-admin sheet: when order_items change, keep linked approval batches in sync
+ * (match by order_item_id, update qty/price, add/remove lines).
+ */
+async function syncApprovalsFromOrderSuperSheet(orderId) {
+  const { Order, OrderApproval } = getModels();
+  const order = await Order.findOne({ _id: orderId, deletedAt: null });
+  if (!order) return;
+
+  const orderLines = order.order_items || [];
+  const approvals = await OrderApproval.find({
+    order: orderId,
+    deletedAt: null,
+  });
+
+  for (const approval of approvals) {
+    const existingByLine = new Map(
+      (approval.approval_items || []).map((item) => [
+        String(item.order_item_id || ''),
+        item,
+      ]),
+    );
+    const nextItems = [];
+
+    for (const line of orderLines) {
+      const lineId = String(line._id);
+      const prev = existingByLine.get(lineId) || {};
+      const productId = String(line.product?._id || line.product || '');
+      const orderedQty = Number(line.ordered_quantity ?? line.quantity ?? 0) || 0;
+      const unitPrice = Number(line.unit_price ?? 0) || 0;
+      const approvedQty =
+        prev.approved_quantity != null
+          ? Math.min(Number(prev.approved_quantity) || 0, orderedQty)
+          : Number(line.approved_quantity ?? orderedQty) || 0;
+      const approvedPrice =
+        prev.approved_unit_price != null
+          ? Number(prev.approved_unit_price) || 0
+          : unitPrice;
+      const item = {
+        order_item_id: line._id,
+        product: productId,
+        ordered_quantity: orderedQty,
+        ordered_unit_price: unitPrice,
+        ordered_total_amount: Number(
+          (orderedQty * unitPrice).toFixed(2),
+        ),
+        approved_quantity: approvedQty,
+        approved_unit_price: approvedPrice,
+        applied_rate_type:
+          prev.applied_rate_type || line.applied_rate_type || 'MANUAL',
+        pricing_reference: prev.pricing_reference || line.pricing_reference || undefined,
+        manual_price_override:
+          prev.manual_price_override != null
+            ? Boolean(prev.manual_price_override)
+            : Boolean(line.manual_price_override),
+        rate_mapped: prev.rate_mapped != null ? Boolean(prev.rate_mapped) : false,
+        discount_percent: Number(
+          prev.discount_percent ?? line.discount_percent ?? 0,
+        ) || 0,
+        discount_amount: Number(
+          prev.discount_amount ?? line.discount_amount ?? 0,
+        ) || 0,
+        gst_percent: Number(prev.gst_percent ?? line.gst_percent ?? 0) || 0,
+        free_quantity: Number(prev.free_quantity ?? line.free_quantity ?? 0) || 0,
+        remarks: prev.remarks != null ? String(prev.remarks) : String(line.remarks || ''),
+      };
+      recalcApprovalItemTotals(item);
+      nextItems.push(item);
+    }
+
+    // Drop approval rows whose order line no longer exists.
+    approval.approval_items = nextItems;
+    approval.markModified('approval_items');
+    approval.approved_total_amount = nextItems.reduce(
+      (sum, row) => sum + Number(row.approved_total_amount || 0),
+      0,
+    );
+    approval.ordered_total_amount = nextItems.reduce(
+      (sum, row) => sum + Number(row.ordered_total_amount || 0),
+      0,
+    );
+    await approval.save();
+  }
+}
+
 module.exports = {
   list,
   get,
   create,
   patch,
   superSheetUpdate,
+  syncApprovalsFromOrderSuperSheet,
   approve,
   reject,
   sendToFinance,

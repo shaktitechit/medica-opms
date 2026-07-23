@@ -41,6 +41,7 @@ const activityLogSchema = new mongoose.Schema(
         "created",
         "updated",
         "deleted",
+        "restored",
         "submitted",
         "approved",
         "rejected",
