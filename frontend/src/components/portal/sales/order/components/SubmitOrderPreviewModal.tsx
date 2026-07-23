@@ -7,6 +7,11 @@ import {
 } from "@/components/portal/shared/modalLayout";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 
+type SubmitIssue = {
+  kind: "submit" | "approval";
+  message: string;
+} | null;
+
 type SubmitOrderPreviewModalProps = {
   isOpen: boolean;
   onClose: () => void;
@@ -15,7 +20,9 @@ type SubmitOrderPreviewModalProps = {
   submitRemarks: string;
   onSubmitRemarksChange: (value: string) => void;
   onSubmit: () => void;
+  onRetry?: () => void;
   isSubmitting: boolean;
+  submitIssue?: SubmitIssue;
 };
 
 function formatDate(v: unknown): string {
@@ -56,7 +63,9 @@ export default function SubmitOrderPreviewModal({
   submitRemarks,
   onSubmitRemarksChange,
   onSubmit,
+  onRetry,
   isSubmitting,
+  submitIssue = null,
 }: SubmitOrderPreviewModalProps) {
   const items = useMemo(() => {
     if (!Array.isArray(detail.order_items)) return [];
@@ -67,6 +76,7 @@ export default function SubmitOrderPreviewModal({
   const gstAmount = Number(detail.gst_amount ?? 0);
   const headerDiscount = Number(detail.discount_amount ?? 0);
   const grandTotal = Number(detail.grand_total ?? 0);
+  const needsRetry = Boolean(submitIssue);
 
   if (!isOpen) return null;
 
@@ -97,6 +107,20 @@ export default function SubmitOrderPreviewModal({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          {submitIssue ? (
+            <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-100">
+              <p className="font-semibold">
+                {submitIssue.kind === "approval"
+                  ? "Order submitted, but approval was not created"
+                  : "Submit failed"}
+              </p>
+              <p className="mt-1 text-xs opacity-90">{submitIssue.message}</p>
+              <p className="mt-1.5 text-2xs opacity-80">
+                Use Retry to try again without losing this form.
+              </p>
+            </div>
+          ) : null}
+
           <dl className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <dt className="font-medium text-slate-500">Order No</dt>
@@ -233,7 +257,7 @@ export default function SubmitOrderPreviewModal({
               value={submitRemarks}
               onChange={(e) => onSubmitRemarksChange(e.target.value)}
               rows={3}
-              disabled={isSubmitting}
+              disabled={isSubmitting || submitIssue?.kind === "approval"}
               className="mt-1.5 w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 disabled:opacity-60 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
               placeholder="Notes for admin review…"
             />
@@ -249,24 +273,47 @@ export default function SubmitOrderPreviewModal({
           >
             Cancel
           </button>
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={isSubmitting || items.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-400"
-          >
-            {isSubmitting ? (
-              <>
-                <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Submitting…
-              </>
-            ) : (
-              "Submit order"
-            )}
-          </button>
+          {needsRetry ? (
+            <button
+              type="button"
+              onClick={() => (onRetry ? onRetry() : onSubmit())}
+              disabled={isSubmitting || items.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSubmitting ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Retrying…
+                </>
+              ) : submitIssue?.kind === "approval" ? (
+                "Retry create approval"
+              ) : (
+                "Retry submit"
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSubmit}
+              disabled={isSubmitting || items.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+            >
+              {isSubmitting ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Submitting…
+                </>
+              ) : (
+                "Submit order"
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>

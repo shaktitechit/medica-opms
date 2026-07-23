@@ -10,6 +10,8 @@ import {
   useListFlagsQuery,
   useGetOrderHistoryQuery,
   useSubmitOrderMutation,
+  useCreateOrderApprovalMutation,
+  useLazyGetOrderApprovalsQuery,
   useListAttachmentsQuery,
   useListUsersQuery,
   useListPartiesQuery,
@@ -169,6 +171,14 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
   const [isPartyDetailsModalOpen, setIsPartyDetailsModalOpen] = useState(false);
   const [submitRemarks, setSubmitRemarks] = useState("");
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [submitIssue, setSubmitIssue] = useState<{
+    kind: "submit" | "approval";
+    message: string;
+  } | null>(null);
+  const [lastSubmitBody, setLastSubmitBody] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
 
   const usersQ = useListUsersQuery({});
   const users = useMemo(() => pickList(usersQ.data), [usersQ.data]);
@@ -233,6 +243,8 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
   const fulfillmentQ = useGetOrderFulfillmentQuery(orderId);
 
   const [submitOrder] = useSubmitOrderMutation();
+  const [createOrderApproval] = useCreateOrderApprovalMutation();
+  const [fetchOrderApprovals] = useLazyGetOrderApprovalsQuery();
 
   const detail =
     data && typeof data === "object"
@@ -343,6 +355,154 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
 
 
 
+  const buildSubmitPayload = useCallback(() => {
+    const orderItemsPayload = readOnlyItems.map((line) => {
+      const item: Record<string, unknown> = {
+        product: detailRefId(line.product),
+        product_name: String(line.product_name ?? "—"),
+        sku: typeof line.sku === "string" ? line.sku : "",
+        ordered_quantity: Number(line.ordered_quantity ?? line.quantity ?? 0),
+        free_quantity: Number(line.free_quantity ?? line.free_qty ?? 0),
+        unit_price: Number(line.unit_price ?? 0),
+        discount_percent: Number(line.discount_percent ?? 0),
+        discount_amount: Number(line.discount_amount ?? 0),
+        gst_percent: Number(line.gst_percent ?? 18),
+        applied_rate_type:
+          !line.applied_rate_type || line.applied_rate_type === "MANUAL"
+            ? "SR"
+            : String(line.applied_rate_type),
+        remarks: typeof line.remarks === "string" ? line.remarks.trim() : "",
+      };
+      const id = line._id ?? line.id;
+      if (id) item._id = String(id);
+      return item;
+    });
+
+    const getLineTotal = (line: Record<string, unknown>) => {
+      const qty = Number(line.ordered_quantity ?? line.quantity ?? 0);
+      const unitPrice = Number(line.unit_price ?? 0);
+      const gross = qty * unitPrice;
+      let discount = Number(line.discount_amount ?? 0);
+      const discPercent = Number(line.discount_percent ?? 0);
+      if (discPercent > 0) discount = (gross * discPercent) / 100;
+      const taxable = Math.max(0, gross - discount);
+      const gst = (taxable * Number(line.gst_percent ?? 0)) / 100;
+      return taxable + gst;
+    };
+
+    const approvedTotal = readOnlyItems.reduce(
+      (sum, line) => sum + getLineTotal(line),
+      0,
+    );
+
+    const approvalItems = readOnlyItems.map((line) => {
+      const item: Record<string, unknown> = {
+        product: detailRefId(line.product),
+        ordered_quantity: Number(line.ordered_quantity ?? line.quantity ?? 0),
+        approved_quantity: Number(line.ordered_quantity ?? line.quantity ?? 0),
+        approved_unit_price: Number(line.unit_price ?? 0),
+        ordered_unit_price: Number(line.unit_price ?? 0),
+        free_quantity: Number(line.free_quantity ?? line.free_qty ?? 0),
+        discount_percent: Number(line.discount_percent ?? 0),
+        discount_amount: Number(line.discount_amount ?? 0),
+        gst_percent: Number(line.gst_percent ?? 18),
+        applied_rate_type:
+          !line.applied_rate_type || line.applied_rate_type === "MANUAL"
+            ? "SR"
+            : String(line.applied_rate_type),
+        approved_total_amount: getLineTotal(line),
+        approval_status: "fully_approved",
+        remarks: typeof line.remarks === "string" ? line.remarks.trim() : "",
+      };
+      const id = line._id ?? line.id;
+      if (id) item.order_item_id = String(id);
+      return item;
+    });
+
+    const partyContacts = contactsFromParty(partyDetailQ.data);
+    const selectedContacts: string[] = [];
+    const selectedContactNames: string[] = [];
+    const firstWithPhone = partyContacts.find((c) => c.phone.trim());
+    if (firstWithPhone) {
+      selectedContacts.push(firstWithPhone.phone.trim());
+      selectedContactNames.push(firstWithPhone.name.trim());
+    }
+
+    return {
+      order_items: orderItemsPayload,
+      remarks: submitRemarks.trim() || undefined,
+      approved_total_amount: approvedTotal,
+      approval_items: approvalItems,
+      contact_number: selectedContacts,
+      contact_name: selectedContactNames,
+    };
+  }, [readOnlyItems, partyDetailQ.data, submitRemarks]);
+
+  const verifyApprovalExists = useCallback(
+    async (id: string) => {
+      try {
+        const raw = await fetchOrderApprovals(id).unwrap();
+        return pickList(raw).length > 0;
+      } catch {
+        return false;
+      }
+    },
+    [fetchOrderApprovals],
+  );
+
+  const finishSubmitSuccess = useCallback(() => {
+    toast.success("Order submitted successfully.");
+    setSubmitIssue(null);
+    setLastSubmitBody(null);
+    setIsSubmitPreviewOpen(false);
+    setSubmitRemarks("");
+    handleRefetch();
+  }, [handleRefetch]);
+
+  const handleRetryApproval = useCallback(async () => {
+    if (!orderId) return;
+    const body = lastSubmitBody || buildSubmitPayload();
+    setIsSubmittingOrder(true);
+    setSubmitIssue(null);
+    try {
+      await createOrderApproval({
+        order: orderId,
+        approve_immediately: false,
+        replace_snapshot: true,
+        approval_notes:
+          typeof body.remarks === "string" ? body.remarks : undefined,
+        approved_total_amount: Number(body.approved_total_amount ?? 0) || 0,
+        approval_items: (body.approval_items as any[]) || [],
+        contact_number: (body.contact_number as string[]) || [],
+        contact_name: (body.contact_name as string[]) || [],
+        order_items: (body.order_items as any[]) || [],
+      }).unwrap();
+      const ok = await verifyApprovalExists(orderId);
+      if (!ok) {
+        throw new Error("Approval still missing after retry");
+      }
+      finishSubmitSuccess();
+    } catch (rejected) {
+      const message = mutationRejectedMessage(rejected);
+      setSubmitIssue({
+        kind: "approval",
+        message:
+          message ||
+          "Order was submitted but approval could not be created. Retry.",
+      });
+      toast.error(message || "Failed to create order approval");
+    } finally {
+      setIsSubmittingOrder(false);
+    }
+  }, [
+    orderId,
+    lastSubmitBody,
+    buildSubmitPayload,
+    createOrderApproval,
+    verifyApprovalExists,
+    finishSubmitSuccess,
+  ]);
+
   const handleSubmitOrder = useCallback(async () => {
     if (!orderId) return;
     if (!readOnlyItems.length) {
@@ -350,98 +510,74 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
       return;
     }
     setIsSubmittingOrder(true);
+    setSubmitIssue(null);
+    const body = buildSubmitPayload();
+    setLastSubmitBody(body);
     try {
-      const orderItemsPayload = readOnlyItems.map((line) => {
-        const item: Record<string, unknown> = {
-          product: detailRefId(line.product),
-          product_name: String(line.product_name ?? "—"),
-          sku: typeof line.sku === "string" ? line.sku : "",
-          ordered_quantity: Number(line.ordered_quantity ?? line.quantity ?? 0),
-          free_quantity: Number(line.free_quantity ?? line.free_qty ?? 0),
-          unit_price: Number(line.unit_price ?? 0),
-          discount_percent: Number(line.discount_percent ?? 0),
-          discount_amount: Number(line.discount_amount ?? 0),
-          gst_percent: Number(line.gst_percent ?? 18),
-          applied_rate_type: !line.applied_rate_type || line.applied_rate_type === "MANUAL" ? "SR" : String(line.applied_rate_type),
-          remarks: typeof line.remarks === "string" ? line.remarks.trim() : "",
-        };
-        const id = line._id ?? line.id;
-        if (id) {
-          item._id = String(id);
-        }
-        return item;
-      });
-
-      const getLineTotal = (line: any) => {
-        const qty = Number(line.ordered_quantity ?? line.quantity ?? 0);
-        const unitPrice = Number(line.unit_price ?? 0);
-        const gross = qty * unitPrice;
-        let discount = Number(line.discount_amount ?? 0);
-        const discPercent = Number(line.discount_percent ?? 0);
-        if (discPercent > 0) {
-          discount = (gross * discPercent) / 100;
-        }
-        const taxable = Math.max(0, gross - discount);
-        const gst = (taxable * Number(line.gst_percent ?? 0)) / 100;
-        return taxable + gst;
+      const result = (await submitOrder({
+        id: orderId,
+        body,
+      }).unwrap()) as {
+        approval_created?: boolean;
+        approval_error?: string | null;
       };
 
-      const approvedTotal = readOnlyItems.reduce((sum, line) => sum + getLineTotal(line), 0);
-
-      const approvalItems = readOnlyItems.map((line) => {
-        const item: Record<string, unknown> = {
-          product: detailRefId(line.product),
-          ordered_quantity: Number(line.ordered_quantity ?? line.quantity ?? 0),
-          approved_quantity: Number(line.ordered_quantity ?? line.quantity ?? 0),
-          approved_unit_price: Number(line.unit_price ?? 0),
-          ordered_unit_price: Number(line.unit_price ?? 0),
-          free_quantity: Number(line.free_quantity ?? line.free_qty ?? 0),
-          discount_percent: Number(line.discount_percent ?? 0),
-          discount_amount: Number(line.discount_amount ?? 0),
-          gst_percent: Number(line.gst_percent ?? 18),
-          applied_rate_type: !line.applied_rate_type || line.applied_rate_type === "MANUAL" ? "SR" : String(line.applied_rate_type),
-          approved_total_amount: getLineTotal(line),
-          approval_status: "fully_approved",
-          remarks: typeof line.remarks === "string" ? line.remarks.trim() : "",
-        };
-        const id = line._id ?? line.id;
-        if (id) {
-          item.order_item_id = String(id);
-        }
-        return item;
-      });
-
-      const partyContacts = contactsFromParty(partyDetailQ.data);
-      const selectedContacts: string[] = [];
-      const selectedContactNames: string[] = [];
-      const firstWithPhone = partyContacts.find((c) => c.phone.trim());
-      if (firstWithPhone) {
-        selectedContacts.push(firstWithPhone.phone.trim());
-        selectedContactNames.push(firstWithPhone.name.trim());
+      if (result?.approval_created === false) {
+        setSubmitIssue({
+          kind: "approval",
+          message:
+            result.approval_error ||
+            "Order was submitted but approval was not created. Please retry.",
+        });
+        toast.error("Submitted, but approval creation failed — retry below.");
+        return;
       }
 
-      await submitOrder({
-        id: orderId,
-        body: {
-          order_items: orderItemsPayload,
-          remarks: submitRemarks.trim() || undefined,
-          approved_total_amount: approvedTotal,
-          approval_items: approvalItems,
-          contact_number: selectedContacts,
-          contact_name: selectedContactNames,
-        },
-      }).unwrap();
+      // Belt-and-suspenders: confirm approval exists (covers older API shapes).
+      const exists = await verifyApprovalExists(orderId);
+      if (!exists && result?.approval_created !== true) {
+        // Short poll in case of eventual consistency / queued fallback.
+        let found = false;
+        for (let i = 0; i < 3; i += 1) {
+          await new Promise((r) => setTimeout(r, 800));
+          found = await verifyApprovalExists(orderId);
+          if (found) break;
+        }
+        if (!found) {
+          setSubmitIssue({
+            kind: "approval",
+            message:
+              "Order was submitted but approval is missing. Please retry approval creation.",
+          });
+          toast.error("Approval missing after submit — use Retry.");
+          return;
+        }
+      }
 
-      toast.success("Order submitted successfully.");
-      setIsSubmitPreviewOpen(false);
-      setSubmitRemarks("");
-      handleRefetch();
+      finishSubmitSuccess();
     } catch (rejected) {
-      toast.error(mutationRejectedMessage(rejected));
+      const message = mutationRejectedMessage(rejected);
+      setSubmitIssue({ kind: "submit", message });
+      toast.error(message);
     } finally {
       setIsSubmittingOrder(false);
     }
-  }, [orderId, submitRemarks, readOnlyItems, partyDetailQ.data, submitOrder, handleRefetch]);
+  }, [
+    orderId,
+    readOnlyItems.length,
+    buildSubmitPayload,
+    submitOrder,
+    verifyApprovalExists,
+    finishSubmitSuccess,
+  ]);
+
+  const handleSubmitRetry = useCallback(async () => {
+    if (submitIssue?.kind === "approval") {
+      await handleRetryApproval();
+      return;
+    }
+    await handleSubmitOrder();
+  }, [submitIssue, handleRetryApproval, handleSubmitOrder]);
 
   if (isError || (!isLoading && !detail)) {
     return (
@@ -477,13 +613,17 @@ export default function SalesOrderDetail({ orderId }: { orderId: string }) {
           if (isSubmittingOrder) return;
           setIsSubmitPreviewOpen(false);
           setSubmitRemarks("");
+          setSubmitIssue(null);
+          setLastSubmitBody(null);
         }}
         detail={detail}
         partyLabel={custLabel}
         submitRemarks={submitRemarks}
         onSubmitRemarksChange={setSubmitRemarks}
         onSubmit={() => void handleSubmitOrder()}
+        onRetry={() => void handleSubmitRetry()}
         isSubmitting={isSubmittingOrder}
+        submitIssue={submitIssue}
       />
 
       <ItemFulfillmentDetailsModal

@@ -1381,25 +1381,43 @@ async function submitOrder(id, body, user, reqMeta) {
     },
   });
 
-  const orderApprovalQueue = require('../../queues/orderApproval.queue');
-  await orderApprovalQueue.enqueue({
-    type: 'create_order_approval',
-    payload: {
-      body: {
-        order: id,
-        approve_immediately: false,
-        replace_snapshot: true,
-        approval_notes: body.remarks,
-        approved_total_amount: body.approved_total_amount,
-        approval_items: body.approval_items,
-        contact_number: body.contact_number,
-        contact_name: body.contact_name,
-      },
-      user,
-    },
-  });
+  const approvalBody = {
+    order: id,
+    approve_immediately: false,
+    replace_snapshot: true,
+    approval_notes: body.remarks,
+    approved_total_amount: body.approved_total_amount,
+    approval_items: body.approval_items,
+    contact_number: body.contact_number,
+    contact_name: body.contact_name,
+  };
 
-  return { success: true, orderId: id };
+  // Prefer synchronous approval creation so submit does not succeed without a batch.
+  let approvalCreated = false;
+  let approvalError = null;
+  try {
+    await orderApprovalService.create(approvalBody, user);
+    approvalCreated = true;
+  } catch (err) {
+    approvalError = err?.message || 'Failed to create order approval';
+    // Background retry as a best-effort fallback.
+    try {
+      const orderApprovalQueue = require('../../queues/orderApproval.queue');
+      await orderApprovalQueue.enqueue({
+        type: 'create_order_approval',
+        payload: { body: approvalBody, user },
+      });
+    } catch (_queueErr) {
+      // ignore queue failure; client can retry create
+    }
+  }
+
+  return {
+    success: true,
+    orderId: id,
+    approval_created: approvalCreated,
+    approval_error: approvalError,
+  };
 }
 
 function parseDateOrNull(v) {
