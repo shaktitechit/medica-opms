@@ -14,7 +14,7 @@ import {
 import { useGetWorkPlanStatsQuery } from "@/store/api";
 
 type WorkPlannerStatsWidgetsProps = {
-  portalHome: "/sales" | "/admin" | "/super_admin";
+  portalHome?: "/admin" | "/super_admin";
 };
 
 type StatCard = {
@@ -29,7 +29,7 @@ type StatCard = {
 };
 
 export default function WorkPlannerStatsWidgets({
-  portalHome,
+  portalHome = "/admin",
 }: WorkPlannerStatsWidgetsProps) {
   const { data, isFetching } = useGetWorkPlanStatsQuery({});
 

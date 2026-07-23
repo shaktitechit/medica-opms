@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
@@ -22,10 +22,10 @@ import {
 import {
   formatPlanDate,
   planIdOf,
-  salesUserLabel,
+  salesUserLabel
 } from "./workPlanUtils";
 
-type WorkPlanCalendarPageProps = {
+type Props = {
   portalHome?: string;
 };
 
@@ -88,19 +88,12 @@ function buildMonthCells(month: Date) {
   return cells;
 }
 
-export default function WorkPlanCalendarPage({
-  portalHome,
-}: WorkPlanCalendarPageProps) {
-  const params = useParams();
+export default function AdminWorkPlanCalendarPage({
+  portalHome = "/admin",
+}: Props) {
   const router = useRouter();
-  const rawPortal =
-    typeof params.portal === "string"
-      ? params.portal
-      : Array.isArray(params.portal)
-        ? params.portal[0]
-        : "sales";
-  const base = portalHome || `/${rawPortal}`;
-  const isAdmin = rawPortal === "admin" || rawPortal === "super_admin";
+  const base = portalHome;
+  const isAdmin = true;
 
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [salesUserFilter, setSalesUserFilter] = useState("");

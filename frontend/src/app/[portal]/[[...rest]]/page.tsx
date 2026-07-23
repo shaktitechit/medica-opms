@@ -6,10 +6,14 @@ import {
   PortalOverview,
   PortalSectionPlaceholder,
   ListMyOrdersPage,
-  ListWorkPlansPage,
-  WorkPlanFormPage,
-  WorkPlanDetailPage,
-  WorkPlanCalendarPage,
+  ListAdminWorkPlansPage,
+  AdminWorkPlanFormPage,
+  AdminWorkPlanDetailPage,
+  AdminWorkPlanCalendarPage,
+  ListSalesWorkPlansPage,
+  SalesWorkPlanFormPage,
+  SalesWorkPlanDetailPage,
+  SalesWorkPlanCalendarPage,
   ListTransportPlansPage,
   TransportPlanFormPage,
   TransportPlanDetailPage,
@@ -77,13 +81,13 @@ export default function PortalCatchAllPage() {
     return <AdminCreateOrderPage />;
   }
   if (portal === "admin" && restArr.length === 1 && restArr[0] === "work-planner") {
-    return <ListWorkPlansPage portalHome="/admin" />;
+    return <ListAdminWorkPlansPage portalHome="/admin" />;
   }
   if (portal === "admin" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "calendar") {
-    return <WorkPlanCalendarPage portalHome="/admin" />;
+    return <AdminWorkPlanCalendarPage portalHome="/admin" />;
   }
   if (portal === "admin" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "new") {
-    return <WorkPlanFormPage mode="create" portalHome="/admin" />;
+    return <AdminWorkPlanFormPage mode="create" portalHome="/admin" />;
   }
   if (
     portal === "admin" &&
@@ -91,10 +95,10 @@ export default function PortalCatchAllPage() {
     restArr[0] === "work-planner" &&
     restArr[2] === "edit"
   ) {
-    return <WorkPlanFormPage mode="edit" planId={restArr[1]} portalHome="/admin" />;
+    return <AdminWorkPlanFormPage mode="edit" planId={restArr[1]} portalHome="/admin" />;
   }
   if (portal === "admin" && restArr.length === 2 && restArr[0] === "work-planner") {
-    return <WorkPlanDetailPage planId={restArr[1]} portalHome="/admin" />;
+    return <AdminWorkPlanDetailPage planId={restArr[1]} portalHome="/admin" />;
   }
   if (portal === "admin" && restArr.length === 1 && restArr[0] === "parties") {
     return <ListPartiesPage portalHome="/admin" />;
@@ -114,13 +118,13 @@ export default function PortalCatchAllPage() {
     return <ListMyOrdersPage />;
   }
   if (portal === "sales" && restArr.length === 1 && restArr[0] === "work-planner") {
-    return <ListWorkPlansPage portalHome="/sales" />;
+    return <ListSalesWorkPlansPage />;
   }
   if (portal === "sales" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "calendar") {
-    return <WorkPlanCalendarPage portalHome="/sales" />;
+    return <SalesWorkPlanCalendarPage />;
   }
   if (portal === "sales" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "new") {
-    return <WorkPlanFormPage mode="create" portalHome="/sales" />;
+    return <SalesWorkPlanFormPage mode="create" />;
   }
   if (
     portal === "sales" &&
@@ -128,10 +132,10 @@ export default function PortalCatchAllPage() {
     restArr[0] === "work-planner" &&
     restArr[2] === "edit"
   ) {
-    return <WorkPlanFormPage mode="edit" planId={restArr[1]} portalHome="/sales" />;
+    return <SalesWorkPlanFormPage mode="edit" planId={restArr[1]} />;
   }
   if (portal === "sales" && restArr.length === 2 && restArr[0] === "work-planner") {
-    return <WorkPlanDetailPage planId={restArr[1]} portalHome="/sales" />;
+    return <SalesWorkPlanDetailPage planId={restArr[1]} />;
   }
 
   // ── FINANCE ──────────────────────────────────────────────────────────────
@@ -228,13 +232,13 @@ export default function PortalCatchAllPage() {
     return <SuperAdminCreateOrderPage />;
   }
   if (portal === "super_admin" && restArr.length === 1 && restArr[0] === "work-planner") {
-    return <ListWorkPlansPage portalHome="/super_admin" />;
+    return <ListAdminWorkPlansPage portalHome="/super_admin" />;
   }
   if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "calendar") {
-    return <WorkPlanCalendarPage portalHome="/super_admin" />;
+    return <AdminWorkPlanCalendarPage portalHome="/super_admin" />;
   }
   if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "new") {
-    return <WorkPlanFormPage mode="create" portalHome="/super_admin" />;
+    return <AdminWorkPlanFormPage mode="create" portalHome="/super_admin" />;
   }
   if (
     portal === "super_admin" &&
@@ -242,10 +246,18 @@ export default function PortalCatchAllPage() {
     restArr[0] === "work-planner" &&
     restArr[2] === "edit"
   ) {
-    return <WorkPlanFormPage mode="edit" planId={restArr[1]} portalHome="/super_admin" />;
+    return (
+      <AdminWorkPlanFormPage
+        mode="edit"
+        planId={restArr[1]}
+        portalHome="/super_admin"
+      />
+    );
   }
   if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "work-planner") {
-    return <WorkPlanDetailPage planId={restArr[1]} portalHome="/super_admin" />;
+    return (
+      <AdminWorkPlanDetailPage planId={restArr[1]} portalHome="/super_admin" />
+    );
   }
   if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "order") {
     return <SuperAdminOrderDetail orderId={restArr[1]} />;

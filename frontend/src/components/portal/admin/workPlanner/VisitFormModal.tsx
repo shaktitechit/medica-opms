@@ -1,8 +1,13 @@
 "use client";
 
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
-import { useListPartiesQuery, type WorkPlanVisitRecord } from "@/store/api";
+import {
+  useListPartiesQuery,
+  useListUsersQuery,
+  type WorkPlanVisitRecord,
+} from "@/store/api";
 import { useEffect, useMemo, useState } from "react";
+import { salesUserLabel } from "./workPlanUtils";
 
 export type VisitFormModalProps = {
   open: boolean;
@@ -11,6 +16,11 @@ export type VisitFormModalProps = {
   isSaving: boolean;
   onClose: () => void;
   onSubmit: (body: Record<string, unknown>) => void | Promise<void>;
+  /** When true (admin / super_admin), show searchable sales-person picker. */
+  allowSalesUserSelect?: boolean;
+  /** Prefill / controlled sales user for admin-created plans. */
+  salesUserId?: string;
+  salesUserLabel?: string;
 };
 
 function partyIdOf(party: WorkPlanVisitRecord["party"]): string {
@@ -19,6 +29,14 @@ function partyIdOf(party: WorkPlanVisitRecord["party"]): string {
   return String(party._id || "");
 }
 
+type SalesUserRow = {
+  _id?: string;
+  id?: string;
+  name?: string;
+  email?: string;
+  department?: string;
+};
+
 export function VisitFormModal({
   open,
   mode,
@@ -26,8 +44,16 @@ export function VisitFormModal({
   isSaving,
   onClose,
   onSubmit,
+  allowSalesUserSelect = false,
+  salesUserId: salesUserIdProp,
+  salesUserLabel: salesUserLabelProp,
 }: VisitFormModalProps) {
-  const partiesQ = useListPartiesQuery({ status: "active" });
+  const partiesQ = useListPartiesQuery({ status: "active" }, { skip: !open });
+  const usersQ = useListUsersQuery(
+    { department: "sales" },
+    { skip: !open || !allowSalesUserSelect },
+  );
+
   const parties = useMemo(() => {
     const raw = partiesQ.data;
     if (Array.isArray(raw)) return raw;
@@ -37,8 +63,19 @@ export function VisitFormModal({
     return [];
   }, [partiesQ.data]);
 
+  const salesUsers = useMemo(() => {
+    const raw = usersQ.data;
+    if (Array.isArray(raw)) return raw as SalesUserRow[];
+    if (raw && typeof raw === "object" && Array.isArray((raw as { data?: unknown }).data)) {
+      return (raw as { data: SalesUserRow[] }).data;
+    }
+    return [] as SalesUserRow[];
+  }, [usersQ.data]);
+
   const [partySearch, setPartySearch] = useState("");
   const [partyId, setPartyId] = useState("");
+  const [salesSearch, setSalesSearch] = useState("");
+  const [salesUserId, setSalesUserId] = useState("");
   const [contactPerson, setContactPerson] = useState("");
   const [contactNumber, setContactNumber] = useState("");
   const [address, setAddress] = useState("");
@@ -56,19 +93,34 @@ export function VisitFormModal({
     setStartTime(
       initial?.planned_start_time
         ? new Date(initial.planned_start_time).toISOString().slice(0, 16)
-        : ""
+        : "",
     );
     setEndTime(
       initial?.planned_end_time
         ? new Date(initial.planned_end_time).toISOString().slice(0, 16)
-        : ""
+        : "",
     );
     setPurpose(initial?.purpose || "");
     setNotes(initial?.notes || "");
     setPartySearch(
-      typeof initial?.party === "object" ? initial.party?.party_name || "" : ""
+      typeof initial?.party === "object" ? initial.party?.party_name || "" : "",
     );
-  }, [open, initial]);
+    const nextSalesId = salesUserIdProp || "";
+    setSalesUserId(nextSalesId);
+    if (nextSalesId) {
+      const fromList = salesUsers.find(
+        (u) => String(u._id || u.id || "") === nextSalesId,
+      );
+      setSalesSearch(
+        salesUserLabelProp ||
+          (fromList
+            ? salesUserLabel(fromList)
+            : salesUserLabelProp || ""),
+      );
+    } else {
+      setSalesSearch("");
+    }
+  }, [open, initial, salesUserIdProp, salesUserLabelProp, salesUsers]);
 
   useEffect(() => {
     if (!open) return;
@@ -99,7 +151,22 @@ export function VisitFormModal({
       .slice(0, 20);
   }, [parties, partySearch]);
 
+  const filteredSalesUsers = useMemo(() => {
+    const q = salesSearch.trim().toLowerCase();
+    if (!q) return salesUsers.slice(0, 20);
+    return salesUsers
+      .filter((u) => {
+        const name = String(u.name || "").toLowerCase();
+        const email = String(u.email || "").toLowerCase();
+        return name.includes(q) || email.includes(q);
+      })
+      .slice(0, 20);
+  }, [salesUsers, salesSearch]);
+
   if (!open) return null;
+
+  const canSubmit =
+    Boolean(partyId) && (!allowSalesUserSelect || Boolean(salesUserId));
 
   return (
     <LargeModalPortal>
@@ -120,6 +187,68 @@ export function VisitFormModal({
             </h2>
           </div>
           <div className="space-y-3 px-5 py-4">
+            {allowSalesUserSelect ? (
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Sales person
+                </label>
+                <input
+                  type="text"
+                  value={salesSearch}
+                  onChange={(e) => {
+                    setSalesSearch(e.target.value);
+                    setSalesUserId("");
+                  }}
+                  placeholder="Search sales user…"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+                />
+                {salesSearch && !salesUserId ? (
+                  <ul className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10">
+                    {filteredSalesUsers.length === 0 ? (
+                      <li className="px-3 py-2 text-sm text-slate-500">
+                        No sales users found
+                      </li>
+                    ) : (
+                      filteredSalesUsers.map((u) => {
+                        const id = String(u._id || u.id || "");
+                        const label = salesUserLabel(u);
+                        return (
+                          <li key={id}>
+                            <button
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-white/5"
+                              onClick={() => {
+                                setSalesUserId(id);
+                                setSalesSearch(label === "—" ? id : label);
+                              }}
+                            >
+                              <div className="font-medium text-slate-800 dark:text-slate-100">
+                                {u.name || "Unnamed"}
+                              </div>
+                              {u.email ? (
+                                <div className="text-2xs text-slate-500">
+                                  {u.email}
+                                </div>
+                              ) : null}
+                            </button>
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
+                ) : null}
+                {salesUserId ? (
+                  <p className="mt-1 text-2xs text-emerald-700 dark:text-emerald-400">
+                    Selected for this plan
+                  </p>
+                ) : (
+                  <p className="mt-1 text-2xs text-slate-500">
+                    Required — plan will be created for the selected sales user
+                  </p>
+                )}
+              </div>
+            ) : null}
+
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
                 Party
@@ -251,10 +380,13 @@ export function VisitFormModal({
             </button>
             <button
               type="button"
-              disabled={isSaving || !partyId}
+              disabled={isSaving || !canSubmit}
               onClick={() =>
                 void onSubmit({
                   party: partyId,
+                  ...(allowSalesUserSelect && salesUserId
+                    ? { sales_user: salesUserId }
+                    : {}),
                   contact_person: contactPerson || undefined,
                   contact_number: contactNumber || undefined,
                   address: address || undefined,

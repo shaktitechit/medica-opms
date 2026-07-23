@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeft, Check, LogIn, LogOut, Pencil, X } from "lucide-react";
 
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
-import { useAppSelector } from "@/store/hooks";
 import {
   useApproveWorkPlanMutation,
   useCheckInWorkPlanVisitMutation,
@@ -29,38 +28,19 @@ import {
   planIdOf,
   renderPlanStatusBadge,
   renderVisitStatusBadge,
-  salesUserLabel,
+  salesUserLabel
 } from "./workPlanUtils";
 
-type WorkPlanDetailPageProps = {
-  planId?: string;
-  portalHome?: string;
+type Props = {
+  planId: string;
 };
 
-export default function WorkPlanDetailPage({
-  planId: planIdProp,
-  portalHome,
-}: WorkPlanDetailPageProps) {
-  const params = useParams();
+export default function SalesWorkPlanDetailPage({
+  planId,
+}: Props) {
   const router = useRouter();
-  const user = useAppSelector((s) => s.auth.user);
-  const rawPortal =
-    typeof params.portal === "string"
-      ? params.portal
-      : Array.isArray(params.portal)
-        ? params.portal[0]
-        : "sales";
-  const base = portalHome || `/${rawPortal}`;
-  const planId =
-    planIdProp ||
-    (typeof params.rest === "object" && Array.isArray(params.rest)
-      ? String(params.rest[1] || "")
-      : "");
-
-  const isAdmin =
-    user?.department === "admin" ||
-    user?.department === "super_admin" ||
-    rawPortal === "admin";
+  const base = "/sales";
+  const isAdmin = false;
 
   const { data: plan, isLoading, isFetching, isError } = useGetWorkPlanQuery(
     planId,
@@ -142,7 +122,7 @@ export default function WorkPlanDetailPage({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {plan && canEditPlan(plan.status) ? (
+          {plan && canEditPlan(plan.status, { isAdmin }) ? (
             <>
               <button
                 type="button"

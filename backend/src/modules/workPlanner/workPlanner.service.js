@@ -32,11 +32,20 @@ function assertCanView(plan, user) {
   throw new ApiError(403, 'You do not have access to this work plan');
 }
 
-function assertCanEditStructure(plan, user, { allowAdminOverride = false } = {}) {
-  if (isAdminDept(user) && allowAdminOverride) return;
-  if (!isOwner(plan, user)) {
+function assertCanEditStructure(plan, user) {
+  const admin = isAdminDept(user);
+  // Owner or admin may edit; non-owners who are not admin are blocked.
+  if (!isOwner(plan, user) && !admin) {
     throw new ApiError(403, 'Only the plan owner can edit this work plan');
   }
+  // Admin / super_admin may keep editing after submit/approve (for sales-user plans).
+  if (admin) {
+    if (plan.status === 'completed') {
+      throw new ApiError(400, `Cannot edit a work plan in status "${plan.status}"`);
+    }
+    return;
+  }
+  // Sales owners may only edit draft / rejected plans.
   if (!EDITABLE_PLAN_STATUSES.includes(plan.status)) {
     throw new ApiError(400, `Cannot edit a work plan in status "${plan.status}"`);
   }
@@ -218,8 +227,7 @@ async function update(id, body, user) {
   const plan = await WorkPlan.findOne({ _id: id, deletedAt: null });
   if (!plan) throw new ApiError(404, 'Work plan not found');
 
-  const adminOverride = isAdminDept(user) && (plan.status === 'approved' || EDITABLE_PLAN_STATUSES.includes(plan.status));
-  assertCanEditStructure(plan, user, { allowAdminOverride: adminOverride });
+  assertCanEditStructure(plan, user);
 
   if (body.plan_date !== undefined) {
     plan.plan_date = startOfDay(body.plan_date);
@@ -408,8 +416,7 @@ async function updateVisit(planId, visitId, body, user) {
   const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
   if (!plan) throw new ApiError(404, 'Work plan not found');
 
-  const adminOverride = isAdminDept(user) && plan.status === 'approved';
-  assertCanEditStructure(plan, user, { allowAdminOverride: adminOverride });
+  assertCanEditStructure(plan, user);
 
   const visit = await WorkPlanVisit.findOne({ _id: visitId, work_plan: planId, deletedAt: null });
   if (!visit) throw new ApiError(404, 'Visit not found');
@@ -431,7 +438,7 @@ async function updateVisit(planId, visitId, body, user) {
   }
   if (body.purpose !== undefined) visit.purpose = body.purpose?.trim() || undefined;
   if (body.notes !== undefined) visit.notes = body.notes?.trim() || undefined;
-  if (body.status !== undefined && adminOverride) visit.status = body.status;
+  if (body.status !== undefined && isAdminDept(user)) visit.status = body.status;
 
   await visit.save();
 

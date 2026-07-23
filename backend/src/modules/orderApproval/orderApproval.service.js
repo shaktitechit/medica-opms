@@ -2,6 +2,7 @@
  * @fileoverview Unified order approval execution helpers.
  * @module modules/orderApproval/orderApproval.service
  */
+const mongoose = require('mongoose');
 const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
@@ -2887,11 +2888,220 @@ async function processOrderApprovalJob({ type, payload = {} }) {
   }
 }
 
+/**
+ * Super-admin sheet bypass: write approval header + approval_items without workflow gates.
+ */
+async function superSheetUpdate(id, body, user) {
+  if (!user || user.department !== 'super_admin') {
+    throw new ApiError(403, 'Only super_admin can use the approvals sheet bypass');
+  }
+  if (!id || !mongoose.Types.ObjectId.isValid(String(id))) {
+    throw new ApiError(400, 'Valid approval id is required');
+  }
+  const patch = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+
+  const doc = await getModels().OrderApproval.findOne({ _id: id, deletedAt: null });
+  if (!doc) throw new ApiError(404, APPROVAL_NF);
+
+  const BLOCKED_KEYS = new Set([
+    '_id',
+    'id',
+    '__v',
+    'createdAt',
+    'updatedAt',
+    'deletedAt',
+    'order',
+    'approval_no',
+    'created_by',
+  ]);
+  const DATE_KEYS = new Set([
+    'sales_submitted_at',
+    'admin_approved_at',
+    'finance_approved_at',
+    'account_approved_at',
+    'sent_to_finance_at',
+    'sent_to_account_at',
+    'reviewed_at',
+    'finance_amended_at',
+    'account_amended_at',
+    'admin_amended_at',
+    'approved_at',
+    'rejected_at',
+  ]);
+  const BOOL_KEYS = new Set([
+    'is_sales_submited',
+    'is_admin_approved',
+    'is_finance_approved',
+    'is_account_approved',
+    'rates_reviewed',
+    'all_rates_mapped',
+    'credit_limit_checked',
+    'outstanding_checked',
+    'finance_amended',
+    'account_amended',
+    'admin_amended',
+  ]);
+  const NUMBER_KEYS = new Set([
+    'revision_number',
+    'ordered_total_amount',
+    'approved_total_amount',
+    'rejected_total_amount',
+  ]);
+  const OBJECT_ID_KEYS = new Set([
+    'sales_submitted_by',
+    'admin_approved_by',
+    'finance_approved_by',
+    'account_approved_by',
+    'assigned_finance_user',
+    'assigned_account_user',
+    'sent_to_finance_by',
+    'sent_to_account_by',
+    'reviewed_by',
+    'finance_amended_by',
+    'account_amended_by',
+    'admin_amended_by',
+    'approved_by',
+    'rejected_by',
+  ]);
+  const RISK_LEVELS = new Set(['low', 'medium', 'high', 'critical']);
+
+  for (const [key, raw] of Object.entries(patch)) {
+    if (BLOCKED_KEYS.has(key)) continue;
+    if (key === 'approval_items') continue;
+    if (key.includes('$') || key.includes('.')) {
+      throw new ApiError(400, `Invalid PATCH key "${key}"`);
+    }
+
+    let value = raw;
+
+    if (key === 'risk_level') {
+      if (value === '' || value == null) continue;
+      value = String(value).trim().toLowerCase();
+      if (!RISK_LEVELS.has(value)) {
+        throw new ApiError(400, `Invalid risk_level "${raw}"`);
+      }
+    } else if (DATE_KEYS.has(key)) {
+      if (value === '' || value == null) value = null;
+      else {
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) throw new ApiError(400, `Invalid date for ${key}`);
+        value = d;
+      }
+    } else if (BOOL_KEYS.has(key)) {
+      value =
+        value === true ||
+        value === 'true' ||
+        value === 1 ||
+        value === '1' ||
+        value === 'yes';
+    } else if (NUMBER_KEYS.has(key)) {
+      if (value === '' || value == null) value = 0;
+      else value = Number(value);
+      if (!Number.isFinite(value)) throw new ApiError(400, `Invalid number for ${key}`);
+    } else if (OBJECT_ID_KEYS.has(key)) {
+      if (value === '' || value == null) value = null;
+      else {
+        const sid = String(value).trim();
+        if (!mongoose.Types.ObjectId.isValid(sid)) {
+          throw new ApiError(400, `Invalid ObjectId for ${key}`);
+        }
+        value = sid;
+      }
+    } else if (typeof value === 'string') {
+      value = value.trim();
+    }
+
+    doc.set(key, value);
+  }
+
+  if (Array.isArray(patch.approval_items)) {
+    const normalizedItems = patch.approval_items.map((rawItem) => {
+      if (!rawItem || typeof rawItem !== 'object') {
+        throw new ApiError(400, 'Each approval_items row must be an object');
+      }
+      const item = { ...rawItem };
+      if (item.order_item_id != null) item.order_item_id = String(item.order_item_id);
+      if (item.product != null) item.product = String(item.product);
+      if (item.pricing_reference === '' || item.pricing_reference == null) {
+        item.pricing_reference = undefined;
+      }
+      item.manual_price_override =
+        item.manual_price_override === true ||
+        item.manual_price_override === 'true' ||
+        item.manual_price_override === 1;
+      item.rate_mapped =
+        item.rate_mapped === true ||
+        item.rate_mapped === 'true' ||
+        item.rate_mapped === 1;
+      for (const nk of [
+        'ordered_quantity',
+        'ordered_unit_price',
+        'ordered_total_amount',
+        'approved_quantity',
+        'approved_unit_price',
+        'approved_total_amount',
+        'discount_percent',
+        'discount_amount',
+        'gst_percent',
+        'free_quantity',
+      ]) {
+        if (item[nk] !== undefined && item[nk] !== null && item[nk] !== '') {
+          item[nk] = Number(item[nk]);
+          if (!Number.isFinite(item[nk])) {
+            throw new ApiError(400, `Invalid number for approval_items.${nk}`);
+          }
+        }
+      }
+      recalcApprovalItemTotals(item);
+      return item;
+    });
+    doc.set('approval_items', normalizedItems);
+    doc.markModified('approval_items');
+
+    if (patch.approved_total_amount === undefined) {
+      const approvedTotal = normalizedItems.reduce(
+        (sum, row) => sum + Number(row.approved_total_amount || 0),
+        0,
+      );
+      doc.set('approved_total_amount', Number(approvedTotal.toFixed(2)));
+    }
+    if (patch.ordered_total_amount === undefined) {
+      const orderedTotal = normalizedItems.reduce(
+        (sum, row) => sum + Number(row.ordered_total_amount || 0),
+        0,
+      );
+      doc.set('ordered_total_amount', Number(orderedTotal.toFixed(2)));
+    }
+  }
+
+  doc.set('reviewed_by', user._id);
+  doc.set('reviewed_at', new Date());
+  await doc.save();
+
+  await activityService
+    .create({
+      actor: user._id,
+      entity_type: 'order',
+      entity_id: String(doc.order),
+      action: 'updated',
+      message: `Super-admin sheet bypass update on approval ${doc.approval_no || doc._id}`,
+      new_value: {
+        approval_id: String(doc._id),
+        via: 'super_sheet',
+        keys: Object.keys(patch),
+      },
+    })
+    .catch(() => undefined);
+
+  return toPlain(addDerivedStatus(doc.toObject()));
+}
+
 module.exports = {
   list,
   get,
   create,
   patch,
+  superSheetUpdate,
   approve,
   reject,
   sendToFinance,

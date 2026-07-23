@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import SalesOverviewWidgets from "./SalesOverviewWidgets";
-import WorkPlannerStatsWidgets from "@/components/portal/shared/workPlanner/WorkPlannerStatsWidgets";
+import WorkPlannerStatsWidgets from "@/components/portal/sales/workPlanner/WorkPlannerStatsWidgets";
 import SalesProductLeaderboard from "./components/SalesProductLeaderboard";
 import SalesPartyLeaderboard from "./components/SalesPartyLeaderboard";
 import SalesMonthlyPerformanceChart from "./components/SalesMonthlyPerformanceChart";
@@ -138,7 +138,7 @@ export default function SalesOverview() {
         categoryOptions={categoryOptions}
       />
 
-      <WorkPlannerStatsWidgets portalHome="/sales" />
+      <WorkPlannerStatsWidgets />
 
       <SalesMonthlyPerformanceChart
         orders={orders}

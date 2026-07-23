@@ -84,6 +84,18 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       invalidatesTags: (_r, _e, arg) => orderApprovalTags(arg.id),
     }),
+    superSheetPatchOrderApproval: build.mutation<
+      unknown,
+      Required<Pick<ApprovalMutationArg, "id" | "patch">>
+    >({
+      query: ({ id, patch }) => ({
+        url: `order-approvals/${id}/super-sheet`,
+        method: "PATCH",
+        body: patch,
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: (_r, _e, arg) => orderApprovalTags(arg.id),
+    }),
     approveOrderApproval: build.mutation<unknown, ApprovalMutationArg>({
       query: ({ id, body }) => ({
         url: `order-approvals/${id}/approve`,
@@ -197,6 +209,7 @@ export const {
   useLazyGetOrderApprovalQuery,
   useCreateOrderApprovalMutation,
   usePatchOrderApprovalMutation,
+  useSuperSheetPatchOrderApprovalMutation,
   useApproveOrderApprovalMutation,
   useRejectOrderApprovalMutation,
   useSendOrderApprovalToFinanceMutation,

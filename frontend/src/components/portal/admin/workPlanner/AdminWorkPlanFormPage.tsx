@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
@@ -13,6 +13,8 @@ import {
   useCreateWorkPlanMutation,
   useDeleteWorkPlanVisitMutation,
   useGetWorkPlanQuery,
+  useListUsersQuery,
+  useApproveWorkPlanMutation,
   usePatchWorkPlanMutation,
   usePatchWorkPlanVisitMutation,
   useSubmitWorkPlanMutation,
@@ -27,39 +29,32 @@ import {
   planIdOf,
   renderPlanStatusBadge,
   renderVisitStatusBadge,
+  salesUserLabel
 } from "./workPlanUtils";
 
-type WorkPlanFormPageProps = {
+type Props = {
   mode: "create" | "edit";
   planId?: string;
   portalHome?: string;
 };
 
-export default function WorkPlanFormPage({
+export default function AdminWorkPlanFormPage({
   mode,
   planId: planIdProp,
-  portalHome,
-}: WorkPlanFormPageProps) {
-  const params = useParams();
+  portalHome = "/admin",
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawPortal =
-    typeof params.portal === "string"
-      ? params.portal
-      : Array.isArray(params.portal)
-        ? params.portal[0]
-        : "sales";
-  const base = portalHome || `/${rawPortal}`;
-  const planId =
-    planIdProp ||
-    (typeof params.rest === "object" && Array.isArray(params.rest)
-      ? params.rest[1]
-      : "");
+  const base = portalHome;
+  const isAdmin = true;
+  const planId = planIdProp || "";
 
   const initialPlanDate =
     searchParams.get("plan_date") || new Date().toISOString().slice(0, 10);
   const [planDate, setPlanDate] = useState(initialPlanDate);
   const [remarks, setRemarks] = useState("");
+  const [salesUserId, setSalesUserId] = useState("");
+  const [salesSearch, setSalesSearch] = useState("");
   const [visitModalOpen, setVisitModalOpen] = useState(false);
   const [editingVisit, setEditingVisit] = useState<WorkPlanVisitRecord | null>(
     null
@@ -70,10 +65,36 @@ export default function WorkPlanFormPage({
 
   const planQ = useGetWorkPlanQuery(effectiveId, { skip: !effectiveId });
   const plan = planQ.data;
+  const usersQ = useListUsersQuery(
+    { department: "sales" },
+    { skip: !isAdmin },
+  );
+
+  const salesUsers = useMemo(() => {
+    const raw = usersQ.data;
+    if (Array.isArray(raw)) return raw as Array<{ _id?: string; id?: string; name?: string; email?: string }>;
+    if (raw && typeof raw === "object" && Array.isArray((raw as { data?: unknown }).data)) {
+      return (raw as { data: Array<{ _id?: string; id?: string; name?: string; email?: string }> }).data;
+    }
+    return [];
+  }, [usersQ.data]);
+
+  const filteredSalesUsers = useMemo(() => {
+    const q = salesSearch.trim().toLowerCase();
+    if (!q) return salesUsers.slice(0, 20);
+    return salesUsers
+      .filter((u) => {
+        const name = String(u.name || "").toLowerCase();
+        const email = String(u.email || "").toLowerCase();
+        return name.includes(q) || email.includes(q);
+      })
+      .slice(0, 20);
+  }, [salesUsers, salesSearch]);
 
   const [createPlan, createState] = useCreateWorkPlanMutation();
   const [patchPlan, patchState] = usePatchWorkPlanMutation();
   const [submitPlan, submitState] = useSubmitWorkPlanMutation();
+  const [approvePlan, approveState] = useApproveWorkPlanMutation();
   const [addVisit, addVisitState] = useAddWorkPlanVisitMutation();
   const [patchVisit, patchVisitState] = usePatchWorkPlanVisitMutation();
   const [deleteVisit, deleteVisitState] = useDeleteWorkPlanVisitMutation();
@@ -86,21 +107,35 @@ export default function WorkPlanFormPage({
       setPlanDate(new Date(plan.plan_date).toISOString().slice(0, 10));
     }
     setRemarks(plan.remarks || "");
+    if (plan.sales_user) {
+      const id =
+        typeof plan.sales_user === "string"
+          ? plan.sales_user
+          : String(plan.sales_user._id || "");
+      setSalesUserId(id);
+      setSalesSearch(salesUserLabel(plan.sales_user));
+    }
   }, [plan]);
 
   const visits = plan?.visits ?? [];
   const status = plan?.status || "draft";
-  const editable = mode === "create" || canEditPlan(status);
+  const editable = mode === "create" || canEditPlan(status, { isAdmin });
   const busy =
     createState.isLoading ||
     patchState.isLoading ||
     submitState.isLoading ||
+    approveState.isLoading ||
     addVisitState.isLoading ||
     patchVisitState.isLoading ||
     deleteVisitState.isLoading ||
     planQ.isFetching;
 
-  async function ensurePlan(): Promise<string | null> {
+  async function ensurePlan(overrideSalesUserId?: string): Promise<string | null> {
+    const salesId = overrideSalesUserId || salesUserId;
+    if (isAdmin && !effectiveId && !salesId) {
+      toast.error("Select a sales person for this work plan");
+      return null;
+    }
     if (effectiveId) {
       if (!editable) {
         toast.error("This plan cannot be edited");
@@ -121,9 +156,11 @@ export default function WorkPlanFormPage({
       const created = await createPlan({
         plan_date: planDate,
         remarks: remarks || undefined,
+        ...(isAdmin && salesId ? { sales_user: salesId } : {}),
       }).unwrap();
       const id = planIdOf(created);
       setCreatedId(id);
+      if (salesId) setSalesUserId(salesId);
       toast.success("Work plan created");
       router.replace(`${base}/work-planner/${id}/edit`);
       return id;
@@ -133,22 +170,30 @@ export default function WorkPlanFormPage({
     }
   }
 
-  async function handleSaveHeader() {
-    const id = await ensurePlan();
-    if (id && mode === "edit") toast.success("Work plan saved");
-  }
-
-  async function handleSubmitPlan() {
+  async function handleSave() {
     let id = effectiveId;
     if (!id) {
       id = (await ensurePlan()) || "";
     } else {
-      await ensurePlan();
+      const saved = await ensurePlan();
+      if (!saved) return;
     }
     if (!id) return;
+
+    if (visits.length < 1) {
+      toast.error("Add at least one visit before saving");
+      return;
+    }
+
     try {
-      await submitPlan(id).unwrap();
-      toast.success("Work plan submitted for approval");
+      const currentStatus = plan?.status || "draft";
+      if (currentStatus !== "approved") {
+        if (currentStatus !== "submitted") {
+          await submitPlan(id).unwrap();
+        }
+        await approvePlan(id).unwrap();
+      }
+      toast.success("Work plan saved");
       router.push(`${base}/work-planner/${id}`);
     } catch (rejected) {
       toast.error(mutationRejectedMessage(rejected));
@@ -156,18 +201,29 @@ export default function WorkPlanFormPage({
   }
 
   async function handleVisitSubmit(body: Record<string, unknown>) {
+    const { sales_user: salesFromVisit, ...visitBody } = body;
+    const salesOverride =
+      typeof salesFromVisit === "string" ? salesFromVisit : undefined;
+    if (salesOverride) {
+      setSalesUserId(salesOverride);
+      const match = salesUsers.find(
+        (u) => String(u._id || u.id || "") === salesOverride,
+      );
+      if (match) setSalesSearch(salesUserLabel(match));
+    }
+
     let id = effectiveId;
     if (!id) {
-      id = (await ensurePlan()) || "";
+      id = (await ensurePlan(salesOverride)) || "";
     }
     if (!id) return;
     try {
       if (editingVisit) {
         const visitId = planIdOf(editingVisit);
-        await patchVisit({ id, visitId, patch: body }).unwrap();
+        await patchVisit({ id, visitId, patch: visitBody }).unwrap();
         toast.success("Visit updated");
       } else {
-        await addVisit({ id, body }).unwrap();
+        await addVisit({ id, body: visitBody }).unwrap();
         toast.success("Visit added");
       }
       setVisitModalOpen(false);
@@ -215,27 +271,25 @@ export default function WorkPlanFormPage({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            disabled={!editable || busy}
-            onClick={() => void handleSaveHeader()}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold disabled:opacity-50 dark:border-white/15"
-          >
-            Save
-          </button>
-          <button
-            type="button"
-            disabled={!editable || busy || (effectiveId ? visits.length < 1 : false)}
-            onClick={() => void handleSubmitPlan()}
+            disabled={
+              !editable ||
+              busy ||
+              (effectiveId ? visits.length < 1 : false) ||
+              (isAdmin && !effectiveId && !salesUserId)
+            }
+            onClick={() => void handleSave()}
             className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            Submit for approval
+            Save
           </button>
         </div>
       </div>
 
       {!editable && mode === "edit" ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-          Submitted or approved plans cannot be edited. Rejected plans can be
-          edited and resubmitted.
+          {isAdmin
+            ? "Completed plans cannot be edited."
+            : "Submitted or approved plans cannot be edited. Rejected plans can be edited and resubmitted."}
         </div>
       ) : null}
 
@@ -265,6 +319,73 @@ export default function WorkPlanFormPage({
               placeholder="Optional notes for this day"
             />
           </div>
+          {isAdmin ? (
+            <div className="sm:col-span-2">
+              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                Sales person
+              </label>
+              {effectiveId ? (
+                <input
+                  value={salesSearch || salesUserLabel(plan?.sales_user)}
+                  disabled
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 disabled:opacity-80 dark:border-white/15 dark:bg-slate-950 dark:text-slate-200"
+                />
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    value={salesSearch}
+                    disabled={!editable}
+                    onChange={(e) => {
+                      setSalesSearch(e.target.value);
+                      setSalesUserId("");
+                    }}
+                    placeholder="Search sales user…"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+                  />
+                  {salesSearch && !salesUserId ? (
+                    <ul className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10">
+                      {filteredSalesUsers.length === 0 ? (
+                        <li className="px-3 py-2 text-sm text-slate-500">
+                          No sales users found
+                        </li>
+                      ) : (
+                        filteredSalesUsers.map((u) => {
+                          const id = String(u._id || u.id || "");
+                          const label = salesUserLabel(u);
+                          return (
+                            <li key={id}>
+                              <button
+                                type="button"
+                                className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-white/5"
+                                onClick={() => {
+                                  setSalesUserId(id);
+                                  setSalesSearch(label === "—" ? id : label);
+                                }}
+                              >
+                                <div className="font-medium text-slate-800 dark:text-slate-100">
+                                  {u.name || "Unnamed"}
+                                </div>
+                                {u.email ? (
+                                  <div className="text-2xs text-slate-500">
+                                    {u.email}
+                                  </div>
+                                ) : null}
+                              </button>
+                            </li>
+                          );
+                        })
+                      )}
+                    </ul>
+                  ) : null}
+                  <p className="mt-1 text-2xs text-slate-500">
+                    Required — this plan will be assigned to the selected sales
+                    user
+                  </p>
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -303,7 +424,7 @@ export default function WorkPlanFormPage({
               {visits.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
-                    Add at least one visit before submitting.
+                    Add at least one visit before saving.
                   </td>
                 </tr>
               ) : (
@@ -366,6 +487,9 @@ export default function WorkPlanFormPage({
         mode={editingVisit ? "edit" : "create"}
         initial={editingVisit}
         isSaving={addVisitState.isLoading || patchVisitState.isLoading}
+        allowSalesUserSelect={isAdmin && !effectiveId}
+        salesUserId={salesUserId}
+        salesUserLabel={salesSearch}
         onClose={() => {
           setVisitModalOpen(false);
           setEditingVisit(null);

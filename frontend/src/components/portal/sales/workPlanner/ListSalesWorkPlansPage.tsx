@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { CalendarDays, ExternalLink, Plus, RefreshCw, Trash2 } from "lucide-react";
 
@@ -23,25 +23,16 @@ import {
   formatPlanDate,
   planIdOf,
   renderPlanStatusBadge,
-  salesUserLabel,
+  salesUserLabel
 } from "./workPlanUtils";
 
-type ListWorkPlansPageProps = {
-  portalHome?: string;
-};
 
-export default function ListWorkPlansPage({ portalHome }: ListWorkPlansPageProps) {
-  const params = useParams();
+
+export default function ListSalesWorkPlansPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawPortal =
-    typeof params.portal === "string"
-      ? params.portal
-      : Array.isArray(params.portal)
-        ? params.portal[0]
-        : "sales";
-  const base = portalHome || `/${rawPortal}`;
-  const isAdmin = rawPortal === "admin" || rawPortal === "super_admin";
+  const base = "/sales";
+  const isAdmin = false;
 
   const initialStatus = searchParams.get("status") || "all";
   const [statusFilter, setStatusFilter] = useState(initialStatus);
@@ -273,7 +264,7 @@ export default function ListWorkPlansPage({ portalHome }: ListWorkPlansPageProps
                             <ExternalLink className="h-3 w-3" />
                             Open
                           </Link>
-                          {canEditPlan(row.status) ? (
+                          {canEditPlan(row.status, { isAdmin }) ? (
                             <>
                               <button
                                 type="button"

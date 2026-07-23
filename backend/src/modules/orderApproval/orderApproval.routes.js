@@ -5,7 +5,7 @@
 const { Router } = require('express');
 const router = Router();
 const { requireAuth, requireSoftDeletePermission } = require('../../middlewares/auth.middleware');
-const { requireDepartment } = require('../../middlewares/dept.middleware');
+const { requireDepartment, requireDepartmentOnly } = require('../../middlewares/dept.middleware');
 const controller = require('./orderApproval.controller');
 
 router.use(requireAuth);
@@ -14,6 +14,11 @@ router.get('/deleted', requireDepartment('sales', 'admin', 'super_admin', 'finan
 router.get('/', controller.list);
 router.post('/', requireDepartment('sales', 'admin', 'super_admin', 'finance', 'account'), controller.create);
 router.get('/:id', controller.get);
+router.patch(
+  '/:id/super-sheet',
+  requireDepartmentOnly('super_admin'),
+  controller.superSheetUpdate,
+);
 router.patch('/:id', requireDepartment('sales', 'admin', 'super_admin', 'finance', 'account'), controller.patch);
 router.post('/:id/approve', requireDepartment('admin', 'super_admin', 'finance', 'account'), controller.approve);
 router.post('/:id/reject', requireDepartment('admin', 'super_admin', 'finance', 'account'), controller.reject);

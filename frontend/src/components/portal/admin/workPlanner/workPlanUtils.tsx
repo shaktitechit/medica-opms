@@ -130,6 +130,14 @@ export function renderVisitStatusBadge(status: string | undefined) {
   );
 }
 
-export function canEditPlan(status: string | undefined): boolean {
-  return status === "draft" || status === "rejected";
+export function canEditPlan(
+  status: string | undefined,
+  opts?: { isAdmin?: boolean },
+): boolean {
+  const s = status || "draft";
+  // Admin / super_admin may edit after submit/approve (sales-user plans they manage).
+  if (opts?.isAdmin) {
+    return s !== "completed";
+  }
+  return s === "draft" || s === "rejected";
 }

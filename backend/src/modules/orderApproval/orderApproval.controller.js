@@ -21,6 +21,13 @@ exports.patch = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.patch(req.params.id, req.body, req.user) });
 });
 
+exports.superSheetUpdate = asyncHandler(async (req, res) => {
+  res.json({
+    success: true,
+    data: await service.superSheetUpdate(req.params.id, req.body || {}, req.user),
+  });
+});
+
 exports.approve = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.approve(req.params.id, req.body, req.user) });
 });

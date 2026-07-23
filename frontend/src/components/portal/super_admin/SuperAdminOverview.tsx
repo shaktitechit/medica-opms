@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import AdminOverviewWidgets from "@/components/portal/admin/AdminOverviewWidgets";
-import WorkPlannerStatsWidgets from "@/components/portal/shared/workPlanner/WorkPlannerStatsWidgets";
+import WorkPlannerStatsWidgets from "@/components/portal/admin/workPlanner/WorkPlannerStatsWidgets";
 import AdminMonthlyPerformanceChart from "@/components/portal/admin/components/AdminMonthlyPerformanceChart";
 import AdminPartyLeaderboard from "@/components/portal/admin/components/AdminPartyLeaderboard";
 import AdminProductLeaderboard from "@/components/portal/admin/components/AdminProductLeaderboard";
