@@ -63,6 +63,39 @@ export function resolveRateDisplayStatus(
   return "not_negotiated";
 }
 
+/**
+ * When party rates are already mapped/negotiated, sync `approved_unit_price`
+ * inputs to `currentMappedRate`. Skips line ids the user edited manually.
+ */
+export function applyNegotiatedRatesToApprovedPrices<
+  T extends {
+    product: string;
+    applied_rate_type: string;
+    approved_unit_price: number;
+    order_item_id: string;
+  },
+>(
+  lines: T[],
+  rateItemByLine: Map<string, CheckOrderRatesItem>,
+  skipIds?: Set<string>,
+): T[] {
+  let changed = false;
+  const next = lines.map((line) => {
+    if (!line.product) return line;
+    if (skipIds?.has(line.order_item_id)) return line;
+    const rateItem = rateItemByLine.get(
+      rateLookupKey(line.product, line.applied_rate_type),
+    );
+    if (resolveRateDisplayStatus(rateItem) !== "negotiated") return line;
+    const mapped = Number(rateItem?.currentMappedRate);
+    if (!Number.isFinite(mapped)) return line;
+    if (Number(line.approved_unit_price) === mapped) return line;
+    changed = true;
+    return { ...line, approved_unit_price: mapped };
+  });
+  return changed ? next : lines;
+}
+
 function formatValidityDate(value: string | null | undefined): string {
   if (!value) return "";
   const d = new Date(value);

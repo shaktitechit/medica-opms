@@ -10,6 +10,8 @@ import {
 } from "@/components/portal/shared/MapOrderLinePriceModal";
 import {
   LineRateStatusBadge,
+  applyNegotiatedRatesToApprovedPrices,
+  normalizeRateTypeForLookup,
   rateLookupKey,
   resolveRateDisplayStatus,
   resolveLineUnitPrice,
@@ -101,8 +103,17 @@ export function FinanceAmendSalesApprovalModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [mapTarget, setMapTarget] = useState<MapOrderLinePriceTarget | null>(null);
   const [mapModalOpen, setMapModalOpen] = useState(false);
+  /** Optimistic overrides so badge/price reflect immediately after map (before rate-check refetch). */
+  const [mappedRateOverrides, setMappedRateOverrides] = useState<
+    Map<string, CheckOrderRatesItem>
+  >(() => new Map());
+  /** Skip auto-hydrate for lines whose unit price the user edited manually. */
+  const [priceTouchedIds, setPriceTouchedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const partyId = useMemo(() => idFromRef(detail?.party), [detail]);
+  const approvalKey = String(approval?._id ?? approval?.id ?? "");
 
   const lineRateCheckInput = useMemo(() => {
     if (!partyId) return null;
@@ -132,8 +143,11 @@ export function FinanceAmendSalesApprovalModal({
     for (const item of rateCheckQ.data?.items ?? []) {
       map.set(rateLookupKey(item.product, item.applied_rate_type), item);
     }
+    for (const [key, override] of mappedRateOverrides) {
+      map.set(key, { ...(map.get(key) ?? ({} as CheckOrderRatesItem)), ...override });
+    }
     return map;
-  }, [rateCheckQ.data]);
+  }, [rateCheckQ.data, mappedRateOverrides]);
 
   const products = useMemo(() => {
     if (!productsQ.data) return [];
@@ -203,22 +217,29 @@ export function FinanceAmendSalesApprovalModal({
     );
     setAmendmentNotes("");
     setSearchQuery("");
+    setMappedRateOverrides(new Map());
+    setPriceTouchedIds(new Set());
   }, [approval]);
 
+  // Seed form only when the modal opens or the approval batch changes.
   useEffect(() => {
     if (open) initFormLines();
-  }, [open, initFormLines]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalKey / open only
+  }, [open, approvalKey]);
 
-  const orderLineById = useMemo(() => {
-    const map = new Map<string, Record<string, unknown>>();
-    for (const line of readOnlyItems) {
-      map.set(String(line._id ?? line.id ?? ""), line);
-    }
-    return map;
-  }, [readOnlyItems]);
+  // When rate-check returns negotiated mappings, fill unit-price inputs.
+  useEffect(() => {
+    if (!open || !rateCheckQ.data) return;
+    setFormLines((prev) =>
+      applyNegotiatedRatesToApprovedPrices(prev, rateItemByLine, priceTouchedIds),
+    );
+  }, [open, rateCheckQ.data, rateItemByLine, priceTouchedIds]);
 
   const updateLine = useCallback(
     (orderItemId: string, patch: Partial<EditableLine>) => {
+      if (patch.approved_unit_price !== undefined) {
+        setPriceTouchedIds((prev) => new Set(prev).add(orderItemId));
+      }
       setFormLines((prev) =>
         prev.map((line) => {
           if (line.order_item_id !== orderItemId) return line;
@@ -333,6 +354,12 @@ export function FinanceAmendSalesApprovalModal({
 
   const onRateTypeChange = useCallback(
     (orderItemId: string, rateType: string) => {
+      setPriceTouchedIds((prev) => {
+        if (!prev.has(orderItemId)) return prev;
+        const next = new Set(prev);
+        next.delete(orderItemId);
+        return next;
+      });
       setFormLines((prev) =>
         prev.map((line) => {
           if (line.order_item_id !== orderItemId) return line;
@@ -382,47 +409,80 @@ export function FinanceAmendSalesApprovalModal({
 
   const handleMapPriceSuccess = useCallback(
     async (result: MapOrderLinePriceSuccess) => {
-      if (!orderId || !detail || !Array.isArray(detail.order_items)) return;
+      const rateType = normalizeRateTypeForLookup(result.appliedRateType);
+      const lookupKey = rateLookupKey(result.productId, rateType);
 
-      const existsOnOrder = (detail.order_items as Record<string, unknown>[]).some(
-        (item) => idFromRef(item.product) === result.productId
-      );
+      setMappedRateOverrides((prev) => {
+        const next = new Map(prev);
+        next.set(lookupKey, {
+          product: result.productId,
+          product_name: "",
+          applied_rate_type: rateType,
+          unit_price: result.negotiatedRate,
+          isMapped: true,
+          mappingId: prev.get(lookupKey)?.mappingId ?? null,
+          hasRate: true,
+          rateId: null,
+          currentMappedRate: result.negotiatedRate,
+          isRateExpired: false,
+        });
+        return next;
+      });
 
-      if (existsOnOrder) {
-        const orderItems = (detail.order_items as Record<string, unknown>[]).map(
-          (item) => {
-            const pid = idFromRef(item.product);
-            if (pid === result.productId) {
-              return {
-                ...item,
-                unit_price: result.negotiatedRate,
-                applied_rate_type: result.appliedRateType,
-                manual_price_override: false,
-              };
-            }
-            return item;
-          },
+      setFormLines((prev) => {
+        const touched: string[] = [];
+        const next = prev.map((line) => {
+          if (line.product !== result.productId) return line;
+          touched.push(line.order_item_id);
+          return {
+            ...line,
+            approved_unit_price: result.negotiatedRate,
+            applied_rate_type: rateType,
+          };
+        });
+        if (touched.length) {
+          setPriceTouchedIds((ids) => {
+            const copy = new Set(ids);
+            for (const id of touched) copy.delete(id);
+            return copy;
+          });
+        }
+        return next;
+      });
+
+      if (orderId && detail && Array.isArray(detail.order_items)) {
+        const existsOnOrder = (detail.order_items as Record<string, unknown>[]).some(
+          (item) => idFromRef(item.product) === result.productId,
         );
-        try {
-          await patchOrder({ id: orderId, patch: { order_items: orderItems } }).unwrap();
-          refetchOrder?.();
-        } catch (rejected) {
-          toast.error(mutationRejectedMessage(rejected));
-          return;
+
+        if (existsOnOrder) {
+          const orderItems = (detail.order_items as Record<string, unknown>[]).map(
+            (item) => {
+              const pid = idFromRef(item.product);
+              if (pid === result.productId) {
+                return {
+                  ...item,
+                  unit_price: result.negotiatedRate,
+                  applied_rate_type: rateType,
+                  manual_price_override: false,
+                };
+              }
+              return item;
+            },
+          );
+          try {
+            await patchOrder({
+              id: orderId,
+              patch: { order_items: orderItems },
+            }).unwrap();
+            refetchOrder?.();
+          } catch (rejected) {
+            toast.error(mutationRejectedMessage(rejected));
+            return;
+          }
         }
       }
 
-      setFormLines((prev) =>
-        prev.map((line) =>
-          line.product === result.productId
-            ? {
-                ...line,
-                approved_unit_price: result.negotiatedRate,
-                applied_rate_type: result.appliedRateType,
-              }
-            : line,
-        ),
-      );
       toast.success("Rate mapped and price updated.");
       if (!rateCheckQ.isUninitialized) {
         void rateCheckQ.refetch();
@@ -473,8 +533,7 @@ export function FinanceAmendSalesApprovalModal({
 
     const unmapped = activeLines.filter((line) => {
       if (line.approved_quantity <= 0) return false;
-      const source = orderLineById.get(line.order_item_id);
-      const rateType = String(source?.applied_rate_type ?? line.applied_rate_type ?? "SR");
+      const rateType = normalizeRateTypeForLookup(line.applied_rate_type || "SR");
       const rateItem = rateItemByLine.get(rateLookupKey(line.product, rateType));
       return resolveRateDisplayStatus(rateItem) !== "negotiated";
     });
@@ -567,7 +626,6 @@ export function FinanceAmendSalesApprovalModal({
     formLines,
     amendmentNotes,
     financeAmend,
-    orderLineById,
     rateItemByLine,
     onClose,
     onAmended,
@@ -698,8 +756,9 @@ export function FinanceAmendSalesApprovalModal({
                   </thead>
                   <tbody className="divide-y divide-slate-200/80 dark:divide-white/10">
                     {formLines.map((line) => {
-                      const source = orderLineById.get(line.order_item_id);
-                      const rateType = String(source?.applied_rate_type ?? line.applied_rate_type ?? "SR");
+                      const rateType = normalizeRateTypeForLookup(
+                        line.applied_rate_type || "SR",
+                      );
                       const rateItem = rateItemByLine.get(
                         rateLookupKey(line.product, rateType),
                       );
