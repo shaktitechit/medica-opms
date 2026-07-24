@@ -207,16 +207,34 @@ export function resolveOrderItemIdForLine(
   orderItems: Record<string, unknown>[],
 ): string {
   const rawId = idFromRef(approvalItem.order_item_id);
-  const byId = orderItems.find((line) => idFromRef(line._id ?? line.id) === rawId);
-  if (byId) return idFromRef(byId._id ?? byId.id);
-
-  const productId = idFromRef(approvalItem.product);
-  if (productId) {
-    const byProduct = orderItems.find((line) => idFromRef(line.product) === productId);
-    if (byProduct) return idFromRef(byProduct._id ?? byProduct.id);
+  if (rawId) {
+    const byId = orderItems.find(
+      (line) => idFromRef(line._id ?? line.id) === rawId,
+    );
+    if (byId) return idFromRef(byId._id ?? byId.id);
   }
 
-  return "";
+  const productId = idFromRef(approvalItem.product).toLowerCase();
+  if (productId) {
+    const matches = orderItems.filter(
+      (line) => idFromRef(line.product).toLowerCase() === productId,
+    );
+    if (matches.length === 1) {
+      return idFromRef(matches[0]._id ?? matches[0].id);
+    }
+    // Prefer a line that still has clearance headroom when duplicates exist.
+    const preferred = matches.find((line) => {
+      const approved = Number(line.approved_quantity || 0);
+      const dispatched = Number(line.dispatched_quantity || 0);
+      return approved <= 0 || dispatched < approved;
+    });
+    if (preferred) return idFromRef(preferred._id ?? preferred.id);
+    if (matches[0]) return idFromRef(matches[0]._id ?? matches[0].id);
+  }
+
+  // Keep the approval's order_item_id even when the order detail is stale /
+  // missing the line — otherwise Create Dispatch stays disabled after clearance.
+  return rawId;
 }
 
 export function buildAccountDispatchPreviewRows(
@@ -241,10 +259,10 @@ export function buildAccountDispatchPreviewRows(
     if (clearedQty <= 0) continue;
 
     const orderItemId = resolveOrderItemIdForLine(item, orderItems);
+    if (!orderItemId) continue;
     const orderLine = orderItems.find(
       (line) => idFromRef(line._id ?? line.id) === orderItemId,
     );
-    if (!orderItemId || !orderLine) continue;
     const productRef = item.product;
     const productName =
       String(orderLine?.product_name ?? "") ||
@@ -266,8 +284,12 @@ export function buildAccountDispatchPreviewRows(
 
     rows.push({
       orderItemId,
-      productName,
-      sku: orderLine?.sku ? String(orderLine.sku) : undefined,
+      productName: productName || "—",
+      sku: orderLine?.sku
+        ? String(orderLine.sku)
+        : item.sku
+          ? String(item.sku)
+          : undefined,
       clearedQty,
       alreadyDispatched,
       remaining,
@@ -314,10 +336,10 @@ export function buildAccountResolvePreviewRows(
     if (clearedQty <= 0) continue;
 
     const orderItemId = resolveOrderItemIdForLine(item, orderItems);
+    if (!orderItemId) continue;
     const orderLine = orderItems.find(
       (line) => idFromRef(line._id ?? line.id) === orderItemId,
     );
-    if (!orderItemId || !orderLine) continue;
     const dispatchedQty = dispatchedByLine[orderItemId] || 0;
     const atWarehouseQty = lineAtWarehouseQty(orderItemId, item, orderLine, returnsByLine);
     const remainingClearance = Math.max(0, clearedQty - dispatchedQty);
@@ -334,8 +356,12 @@ export function buildAccountResolvePreviewRows(
 
     rows.push({
       orderItemId,
-      productName,
-      sku: orderLine?.sku ? String(orderLine.sku) : undefined,
+      productName: productName || "—",
+      sku: orderLine?.sku
+        ? String(orderLine.sku)
+        : item.sku
+          ? String(item.sku)
+          : undefined,
       clearedQty,
       dispatchedQty,
       atWarehouseQty,
@@ -443,10 +469,10 @@ export function summarizeReleaseDispatchState(
     if (clearedQty <= 0) continue;
 
     const orderItemId = resolveOrderItemIdForLine(item, orderItems);
+    if (!orderItemId) continue;
     const orderLine = orderItems.find(
       (line) => idFromRef(line._id ?? line.id) === orderItemId,
     );
-    if (!orderItemId || !orderLine) continue;
     const alreadyDispatched = dispatchedByLine[orderItemId] || 0;
     const atWarehouseQty = includeWarehouseReturns
       ? lineAtWarehouseQty(orderItemId, item, orderLine, returnsByLine)

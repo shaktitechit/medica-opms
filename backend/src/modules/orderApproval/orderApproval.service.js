@@ -1428,14 +1428,32 @@ async function decideFinance(id, decision, body, user) {
         (line) => String(line._id) === String(item.order_item_id)
       );
       if (orderLine) {
-        item.approved_quantity = Number(orderLine.approved_quantity ?? orderLine.ordered_quantity ?? 0);
-        item.ordered_quantity = Number(orderLine.ordered_quantity ?? 0);
-        item.approved_unit_price = Number(orderLine.unit_price ?? 0);
-        item.ordered_unit_price = Number(orderLine.unit_price ?? 0);
-        item.free_quantity = Number(orderLine.free_quantity ?? 0);
-        item.discount_percent = Number(orderLine.discount_percent ?? 0);
-        item.discount_amount = Number(orderLine.discount_amount ?? 0);
-        item.gst_percent = Number(orderLine.gst_percent ?? 0);
+        const lineApproved = Number(orderLine.approved_quantity);
+        const lineOrdered = Number(orderLine.ordered_quantity ?? 0);
+        const existingApproved = Number(item.approved_quantity || 0);
+        // Never clobber a positive finance clearance with a stale 0 on the order line.
+        if (Number.isFinite(lineApproved) && lineApproved > 0) {
+          item.approved_quantity = lineApproved;
+        } else if (existingApproved <= 0 && lineOrdered > 0) {
+          item.approved_quantity = lineOrdered;
+        }
+        item.ordered_quantity = lineOrdered > 0
+          ? lineOrdered
+          : Math.max(Number(item.ordered_quantity || 0), Number(item.approved_quantity || 0));
+        item.approved_unit_price = Number(
+          orderLine.unit_price ?? item.approved_unit_price ?? 0,
+        );
+        item.ordered_unit_price = Number(
+          orderLine.unit_price ?? item.ordered_unit_price ?? 0,
+        );
+        item.free_quantity = Number(orderLine.free_quantity ?? item.free_quantity ?? 0);
+        item.discount_percent = Number(
+          orderLine.discount_percent ?? item.discount_percent ?? 0,
+        );
+        item.discount_amount = Number(
+          orderLine.discount_amount ?? item.discount_amount ?? 0,
+        );
+        item.gst_percent = Number(orderLine.gst_percent ?? item.gst_percent ?? 0);
       }
     }
   }
@@ -1592,20 +1610,38 @@ async function decideAccount(id, decision, body, user, options = {}) {
   }
 
   const parentOrder = await Order.findById(doc.order).lean();
-  if (parentOrder && Array.isArray(doc.approval_items)) {
+  if (parentOrder && Array.isArray(doc.approval_items) && !options.bypassSequence) {
     for (const item of doc.approval_items) {
       const orderLine = (parentOrder.order_items || []).find(
         (line) => String(line._id) === String(item.order_item_id)
       );
       if (orderLine) {
-        item.approved_quantity = Number(orderLine.approved_quantity ?? orderLine.ordered_quantity ?? 0);
-        item.ordered_quantity = Number(orderLine.ordered_quantity ?? 0);
-        item.approved_unit_price = Number(orderLine.unit_price ?? 0);
-        item.ordered_unit_price = Number(orderLine.unit_price ?? 0);
-        item.free_quantity = Number(orderLine.free_quantity ?? 0);
-        item.discount_percent = Number(orderLine.discount_percent ?? 0);
-        item.discount_amount = Number(orderLine.discount_amount ?? 0);
-        item.gst_percent = Number(orderLine.gst_percent ?? 0);
+        const lineApproved = Number(orderLine.approved_quantity);
+        const lineOrdered = Number(orderLine.ordered_quantity ?? 0);
+        const existingApproved = Number(item.approved_quantity || 0);
+        // Never clobber a positive clearance with a stale 0 on the order line.
+        if (Number.isFinite(lineApproved) && lineApproved > 0) {
+          item.approved_quantity = lineApproved;
+        } else if (existingApproved <= 0 && lineOrdered > 0) {
+          item.approved_quantity = lineOrdered;
+        }
+        item.ordered_quantity = lineOrdered > 0
+          ? lineOrdered
+          : Math.max(Number(item.ordered_quantity || 0), Number(item.approved_quantity || 0));
+        item.approved_unit_price = Number(
+          orderLine.unit_price ?? item.approved_unit_price ?? 0,
+        );
+        item.ordered_unit_price = Number(
+          orderLine.unit_price ?? item.ordered_unit_price ?? 0,
+        );
+        item.free_quantity = Number(orderLine.free_quantity ?? item.free_quantity ?? 0);
+        item.discount_percent = Number(
+          orderLine.discount_percent ?? item.discount_percent ?? 0,
+        );
+        item.discount_amount = Number(
+          orderLine.discount_amount ?? item.discount_amount ?? 0,
+        );
+        item.gst_percent = Number(orderLine.gst_percent ?? item.gst_percent ?? 0);
       }
     }
   }

@@ -32,19 +32,27 @@ function calcBucketTotal(qty, unitPrice, discountPercent = 0, gstPercent = 0) {
 
 function recalcApprovalItemTotals(item) {
   const orderedQty = Math.max(0, Number(item.ordered_quantity || 0));
-  const approvedQty = Math.max(0, Math.min(Number(item.approved_quantity || 0), orderedQty));
+  const rawApproved = Math.max(0, Number(item.approved_quantity || 0));
+  // When ordered_quantity is missing/0, do not wipe a positive approved qty
+  // (that was leaving Create Dispatch disabled after partial clearance).
+  const approvedQty =
+    orderedQty > 0 ? Math.min(rawApproved, orderedQty) : rawApproved;
   const orderedPrice = Number(item.ordered_unit_price ?? item.approved_unit_price ?? 0);
   const approvedPrice = Number(item.approved_unit_price ?? orderedPrice);
   const discountPercent = Number(item.discount_percent ?? 0);
   const gstPercent = Number(item.gst_percent ?? 0);
 
   item.approved_quantity = approvedQty;
+  if (orderedQty <= 0 && approvedQty > 0) {
+    item.ordered_quantity = approvedQty;
+  }
 
   const approved = calcBucketTotal(approvedQty, approvedPrice, discountPercent, gstPercent);
   if (discountPercent > 0) item.discount_amount = approved.disc;
   item.approved_total_amount = approved.total;
 
-  const ordered = calcBucketTotal(orderedQty, orderedPrice, discountPercent, gstPercent);
+  const effectiveOrderedQty = Math.max(orderedQty, approvedQty);
+  const ordered = calcBucketTotal(effectiveOrderedQty, orderedPrice, discountPercent, gstPercent);
   item.ordered_total_amount = ordered.total;
 
   return item;

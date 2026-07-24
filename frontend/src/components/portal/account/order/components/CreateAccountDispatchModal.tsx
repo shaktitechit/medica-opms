@@ -303,9 +303,18 @@ export function CreateAccountDispatchModal({
           const orderLine = orderItems.find(
             (line) => String(line._id ?? line.id) === order_item_id,
           );
+          const approvalItem = Array.isArray(activeApproval?.approval_items)
+            ? (activeApproval.approval_items as Record<string, unknown>[]).find(
+                (row) => idFromRef(row.order_item_id) === order_item_id,
+              )
+            : undefined;
+          const product =
+            orderLine?.product ??
+            approvalItem?.product ??
+            undefined;
           return {
             order_item_id,
-            product: orderLine?.product,
+            product: idFromRef(product) || product,
             dispatch_quantity: qty,
           };
         })
