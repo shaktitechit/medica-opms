@@ -1,9 +1,12 @@
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
+  isDueSheetPending,
   isOrderClosed,
+  isOrderClosedOrDelivered,
+  isOrderDelivered,
+  pendingApprovalStageLabel,
   resolveApprovalPending,
-  type ApprovalPendingStage,
-} from "@/components/portal/sales/orderUtils";
+} from "@/components/portal/shared/orderList/orderWorkflowTabs";
 import {
   buildPendingReturnOrderIds,
   isReturnPendingOrder,
@@ -28,6 +31,13 @@ export type FinanceOrderTabCategory =
 export type FinanceOrderCategoryOptions = AccountOrderCategoryOptions;
 
 export { buildPendingReturnOrderIds };
+export {
+  isDueSheetPending,
+  isOrderClosed,
+  isOrderClosedOrDelivered,
+  isOrderDelivered,
+  pendingApprovalStageLabel,
+};
 
 export const FINANCE_ORDER_TABS: ReadonlyArray<{
   id: FinanceOrderTabCategory;
@@ -62,40 +72,6 @@ export const FINANCE_ORDER_TAB_LABELS: Record<FinanceOrderTabCategory, string> =
   rejected: "Rejected",
 };
 
-/** Order is delivered (fulfillment complete) but may not yet be account-closed. */
-export function isOrderDelivered(order: unknown): boolean {
-  if (!order || typeof order !== "object") return false;
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-  if (status === "delivered") return true;
-  const deliveryStatus = String(row.delivery_status || "").toLowerCase();
-  const lifecycle = String(row.lifecycle_status || "").toLowerCase();
-  return deliveryStatus === "completed" || lifecycle === "fulfilled";
-}
-
-export function isOrderClosedOrDelivered(order: unknown): boolean {
-  return isOrderClosed(order) || isOrderDelivered(order);
-}
-
-/** Admin cleared but no active due sheet uploaded yet. */
-export function isDueSheetPending(order: unknown): boolean {
-  if (!order || typeof order !== "object") return false;
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-
-  if (status === "draft") return false;
-  if (status === "on_hold") return false;
-  if (status === "cancelled") return false;
-  if (status === "finance_rejected") return false;
-  if (isOrderClosedOrDelivered(row)) return false;
-
-  const pending = resolveApprovalPending(row);
-  if (pending.admin) return false;
-  if (row.due_sheet_uploaded === true) return false;
-
-  return true;
-}
-
 /**
  * Finance list tab bucket. Draft orders are excluded (return null).
  * Priority: terminal → return → transport → closed → approvals → dispatch pending.
@@ -116,9 +92,10 @@ export function getFinanceOrderTabCategory(
   if (status === "finance_rejected") return "rejected";
 
   if (isReturnPendingOrder(order, options)) return "return_pending";
-  if (isTransportPending(order)) return "transport_pending";
+  if (isTransportPending(order, options)) return "transport_pending";
   if (isOrderClosedOrDelivered(row)) return "closed_delivered";
 
+  // Exclusive sequential pipeline: admin → due sheet → finance → account → dispatch.
   const pending = resolveApprovalPending(row);
   if (pending.admin) return "pending_admin_approval";
   if (isDueSheetPending(row)) return "due_sheet_pending";
@@ -141,19 +118,6 @@ export function orderMatchesFinanceTab(
   }
 
   return getFinanceOrderTabCategory(order, options) === tab;
-}
-
-export function pendingApprovalStageLabel(stage: ApprovalPendingStage): string {
-  switch (stage) {
-    case "admin":
-      return "Admin";
-    case "finance":
-      return "Finance";
-    case "account":
-      return "Account";
-    default:
-      return "Approval";
-  }
 }
 
 export function isFinanceOrderTabCategory(value: string): value is FinanceOrderTabCategory {

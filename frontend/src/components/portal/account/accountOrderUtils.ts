@@ -1,5 +1,6 @@
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
+  isAccountCleared,
   isDueSheetPending,
   isOrderClosedOrDelivered,
   normalizeWorkflowTabFromUrl,
@@ -51,9 +52,14 @@ export { isDueSheetPending };
 export type AccountOrderCategoryOptions = {
   pendingReturnOrderIds?: Set<string>;
   returnsByOrderId?: Map<string, Record<string, unknown>[]>;
+  /** Order ids with ≥1 dispatch batch submitted for transport. */
+  submittedDispatchOrderIds?: Set<string>;
 };
 
-/** Active transport pipeline after quantity has left the dispatch bucket. */
+/**
+ * Order workflow statuses set only after a dispatch batch is submitted
+ * (draft create alone stays on account/dispatch_pending statuses).
+ */
 const TRANSPORT_ACTIVE_STATUSES = new Set([
   "partial_dispatch_created",
   "full_dispatch_created",
@@ -87,9 +93,13 @@ function orderHasPendingReturns(
 }
 
 /**
- * Order is in the transport pipeline (dispatched qty moving / awaiting transport).
+ * Transport Pending: ≥1 order dispatch has been created and submitted for transport.
+ * Draft-only dispatches remain in Dispatch Pending.
  */
-export function isTransportPending(order: unknown): boolean {
+export function isTransportPending(
+  order: unknown,
+  options?: AccountOrderCategoryOptions,
+): boolean {
   if (!order || typeof order !== "object") return false;
   const row = order as Record<string, unknown>;
   const status = deriveOrderWorkflowStatus(row);
@@ -99,7 +109,17 @@ export function isTransportPending(order: unknown): boolean {
   }
   if (isOrderClosedOrDelivered(row)) return false;
 
+  const orderId = refId(row._id ?? row.id);
+  if (orderId && options?.submittedDispatchOrderIds?.has(orderId)) {
+    return true;
+  }
+
+  // Status transitions to partial/full_dispatch_created only on submit.
   if (TRANSPORT_ACTIVE_STATUSES.has(status)) return true;
+
+  // Order-level fulfillment flags after submitted qty left the warehouse bucket.
+  // Require account clearance so approval-stage rows never land here early.
+  if (!isAccountCleared(row)) return false;
 
   const dispatchStatus = String(row.dispatch_status || "").toLowerCase();
   if (dispatchStatus === "partial" || dispatchStatus === "completed") return true;
@@ -127,7 +147,7 @@ export function isTransportOrReturnPending(
   order: unknown,
   options?: AccountOrderCategoryOptions,
 ): boolean {
-  return isReturnPendingOrder(order, options) || isTransportPending(order);
+  return isReturnPendingOrder(order, options) || isTransportPending(order, options);
 }
 
 /**
@@ -150,9 +170,10 @@ export function getAccountOrderTabCategory(
   if (status === "finance_rejected") return "rejected";
 
   if (isReturnPendingOrder(order, options)) return "return_pending";
-  if (isTransportPending(order)) return "transport_pending";
+  if (isTransportPending(order, options)) return "transport_pending";
   if (isOrderClosedOrDelivered(row)) return "closed_delivered";
 
+  // Exclusive sequential pipeline: admin → due sheet → finance → account → dispatch.
   const pending = resolveApprovalPending(row);
   if (pending.admin) return "pending_admin_approval";
   if (isDueSheetPending(row)) return "due_sheet_pending";

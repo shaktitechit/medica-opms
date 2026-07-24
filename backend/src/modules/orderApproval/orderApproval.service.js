@@ -1025,11 +1025,13 @@ function finalizeFinanceOverrideApprovalIsolated(doc, user) {
   doc.is_finance_approved = true;
   doc.finance_approved_by = doc.finance_approved_by || user._id;
   doc.finance_approved_at = doc.finance_approved_at || now;
-  // Only fill legacy approved_by when admin has not already signed this batch.
   if (!doc.is_admin_approved) {
-    if (!doc.approved_by) doc.approved_by = user._id;
-    if (!doc.approved_at) doc.approved_at = now;
+    doc.is_admin_approved = true;
+    doc.admin_approved_by = doc.admin_approved_by || doc.approved_by || user._id;
+    doc.admin_approved_at = doc.admin_approved_at || doc.approved_at || now;
   }
+  if (!doc.approved_by) doc.approved_by = user._id;
+  if (!doc.approved_at) doc.approved_at = now;
 
   doc.approved_total_amount = (doc.approval_items || []).reduce(
     (sum, item) => sum + Number(item.approved_total_amount || 0),
@@ -1055,6 +1057,17 @@ function finalizeAccountOverrideApproval(doc, user) {
   doc.is_account_approved = true;
   doc.account_approved_by = doc.account_approved_by || user._id;
   doc.account_approved_at = doc.account_approved_at || now;
+  // Keep pipeline flags consistent so dispatch availability sees a fully cleared batch.
+  if (!doc.is_finance_approved) {
+    doc.is_finance_approved = true;
+    doc.finance_approved_by = doc.finance_approved_by || user._id;
+    doc.finance_approved_at = doc.finance_approved_at || now;
+  }
+  if (!doc.is_admin_approved) {
+    doc.is_admin_approved = true;
+    doc.admin_approved_by = doc.admin_approved_by || doc.approved_by || user._id;
+    doc.admin_approved_at = doc.admin_approved_at || doc.approved_at || now;
+  }
   if (!doc.approved_by) doc.approved_by = user._id;
   if (!doc.approved_at) doc.approved_at = now;
 

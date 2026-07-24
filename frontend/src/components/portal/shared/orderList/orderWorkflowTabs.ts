@@ -1,4 +1,5 @@
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+
 export type ApprovalPendingStage = "admin" | "finance" | "account" | null;
 
 export type ApprovalPendingSummary = {
@@ -8,6 +9,40 @@ export type ApprovalPendingSummary = {
   stage: ApprovalPendingStage;
 };
 
+const CLEARED_APPROVAL = new Set(["approved", "full", "sent_to_finance"]);
+const PARTIAL_OR_PENDING = new Set(["pending", "partial", ""]);
+
+/** Statuses that mean admin has already signed off (order moved past submit). */
+const POST_ADMIN_STATUSES = new Set([
+  "sales_approved",
+  "finance_review",
+  "partially_finance_approved",
+  "fully_finance_approved",
+  "account_review",
+  "partially_account_approved",
+  "fully_account_approved",
+  "account_approved",
+  "dispatch_pending",
+  "partial_dispatch_created",
+  "full_dispatch_created",
+  "transport_pending",
+  "transport_assigned",
+  "partially_transported",
+  "fully_transported",
+  "in_transit",
+  "delivered",
+  "closed",
+]);
+
+function approvalStatusCleared(value: unknown): boolean {
+  return CLEARED_APPROVAL.has(String(value || "").toLowerCase());
+}
+
+function approvalStatusOpen(value: unknown): boolean {
+  const s = String(value || "pending").toLowerCase();
+  return PARTIAL_OR_PENDING.has(s);
+}
+
 export function isOrderClosed(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
   const row = order as Record<string, unknown>;
@@ -15,48 +50,115 @@ export function isOrderClosed(order: unknown): boolean {
   return String(row.status || "").toLowerCase() === "closed";
 }
 
+/**
+ * Sequential clearance helpers for the approval pipeline:
+ * submitted → admin → due sheet → finance → account → dispatch.
+ */
+export function isAdminCleared(order: unknown): boolean {
+  if (!order || typeof order !== "object") return false;
+  const row = order as Record<string, unknown>;
+  const status = deriveOrderWorkflowStatus(row);
+  const adminStatus = String(row.admin_approval_status || "pending").toLowerCase();
+
+  // Explicit admin sign-off wins even if status transition lagged.
+  if (approvalStatusCleared(adminStatus)) return true;
+  if (status === "draft" || status === "submitted" || status === "pending_review") {
+    return false;
+  }
+  if (POST_ADMIN_STATUSES.has(status)) return true;
+  return !approvalStatusOpen(adminStatus);
+}
+
+export function isFinanceCleared(order: unknown): boolean {
+  if (!order || typeof order !== "object") return false;
+  const row = order as Record<string, unknown>;
+  const financeStatus = String(row.finance_approval_status || "pending").toLowerCase();
+  if (approvalStatusCleared(financeStatus)) return true;
+  const status = deriveOrderWorkflowStatus(row);
+  return (
+    status === "fully_finance_approved" ||
+    status === "account_review" ||
+    status === "partially_account_approved" ||
+    status === "fully_account_approved" ||
+    status === "account_approved" ||
+    status === "dispatch_pending" ||
+    status === "partial_dispatch_created" ||
+    status === "full_dispatch_created" ||
+    status.startsWith("transport") ||
+    status === "in_transit" ||
+    status === "delivered" ||
+    status === "closed"
+  );
+}
+
+export function isAccountCleared(order: unknown): boolean {
+  if (!order || typeof order !== "object") return false;
+  const row = order as Record<string, unknown>;
+  const accountStatus = String(row.account_approval_status || "pending").toLowerCase();
+  if (approvalStatusCleared(accountStatus)) return true;
+  const status = deriveOrderWorkflowStatus(row);
+  return (
+    status === "fully_account_approved" ||
+    status === "account_approved" ||
+    status === "dispatch_pending" ||
+    status === "partial_dispatch_created" ||
+    status === "full_dispatch_created" ||
+    status.startsWith("transport") ||
+    status === "in_transit" ||
+    status === "delivered" ||
+    status === "closed"
+  );
+}
+
+export function isDueSheetUploaded(order: unknown): boolean {
+  if (!order || typeof order !== "object") return false;
+  return (order as Record<string, unknown>).due_sheet_uploaded === true;
+}
+
+/**
+ * Exclusive pending stage for list tabs.
+ *
+ * Flow:
+ * 1. submitted → admin pending
+ * 2. admin cleared + no due sheet → due sheet pending (handled by isDueSheetPending)
+ * 3. admin + due sheet + finance not cleared → finance pending
+ * 4. admin + due sheet + finance + account not cleared → account pending
+ * 5. otherwise no approval stage pending (dispatch / later)
+ *
+ * Always sequential — overlapping API `approval_pending` flags are ignored for
+ * tab membership so an order never sits in two approval tabs at once.
+ */
 export function resolveApprovalPending(order: unknown): ApprovalPendingSummary {
   if (!order || typeof order !== "object") {
     return { admin: false, finance: false, account: false, stage: null };
   }
 
   const row = order as Record<string, unknown>;
-  const fromApi = row.approval_pending;
-  if (fromApi && typeof fromApi === "object") {
-    const pending = fromApi as Record<string, unknown>;
-    const stage = pending.stage;
-    const normalizedStage: ApprovalPendingStage =
-      stage === "admin" || stage === "finance" || stage === "account" ? stage : null;
-    return {
-      admin: Boolean(pending.admin),
-      finance: Boolean(pending.finance),
-      account: Boolean(pending.account),
-      stage: normalizedStage,
-    };
+  const status = deriveOrderWorkflowStatus(row);
+
+  if (status === "draft") {
+    return { admin: false, finance: false, account: false, stage: null };
   }
 
-  const status = deriveOrderWorkflowStatus(row);
-  const adminStatus = String(row.admin_approval_status || "pending");
-  const financeStatus = String(row.finance_approval_status || "pending");
-  const accountStatus = String(row.account_approval_status || "pending");
+  // Submitted / pending_review sit in Admin Pending until admin is cleared.
+  if (!isAdminCleared(row)) {
+    return { admin: true, finance: false, account: false, stage: "admin" };
+  }
 
-  const admin = status === "submitted";
-  const finance =
-    status === "finance_review" ||
-    status === "sales_approved" ||
-    financeStatus === "pending" ||
-    financeStatus === "partial";
-  const account =
-    status === "account_review" ||
-    accountStatus === "pending" ||
-    accountStatus === "partial";
+  if (!isDueSheetUploaded(row)) {
+    // Due sheet is its own tab; no approval stage is "current" here.
+    return { admin: false, finance: false, account: false, stage: null };
+  }
 
-  let stage: ApprovalPendingStage = null;
-  if (admin) stage = "admin";
-  else if (finance) stage = "finance";
-  else if (account) stage = "account";
+  if (!isFinanceCleared(row)) {
+    return { admin: false, finance: true, account: false, stage: "finance" };
+  }
 
-  return { admin, finance, account, stage };
+  if (!isAccountCleared(row)) {
+    return { admin: false, finance: false, account: true, stage: "account" };
+  }
+
+  return { admin: false, finance: false, account: false, stage: null };
 }
 
 export function hasAnyPendingApproval(order: unknown): boolean {
@@ -140,6 +242,10 @@ export function isOrderClosedOrDelivered(order: unknown): boolean {
   return isOrderClosed(order) || isOrderDelivered(order);
 }
 
+/**
+ * Admin cleared, due sheet not uploaded yet.
+ * Finance cannot start until due sheet is present.
+ */
 export function isDueSheetPending(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
   const row = order as Record<string, unknown>;
@@ -151,13 +257,21 @@ export function isDueSheetPending(order: unknown): boolean {
   if (status === "finance_rejected") return false;
   if (isOrderClosedOrDelivered(row)) return false;
 
-  const pending = resolveApprovalPending(row);
-  if (pending.admin) return false;
-  if (row.due_sheet_uploaded === true) return false;
+  if (!isAdminCleared(row)) return false;
+  if (isDueSheetUploaded(row)) return false;
 
   return true;
 }
 
+/**
+ * Shared exclusive workflow bucket used by all portals (before transport/return overlays).
+ *
+ * submitted → admin pending
+ * admin done → due sheet pending
+ * admin + due sheet → finance pending
+ * admin + due sheet + finance → account pending
+ * all of the above done → dispatch pending
+ */
 export function getOrderWorkflowTabCategory(order: unknown): OrderWorkflowTabCategory | null {
   if (!order || typeof order !== "object") return null;
   const row = order as Record<string, unknown>;
@@ -187,21 +301,6 @@ export function orderMatchesWorkflowTab(
   if (tab === "all") {
     return deriveOrderWorkflowStatus(order as Record<string, unknown>) !== "draft";
   }
-
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-  const isPipelineActive =
-    status !== "on_hold" &&
-    status !== "cancelled" &&
-    status !== "finance_rejected" &&
-    !isOrderClosedOrDelivered(row);
-
-  const pending = resolveApprovalPending(order);
-
-  if (tab === "pending_admin_approval") return isPipelineActive && pending.admin;
-  if (tab === "due_sheet_pending") return isPipelineActive && isDueSheetPending(order);
-  if (tab === "pending_finance_approval") return isPipelineActive && pending.finance;
-  if (tab === "pending_account_approval") return isPipelineActive && pending.account;
 
   return getOrderWorkflowTabCategory(order) === tab;
 }

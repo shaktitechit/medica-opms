@@ -176,6 +176,85 @@ export function DispatchesTab({
     !["cancelled", "on_hold"].includes(orderStatus) &&
     dispatchableApprovals.length > 0;
 
+  const editableDraftForClearedRelease = useMemo(() => {
+    if (["cancelled", "on_hold"].includes(orderStatus)) return null;
+    if (dispatchableApprovals.length > 0) return null;
+    for (const approval of accountApprovals) {
+      if (!isFullyClearedApproval(approval)) continue;
+      if (Boolean(approval.dispatch_release_resolved)) continue;
+      const approvalId = idFromRef(approval._id ?? approval.id);
+      const draft = dispatches.find((disp) => {
+        const status = String(disp.dispatch_status ?? disp.status ?? "draft");
+        if (status !== "draft" && status !== "cancelled") return false;
+        if (status === "cancelled") return false;
+        const dispApproval = disp.finance_approval;
+        const dispApprovalId =
+          typeof dispApproval === "object" && dispApproval !== null
+            ? idFromRef(
+                (dispApproval as Record<string, unknown>)._id ??
+                  (dispApproval as Record<string, unknown>).id,
+              )
+            : idFromRef(dispApproval);
+        return dispApprovalId === approvalId;
+      });
+      if (draft) return draft;
+    }
+    return null;
+  }, [accountApprovals, dispatches, dispatchableApprovals.length, orderStatus]);
+
+  const financeClearedButNotAccount = useMemo(() => {
+    const all = pickList(approvalsQ.data);
+    return all.some(
+      (app) =>
+        Boolean(app.is_finance_approved) &&
+        !Boolean(app.is_account_approved) &&
+        Array.isArray(app.approval_items) &&
+        (app.approval_items as Record<string, unknown>[]).some(
+          (it) => Number(it.approved_quantity || 0) > 0,
+        ),
+    );
+  }, [approvalsQ.data]);
+
+  const adminOrFinanceMissing = useMemo(() => {
+    const all = pickList(approvalsQ.data);
+    return all.some(
+      (app) =>
+        Boolean(app.is_account_approved) &&
+        (!Boolean(app.is_admin_approved) || !Boolean(app.is_finance_approved)) &&
+        Array.isArray(app.approval_items) &&
+        (app.approval_items as Record<string, unknown>[]).some(
+          (it) => Number(it.approved_quantity || 0) > 0,
+        ),
+    );
+  }, [approvalsQ.data]);
+
+  const createDispatchDisabledReason = useMemo(() => {
+    if (["cancelled", "on_hold"].includes(orderStatus)) {
+      return "Order is on hold or cancelled.";
+    }
+    if (canCreateDispatch) return "";
+    if (editableDraftForClearedRelease) {
+      return "Remaining quantity is already on a draft dispatch — edit that draft.";
+    }
+    if (adminOrFinanceMissing) {
+      return "Admin, finance, and account clearance are all required before dispatch.";
+    }
+    if (financeClearedButNotAccount) {
+      return "Account clearance is still required on the approval batch.";
+    }
+    if (accountApprovals.length === 0) {
+      return "No fully cleared approval batch yet (admin, finance, and account).";
+    }
+    return "No remaining quantity to dispatch on cleared approvals.";
+  }, [
+    orderStatus,
+    canCreateDispatch,
+    editableDraftForClearedRelease,
+    adminOrFinanceMissing,
+    financeClearedButNotAccount,
+    accountApprovals.length,
+  ]);
+
   const hasPartialDispatchRemaining =
     !["cancelled", "on_hold"].includes(orderStatus) &&
     accountApprovals.some((approval) => {
@@ -199,6 +278,21 @@ export function DispatchesTab({
     setEditingDispatch(disp);
     setIsCreateDispatchModalOpen(true);
   }, []);
+
+  const openPrimaryDispatchAction = useCallback(() => {
+    if (canCreateDispatch) {
+      openCreateDispatch();
+      return;
+    }
+    if (editableDraftForClearedRelease) {
+      openEditDispatch(editableDraftForClearedRelease);
+    }
+  }, [
+    canCreateDispatch,
+    editableDraftForClearedRelease,
+    openCreateDispatch,
+    openEditDispatch,
+  ]);
 
   const handleRefetch = useCallback(() => {
     refetchOrder?.();
@@ -300,18 +394,34 @@ export function DispatchesTab({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={!canCreateDispatch}
-              onClick={() => openCreateDispatch()}
+              disabled={!canCreateDispatch && !editableDraftForClearedRelease}
+              title={
+                canCreateDispatch || editableDraftForClearedRelease
+                  ? undefined
+                  : createDispatchDisabledReason
+              }
+              onClick={() => openPrimaryDispatchAction()}
               className={`shrink-0 rounded-lg px-4 py-2 text-xs font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                hasPartialDispatchRemaining
-                  ? "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
-                  : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+                editableDraftForClearedRelease && !canCreateDispatch
+                  ? "bg-amber-600 hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-400"
+                  : hasPartialDispatchRemaining
+                    ? "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+                    : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
               }`}
             >
-              {hasPartialDispatchRemaining ? "Continue dispatch" : "Create dispatch"}
+              {editableDraftForClearedRelease && !canCreateDispatch
+                ? "Edit draft dispatch"
+                : hasPartialDispatchRemaining
+                  ? "Continue dispatch"
+                  : "Create dispatch"}
             </button>
           </div>
         </div>
+        {!canCreateDispatch && !editableDraftForClearedRelease && createDispatchDisabledReason ? (
+          <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+            {createDispatchDisabledReason}
+          </p>
+        ) : null}
       </div>
 
       <DashboardCard

@@ -110,18 +110,29 @@ function isAnyPendingApprovalStatus(value) {
 function resolveOrderApprovalPending(approvalDocs = [], order = {}) {
   const active = (approvalDocs || []).filter((doc) => !isApprovalRejected(doc));
 
-  const adminPendingFromApprovals = active.some((doc) => !doc.is_admin_approved);
-  const financePending = active.some((doc) => !doc.is_finance_approved);
-  const accountPending = active.some((doc) => !doc.is_account_approved);
-
   const status = String(order.status || '');
   const adminApprovalStatus = String(order.admin_approval_status || APPROVAL_STATUS.PENDING);
+
+  const adminStatusCleared =
+    adminApprovalStatus === APPROVAL_STATUS.APPROVED
+    || adminApprovalStatus === APPROVAL_STATUS.FULL;
+
+  const adminPendingFromApprovals = active.some((doc) => !doc.is_admin_approved);
   const adminPendingFromOrder =
     status === ORDER_STATUS.SUBMITTED
     || adminApprovalStatus === APPROVAL_STATUS.PENDING
     || adminApprovalStatus === APPROVAL_STATUS.PARTIAL;
 
-  const adminPending = (adminPendingFromApprovals || adminPendingFromOrder) && status === ORDER_STATUS.SUBMITTED;
+  // Exclusive sequential stages: admin → finance → account.
+  const adminPending = adminStatusCleared
+    ? false
+    : (adminPendingFromApprovals || adminPendingFromOrder);
+
+  const financePending = !adminPending && active.some((doc) => !doc.is_finance_approved);
+  const accountPending =
+    !adminPending
+    && !financePending
+    && active.some((doc) => !doc.is_account_approved);
 
   let stage = null;
   if (adminPending) stage = PENDING_APPROVAL_STAGES.ADMIN;
@@ -129,9 +140,9 @@ function resolveOrderApprovalPending(approvalDocs = [], order = {}) {
   else if (accountPending) stage = PENDING_APPROVAL_STAGES.ACCOUNT;
 
   return {
-    admin: adminPending,
-    finance: financePending,
-    account: accountPending,
+    admin: Boolean(adminPending),
+    finance: Boolean(financePending),
+    account: Boolean(accountPending),
     stage,
   };
 }

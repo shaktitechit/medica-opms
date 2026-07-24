@@ -83,9 +83,10 @@ export function getDispatchOrderTabCategory(
   if (status === "finance_rejected") return "rejected";
 
   if (isReturnPendingOrder(order, options)) return "return_pending";
-  if (isTransportPending(order)) return "transport_pending";
+  if (isTransportPending(order, options)) return "transport_pending";
   if (isOrderClosedOrDelivered(row)) return "closed_delivered";
 
+  // Exclusive sequential pipeline: admin → due sheet → finance → account → dispatch.
   const pending = resolveApprovalPending(row);
   if (pending.admin) return "pending_admin_approval";
   if (isDueSheetPending(row)) return "due_sheet_pending";
