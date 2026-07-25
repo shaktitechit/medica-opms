@@ -32,9 +32,13 @@ const CURRENT_ACTION_TO_STATUS: Record<string, string> = {
   approved: "sales_approved",
   review_requested: "finance_review",
   fully_approved: "fully_finance_approved",
+  finance_approved: "fully_finance_approved",
+  finance_partial: "partially_finance_approved",
   partially_finance_approved: "partially_finance_approved",
   fully_finance_approved: "fully_finance_approved",
   sent_to_account: "account_review",
+  account_partial: "partially_account_approved",
+  account_approved: "fully_account_approved",
   partially_account_approved: "partially_account_approved",
   fully_account_approved: "fully_account_approved",
   rejected: "finance_rejected",
@@ -88,11 +92,25 @@ export function deriveOrderWorkflowStatus(order: unknown): string {
     return CURRENT_ACTION_TO_STATUS[action];
   }
 
+  // Prefer canonical order.status after finance/account when action is unmapped.
+  if (
+    legacyStatus === "finance_approved" ||
+    legacyStatus === "fully_finance_approved" ||
+    legacyStatus === "partially_finance_approved" ||
+    legacyStatus === "account_review" ||
+    legacyStatus === "account_approved" ||
+    legacyStatus === "fully_account_approved" ||
+    legacyStatus === "partially_account_approved"
+  ) {
+    return legacyStatus === "finance_approved" ? "fully_finance_approved" : legacyStatus;
+  }
+
   if (stage === "sales") return lifecycle === "draft" ? "draft" : "finance_rejected";
   if (stage === "admin_review") return "submitted";
   if (stage === "finance_review") return "finance_review";
   if (stage === "account_review") return "account_review";
-  if (stage === "dispatch_review") {
+  // Backend stores stage as `dispatch` after finance; legacy alias is `dispatch_review`.
+  if (stage === "dispatch" || stage === "dispatch_review") {
     if (action === "sent_to_dispatch") return "dispatch_pending";
     if (action === "partially_account_approved") return "partially_account_approved";
     if (action === "fully_account_approved") return "fully_account_approved";
@@ -101,9 +119,14 @@ export function deriveOrderWorkflowStatus(order: unknown): string {
     if (aas === "full" || aas === "approved") return "fully_account_approved";
     const fas = typeof row.finance_approval_status === "string" ? row.finance_approval_status : "";
     if (fas === "partial") return "partially_finance_approved";
-    if (fas === "full") return "fully_finance_approved";
-    if (action === "partially_finance_approved") return "partially_finance_approved";
-    if (action === "fully_finance_approved") return "fully_finance_approved";
+    if (fas === "full" || fas === "approved") return "fully_finance_approved";
+    if (action === "partially_finance_approved" || action === "finance_partial") {
+      return "partially_finance_approved";
+    }
+    if (action === "fully_finance_approved" || action === "finance_approved") {
+      return "fully_finance_approved";
+    }
+    if (legacyStatus === "finance_approved") return "fully_finance_approved";
     return "fully_finance_approved";
   }
   if (stage === "dispatch_execution") {
@@ -113,7 +136,7 @@ export function deriveOrderWorkflowStatus(order: unknown): string {
   }
   if (stage === "completed") return "delivered";
 
-  return lifecycle || "";
+  return legacyStatus || lifecycle || "";
 }
 
 export type LifecycleComputation = {

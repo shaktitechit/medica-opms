@@ -110,33 +110,54 @@ export function isAdminCleared(order: unknown): boolean {
   return !approvalStatusOpen(adminStatus);
 }
 
+/**
+ * Finance clearance from OrderApproval (`approval_pending` / is_finance_approved)
+ * plus post-finance workflow status. Does not trust finance_approval_status alone
+ * after admin (admin qty can mark that field approved early).
+ */
 export function isFinanceCleared(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
   const row = order as Record<string, unknown>;
   const status = deriveOrderWorkflowStatus(row);
+  const pending =
+    row.approval_pending && typeof row.approval_pending === "object"
+      ? (row.approval_pending as Record<string, unknown>)
+      : null;
 
-  // Batch enrichment: still waiting on finance approval → not cleared.
-  const pending = row.approval_pending;
-  if (pending && typeof pending === "object" && Boolean((pending as Record<string, unknown>).finance)) {
-    return false;
+  // OrderApproval table enrichment (source of truth for batch pipeline).
+  if (pending && "finance" in pending) {
+    // Any active batch still needs finance.
+    if (Boolean(pending.finance)) return false;
+    // Finance done on batches and account is waiting → finance cleared.
+    if (Boolean(pending.account)) return true;
   }
 
-  // Admin-approved orders stay in finance until finance actually acts.
-  // Do NOT trust `finance_approval_status` alone — admin sets line approved_quantity,
-  // and fulfillment can derive finance_approval_status as approved/partial prematurely.
+  // Admin-approved / finance_review without OrderApproval proof stay in finance.
+  // (finance_approval_status can look approved from admin line quantities.)
   if (PRE_FINANCE_STATUSES.has(status)) return false;
 
   if (row.is_finance_approved === true) return true;
-  return POST_FINANCE_STATUSES.has(status);
+  if (POST_FINANCE_STATUSES.has(status)) return true;
+
+  // All active OrderApproval batches have is_finance_approved=true.
+  if (pending && "finance" in pending && !Boolean(pending.finance) && isAdminCleared(row)) {
+    return true;
+  }
+
+  return false;
 }
 
 export function isAccountCleared(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
   const row = order as Record<string, unknown>;
   const status = deriveOrderWorkflowStatus(row);
+  const pending =
+    row.approval_pending && typeof row.approval_pending === "object"
+      ? (row.approval_pending as Record<string, unknown>)
+      : null;
 
-  const pending = row.approval_pending;
-  if (pending && typeof pending === "object" && Boolean((pending as Record<string, unknown>).account)) {
+  // OrderApproval: any active batch still needs account.
+  if (pending && "account" in pending && Boolean(pending.account)) {
     return false;
   }
 
@@ -150,6 +171,7 @@ export function isAccountCleared(order: unknown): boolean {
   return (
     status === "fully_account_approved" ||
     status === "account_approved" ||
+    status === "partially_account_approved" ||
     status === "dispatch_pending" ||
     status === "partial_dispatch_created" ||
     status === "full_dispatch_created" ||
