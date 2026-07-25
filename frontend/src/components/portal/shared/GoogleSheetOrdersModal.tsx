@@ -45,6 +45,11 @@ export type GoogleSheetOrdersModalProps = {
   portal?: "admin" | "finance" | "account" | "super_admin";
 };
 
+type OrderItemRow = {
+  name: string;
+  qty: number;
+};
+
 type FlattenedOrder = {
   _id: string;
   order_no: string;
@@ -57,7 +62,10 @@ type FlattenedOrder = {
   party_type: string;
   party_city: string;
   sales_person: string;
+  /** Plain-text for search / CSV export */
   items_list: string;
+  /** Structured rows for nested cell table */
+  items_rows: OrderItemRow[];
   party_sra: string;
   actual_delivery_date: string;
   total_quantity: number;
@@ -92,6 +100,46 @@ function parseDate(v: unknown): Date | null {
   const d = v instanceof Date ? v : new Date(String(v));
   if (Number.isNaN(d.getTime())) return null;
   return d;
+}
+
+/** Nested Item | Qty table rendered inside the Items List spreadsheet cell. */
+function ItemsListNestedTable({ items }: { items: OrderItemRow[] }) {
+  if (!items.length) {
+    return <span className="px-1.5 text-slate-400">—</span>;
+  }
+
+  return (
+    <table className="w-full border-collapse text-2xs leading-tight">
+      <thead>
+        <tr className="bg-slate-50 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400">
+          <th className="border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-left font-semibold">
+            Item
+          </th>
+          <th className="border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-right font-semibold w-12">
+            Qty
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((line, idx) => (
+          <tr
+            key={`${line.name}-${idx}`}
+            className="bg-white dark:bg-slate-900 even:bg-slate-50/80 dark:even:bg-slate-950/40"
+          >
+            <td
+              className="border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-left text-slate-800 dark:text-slate-200 font-sans font-medium max-w-[180px] truncate"
+              title={line.name}
+            >
+              {line.name}
+            </td>
+            <td className="border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-right tabular-nums text-slate-700 dark:text-slate-300 font-semibold">
+              {line.qty}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 function formatDateShort(v: unknown): string {
@@ -138,7 +186,7 @@ export function GoogleSheetOrdersModal({
     party_type: 110,
     party_city: 110,
     sales_person: 140,
-    items_list: 250,
+    items_list: 280,
     party_sra: 80,
     actual_delivery_date: 150,
   });
@@ -303,13 +351,21 @@ export function GoogleSheetOrdersModal({
       const salesPersonName = salesUserObj?.name || (item.assigned_sales_user && typeof item.assigned_sales_user === "object" ? item.assigned_sales_user.name : "") || "—";
 
       const itemsList = Array.isArray(item.order_items) ? item.order_items : [];
-      const itemsText = itemsList.map((line: any) => {
-        const name = line.product_name || line.name || (line.product && typeof line.product === "object" ? line.product.product_name || line.product.name : "") || "Item";
-        const qty = line.ordered_quantity ?? line.quantity ?? 0;
-        return `${name} (${qty})`;
-      }).join(", ") || "—";
+      const itemsRows: OrderItemRow[] = itemsList.map((line: any) => {
+        const name =
+          line.product_name ||
+          line.name ||
+          (line.product && typeof line.product === "object"
+            ? line.product.product_name || line.product.name
+            : "") ||
+          "Item";
+        const qty = Number(line.ordered_quantity ?? line.quantity ?? 0);
+        return { name: String(name), qty: Number.isFinite(qty) ? qty : 0 };
+      });
+      const itemsText =
+        itemsRows.map((line) => `${line.name}\t${line.qty}`).join("\n") || "—";
 
-      const totalQty = itemsList.reduce((sum: number, line: any) => sum + Number(line.ordered_quantity ?? line.quantity ?? 0), 0);
+      const totalQty = itemsRows.reduce((sum, line) => sum + line.qty, 0);
       const rawDate = item.order_date ?? item.created_at ?? item.createdAt;
       const parsedOrderDate = parseDate(rawDate);
 
@@ -326,6 +382,7 @@ export function GoogleSheetOrdersModal({
         party_city: partyCity,
         sales_person: salesPersonName,
         items_list: itemsText,
+        items_rows: itemsRows,
         party_sra: partySra,
         actual_delivery_date: actualDeliveryDateStr,
         total_quantity: totalQty,
@@ -623,7 +680,13 @@ export function GoogleSheetOrdersModal({
       headers,
       ...filteredRows.map(row => {
         return COLUMNS.map(col => {
-          const val = row[col.key];
+          let val: string | number = row[col.key] as string | number;
+          if (col.key === "items_list") {
+            val =
+              row.items_rows.length > 0
+                ? row.items_rows.map((line) => `${line.name} | ${line.qty}`).join("\n")
+                : "—";
+          }
           if (typeof val === "string" && (val.includes(",") || val.includes('"') || val.includes("\n"))) {
             return `"${val.replace(/"/g, '""')}"`;
           }
@@ -1266,7 +1329,10 @@ function onEdit(e) {
                           selectedCell?.colKey === col.key;
                         const val = row[col.key];
 
-                        let cellClass = "border-r border-b border-slate-150 dark:border-slate-800 text-slate-800 dark:text-slate-200 font-mono font-normal outline-none relative truncate px-3 py-2 cursor-pointer select-none";
+                        const isItemsList = col.key === "items_list";
+                        let cellClass =
+                          "border-r border-b border-slate-150 dark:border-slate-800 text-slate-800 dark:text-slate-200 font-mono font-normal outline-none relative cursor-pointer select-none";
+                        cellClass += isItemsList ? " px-1.5 py-1.5 align-top" : " truncate px-3 py-2";
                         if (isSelected) {
                           cellClass += " ring-2 ring-emerald-500 ring-inset bg-emerald-500/5 dark:bg-emerald-500/10";
                         }
@@ -1280,6 +1346,7 @@ function onEdit(e) {
                             key={col.key}
                             onClick={() => setSelectedCell({ orderId: row._id, colKey: col.key })}
                             className={`${cellClass} ${textAlignment}`}
+                            title={isItemsList ? row.items_list : undefined}
                           >
                             {isNumber && typeof val === "number" ? (
                               <span>₹{formatMoney(val)}</span>
@@ -1287,6 +1354,8 @@ function onEdit(e) {
                               <span className="capitalize">{String(val)}</span>
                             ) : col.key === "status" ? (
                               <span className="capitalize">{String(val).replace(/_/g, " ")}</span>
+                            ) : isItemsList ? (
+                              <ItemsListNestedTable items={row.items_rows} />
                             ) : (
                               <span>{String(val ?? "")}</span>
                             )}
