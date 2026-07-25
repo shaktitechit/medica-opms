@@ -1,7 +1,15 @@
 "use client";
 
 import React, { Fragment, useMemo } from "react";
-import { UserCheck, IndianRupee, Package, Truck, Wallet, RotateCcw } from "lucide-react";
+import {
+  UserCheck,
+  IndianRupee,
+  Package,
+  Truck,
+  Wallet,
+  RotateCcw,
+  FileSpreadsheet,
+} from "lucide-react";
 import { type OrderStatusDimension } from "./orderStatusDimensions";
 import type { DepartmentStageBox } from "./orderDepartmentStages";
 import { computeDepartmentStageBoxes } from "./orderDepartmentStages";
@@ -31,7 +39,8 @@ export function FulfillmentCircleStep({
   const strokeWidth = extraSmall ? 1.5 : compact ? 2 : 2.5;
   const circumference = 2 * Math.PI * radius;
   const safeTotal = Math.max(total, 1);
-  const isApprovalStep = id && ["admin", "finance", "account"].includes(id.toLowerCase());
+  const isApprovalStep =
+    id && ["admin", "due_sheet", "finance", "account"].includes(id.toLowerCase());
   const progressRatio = isApprovalStep
     ? (status.tone === "success" ? 1 : 0)
     : Math.min(1, Math.max(0, completed / safeTotal));
@@ -169,8 +178,10 @@ export type FulfillmentPipelineStepConfig = {
   icon: React.ComponentType<{ className?: string }>;
 };
 
+/** Matches exclusive order workflow: admin → due sheet → finance → account → dispatch → … */
 export const ORDER_FULFILLMENT_PIPELINE_IDS = [
   "admin",
+  "due_sheet",
   "finance",
   "account",
   "dispatch",
@@ -185,6 +196,7 @@ export const DEFAULT_ORDER_PIPELINE_ICONS: Record<
   React.ComponentType<{ className?: string }>
 > = {
   admin: UserCheck,
+  due_sheet: FileSpreadsheet,
   finance: IndianRupee,
   account: Wallet,
   dispatch: Package,
@@ -194,6 +206,7 @@ export const DEFAULT_ORDER_PIPELINE_ICONS: Record<
 
 const DEFAULT_PIPELINE_LABELS: Record<OrderFulfillmentPipelineId, string> = {
   admin: "Admin",
+  due_sheet: "Due Sheet",
   finance: "Finance",
   account: "Account",
   dispatch: "Dispatch",
@@ -243,9 +256,12 @@ export function buildListOrderFulfillmentPipeline(
   options?: {
     defaultTotal?: number;
     totalByStep?: Partial<Record<OrderFulfillmentPipelineId, number>>;
+    dispatches?: Record<string, unknown>[];
   },
 ): FulfillmentPipelineStepConfig[] {
-  const deptBoxes = computeDepartmentStageBoxes(order, null);
+  const deptBoxes = computeDepartmentStageBoxes(order, null, {
+    dispatches: options?.dispatches,
+  });
   const defaultTotal = options?.defaultTotal ?? orderedQtyFromOrder(order);
   return buildOrderFulfillmentPipelineSteps(deptBoxes, DEFAULT_ORDER_PIPELINE_ICONS, {
     defaultTotal,

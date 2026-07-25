@@ -49,7 +49,7 @@ export function ItemFulfillmentDetailsModal({
             fulfillmentSnapshot={fulfillmentSnapshot}
             returns={returns}
             dispatches={dispatches}
-            showDepartmentBoxes={false}
+            showDepartmentBoxes={true}
             showItemsTable={true}
           />
         </div>

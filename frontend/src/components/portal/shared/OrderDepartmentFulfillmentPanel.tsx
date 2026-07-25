@@ -12,6 +12,12 @@ import {
   dimensionToneClass,
   type OrderStatusDimensions,
 } from "./orderStatusDimensions";
+import {
+  isAccountCleared,
+  isAdminCleared,
+  isDueSheetUploaded,
+  isFinanceCleared,
+} from "./orderList/orderWorkflowTabs";
 
 type Props = {
   order: Record<string, unknown> | null;
@@ -71,7 +77,9 @@ function DepartmentBox({ box }: { box: DepartmentStageBox }) {
         </p>
       ) : null}
 
-      {["dispatch", "delivery", "return"].includes(String(box.id || "").toLowerCase()) ? (
+      {["finance", "account", "dispatch", "delivery", "return"].includes(
+        String(box.id || "").toLowerCase(),
+      ) ? (
         <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2 dark:border-white/10">
           <div>
             <div className="text-2xs font-medium uppercase text-slate-400">Done</div>
@@ -110,7 +118,20 @@ function DepartmentBox({ box }: { box: DepartmentStageBox }) {
   );
 }
 
-function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
+type WorkflowGates = {
+  adminCleared: boolean;
+  dueSheetUploaded: boolean;
+  financeCleared: boolean;
+  accountCleared: boolean;
+};
+
+function ItemsFulfillmentTable({
+  lines,
+  gates,
+}: {
+  lines: FulfillmentLine[];
+  gates: WorkflowGates;
+}) {
   if (lines.length === 0) {
     return (
       <p className="text-xs text-slate-500 dark:text-slate-400">No order lines to display.</p>
@@ -119,12 +140,14 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
 
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-white/10">
-      <table className="w-full min-w-[980px] text-left text-xs">
+      <table className="w-full min-w-[1100px] text-left text-xs">
         <thead className="bg-slate-50/90 text-2xs font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-950/50 dark:text-slate-400">
           <tr>
             <th className="px-3 py-2">Item</th>
+            <th className="px-3 py-2 text-right">Admin</th>
+            <th className="px-3 py-2 text-right">Finance</th>
             <th className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-400">
-              Approved
+              Account
             </th>
             <th className="px-3 py-2 text-right">Dispatched</th>
             <th className="px-3 py-2 text-right">Delivered</th>
@@ -135,37 +158,45 @@ function ItemsFulfillmentTable({ lines }: { lines: FulfillmentLine[] }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-          {lines.map((line) => (
-            <tr key={line.order_item_id} className="bg-white dark:bg-slate-900">
-              <td className="px-3 py-2">
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  {line.product_name}
-                </span>
-                {line.sku ? (
-                  <span className="mt-0.5 block font-mono text-2xs text-slate-400">
-                    {line.sku}
+          {lines.map((line) => {
+            const financeQty = gates.dueSheetUploaded ? line.approved : 0;
+            const accountQty = gates.financeCleared ? line.accountCleared : 0;
+            const pendingDispatch = gates.accountCleared ? line.pendingDispatch : 0;
+            const pendingDelivery = gates.accountCleared ? line.pendingDelivery : 0;
+            return (
+              <tr key={line.order_item_id} className="bg-white dark:bg-slate-900">
+                <td className="px-3 py-2">
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    {line.product_name}
                   </span>
-                ) : null}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-700 dark:text-emerald-400">
-                {line.accountCleared}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">{line.dispatched}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{line.delivered}</td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium text-rose-700 dark:text-rose-400">
-                {line.returned}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium text-blue-700 dark:text-blue-400">
-                {line.pendingDispatch}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium text-violet-700 dark:text-violet-400">
-                {line.pendingDelivery}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium text-orange-700 dark:text-orange-400">
-                {line.pendingReturn}
-              </td>
-            </tr>
-          ))}
+                  {line.sku ? (
+                    <span className="mt-0.5 block font-mono text-2xs text-slate-400">
+                      {line.sku}
+                    </span>
+                  ) : null}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{line.salesApproved}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{financeQty}</td>
+                <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-700 dark:text-emerald-400">
+                  {accountQty}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{line.dispatched}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{line.delivered}</td>
+                <td className="px-3 py-2 text-right tabular-nums font-medium text-rose-700 dark:text-rose-400">
+                  {line.returned}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums font-medium text-blue-700 dark:text-blue-400">
+                  {pendingDispatch}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums font-medium text-violet-700 dark:text-violet-400">
+                  {pendingDelivery}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums font-medium text-orange-700 dark:text-orange-400">
+                  {line.pendingReturn}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -196,13 +227,29 @@ export function OrderDepartmentFulfillmentPanel({
     fulfillmentOptions,
   );
   const lines = fulfillmentLinesFromSnapshot(order, fulfillmentSnapshot, fulfillmentOptions);
+  const workflowGates = useMemo<WorkflowGates>(() => {
+    if (!order) {
+      return {
+        adminCleared: false,
+        dueSheetUploaded: false,
+        financeCleared: false,
+        accountCleared: false,
+      };
+    }
+    return {
+      adminCleared: isAdminCleared(order),
+      dueSheetUploaded: isDueSheetUploaded(order),
+      financeCleared: isFinanceCleared(order),
+      accountCleared: isAccountCleared(order),
+    };
+  }, [order]);
 
   if (!dimensions) return null;
 
   return (
     <div className={`space-y-3 ${className}`} aria-label="Order workflow and fulfillment">
       {showDepartmentBoxes ? (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
           {departmentBoxes.map((box) => (
             <DepartmentBox key={box.id} box={box} />
           ))}
@@ -214,7 +261,12 @@ export function OrderDepartmentFulfillmentPanel({
           <h3 className="mb-2 text-2xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Item fulfillment &amp; remaining quantities
           </h3>
-          <ItemsFulfillmentTable lines={lines} />
+          {!workflowGates.dueSheetUploaded && workflowGates.adminCleared ? (
+            <p className="mb-2 text-2xs text-amber-700 dark:text-amber-400">
+              Finance quantities stay at 0 until the due sheet is uploaded.
+            </p>
+          ) : null}
+          <ItemsFulfillmentTable lines={lines} gates={workflowGates} />
         </div>
       ) : null}
     </div>

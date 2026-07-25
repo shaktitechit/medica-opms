@@ -9,7 +9,10 @@ export type ApprovalPendingSummary = {
   stage: ApprovalPendingStage;
 };
 
-const CLEARED_APPROVAL = new Set(["approved", "full", "sent_to_finance"]);
+/** Admin-only clearance values (includes handoff to finance). */
+const ADMIN_CLEARED_STATUS = new Set(["approved", "full", "sent_to_finance"]);
+/** Explicit department approval values — do not include sent_to_finance. */
+const DEPT_CLEARED_STATUS = new Set(["approved", "full"]);
 const PARTIAL_OR_PENDING = new Set(["pending", "partial", ""]);
 
 /** Statuses that mean admin has already signed off (order moved past submit). */
@@ -34,8 +37,46 @@ const POST_ADMIN_STATUSES = new Set([
   "closed",
 ]);
 
-function approvalStatusCleared(value: unknown): boolean {
-  return CLEARED_APPROVAL.has(String(value || "").toLowerCase());
+/**
+ * Still awaiting finance action. Important: after admin approve, line
+ * `approved_quantity` can make `finance_approval_status` look "approved" —
+ * those statuses must stay finance-pending until finance actually acts.
+ */
+const PRE_FINANCE_STATUSES = new Set([
+  "draft",
+  "submitted",
+  "pending_review",
+  "sales_approved",
+  "finance_review",
+]);
+
+/** Statuses that prove finance has signed off (or the order is past that stage). */
+const POST_FINANCE_STATUSES = new Set([
+  "partially_finance_approved",
+  "fully_finance_approved",
+  "finance_approved",
+  "account_review",
+  "partially_account_approved",
+  "fully_account_approved",
+  "account_approved",
+  "dispatch_pending",
+  "partial_dispatch_created",
+  "full_dispatch_created",
+  "transport_pending",
+  "transport_assigned",
+  "partially_transported",
+  "fully_transported",
+  "in_transit",
+  "delivered",
+  "closed",
+]);
+
+function adminApprovalCleared(value: unknown): boolean {
+  return ADMIN_CLEARED_STATUS.has(String(value || "").toLowerCase());
+}
+
+function deptApprovalCleared(value: unknown): boolean {
+  return DEPT_CLEARED_STATUS.has(String(value || "").toLowerCase());
 }
 
 function approvalStatusOpen(value: unknown): boolean {
@@ -61,7 +102,7 @@ export function isAdminCleared(order: unknown): boolean {
   const adminStatus = String(row.admin_approval_status || "pending").toLowerCase();
 
   // Explicit admin sign-off wins even if status transition lagged.
-  if (approvalStatusCleared(adminStatus)) return true;
+  if (adminApprovalCleared(adminStatus)) return true;
   if (status === "draft" || status === "submitted" || status === "pending_review") {
     return false;
   }
@@ -72,31 +113,40 @@ export function isAdminCleared(order: unknown): boolean {
 export function isFinanceCleared(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
   const row = order as Record<string, unknown>;
-  const financeStatus = String(row.finance_approval_status || "pending").toLowerCase();
-  if (approvalStatusCleared(financeStatus)) return true;
   const status = deriveOrderWorkflowStatus(row);
-  return (
-    status === "fully_finance_approved" ||
-    status === "account_review" ||
-    status === "partially_account_approved" ||
-    status === "fully_account_approved" ||
-    status === "account_approved" ||
-    status === "dispatch_pending" ||
-    status === "partial_dispatch_created" ||
-    status === "full_dispatch_created" ||
-    status.startsWith("transport") ||
-    status === "in_transit" ||
-    status === "delivered" ||
-    status === "closed"
-  );
+
+  // Batch enrichment: still waiting on finance approval → not cleared.
+  const pending = row.approval_pending;
+  if (pending && typeof pending === "object" && Boolean((pending as Record<string, unknown>).finance)) {
+    return false;
+  }
+
+  // Admin-approved orders stay in finance until finance actually acts.
+  // Do NOT trust `finance_approval_status` alone — admin sets line approved_quantity,
+  // and fulfillment can derive finance_approval_status as approved/partial prematurely.
+  if (PRE_FINANCE_STATUSES.has(status)) return false;
+
+  if (row.is_finance_approved === true) return true;
+  return POST_FINANCE_STATUSES.has(status);
 }
 
 export function isAccountCleared(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
   const row = order as Record<string, unknown>;
-  const accountStatus = String(row.account_approval_status || "pending").toLowerCase();
-  if (approvalStatusCleared(accountStatus)) return true;
   const status = deriveOrderWorkflowStatus(row);
+
+  const pending = row.approval_pending;
+  if (pending && typeof pending === "object" && Boolean((pending as Record<string, unknown>).account)) {
+    return false;
+  }
+
+  // Account cannot be cleared before finance.
+  if (!isFinanceCleared(row)) return false;
+
+  const accountStatus = String(row.account_approval_status || "pending").toLowerCase();
+  if (deptApprovalCleared(accountStatus)) return true;
+  if (row.is_account_approved === true) return true;
+
   return (
     status === "fully_account_approved" ||
     status === "account_approved" ||

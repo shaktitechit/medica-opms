@@ -1,5 +1,7 @@
 /**
  * Per-department workflow boxes: status, qty progress, remaining, and relevant action.
+ * Stages follow the exclusive order pipeline:
+ * submitted → admin → due sheet → finance → account → dispatch → delivery/return.
  */
 
 import {
@@ -20,6 +22,14 @@ import {
   resolveSalesApprovedTotals,
   salesApprovedOnLine,
 } from "./orderLineQuantities";
+import {
+  isAccountCleared,
+  isAdminCleared,
+  isDueSheetUploaded,
+  isFinanceCleared,
+} from "./orderList/orderWorkflowTabs";
+import { hasSubmittedDispatch } from "./orderLifecycleActions";
+import { deriveOrderWorkflowStatus } from "./orderLifecycle";
 
 export type FulfillmentLine = {
   order_item_id: string;
@@ -56,8 +66,9 @@ export const SALES_APPROVAL_DEPARTMENT_LABEL = "Sales Approval";
 
 const DEPT_ACTION_KEYS: Record<string, string[]> = {
   sales: ["drafted", "submitted"],
-  /** Admin review = sales approval sign-off before finance. */
+  /** Admin review = sales approval sign-off before due sheet / finance. */
   admin: ["approved"],
+  due_sheet: ["due_sheet_uploaded"],
   finance: [
     "review_requested",
     "partially_finance_approved",
@@ -89,6 +100,24 @@ const DEPT_ACTION_KEYS: Record<string, string[]> = {
     "delivery_failed",
   ],
   return: ["returned"],
+};
+
+const WAITING: OrderStatusDimension = {
+  key: "waiting",
+  label: "Waiting",
+  tone: "neutral",
+};
+
+const PENDING: OrderStatusDimension = {
+  key: "pending",
+  label: "Pending",
+  tone: "warning",
+};
+
+const APPROVED: OrderStatusDimension = {
+  key: "approved",
+  label: "Approved",
+  tone: "success",
 };
 
 type FulfillmentTotals = {
@@ -334,39 +363,6 @@ function stageIndex(stage: string): number {
   return idx >= 0 ? idx : -1;
 }
 
-function deriveSalesApprovalStatus(
-  order: Record<string, unknown>,
-  totals: FulfillmentTotals,
-): OrderStatusDimension {
-  const salesApprovalStatus = String(order.admin_approval_status ?? "pending");
-  const stage = String(order.workflow_stage || "");
-  const { salesApproved, pendingAdmin } = resolveSalesApprovedTotals(order, totals);
-
-  if (salesApprovalStatus === "rejected") {
-    return { key: "rejected", label: "Sales approval rejected", tone: "danger" };
-  }
-  if (salesApproved <= 0) {
-    if (stage === "admin_review") {
-      return { key: "pending", label: "Pending sales approval", tone: "warning" };
-    }
-    return { key: "waiting", label: "Awaiting submission", tone: "neutral" };
-  }
-  if (pendingAdmin <= 0) {
-    return {
-      key: "full",
-      label: "Fully sales approved",
-      detail: `${salesApproved} / ${totals.ordered} qty`,
-      tone: "success",
-    };
-  }
-  return {
-    key: "partial",
-    label: "Partially sales approved",
-    detail: `${pendingAdmin} qty pending sales approval`,
-    tone: "warning",
-  };
-}
-
 export function computeDepartmentStageBoxes(
   order: Record<string, unknown> | null,
   fulfillmentSnapshot?: Record<string, unknown> | null,
@@ -382,10 +378,6 @@ export function computeDepartmentStageBoxes(
   totals = { ...totals, ...salesResolved };
   const stage = String(order.workflow_stage || "");
   const lifecycle = String(order.lifecycle_status || "");
-  const fas = String(
-    fulfillmentSnapshot?.finance_approval_status ?? order.finance_approval_status ?? "pending",
-  );
-  const aas = resolveAccountApprovalStatus(order, fulfillmentSnapshot);
   const dispatchStatus = String(
     fulfillmentSnapshot?.dispatch_status ?? order.dispatch_status ?? "pending",
   );
@@ -423,6 +415,7 @@ export function computeDepartmentStageBoxes(
     return [
       mk("sales", "Sales", cancelledStatus, 0, 0, totals.ordered, "—"),
       mk("admin", SALES_APPROVAL_DEPARTMENT_LABEL, cancelledStatus, 0, 0, totals.ordered, "—"),
+      mk("due_sheet", "Due Sheet", cancelledStatus, 0, 0, totals.ordered, "—"),
       mk("finance", "Finance", cancelledStatus, 0, 0, totals.salesApproved, "—"),
       mk("account", "Account", cancelledStatus, 0, 0, totals.approved, "—"),
       mk("dispatch", "Dispatch", cancelledStatus, 0, 0, totals.approved, "—"),
@@ -430,6 +423,13 @@ export function computeDepartmentStageBoxes(
       mk("return", "Return", cancelledStatus, 0, 0, totals.delivered, "—"),
     ];
   }
+
+  const workflowStatus = deriveOrderWorkflowStatus(order);
+  const adminCleared = isAdminCleared(order);
+  const dueSheetUploaded = isDueSheetUploaded(order);
+  const financeCleared = isFinanceCleared(order);
+  const accountCleared = isAccountCleared(order);
+  const submittedDispatch = hasSubmittedDispatch(options?.dispatches);
 
   const salesDone = currentIdx > stageIndex("sales") || lifecycle !== "draft";
   const salesStatus: OrderStatusDimension = !salesDone
@@ -443,27 +443,105 @@ export function computeDepartmentStageBoxes(
         tone: "success",
       };
 
-  const approvalPending = (order.approval_pending || {}) as Record<string, unknown>;
-  const adminPending = approvalPending.admin !== undefined ? Boolean(approvalPending.admin) : !order.is_admin_approved;
-  const financePending = approvalPending.finance !== undefined ? Boolean(approvalPending.finance) : !order.is_finance_approved;
-  const accountPending = approvalPending.account !== undefined ? Boolean(approvalPending.account) : !order.is_account_approved;
+  // Sequential: admin → due sheet → finance → account → dispatch → delivery.
+  let salesApprovalStatus: OrderStatusDimension;
+  if (workflowStatus === "draft") {
+    salesApprovalStatus = { ...WAITING, detail: "Awaiting submission" };
+  } else if (!adminCleared) {
+    salesApprovalStatus =
+      totals.pendingAdmin > 0 && totals.salesApproved > 0
+        ? {
+            key: "partial",
+            label: "Partial",
+            detail: `${totals.pendingAdmin} qty pending`,
+            tone: "warning",
+          }
+        : { ...PENDING, detail: "Admin approval required" };
+  } else {
+    salesApprovalStatus = {
+      ...APPROVED,
+      detail: `${totals.salesApproved || totals.ordered} / ${totals.ordered} qty`,
+    };
+  }
 
-  const salesApprovalStatus: OrderStatusDimension = adminPending
-    ? { key: "pending", label: "Pending", tone: "warning" }
-    : { key: "approved", label: "Approved", tone: "success" };
+  let dueSheetStatus: OrderStatusDimension;
+  if (!adminCleared) {
+    dueSheetStatus = { ...WAITING, detail: "Awaiting admin approval" };
+  } else if (!dueSheetUploaded) {
+    dueSheetStatus = { ...PENDING, detail: "Upload required before finance" };
+  } else {
+    dueSheetStatus = {
+      key: "uploaded",
+      label: "Uploaded",
+      tone: "success",
+    };
+  }
 
-  const financeStatus: OrderStatusDimension = financePending
-    ? { key: "pending", label: "Pending", tone: "warning" }
-    : { key: "approved", label: "Approved", tone: "success" };
+  let financeStatus: OrderStatusDimension;
+  if (!adminCleared) {
+    financeStatus = { ...WAITING, detail: "Awaiting admin approval" };
+  } else if (!dueSheetUploaded) {
+    financeStatus = { ...WAITING, detail: "Awaiting due sheet" };
+  } else if (!financeCleared) {
+    financeStatus =
+      totals.pendingFinance > 0 && totals.approved > 0
+        ? {
+            key: "partial",
+            label: "Partial",
+            detail: `${totals.pendingFinance} qty pending`,
+            tone: "warning",
+          }
+        : { ...PENDING, detail: "Finance approval required" };
+  } else {
+    financeStatus = {
+      ...APPROVED,
+      detail: `${totals.approved} / ${totals.salesApproved || totals.ordered} qty`,
+    };
+  }
 
-  const accountStatusDim: OrderStatusDimension = accountPending
-    ? { key: "pending", label: "Pending", tone: "warning" }
-    : { key: "approved", label: "Approved", tone: "success" };
+  let accountStatusDim: OrderStatusDimension;
+  if (!adminCleared) {
+    accountStatusDim = { ...WAITING, detail: "Awaiting admin approval" };
+  } else if (!dueSheetUploaded) {
+    accountStatusDim = { ...WAITING, detail: "Awaiting due sheet" };
+  } else if (!financeCleared) {
+    accountStatusDim = { ...WAITING, detail: "Awaiting finance approval" };
+  } else if (!accountCleared) {
+    accountStatusDim =
+      totals.pendingAccount > 0 && totals.accountCleared > 0
+        ? {
+            key: "partial",
+            label: "Partial",
+            detail: `${totals.pendingAccount} qty pending`,
+            tone: "warning",
+          }
+        : { ...PENDING, detail: "Account approval required" };
+  } else {
+    accountStatusDim = {
+      ...APPROVED,
+      detail: `${totals.accountCleared || totals.approved} qty cleared`,
+    };
+  }
 
-  const dispatchCap = totals.accountCleared > 0 ? totals.accountCleared : totals.approved;
+  const dispatchCap = accountCleared
+    ? totals.accountCleared > 0
+      ? totals.accountCleared
+      : totals.approved
+    : 0;
 
   let dispatchStatusDim: OrderStatusDimension;
-  if (dispatchStatus === "completed" || (totals.dispatched > 0 && totals.pendingDispatch === 0)) {
+  if (!accountCleared) {
+    dispatchStatusDim = {
+      ...WAITING,
+      detail: !adminCleared
+        ? "Awaiting admin approval"
+        : !dueSheetUploaded
+          ? "Awaiting due sheet"
+          : !financeCleared
+            ? "Awaiting finance approval"
+            : "Awaiting account approval",
+    };
+  } else if (dispatchStatus === "completed" || (totals.dispatched > 0 && totals.pendingDispatch === 0)) {
     dispatchStatusDim = {
       key: "full",
       label: "Fully dispatched",
@@ -477,28 +555,34 @@ export function computeDepartmentStageBoxes(
       detail: `${totals.pendingDispatch} qty pending`,
       tone: "info",
     };
-  } else if (
-    totals.pendingAccount > 0 &&
-    totals.approved > 0 &&
-    !["dispatch_review", "dispatch_execution"].includes(stage)
-  ) {
+  } else if (submittedDispatch) {
     dispatchStatusDim = {
-      key: "waiting",
-      label: "Awaiting account clearance",
-      detail: `${totals.pendingAccount} qty pending account`,
-      tone: "neutral",
+      key: "submitted",
+      label: "Submitted for transport",
+      tone: "info",
     };
   } else if (
     ["dispatch_review", "dispatch_execution"].includes(stage) ||
-    currentIdx >= stageIndex("dispatch_review")
+    currentIdx >= stageIndex("dispatch_review") ||
+    workflowStatus === "dispatch_pending" ||
+    workflowStatus === "fully_account_approved" ||
+    workflowStatus === "account_approved"
   ) {
-    dispatchStatusDim = { key: "queue", label: "Dispatch queue", tone: "warning" };
+    dispatchStatusDim = { key: "queue", label: "Dispatch pending", tone: "warning" };
   } else {
-    dispatchStatusDim = { key: "waiting", label: "Awaiting dispatch", tone: "neutral" };
+    dispatchStatusDim = { key: "queue", label: "Dispatch pending", tone: "warning" };
   }
 
   let deliveryStatusDim: OrderStatusDimension;
-  if (deliveryStatus === "completed" || (totals.delivered > 0 && totals.pendingDelivery === 0)) {
+  if (!accountCleared || (!submittedDispatch && totals.dispatched <= 0)) {
+    deliveryStatusDim = {
+      ...WAITING,
+      detail:
+        accountCleared && !submittedDispatch
+          ? "Awaiting dispatch submit"
+          : "Awaiting dispatch",
+    };
+  } else if (deliveryStatus === "completed" || (totals.delivered > 0 && totals.pendingDelivery === 0)) {
     deliveryStatusDim = {
       key: "fulfilled",
       label: "Fully delivered",
@@ -512,8 +596,13 @@ export function computeDepartmentStageBoxes(
       detail: `${totals.pendingDelivery} qty in transit / pending`,
       tone: "info",
     };
-  } else if (totals.dispatched > 0) {
-    deliveryStatusDim = { key: "pending", label: "Awaiting delivery", tone: "warning" };
+  } else if (submittedDispatch || totals.dispatched > 0) {
+    deliveryStatusDim = {
+      key: "pending",
+      label: "Transport pending",
+      detail: "Dispatch submitted for transport",
+      tone: "warning",
+    };
   } else {
     deliveryStatusDim = { key: "waiting", label: "Not started", tone: "neutral" };
   }
@@ -565,6 +654,15 @@ export function computeDepartmentStageBoxes(
     };
   }
 
+  const financeCap = dueSheetUploaded ? totals.salesApproved || totals.ordered : 0;
+  const accountCap = financeCleared ? totals.approved : 0;
+  const financeCompleted = dueSheetUploaded ? totals.approved : 0;
+  const financeRemaining = dueSheetUploaded ? totals.pendingFinance : 0;
+  const accountCompleted = financeCleared ? totals.accountCleared : 0;
+  const accountRemaining = financeCleared ? totals.pendingAccount : 0;
+  const dispatchCompleted = accountCleared ? totals.dispatched : 0;
+  const dispatchRemaining = accountCleared ? totals.pendingDispatch : 0;
+
   return [
     mk(
       "sales",
@@ -582,33 +680,42 @@ export function computeDepartmentStageBoxes(
       totals.salesApproved,
       totals.pendingAdmin,
       totals.ordered,
-      "Sales approved qty",
+      "Admin approved qty",
+    ),
+    mk(
+      "due_sheet",
+      "Due Sheet",
+      dueSheetStatus,
+      dueSheetUploaded ? 1 : 0,
+      adminCleared && !dueSheetUploaded ? 1 : 0,
+      1,
+      "Due sheet upload",
     ),
     mk(
       "finance",
       "Finance",
       financeStatus,
-      totals.approved,
-      totals.pendingFinance,
-      totals.salesApproved || totals.ordered,
+      financeCompleted,
+      financeRemaining,
+      financeCap,
       "Finance approved qty",
     ),
     mk(
       "account",
       "Account",
       accountStatusDim,
-      totals.accountCleared,
-      totals.pendingAccount,
-      totals.approved,
+      accountCompleted,
+      accountRemaining,
+      accountCap,
       "Account cleared qty",
     ),
     mk(
       "dispatch",
       "Dispatch",
       dispatchStatusDim,
-      totals.dispatched,
-      totals.pendingDispatch,
-      dispatchCap || totals.salesApproved || totals.ordered,
+      dispatchCompleted,
+      dispatchRemaining,
+      dispatchCap || (accountCleared ? totals.salesApproved || totals.ordered : 0),
       "Dispatched qty",
     ),
     mk(
@@ -617,7 +724,7 @@ export function computeDepartmentStageBoxes(
       deliveryStatusDim,
       totals.delivered,
       totals.pendingDelivery,
-      totals.dispatched || totals.approved,
+      totals.dispatched || (submittedDispatch ? dispatchCap : 0),
       "Delivered qty",
     ),
     mk(
