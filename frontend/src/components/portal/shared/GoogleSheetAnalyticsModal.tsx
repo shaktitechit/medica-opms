@@ -18,10 +18,12 @@ import {
   DollarSign,
   ShoppingCart,
   Percent,
+  LayoutGrid,
 } from "lucide-react";
 import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import {
+  ADMIN_ORDER_TABS,
   orderMatchesAdminTab,
   type AdminOrderTabCategory,
 } from "@/components/portal/admin/adminOrderUtils";
@@ -31,6 +33,9 @@ import {
   useListUsersQuery,
 } from "@/store/api";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
+import FeaturedProductGroupSalesUserTable from "@/components/portal/admin/components/FeaturedProductGroupSalesUserTable";
+import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/admin/components/FeaturedProductGroupFeaturedPartyTable";
+import { itemNetQty } from "@/components/portal/admin/components/featuredMatrixUtils";
 
 export type GoogleSheetAnalyticsModalProps = {
   isOpen: boolean;
@@ -49,6 +54,24 @@ type AnalyticalRow = {
   rawDate: Date;
 };
 
+/** How KPI / chart / ranking volume & qty are measured. Default = net sales. */
+type VolumeBasis =
+  | "net_sales"
+  | "order_value"
+  | "approved"
+  | "dispatched"
+  | "delivered"
+  | "returned";
+
+const VOLUME_BASIS_OPTIONS: ReadonlyArray<{ id: VolumeBasis; label: string; short: string }> = [
+  { id: "net_sales", label: "Net sales (delivered − returned)", short: "Net sales" },
+  { id: "order_value", label: "Order value (ordered qty × rate)", short: "Order value" },
+  { id: "approved", label: "Approved (approved qty × rate)", short: "Approved" },
+  { id: "dispatched", label: "Dispatched (dispatched qty × rate)", short: "Dispatched" },
+  { id: "delivered", label: "Delivered (before returns)", short: "Delivered" },
+  { id: "returned", label: "Returned", short: "Returned" },
+];
+
 type FlattenedOrder = {
   _id: string;
   order_no: string;
@@ -66,14 +89,66 @@ type FlattenedOrder = {
   raw: any;
 };
 
-const SHEET_COLUMNS = [
-  { key: "date", label: "Date", headerLetter: "A", type: "text", width: 120 },
-  { key: "ordersCount", label: "Orders Count", headerLetter: "B", type: "number", width: 110 },
-  { key: "totalQty", label: "Total Qty Sold", headerLetter: "C", type: "number", width: 130 },
-  { key: "totalVolume", label: "Revenue (₹)", headerLetter: "D", type: "currency", width: 150 },
-  { key: "avgOrderValue", label: "Avg Order Value (₹)", headerLetter: "E", type: "currency", width: 160 },
-  { key: "completedCount", label: "Completed Orders", headerLetter: "F", type: "number", width: 140 },
-];
+function lineUnitPrice(item: Record<string, unknown>): number {
+  return Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
+}
+
+function lineQtyForBasis(item: Record<string, unknown>, basis: VolumeBasis): number {
+  const ordered = Number(item.ordered_quantity ?? item.quantity ?? 0) || 0;
+  const approved = Number(item.approved_quantity) || 0;
+  const dispatched = Number(item.dispatched_quantity) || 0;
+  const delivered = Number(item.delivered_quantity) || 0;
+  const returned = Number(item.returned_quantity) || 0;
+  switch (basis) {
+    case "net_sales":
+      return itemNetQty(item);
+    case "order_value":
+      return ordered;
+    case "approved":
+      return approved;
+    case "dispatched":
+      return dispatched;
+    case "delivered":
+      return delivered;
+    case "returned":
+      return returned;
+    default:
+      return itemNetQty(item);
+  }
+}
+
+/** Qty + ₹ for one order under the selected volume basis (line-level, like admin widgets). */
+function orderMetricsForBasis(
+  items: unknown[],
+  basis: VolumeBasis,
+): { qty: number; volume: number } {
+  let qty = 0;
+  let volume = 0;
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const q = lineQtyForBasis(item, basis);
+    const price = lineUnitPrice(item);
+    qty += q;
+    volume += q * price;
+  }
+  return { qty, volume };
+}
+
+function volumeBasisLabel(basis: VolumeBasis): string {
+  return VOLUME_BASIS_OPTIONS.find((o) => o.id === basis)?.short || basis;
+}
+
+function buildSheetColumns(volumeShort: string) {
+  return [
+    { key: "date", label: "Date", headerLetter: "A", type: "text", width: 120 },
+    { key: "ordersCount", label: "Orders Count", headerLetter: "B", type: "number", width: 110 },
+    { key: "totalQty", label: `${volumeShort} Qty`, headerLetter: "C", type: "number", width: 130 },
+    { key: "totalVolume", label: `${volumeShort} ₹`, headerLetter: "D", type: "currency", width: 150 },
+    { key: "avgOrderValue", label: `Avg ${volumeShort} ₹`, headerLetter: "E", type: "currency", width: 160 },
+    { key: "completedCount", label: "Completed Orders", headerLetter: "F", type: "number", width: 140 },
+  ] as const;
+}
 
 function parseDate(v: unknown): Date | null {
   if (v == null || v === "") return null;
@@ -106,25 +181,69 @@ function formatMoneyAbbr(v: number): string {
   return String(Math.round(v));
 }
 
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function endOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+}
+
+const STATUS_FILTER_LABELS: Record<string, string> = {
+  all: "All statuses",
+  ...Object.fromEntries(
+    ADMIN_ORDER_TABS.filter((t) => t.id !== "all").map((t) => [t.id, t.label]),
+  ),
+};
+
+const PRIORITY_FILTER_LABELS: Record<string, string> = {
+  all: "All priorities",
+  urgent: "Urgent",
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+};
+
+const DATE_PRESET_LABELS: Record<string, string> = {
+  all: "All dates",
+  today: "Today",
+  yesterday: "Yesterday",
+  last_7: "Last 7 days",
+  last_30: "Last 30 days",
+  custom: "Custom range",
+};
+
+type FilterChip = { key: string; label: string; value: string };
+
+type FilterContext = {
+  dateLabel: string;
+  chips: FilterChip[];
+  /** Short line used in section / chart headings */
+  heading: string;
+  /** Longer subtitle under KPIs / tables */
+  detail: string;
+};
+
 export function GoogleSheetAnalyticsModal({
   isOpen,
   onClose,
   partyNameById,
   portal = "admin",
 }: GoogleSheetAnalyticsModalProps) {
-  // Tabs: "visual" (Charts), "rankings" (Leaderboards), "sheet" (Raw Data Grid)
-  const [activeTab, setActiveTab] = useState<"visual" | "rankings" | "sheet">("visual");
+  // Tabs: charts, rankings, featured matrices, daily sheet
+  const [activeTab, setActiveTab] = useState<"visual" | "rankings" | "featured" | "sheet">("visual");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
-  // Filters State
+  // Filters — default date = today; volume = net sales (delivered − returned)
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterParty, setFilterParty] = useState<string>("all");
   const [filterSalesPerson, setFilterSalesPerson] = useState<string>("all");
-  const [filterDatePreset, setFilterDatePreset] = useState<string>("all");
+  const [filterDatePreset, setFilterDatePreset] = useState<string>("today");
   const [filterStartDate, setFilterStartDate] = useState<string>("");
   const [filterEndDate, setFilterEndDate] = useState<string>("");
+  const [filterVolumeBasis, setFilterVolumeBasis] = useState<VolumeBasis>("net_sales");
 
   // Chart state
   const [chartMetric, setChartMetric] = useState<"volume" | "qty">("volume");
@@ -237,38 +356,37 @@ export function GoogleSheetAnalyticsModal({
       // Sales person filter
       if (filterSalesPerson !== "all" && o.sales_person_name !== filterSalesPerson) return false;
 
-      // Date Range filter
+      // Date Range filter (default: today)
       if (filterDatePreset !== "all") {
         if (!o.raw_order_date) return false;
         const d = o.raw_order_date;
         const today = new Date();
-        const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const startOfToday = startOfLocalDay(today);
+        const endOfToday = endOfLocalDay(today);
 
         if (filterDatePreset === "today") {
-          if (d < startOfToday) return false;
+          if (d < startOfToday || d > endOfToday) return false;
         } else if (filterDatePreset === "yesterday") {
-          const yesterday = new Date(startOfToday);
-          yesterday.setDate(yesterday.getDate() - 1);
-          if (d < yesterday || d >= startOfToday) return false;
+          const yesterdayStart = new Date(startOfToday);
+          yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+          const yesterdayEnd = endOfLocalDay(yesterdayStart);
+          if (d < yesterdayStart || d > yesterdayEnd) return false;
         } else if (filterDatePreset === "last_7") {
           const sevenDaysAgo = new Date(startOfToday);
           sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-          if (d < sevenDaysAgo) return false;
+          if (d < sevenDaysAgo || d > endOfToday) return false;
         } else if (filterDatePreset === "last_30") {
           const thirtyDaysAgo = new Date(startOfToday);
           thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-          if (d < thirtyDaysAgo) return false;
+          if (d < thirtyDaysAgo || d > endOfToday) return false;
         } else if (filterDatePreset === "custom") {
           if (filterStartDate) {
-            const start = new Date(filterStartDate);
-            if (!isNaN(start.getTime()) && d < start) return false;
+            const start = startOfLocalDay(new Date(filterStartDate));
+            if (!Number.isNaN(start.getTime()) && d < start) return false;
           }
           if (filterEndDate) {
-            const end = new Date(filterEndDate);
-            if (!isNaN(end.getTime())) {
-              const endOfDay = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
-              if (d > endOfDay) return false;
-            }
+            const end = endOfLocalDay(new Date(filterEndDate));
+            if (!Number.isNaN(end.getTime()) && d > end) return false;
           }
         }
       }
@@ -298,41 +416,156 @@ export function GoogleSheetAnalyticsModal({
     searchQuery,
   ]);
 
-  const hasActiveFilters = useMemo(() => {
+  /** True when filters differ from the default (today + net sales + all dimensions). */
+  const hasNonDefaultFilters = useMemo(() => {
     return (
       filterStatus !== "all" ||
       filterPriority !== "all" ||
       filterParty !== "all" ||
       filterSalesPerson !== "all" ||
-      filterDatePreset !== "all" ||
+      filterDatePreset !== "today" ||
+      filterVolumeBasis !== "net_sales" ||
       searchQuery.trim() !== ""
     );
-  }, [filterStatus, filterPriority, filterParty, filterSalesPerson, filterDatePreset, searchQuery]);
+  }, [
+    filterStatus,
+    filterPriority,
+    filterParty,
+    filterSalesPerson,
+    filterDatePreset,
+    filterVolumeBasis,
+    searchQuery,
+  ]);
 
-  const handleClearFilters = () => {
+  const resetFiltersToDefault = useCallback(() => {
     setFilterStatus("all");
     setFilterPriority("all");
     setFilterParty("all");
     setFilterSalesPerson("all");
-    setFilterDatePreset("all");
+    setFilterDatePreset("today");
     setFilterStartDate("");
     setFilterEndDate("");
+    setFilterVolumeBasis("net_sales");
     setSearchQuery("");
-  };
+  }, []);
 
-  // KPI Calculations
+  // Re-open always starts on the current date.
+  useEffect(() => {
+    if (isOpen) resetFiltersToDefault();
+  }, [isOpen, resetFiltersToDefault]);
+
+  const filterContext = useMemo<FilterContext>(() => {
+    const now = new Date();
+    let dateLabel = DATE_PRESET_LABELS[filterDatePreset] || "Date";
+    if (filterDatePreset === "today") {
+      dateLabel = `Today (${formatDateShort(now)})`;
+    } else if (filterDatePreset === "yesterday") {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      dateLabel = `Yesterday (${formatDateShort(y)})`;
+    } else if (filterDatePreset === "custom") {
+      const start = filterStartDate ? formatDateShort(filterStartDate) : "…";
+      const end = filterEndDate ? formatDateShort(filterEndDate) : "…";
+      dateLabel = `${start} → ${end}`;
+    }
+
+    const volumeLabel =
+      VOLUME_BASIS_OPTIONS.find((o) => o.id === filterVolumeBasis)?.label ||
+      volumeBasisLabel(filterVolumeBasis);
+
+    const chips: FilterChip[] = [
+      { key: "date", label: "Date", value: dateLabel },
+      { key: "volume", label: "Volume", value: volumeLabel },
+      {
+        key: "status",
+        label: "Status",
+        value: STATUS_FILTER_LABELS[filterStatus] || filterStatus,
+      },
+      {
+        key: "priority",
+        label: "Priority",
+        value:
+          filterPriority === "all"
+            ? PRIORITY_FILTER_LABELS.all
+            : PRIORITY_FILTER_LABELS[filterPriority] || filterPriority,
+      },
+      {
+        key: "party",
+        label: "Party",
+        value: filterParty === "all" ? "All parties" : filterParty,
+      },
+      {
+        key: "sales",
+        label: "Sales",
+        value: filterSalesPerson === "all" ? "All sales persons" : filterSalesPerson,
+      },
+    ];
+    if (searchQuery.trim()) {
+      chips.push({ key: "search", label: "Search", value: `"${searchQuery.trim()}"` });
+    }
+
+    const heading = chips.map((c) => `${c.label}: ${c.value}`).join(" · ");
+    const detail = `${filteredOrders.length.toLocaleString("en-IN")} order${
+      filteredOrders.length === 1 ? "" : "s"
+    } match these filters`;
+
+    return { dateLabel, chips, heading, detail };
+  }, [
+    filterDatePreset,
+    filterStartDate,
+    filterEndDate,
+    filterVolumeBasis,
+    filterStatus,
+    filterPriority,
+    filterParty,
+    filterSalesPerson,
+    searchQuery,
+    filteredOrders.length,
+  ]);
+
+  /** Per-order qty/volume under the active volume basis (drives all widgets). */
+  const orderBasisMetrics = useMemo(() => {
+    const map = new Map<string, { qty: number; volume: number }>();
+    for (const o of filteredOrders) {
+      map.set(o._id, orderMetricsForBasis(o.order_items, filterVolumeBasis));
+    }
+    return map;
+  }, [filteredOrders, filterVolumeBasis]);
+
+  const volumeShortLabel = volumeBasisLabel(filterVolumeBasis);
+  const SHEET_COLUMNS = useMemo(
+    () => buildSheetColumns(volumeShortLabel),
+    [volumeShortLabel],
+  );
+
+  const handleClearFilters = resetFiltersToDefault;
+
+  /** Raw order docs for featured matrix tables (already date/status filtered). */
+  const featuredMatrixOrders = useMemo(
+    () => filteredOrders.map((o) => o.raw).filter(Boolean),
+    [filteredOrders],
+  );
+
+  // KPI Calculations — driven by volume basis filter (default: net sales)
   const kpis = useMemo(() => {
-    const totalVolume = filteredOrders.reduce((sum, o) => sum + o.grand_total, 0);
-    const totalQty = filteredOrders.reduce((sum, o) => sum + o.total_quantity, 0);
+    let totalVolume = 0;
+    let totalQty = 0;
+    for (const o of filteredOrders) {
+      const m = orderBasisMetrics.get(o._id) || { qty: 0, volume: 0 };
+      totalVolume += m.volume;
+      totalQty += m.qty;
+    }
     const activeParties = new Set(filteredOrders.map((o) => o.party_id).filter(Boolean)).size;
     const aov = filteredOrders.length > 0 ? totalVolume / filteredOrders.length : 0;
 
-    // Calculate Top Product
     const productQtyMap = new Map<string, number>();
     filteredOrders.forEach((o) => {
       o.order_items.forEach((item) => {
-        const name = item.product_name || (item.product && item.product.product_name) || "Unknown Item";
-        const qty = Number(item.ordered_quantity ?? item.quantity ?? 0);
+        const name =
+          item.product_name ||
+          (item.product && item.product.product_name) ||
+          "Unknown Item";
+        const qty = lineQtyForBasis(item, filterVolumeBasis);
         productQtyMap.set(name, (productQtyMap.get(name) || 0) + qty);
       });
     });
@@ -355,7 +588,7 @@ export function GoogleSheetAnalyticsModal({
       topProductQty,
       ordersCount: filteredOrders.length,
     };
-  }, [filteredOrders]);
+  }, [filteredOrders, orderBasisMetrics, filterVolumeBasis]);
 
   // Aggregated data: bucketed by day for Sheet View
   const dailyAnalyticalRows = useMemo<AnalyticalRow[]>(() => {
@@ -365,10 +598,11 @@ export function GoogleSheetAnalyticsModal({
       if (!o.raw_order_date) return;
       const dateKey = `${o.raw_order_date.getFullYear()}-${String(o.raw_order_date.getMonth() + 1).padStart(2, "0")}-${String(o.raw_order_date.getDate()).padStart(2, "0")}`;
       const existing = dayMap.get(dateKey) || { count: 0, qty: 0, volume: 0, completed: 0, rawDate: o.raw_order_date };
+      const m = orderBasisMetrics.get(o._id) || { qty: 0, volume: 0 };
 
       existing.count++;
-      existing.qty += o.total_quantity;
-      existing.volume += o.grand_total;
+      existing.qty += m.qty;
+      existing.volume += m.volume;
       if (o.status === "delivered" || o.status === "closed") {
         existing.completed++;
       }
@@ -387,7 +621,7 @@ export function GoogleSheetAnalyticsModal({
         rawDate: meta.rawDate,
       }))
       .sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime()); // Newer dates first
-  }, [filteredOrders]);
+  }, [filteredOrders, orderBasisMetrics]);
 
   // Rankings Leaderboards: Products, Parties, Sales Persons
   const rankings = useMemo(() => {
@@ -396,27 +630,32 @@ export function GoogleSheetAnalyticsModal({
     const repMap = new Map<string, { volume: number; qty: number; count: number }>();
 
     filteredOrders.forEach((o) => {
+      const orderM = orderBasisMetrics.get(o._id) || { qty: 0, volume: 0 };
+
       // Parties
       const party = partyMap.get(o.party_name) || { volume: 0, qty: 0, count: 0 };
-      party.volume += o.grand_total;
-      party.qty += o.total_quantity;
+      party.volume += orderM.volume;
+      party.qty += orderM.qty;
       party.count++;
       partyMap.set(o.party_name, party);
 
       // Reps
       if (o.sales_person_name && o.sales_person_name !== "—") {
         const rep = repMap.get(o.sales_person_name) || { volume: 0, qty: 0, count: 0 };
-        rep.volume += o.grand_total;
-        rep.qty += o.total_quantity;
+        rep.volume += orderM.volume;
+        rep.qty += orderM.qty;
         rep.count++;
         repMap.set(o.sales_person_name, rep);
       }
 
-      // Products
+      // Products — same volume basis as widgets
       o.order_items.forEach((item) => {
-        const name = item.product_name || (item.product && item.product.product_name) || "Unknown Item";
-        const qty = Number(item.ordered_quantity ?? item.quantity ?? 0);
-        const rate = Number(item.unit_price ?? 0);
+        const name =
+          item.product_name ||
+          (item.product && item.product.product_name) ||
+          "Unknown Item";
+        const qty = lineQtyForBasis(item, filterVolumeBasis);
+        const rate = lineUnitPrice(item);
         const vol = qty * rate;
 
         const prod = prodMap.get(name) || { qty: 0, volume: 0 };
@@ -452,7 +691,7 @@ export function GoogleSheetAnalyticsModal({
       topParties,
       topSalesPersons,
     };
-  }, [filteredOrders]);
+  }, [filteredOrders, orderBasisMetrics, filterVolumeBasis]);
 
   // Data for visual charts: Daily (last 10 days) and Monthly comparison (last 6 months)
   const chartData = useMemo(() => {
@@ -480,8 +719,9 @@ export function GoogleSheetAnalyticsModal({
       const key = `${o.raw_order_date.getFullYear()}-${String(o.raw_order_date.getMonth() + 1).padStart(2, "0")}`;
       const bucket = months.find((m) => m.key === key);
       if (bucket) {
-        bucket.volume += o.grand_total;
-        bucket.qty += o.total_quantity;
+        const m = orderBasisMetrics.get(o._id) || { qty: 0, volume: 0 };
+        bucket.volume += m.volume;
+        bucket.qty += m.qty;
         bucket.count++;
       }
     });
@@ -490,7 +730,7 @@ export function GoogleSheetAnalyticsModal({
       dailyTrend,
       monthlyTrend: months,
     };
-  }, [dailyAnalyticalRows, filteredOrders]);
+  }, [dailyAnalyticalRows, filteredOrders, orderBasisMetrics]);
 
   // Max values for chart scaling
   const maxDailyVal = useMemo(() => {
@@ -588,7 +828,7 @@ export function GoogleSheetAnalyticsModal({
               </span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Interactive reports and analytics parsed from {filteredOrders.length} filtered orders.
+              {filterContext.detail}. Default range is today.
             </p>
           </div>
         </div>
@@ -625,6 +865,17 @@ export function GoogleSheetAnalyticsModal({
           >
             <Users className="h-3.5 w-3.5" />
             <span>Top Rankings</span>
+          </button>
+          <button
+            onClick={() => setActiveTab("featured")}
+            className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-bold transition cursor-pointer ${
+              activeTab === "featured"
+                ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            <span>Featured Matrices</span>
           </button>
           <button
             onClick={() => setActiveTab("sheet")}
@@ -670,25 +921,25 @@ export function GoogleSheetAnalyticsModal({
           <button
             onClick={() => setIsFilterPanelOpen((prev) => !prev)}
             className={`flex items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-xs font-semibold transition relative cursor-pointer ${
-              isFilterPanelOpen || hasActiveFilters
+              isFilterPanelOpen || hasNonDefaultFilters
                 ? "border-blue-500 bg-blue-50/10 text-blue-600 dark:text-blue-400"
                 : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
             }`}
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
             <span>Filters</span>
-            {hasActiveFilters && (
+            {hasNonDefaultFilters && (
               <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-blue-500 border-2 border-white dark:border-slate-900" />
             )}
           </button>
 
-          {/* Reset Filters Quick link */}
-          {hasActiveFilters && (
+          {/* Reset to default (today) */}
+          {hasNonDefaultFilters && (
             <button
               onClick={handleClearFilters}
               className="text-xs font-semibold text-rose-500 hover:text-rose-600 px-1 py-1.5 transition cursor-pointer"
             >
-              Clear
+              Reset to today
             </button>
           )}
 
@@ -701,15 +952,36 @@ export function GoogleSheetAnalyticsModal({
                   <span className="font-bold text-slate-900 dark:text-slate-100">Analytics Filters</span>
                   <button
                     onClick={handleClearFilters}
-                    disabled={!hasActiveFilters}
+                    disabled={!hasNonDefaultFilters}
                     className="text-2xs text-slate-450 hover:text-blue-500 disabled:opacity-50 transition font-semibold"
                   >
-                    Reset All
+                    Reset to today
                   </button>
                 </div>
 
                 <div className="space-y-3 select-none">
-                  {/* Status */}
+                  {/* Volume basis — drives all KPI / chart / ranking numbers */}
+                  <div>
+                    <label className="block font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                      Volume basis
+                    </label>
+                    <select
+                      value={filterVolumeBasis}
+                      onChange={(e) => setFilterVolumeBasis(e.target.value as VolumeBasis)}
+                      className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-blue-500"
+                    >
+                      {VOLUME_BASIS_OPTIONS.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-2xs text-slate-400">
+                      Default is net sales (delivered − returned), same as featured matrices.
+                    </p>
+                  </div>
+
+                  {/* Status — workflow tabs from orderWorkflowTabs / admin tabs */}
                   <div>
                     <label className="block font-semibold text-slate-500 dark:text-slate-400 mb-1">Status</label>
                     <select
@@ -718,12 +990,11 @@ export function GoogleSheetAnalyticsModal({
                       className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-blue-500"
                     >
                       <option value="all">All Statuses</option>
-                      <option value="pending_approvals">Pending Approvals</option>
-                      <option value="open">Open Orders</option>
-                      <option value="closed">Closed Orders</option>
-                      <option value="cancelled">Cancelled Orders</option>
-                      <option value="on_hold">On Hold Orders</option>
-                      <option value="rejected">Rejected Orders</option>
+                      {ADMIN_ORDER_TABS.filter((t) => t.id !== "all").map((tab) => (
+                        <option key={tab.id} value={tab.id}>
+                          {tab.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -785,12 +1056,12 @@ export function GoogleSheetAnalyticsModal({
                       onChange={(e) => setFilterDatePreset(e.target.value)}
                       className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-blue-500"
                     >
-                      <option value="all">All Dates</option>
-                      <option value="today">Today</option>
+                      <option value="today">Today (default)</option>
                       <option value="yesterday">Yesterday</option>
                       <option value="last_7">Last 7 Days</option>
                       <option value="last_30">Last 30 Days</option>
                       <option value="custom">Custom Date Range</option>
+                      <option value="all">All Dates</option>
                     </select>
                   </div>
 
@@ -823,29 +1094,61 @@ export function GoogleSheetAnalyticsModal({
         </div>
       </div>
 
+      {/* Active filter context — stays in sync with all KPIs / charts / tables */}
+      <div className="border-b border-slate-200 dark:border-slate-800 bg-blue-50/70 dark:bg-blue-950/25 px-6 py-2.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <span className="inline-flex items-center gap-1.5 text-sm font-extrabold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+            <Calendar className="h-4 w-4" />
+            Active filters
+          </span>
+          <span className="hidden sm:inline text-slate-300 dark:text-slate-600">|</span>
+          {filterContext.chips.map((chip) => (
+            <span
+              key={chip.key}
+              className="inline-flex items-center gap-1 rounded-full border border-blue-200/80 dark:border-blue-800/60 bg-white/80 dark:bg-slate-900/60 px-2.5 py-1 text-xs font-bold text-slate-700 dark:text-slate-200"
+              title={`${chip.label}: ${chip.value}`}
+            >
+              <span className="text-slate-500 dark:text-slate-400 font-bold">{chip.label}</span>
+              <span className="text-slate-900 dark:text-slate-50 font-extrabold">{chip.value}</span>
+            </span>
+          ))}
+          <span className="ml-auto text-xs font-extrabold text-blue-700 dark:text-blue-300">
+            {filterContext.detail}
+          </span>
+        </div>
+      </div>
+
       {/* Main KPI cards view (always visible) */}
       <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 px-6 py-4 bg-slate-50/50 dark:bg-slate-900/10 border-b border-slate-200 dark:border-slate-800 shrink-0">
+        <div className="col-span-full -mb-1">
+          <h3 className="text-sm font-extrabold tracking-tight text-slate-800 dark:text-slate-100">
+            KPI summary · {filterContext.dateLabel}
+          </h3>
+          <p className="mt-0.5 text-xs font-bold text-slate-600 dark:text-slate-300 truncate" title={filterContext.heading}>
+            {filterContext.heading}
+          </p>
+        </div>
         {[
           {
-            label: "Sales Volume",
+            label: `${volumeShortLabel} volume`,
             value: `₹${formatMoney(kpis.totalVolume)}`,
-            sub: `${kpis.ordersCount} total orders`,
+            sub: `${kpis.ordersCount} orders · ${VOLUME_BASIS_OPTIONS.find((o) => o.id === filterVolumeBasis)?.label}`,
             color: "from-blue-500 to-indigo-600",
             textColor: "text-blue-600 dark:text-blue-400",
             icon: <DollarSign className="h-4.5 w-4.5" />,
           },
           {
-            label: "Total Units Sold",
+            label: `${volumeShortLabel} units`,
             value: kpis.totalQty.toLocaleString("en-IN"),
-            sub: `${(kpis.totalQty / Math.max(kpis.ordersCount, 1)).toFixed(1)} avg items/order`,
+            sub: `${(kpis.totalQty / Math.max(kpis.ordersCount, 1)).toFixed(1)} avg units/order`,
             color: "from-emerald-500 to-teal-600",
             textColor: "text-emerald-600 dark:text-emerald-400",
             icon: <ShoppingCart className="h-4.5 w-4.5" />,
           },
           {
-            label: "Avg Order Value (AOV)",
+            label: "Avg per order",
             value: `₹${formatMoney(kpis.aov)}`,
-            sub: "Average order size",
+            sub: `Average ${volumeShortLabel.toLowerCase()} ₹ / order`,
             color: "from-purple-500 to-violet-600",
             textColor: "text-purple-600 dark:text-purple-400",
             icon: <Percent className="h-4.5 w-4.5" />,
@@ -859,9 +1162,12 @@ export function GoogleSheetAnalyticsModal({
             icon: <Users className="h-4.5 w-4.5" />,
           },
           {
-            label: "Top Product by Qty",
+            label: `Top product (${volumeShortLabel})`,
             value: kpis.topProduct,
-            sub: kpis.topProductQty > 0 ? `${kpis.topProductQty.toLocaleString("en-IN")} units sold` : "No products sold",
+            sub:
+              kpis.topProductQty > 0
+                ? `${kpis.topProductQty.toLocaleString("en-IN")} units`
+                : "No product qty for this basis",
             color: "from-amber-500 to-orange-600",
             textColor: "text-amber-600 dark:text-amber-400",
             icon: <Package className="h-4.5 w-4.5" />,
@@ -919,8 +1225,10 @@ export function GoogleSheetAnalyticsModal({
           <div className="flex flex-col items-center justify-center h-full py-16">
             <Info className="h-10 w-10 text-slate-400 mb-2" />
             <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Analytics Available</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs text-center mt-1">
-              No orders match the selected filters. Reset filters to compute analytics.
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm text-center mt-1">
+              No orders match <span className="font-semibold text-slate-700 dark:text-slate-300">{filterContext.dateLabel}</span>
+              {" · "}
+              {filterContext.heading}. Try another date range or reset to today.
             </p>
           </div>
         ) : (
@@ -928,6 +1236,14 @@ export function GoogleSheetAnalyticsModal({
             {/* Tab 1: Charts & Trends */}
             {activeTab === "visual" && (
               <div className="space-y-6 max-w-6xl mx-auto animate-fadeIn">
+                <div className="rounded-lg border border-slate-200 dark:border-white/10 bg-white/80 dark:bg-slate-900/60 px-4 py-2.5">
+                  <h3 className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-slate-50">
+                    Charts &amp; trends · {filterContext.dateLabel}
+                  </h3>
+                  <p className="mt-0.5 text-xs font-bold text-slate-600 dark:text-slate-300 truncate" title={filterContext.heading}>
+                    {filterContext.heading}
+                  </p>
+                </div>
                 {/* Metric toggle */}
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Metrics Selector</span>
@@ -940,7 +1256,7 @@ export function GoogleSheetAnalyticsModal({
                           : "text-slate-600 dark:text-slate-400"
                       }`}
                     >
-                      Revenue (₹)
+                      {volumeShortLabel} ₹
                     </button>
                     <button
                       onClick={() => setChartMetric("qty")}
@@ -950,7 +1266,7 @@ export function GoogleSheetAnalyticsModal({
                           : "text-slate-600 dark:text-slate-400"
                       }`}
                     >
-                      Quantity Sold
+                      {volumeShortLabel} qty
                     </button>
                   </div>
                 </div>
@@ -958,10 +1274,16 @@ export function GoogleSheetAnalyticsModal({
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Daily Trend Area Chart */}
                   <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 p-5 shadow-sm">
-                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+                    <h4 className="mb-1 flex items-center gap-1.5 text-sm font-extrabold tracking-tight text-slate-800 dark:text-slate-100">
                       <span className="h-2 w-2 rounded-full bg-blue-500" />
-                      Daily Sales Trend (Last 10 Days)
+                      Daily Sales Trend
                     </h4>
+                    <p className="mb-4 text-xs font-bold text-slate-600 dark:text-slate-300">
+                      Filtered: {filterContext.dateLabel}
+                      {chartData.dailyTrend.length > 0
+                        ? ` · ${chartData.dailyTrend.length} day${chartData.dailyTrend.length === 1 ? "" : "s"} with data`
+                        : ""}
+                    </p>
                     <div className="h-[240px] w-full flex items-center justify-center">
                       {chartData.dailyTrend.length === 0 ? (
                         <span className="text-xs text-slate-400">Insufficient daily data</span>
@@ -1044,10 +1366,13 @@ export function GoogleSheetAnalyticsModal({
 
                   {/* Monthly sales comparison bar chart */}
                   <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 p-5 shadow-sm">
-                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+                    <h4 className="mb-1 flex items-center gap-1.5 text-sm font-extrabold tracking-tight text-slate-800 dark:text-slate-100">
                       <span className="h-2 w-2 rounded-full bg-indigo-500" />
-                      Monthly Sales Comparison (Last 6 Months)
+                      Monthly Sales Comparison
                     </h4>
+                    <p className="mb-4 text-xs font-bold text-slate-600 dark:text-slate-300">
+                      Filtered: {filterContext.dateLabel} · buckets within last 6 months
+                    </p>
                     <div className="h-[240px] w-full flex items-center justify-center">
                       <svg viewBox="0 0 450 150" className="w-full h-full overflow-visible select-none">
                         {/* Grid ticks */}
@@ -1135,14 +1460,23 @@ export function GoogleSheetAnalyticsModal({
             {/* Tab 2: Top Rankings Leaderboards */}
             {activeTab === "rankings" && (
               <div className="space-y-6 max-w-6xl mx-auto animate-fadeIn">
+                <div className="rounded-lg border border-slate-200 dark:border-white/10 bg-white/80 dark:bg-slate-900/60 px-4 py-2.5">
+                  <h3 className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-slate-50">
+                    Top rankings · {filterContext.dateLabel}
+                  </h3>
+                  <p className="mt-0.5 text-xs font-bold text-slate-600 dark:text-slate-300 truncate" title={filterContext.heading}>
+                    {filterContext.heading}
+                  </p>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Top Products by Volume */}
                   <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 p-5 shadow-sm flex flex-col justify-between">
                     <div>
-                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+                      <h4 className="mb-1 flex items-center gap-1.5 text-sm font-extrabold tracking-tight text-slate-800 dark:text-slate-100">
                         <Package className="h-4 w-4 text-emerald-500" />
-                        Top Products by Sales Volume
+                        Top Products by {volumeShortLabel}
                       </h4>
+                      <p className="mb-4 text-xs font-bold text-slate-600 dark:text-slate-300">Filtered: {filterContext.dateLabel}</p>
                       {rankings.topProductsVolume.length === 0 ? (
                         <p className="text-xs text-slate-450 italic py-6">No data found</p>
                       ) : (
@@ -1174,10 +1508,11 @@ export function GoogleSheetAnalyticsModal({
                   {/* Top Products by Sale Quantity */}
                   <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 p-5 shadow-sm flex flex-col justify-between">
                     <div>
-                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+                      <h4 className="mb-1 flex items-center gap-1.5 text-sm font-extrabold tracking-tight text-slate-800 dark:text-slate-100">
                         <Package className="h-4 w-4 text-teal-500" />
-                        Top Products by Sale Quantity
+                        Top Products by {volumeShortLabel} qty
                       </h4>
+                      <p className="mb-4 text-xs font-bold text-slate-600 dark:text-slate-300">Filtered: {filterContext.dateLabel}</p>
                       {rankings.topProductsQty.length === 0 ? (
                         <p className="text-xs text-slate-455 italic py-6">No data found</p>
                       ) : (
@@ -1209,10 +1544,11 @@ export function GoogleSheetAnalyticsModal({
                   {/* Top Parties */}
                   <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 p-5 shadow-sm flex flex-col justify-between">
                     <div>
-                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+                      <h4 className="mb-1 flex items-center gap-1.5 text-sm font-extrabold tracking-tight text-slate-800 dark:text-slate-100">
                         <Users className="h-4 w-4 text-blue-500" />
-                        Top Counterparties (by Sales Volume)
+                        Top Counterparties (by {volumeShortLabel})
                       </h4>
+                      <p className="mb-4 text-xs font-bold text-slate-600 dark:text-slate-300">Filtered: {filterContext.dateLabel}</p>
                       {rankings.topParties.length === 0 ? (
                         <p className="text-xs text-slate-455 italic py-6">No counterparties found</p>
                       ) : (
@@ -1244,10 +1580,11 @@ export function GoogleSheetAnalyticsModal({
                   {/* Top Sales Person */}
                   <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 p-5 shadow-sm flex flex-col justify-between">
                     <div>
-                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+                      <h4 className="mb-1 flex items-center gap-1.5 text-sm font-extrabold tracking-tight text-slate-800 dark:text-slate-100">
                         <Users className="h-4 w-4 text-purple-500" />
                         Top Sales Representatives
                       </h4>
+                      <p className="mb-4 text-xs font-bold text-slate-600 dark:text-slate-300">Filtered: {filterContext.dateLabel}</p>
                       {rankings.topSalesPersons.length === 0 ? (
                         <p className="text-xs text-slate-455 italic py-6">No sales rep assignments found</p>
                       ) : (
@@ -1279,9 +1616,51 @@ export function GoogleSheetAnalyticsModal({
               </div>
             )}
 
-            {/* Tab 3: Google Sheet Grid Table */}
+            {/* Tab: Featured product-group matrices (expandable) */}
+            {activeTab === "featured" && (
+              <div className="space-y-6 max-w-7xl mx-auto animate-fadeIn">
+                <div className="rounded-lg border border-slate-200 dark:border-white/10 bg-white/80 dark:bg-slate-900/60 px-4 py-2.5">
+                  <h3 className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-slate-50">
+                    Featured matrices · {filterContext.dateLabel}
+                  </h3>
+                  <p
+                    className="mt-0.5 text-xs font-bold text-slate-600 dark:text-slate-300 truncate"
+                    title={filterContext.heading}
+                  >
+                    {filterContext.heading}
+                  </p>
+                  <p className="mt-1 text-2xs text-slate-500 dark:text-slate-400">
+                    Expand a product group row to see product-level breakdown. Data follows the active analytics filters.
+                  </p>
+                </div>
+
+                <FeaturedProductGroupSalesUserTable
+                  orders={featuredMatrixOrders}
+                  isOrdersFetching={isOrdersLoading || isOrdersFetching}
+                  syncWithExternalFilter
+                  externalFilterCaption={filterContext.dateLabel}
+                />
+
+                <FeaturedProductGroupFeaturedPartyTable
+                  orders={featuredMatrixOrders}
+                  isOrdersFetching={isOrdersLoading || isOrdersFetching}
+                  syncWithExternalFilter
+                  externalFilterCaption={filterContext.dateLabel}
+                />
+              </div>
+            )}
+
+            {/* Tab: Google Sheet Grid Table */}
             {activeTab === "sheet" && (
               <div className="rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden animate-fadeIn">
+                <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-2.5 bg-slate-50/80 dark:bg-slate-950/40">
+                  <h3 className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-slate-50">
+                    Daily sheet grid · {filterContext.dateLabel}
+                  </h3>
+                  <p className="mt-0.5 text-xs font-bold text-slate-600 dark:text-slate-300 truncate" title={filterContext.heading}>
+                    {filterContext.heading} · {filterContext.detail}
+                  </p>
+                </div>
                 <div className="overflow-auto max-h-[50vh]">
                   <table className="w-full border-collapse text-xs select-none">
                     <thead>

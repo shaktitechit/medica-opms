@@ -22,6 +22,10 @@ interface FeaturedMatrixTableFrameProps {
   onMonthsChange: (months: number[]) => void;
   onDownload?: () => void;
   downloadDisabled?: boolean;
+  /** Hide year/month controls when the parent already applies date filters. */
+  hidePeriodFilter?: boolean;
+  /** Custom period / filter caption (used with hidePeriodFilter). */
+  externalFilterCaption?: string;
   children: ReactNode;
 }
 
@@ -40,6 +44,8 @@ export default function FeaturedMatrixTableFrame({
   onMonthsChange,
   onDownload,
   downloadDisabled = false,
+  hidePeriodFilter = false,
+  externalFilterCaption,
   children,
 }: FeaturedMatrixTableFrameProps) {
   return (
@@ -49,13 +55,23 @@ export default function FeaturedMatrixTableFrame({
           <div className="flex items-start gap-2.5 min-w-0">
             <span className={`mt-0.5 shrink-0 ${accentClass}`}>{icon}</span>
             <div className="min-w-0">
-              <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
+              <h3 className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-slate-100 font-sans">
                 {title}
               </h3>
-              <PeriodHeadingCaption
-                selectedYears={selectedYears}
-                selectedMonths={selectedMonths}
-              />
+              {hidePeriodFilter && externalFilterCaption ? (
+                <p className="mt-0.5 text-xs font-bold text-slate-600 dark:text-slate-300">
+                  <span className="font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                    Filtered
+                  </span>
+                  <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
+                  <span>{externalFilterCaption}</span>
+                </p>
+              ) : (
+                <PeriodHeadingCaption
+                  selectedYears={selectedYears}
+                  selectedMonths={selectedMonths}
+                />
+              )}
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 {subtitle}
               </p>
@@ -89,14 +105,16 @@ export default function FeaturedMatrixTableFrame({
                 </button>
               </div>
             )}
-            <AdminPeriodFilter
-              availableYears={availableYears}
-              selectedYears={selectedYears}
-              selectedMonths={selectedMonths}
-              onYearsChange={onYearsChange}
-              onMonthsChange={onMonthsChange}
-              size="sm"
-            />
+            {!hidePeriodFilter ? (
+              <AdminPeriodFilter
+                availableYears={availableYears}
+                selectedYears={selectedYears}
+                selectedMonths={selectedMonths}
+                onYearsChange={onYearsChange}
+                onMonthsChange={onMonthsChange}
+                size="sm"
+              />
+            ) : null}
             {onDownload && (
               <ReportDownloadButton
                 onDownload={onDownload}

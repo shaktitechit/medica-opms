@@ -519,9 +519,71 @@ function SalesAutocomplete({
   );
 }
 
+export type StaffCreateOrderPortalHome =
+  | "/admin"
+  | "/super_admin"
+  | "/finance"
+  | "/account";
+
+type StaffCreateOrderPortalConfig = {
+  assignedUserField:
+    | "assigned_admin_user"
+    | "assigned_finance_user"
+    | "assigned_account_user";
+  approvalFlags: {
+    approve_immediately?: boolean;
+    approve_finance_only?: boolean;
+    approve_account_only?: boolean;
+  };
+  approvalNotes: string;
+  successToast: (orderNo: string) => string;
+};
+
+const PORTAL_CREATE_CONFIG: Record<
+  StaffCreateOrderPortalHome,
+  StaffCreateOrderPortalConfig
+> = {
+  "/admin": {
+    assignedUserField: "assigned_admin_user",
+    approvalFlags: { approve_immediately: true },
+    approvalNotes: "Initial approval on admin order creation",
+    successToast: (orderNo) =>
+      orderNo
+        ? `Order ${orderNo} created and approved successfully`
+        : "Order created and approved successfully",
+  },
+  "/super_admin": {
+    assignedUserField: "assigned_admin_user",
+    approvalFlags: { approve_immediately: true },
+    approvalNotes: "Initial approval on admin order creation",
+    successToast: (orderNo) =>
+      orderNo
+        ? `Order ${orderNo} created and approved successfully`
+        : "Order created and approved successfully",
+  },
+  "/finance": {
+    assignedUserField: "assigned_finance_user",
+    approvalFlags: { approve_finance_only: true },
+    approvalNotes: "Initial approval on finance order creation",
+    successToast: (orderNo) =>
+      orderNo
+        ? `Order ${orderNo} created and approved successfully`
+        : "Order created and approved successfully",
+  },
+  "/account": {
+    assignedUserField: "assigned_account_user",
+    approvalFlags: { approve_account_only: true },
+    approvalNotes: "Initial approval on account order creation",
+    successToast: (orderNo) =>
+      orderNo
+        ? `Order ${orderNo} created and fully cleared successfully`
+        : "Order created and fully cleared successfully",
+  },
+};
+
 type AdminCreateOrderPageProps = {
   /** Portal base path for back/success navigation (default "/admin"). */
-  portalHome?: "/admin" | "/super_admin";
+  portalHome?: StaffCreateOrderPortalHome;
 };
 
 export default function AdminCreateOrderPage({
@@ -529,6 +591,7 @@ export default function AdminCreateOrderPage({
 }: AdminCreateOrderPageProps = {}) {
   const router = useRouter();
   const user = useAppSelector((s) => s.auth.user);
+  const portalConfig = PORTAL_CREATE_CONFIG[portalHome];
   const partiesQ = useListPartiesQuery({ status: "active" });
   const productsQ = useListProductsQuery({});
   const salesUsersQ = useListUsersQuery({ department: "sales" });
@@ -927,7 +990,9 @@ export default function AdminCreateOrderPage({
           selectedContactNames.push(firstWithPhone.name.trim());
         }
 
-        const body = {
+        const actorId =
+          user?._id || user?.id ? String(user?._id || user?.id) : undefined;
+        const body: Record<string, unknown> = {
           party: partyId,
           order_items: prepared,
           discount_amount: Number(headerDiscount || 0),
@@ -936,10 +1001,10 @@ export default function AdminCreateOrderPage({
           submit_on_create: true,
           submit_remarks: "Initial submission upon creation",
           expected_delivery_date: expectedDate,
-          assigned_admin_user: (user?._id || user?.id) ? String(user?._id || user?.id) : undefined,
+          [portalConfig.assignedUserField]: actorId,
           assigned_sales_user: assignedSales,
-          approve_immediately: true,
-          approval_notes: "Initial approval on admin order creation",
+          ...portalConfig.approvalFlags,
+          approval_notes: portalConfig.approvalNotes,
           approved_total_amount: liveSummary.total,
           approval_items: approvalItems,
           contact_number: selectedContacts,
@@ -949,11 +1014,7 @@ export default function AdminCreateOrderPage({
         const data = (await createOrder(body).unwrap()) as any;
         const orderNo = String(data?.order_no ?? "");
 
-        toast.success(
-          orderNo
-            ? `Order ${orderNo} created and approved successfully`
-            : "Order created and approved successfully",
-        );
+        toast.success(portalConfig.successToast(orderNo));
         router.push(`${portalHome}/orders`);
       } catch (rejected) {
         toast.error(mutationRejectedMessage(rejected));
@@ -967,6 +1028,7 @@ export default function AdminCreateOrderPage({
       remarks,
       router,
       portalHome,
+      portalConfig,
       assignedSales,
       user,
       allItemsNegotiated,

@@ -26,11 +26,17 @@ import {
 interface FeaturedProductGroupFeaturedPartyTableProps {
   orders: any[];
   isOrdersFetching: boolean;
+  /** Use parent-filtered orders as-is (skip internal year/month filter). */
+  syncWithExternalFilter?: boolean;
+  /** Caption shown when syncWithExternalFilter is on. */
+  externalFilterCaption?: string;
 }
 
 export default function FeaturedProductGroupFeaturedPartyTable({
   orders,
   isOrdersFetching,
+  syncWithExternalFilter = false,
+  externalFilterCaption,
 }: FeaturedProductGroupFeaturedPartyTableProps) {
   const [metric, setMetric] = useState<MatrixMetric>("quantity");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -41,8 +47,10 @@ export default function FeaturedProductGroupFeaturedPartyTable({
     setSelectedYears,
     selectedMonths,
     setSelectedMonths,
-    filteredOrders,
+    filteredOrders: periodFilteredOrders,
   } = useAdminPeriodFilter(orders);
+
+  const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
   const { data: groupsData, isFetching: isGroupsFetching } = useListProductGroupsQuery({
     is_featured: "true",
@@ -215,6 +223,8 @@ export default function FeaturedProductGroupFeaturedPartyTable({
       onMonthsChange={setSelectedMonths}
       onDownload={handleDownload}
       downloadDisabled={isLoading}
+      hidePeriodFilter={syncWithExternalFilter}
+      externalFilterCaption={externalFilterCaption}
     >
       {isLoading ? (
         <div className="space-y-2 py-4">

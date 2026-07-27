@@ -1,11 +1,15 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { CheckCircle2, Plus } from "lucide-react";
 import { DashboardCard } from "@/components/widgets";
 import { ApprovalRecordCard } from "./ApprovalRecordCard";
 import { ApprovalModal } from "./ApprovalModal";
 import { AdminAmendSalesApprovalModal } from "./AdminAmendSalesApprovalModal";
-import { canOpenAdminApprovalModal } from "@/components/portal/shared/orderAdminApprovalDisplay";
+import {
+  adminApprovalActionLabel,
+  canOpenAdminApprovalModal,
+} from "@/components/portal/shared/orderAdminApprovalDisplay";
 import {
   useListOrderApprovalsQuery,
   useListUsersQuery,
@@ -95,6 +99,23 @@ export function ApprovalTab({
     [status, readOnlyItems, isCreatedBySales],
   );
 
+  /** Submitted (or continuable) order with no approval batch yet. */
+  const canCreateApproval = useMemo(
+    () =>
+      approvals.length === 0 &&
+      canOpenAdminApprovalModal(status, readOnlyItems) &&
+      !hasActiveDispatch,
+    [approvals.length, status, readOnlyItems, hasActiveDispatch],
+  );
+
+  const createApprovalLabel = useMemo(
+    () =>
+      approvals.length === 0
+        ? "Create Approval"
+        : adminApprovalActionLabel(status, readOnlyItems),
+    [approvals.length, status, readOnlyItems],
+  );
+
   const selectedApproval = useMemo(
     () =>
       amendApprovalId
@@ -106,6 +127,10 @@ export function ApprovalTab({
   const openAmendModal = useCallback((approvalId: string) => {
     setAmendApprovalId(approvalId);
     setIsAmendModalOpen(true);
+  }, []);
+
+  const openCreateApprovalModal = useCallback(() => {
+    setApprovalModalOpen(true);
   }, []);
 
   const handleAmended = useCallback(async () => {
@@ -153,15 +178,30 @@ export function ApprovalTab({
 
   return (
     <div className="space-y-4">
-      {mayApprove && !allRatesMapped && (
+      {(mayApprove || canCreateApproval) && !allRatesMapped && (
         <div className="rounded-xl border border-amber-250 bg-amber-50/50 px-4 py-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-955/20 dark:text-amber-300">
-          <b>Rate Mapping Needed:</b> Some items do not have negotiated rates mapped yet. You can click <b>Approve Order</b> on the card below and map them inline in the preview before final sign-off.
+          <b>Rate Mapping Needed:</b> Some items do not have negotiated rates
+          mapped yet. Click{" "}
+          <b>{canCreateApproval ? "Create Approval" : "Approve Order"}</b> and
+          map them inline in the modal before final sign-off.
         </div>
       )}
 
       <DashboardCard
         title="Admin Approvals"
         description="Each sales review approval with financial breakdown, approved items, and PDF export."
+        action={
+          canCreateApproval ? (
+            <button
+              type="button"
+              onClick={openCreateApprovalModal}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400 cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Create Approval
+            </button>
+          ) : undefined
+        }
       >
         {hasActiveDispatch && (
           <div className="mb-4 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-955/30 dark:text-amber-300 dark:ring-amber-500/30 font-sans">
@@ -192,9 +232,21 @@ export function ApprovalTab({
             <h3 className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-200">
               No admin approvals
             </h3>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Admin sales approvals will appear here once items are reviewed and approved on the Order Approval tab.
+            <p className="mt-1 max-w-sm text-xs text-slate-500 dark:text-slate-400">
+              {canCreateApproval
+                ? "This order is submitted but has no approval batch yet. Create one to review line items, map rates, and approve."
+                : "Admin sales approvals will appear here once items are reviewed and approved."}
             </p>
+            {canCreateApproval ? (
+              <button
+                type="button"
+                onClick={openCreateApprovalModal}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400 cursor-pointer"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {createApprovalLabel}
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="space-y-4">
@@ -208,7 +260,7 @@ export function ApprovalTab({
                 expectedDeliveryDate={detail?.expected_delivery_date}
                 userNameById={userNameById}
                 onAmend={openAmendModal}
-                onApprove={() => setApprovalModalOpen(true)}
+                onApprove={openCreateApprovalModal}
                 amendingApprovalId={amendApprovalId}
                 isAmendBlocked={hasActiveDispatch}
               />
@@ -226,7 +278,7 @@ export function ApprovalTab({
         refetchOrder={refetchOrder}
         detail={detail}
         onApproved={() => {
-          void adminApprovalsQ.refetch();
+          void handleAmended();
         }}
       />
 

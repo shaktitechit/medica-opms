@@ -1022,10 +1022,19 @@ async function create(body, user) {
   const doc = await getModels().Order.create(payload);
   const plain = toPlain(doc.toObject());
 
-  await orderQueue.enqueue({
-    type: 'sync_party_rates',
-    payload: { orderId: plain._id },
-  });
+  // Prefer queue; fall back inline so create still works if Redis is down/read-only.
+  try {
+    await orderQueue.enqueue({
+      type: 'sync_party_rates',
+      payload: { orderId: plain._id },
+    });
+  } catch (_queueErr) {
+    await processOrderJob({
+      type: 'sync_party_rates',
+      payload: { orderId: plain._id },
+    });
+  }
+
   await activityService.create({
     actor: user._id,
     entity_type: 'order',
@@ -1037,7 +1046,9 @@ async function create(body, user) {
 
   const submitOnCreate = body.submit_on_create === true || body.submit_on_create === 'true';
   if (submitOnCreate) {
-    await orderQueue.enqueue({
+    // Synchronous submit + approval: admin create must not depend on Redis/workers
+    // for the path the UI reports as "created and approved".
+    await processOrderJob({
       type: ORDER_JOB_TYPES.SUBMIT_ORDER,
       payload: {
         orderId: plain._id,
@@ -1047,28 +1058,30 @@ async function create(body, user) {
     });
 
     if (body.approval_items || body.approved_total_amount !== undefined) {
-      const orderApprovalQueue = require('../../queues/orderApproval.queue');
-      await orderApprovalQueue.enqueue({
-        type: 'create_order_approval',
-        payload: {
-          body: {
-            order: plain._id,
-            approve_immediately: body.approve_immediately,
-            approve_finance_only: body.approve_finance_only,
-            approve_account_only: body.approve_account_only,
-            replace_snapshot: true,
-            approval_notes: body.approval_notes || body.submit_remarks || "Initial approval on admin order creation",
-            approved_total_amount: body.approved_total_amount,
-            approval_items: body.approval_items,
-            contact_number: body.contact_number,
-            contact_name: body.contact_name,
-          },
-          user,
+      const orderApprovalService = require('../orderApproval/orderApproval.service');
+      await orderApprovalService.create(
+        {
+          order: plain._id,
+          approve_immediately: body.approve_immediately,
+          approve_finance_only: body.approve_finance_only,
+          approve_account_only: body.approve_account_only,
+          replace_snapshot: true,
+          approval_notes:
+            body.approval_notes ||
+            body.submit_remarks ||
+            'Initial approval on admin order creation',
+          approved_total_amount: body.approved_total_amount,
+          approval_items: body.approval_items,
+          contact_number: body.contact_number,
+          contact_name: body.contact_name,
         },
-      });
+        user,
+      );
     }
 
-    plain.submit_queued = true;
+    const refreshed = await getModels().Order.findById(plain._id).lean();
+    if (refreshed) Object.assign(plain, toPlain(refreshed));
+    plain.submitted = true;
   }
 
   return plain;
