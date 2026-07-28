@@ -60,7 +60,13 @@ function resolveFileUrl(url: string): string {
 }
 
 function receiptPreview(exp: WorkPlanExpenseRecord): PreviewFile | null {
-  const att = exp.receipt_attachment;
+  return attachmentPreview(exp.receipt_attachment, "Receipt");
+}
+
+function attachmentPreview(
+  att: WorkPlanExpenseRecord["receipt_attachment"],
+  fallbackName: string,
+): PreviewFile | null {
   if (!att || typeof att === "string") return null;
 
   let path = String(att.url || "").trim();
@@ -78,7 +84,7 @@ function receiptPreview(exp: WorkPlanExpenseRecord): PreviewFile | null {
   }
 
   return {
-    name: String(att.original_name || att.file_name || "Receipt"),
+    name: String(att.original_name || att.file_name || fallbackName),
     url: resolveFileUrl(path),
     mime: String(att.mime_type || ""),
   };
@@ -267,6 +273,14 @@ export default function ListSalesExpensesPage() {
                   const id = planIdOf(row);
                   const plan = planRef(row);
                   const receipt = receiptPreview(row);
+                  const startImg = attachmentPreview(
+                    row.start_reading_image,
+                    "Start reading",
+                  );
+                  const endImg = attachmentPreview(
+                    row.end_reading_image,
+                    "End reading",
+                  );
                   const isDraft = row.status === "draft";
                   const canAct = isDraft && Boolean(plan.id);
                   return (
@@ -285,6 +299,12 @@ export default function ListSalesExpensesPage() {
                         {row.sub_category ? (
                           <div className="text-[11px] text-slate-500">{row.sub_category}</div>
                         ) : null}
+                        {row.sub_category === "Private Bike" &&
+                        (row.start_reading != null || row.closing_reading != null) ? (
+                          <div className="mt-0.5 text-[11px] text-slate-500">
+                            Reading: {row.start_reading ?? "—"} → {row.closing_reading ?? "—"}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2.5 tabular-nums font-medium text-slate-900 dark:text-slate-100">
                         {formatMoney(row.amount)}
@@ -294,17 +314,38 @@ export default function ListSalesExpensesPage() {
                       </td>
                       <td className="px-3 py-2.5">{renderExpenseStatusBadge(row.status)}</td>
                       <td className="px-3 py-2.5">
-                        {receipt ? (
-                          <button
-                            type="button"
-                            onClick={() => void openPreview(receipt)}
-                            className="text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
-                          >
-                            Preview
-                          </button>
-                        ) : (
-                          <span className="text-[11px] text-slate-400">—</span>
-                        )}
+                        <div className="flex flex-col items-start gap-1">
+                          {receipt ? (
+                            <button
+                              type="button"
+                              onClick={() => void openPreview(receipt)}
+                              className="text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              Receipt
+                            </button>
+                          ) : null}
+                          {startImg ? (
+                            <button
+                              type="button"
+                              onClick={() => void openPreview(startImg)}
+                              className="text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              Start reading
+                            </button>
+                          ) : null}
+                          {endImg ? (
+                            <button
+                              type="button"
+                              onClick={() => void openPreview(endImg)}
+                              className="text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              End reading
+                            </button>
+                          ) : null}
+                          {!receipt && !startImg && !endImg ? (
+                            <span className="text-[11px] text-slate-400">—</span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">
                         {row.status === "approved" || row.status === "rejected"

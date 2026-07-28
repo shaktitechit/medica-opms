@@ -9,6 +9,7 @@ import {
   WORK_PLAN_EXPENSE_CATEGORIES,
   WORK_PLAN_EXPENSE_PAYMENT_MODES,
   WORK_PLAN_TRAVEL_SUB_CATEGORIES,
+  type WorkPlanExpenseAttachment,
   type WorkPlanExpenseRecord,
   type WorkPlanVisitRecord,
 } from "@/store/api/slices/workPlansApi";
@@ -18,6 +19,8 @@ const inputClass =
 
 /** Receipt (image/PDF) required when amount is greater than this. */
 const RECEIPT_REQUIRED_ABOVE = 499;
+
+const DEFAULT_TRAVEL_SUB = WORK_PLAN_TRAVEL_SUB_CATEGORIES[0];
 
 export type ExpenseFormPayload = {
   expense_date: string;
@@ -31,6 +34,10 @@ export type ExpenseFormPayload = {
   description?: string;
   work_plan_visit?: string | null;
   receipt_attachment?: string | null;
+  start_reading?: number | null;
+  closing_reading?: number | null;
+  start_reading_image?: string | null;
+  end_reading_image?: string | null;
 };
 
 export type ExpenseFormModalProps = {
@@ -58,11 +65,21 @@ function visitOptionLabel(v: WorkPlanVisitRecord, index: number) {
   return `#${v.sequence ?? index + 1} — ${party}`;
 }
 
-function receiptIdOf(expense?: WorkPlanExpenseRecord | null) {
-  const att = expense?.receipt_attachment;
+function attachmentIdOf(
+  att?: string | WorkPlanExpenseAttachment | null,
+): string | null {
   if (!att) return null;
   if (typeof att === "string") return att;
   return att._id || null;
+}
+
+function attachmentLabelOf(
+  att?: string | WorkPlanExpenseAttachment | null,
+  fallback = "Attached",
+): string {
+  if (!att) return "";
+  if (typeof att === "string") return fallback;
+  return att.original_name || att.file_name || fallback;
 }
 
 /** Attachment.entity_id is ObjectId — draft-* placeholders cause 400. */
@@ -86,7 +103,7 @@ export function ExpenseFormModal({
 
   const [expenseDate, setExpenseDate] = useState("");
   const [category, setCategory] = useState("Travel");
-  const [subCategory, setSubCategory] = useState("Fuel");
+  const [subCategory, setSubCategory] = useState<string>(DEFAULT_TRAVEL_SUB);
   const [amount, setAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [vendorName, setVendorName] = useState("");
@@ -97,13 +114,23 @@ export function ExpenseFormModal({
   const [receiptId, setReceiptId] = useState<string | null>(null);
   const [receiptLabel, setReceiptLabel] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [startReading, setStartReading] = useState("");
+  const [closingReading, setClosingReading] = useState("");
+  const [startReadingImageId, setStartReadingImageId] = useState<string | null>(
+    null,
+  );
+  const [startReadingImageLabel, setStartReadingImageLabel] = useState("");
+  const [startReadingFile, setStartReadingFile] = useState<File | null>(null);
+  const [endReadingImageId, setEndReadingImageId] = useState<string | null>(null);
+  const [endReadingImageLabel, setEndReadingImageLabel] = useState("");
+  const [endReadingFile, setEndReadingFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (!open) return;
     if (initial) {
       setExpenseDate(ymd(initial.expense_date) || ymd(new Date()));
       setCategory(String(initial.category || "Travel"));
-      setSubCategory(String(initial.sub_category || "Fuel"));
+      setSubCategory(String(initial.sub_category || DEFAULT_TRAVEL_SUB));
       setAmount(
         initial.amount != null && Number.isFinite(Number(initial.amount))
           ? String(initial.amount)
@@ -115,25 +142,41 @@ export function ExpenseFormModal({
       setBillDate(ymd(initial.bill_date));
       setDescription(initial.description || "");
       setVisitId(
-        initial.work_plan_visit
-          ? String(initial.work_plan_visit)
-          : "",
+        initial.work_plan_visit ? String(initial.work_plan_visit) : "",
       );
-      const rid = receiptIdOf(initial);
+      const rid = attachmentIdOf(initial.receipt_attachment);
       setReceiptId(rid);
       setReceiptLabel(
-        typeof initial.receipt_attachment === "object" &&
-          initial.receipt_attachment?.original_name
-          ? initial.receipt_attachment.original_name
-          : rid
-            ? "Attached receipt"
-            : "",
+        attachmentLabelOf(initial.receipt_attachment, "Attached receipt"),
       );
       setFile(null);
+      setStartReading(
+        initial.start_reading != null && Number.isFinite(Number(initial.start_reading))
+          ? String(initial.start_reading)
+          : "",
+      );
+      setClosingReading(
+        initial.closing_reading != null &&
+          Number.isFinite(Number(initial.closing_reading))
+          ? String(initial.closing_reading)
+          : "",
+      );
+      const sid = attachmentIdOf(initial.start_reading_image);
+      setStartReadingImageId(sid);
+      setStartReadingImageLabel(
+        attachmentLabelOf(initial.start_reading_image, "Start reading image"),
+      );
+      setStartReadingFile(null);
+      const eid = attachmentIdOf(initial.end_reading_image);
+      setEndReadingImageId(eid);
+      setEndReadingImageLabel(
+        attachmentLabelOf(initial.end_reading_image, "End reading image"),
+      );
+      setEndReadingFile(null);
     } else {
       setExpenseDate(ymd(new Date()));
       setCategory("Travel");
-      setSubCategory("Fuel");
+      setSubCategory(DEFAULT_TRAVEL_SUB);
       setAmount("");
       setPaymentMode("Cash");
       setVendorName("");
@@ -144,6 +187,14 @@ export function ExpenseFormModal({
       setReceiptId(null);
       setReceiptLabel("");
       setFile(null);
+      setStartReading("");
+      setClosingReading("");
+      setStartReadingImageId(null);
+      setStartReadingImageLabel("");
+      setStartReadingFile(null);
+      setEndReadingImageId(null);
+      setEndReadingImageLabel("");
+      setEndReadingFile(null);
     }
   }, [open, initial, defaultVisitId]);
 
@@ -163,9 +214,16 @@ export function ExpenseFormModal({
 
   const busy = isSaving || attachState.isLoading;
   const isTravel = category === "Travel";
+  const isPrivateBike = isTravel && subCategory === "Private Bike";
   const amountNum = Number(amount);
   const receiptRequired =
     Number.isFinite(amountNum) && amountNum > RECEIPT_REQUIRED_ABOVE;
+
+  const travelSubOptions = useMemo(() => {
+    const base = [...WORK_PLAN_TRAVEL_SUB_CATEGORIES] as string[];
+    if (subCategory && !base.includes(subCategory)) base.unshift(subCategory);
+    return base;
+  }, [subCategory]);
 
   const canSubmit = useMemo(() => {
     if (!expenseDate || !category || !paymentMode) return false;
@@ -173,6 +231,15 @@ export function ExpenseFormModal({
     const n = Number(amount);
     if (!Number.isFinite(n) || n < 0) return false;
     if (n > RECEIPT_REQUIRED_ABOVE && !(file || receiptId)) return false;
+    if (isPrivateBike) {
+      const start = Number(startReading);
+      const closing = Number(closingReading);
+      if (!Number.isFinite(start) || start < 0) return false;
+      if (!Number.isFinite(closing) || closing < 0) return false;
+      if (closing < start) return false;
+      if (!(startReadingFile || startReadingImageId)) return false;
+      if (!(endReadingFile || endReadingImageId)) return false;
+    }
     return true;
   }, [
     expenseDate,
@@ -183,13 +250,38 @@ export function ExpenseFormModal({
     amount,
     file,
     receiptId,
+    isPrivateBike,
+    startReading,
+    closingReading,
+    startReadingFile,
+    startReadingImageId,
+    endReadingFile,
+    endReadingImageId,
   ]);
 
   if (!open) return null;
 
+  const uploadAttachment = async (uploadFile: File, remarks: string) => {
+    const entityId = String(initial?._id || initial?.id || provisionalEntityId());
+    const fd = new FormData();
+    fd.append("file", uploadFile);
+    fd.append("entity_type", "work_plan_expense");
+    fd.append("entity_id", entityId);
+    fd.append("remarks", remarks);
+    const uploaded = (await createAttachment(fd).unwrap()) as {
+      _id?: string;
+      id?: string;
+    };
+    const id = String(uploaded._id || uploaded.id || "");
+    if (!id) throw new Error("No attachment id");
+    return id;
+  };
+
   const handleSubmit = async () => {
     if (!canSubmit || busy) return;
     let nextReceiptId = receiptId;
+    let nextStartImageId = startReadingImageId;
+    let nextEndImageId = endReadingImageId;
     try {
       if (file) {
         const isImage = file.type.startsWith("image/");
@@ -198,32 +290,32 @@ export function ExpenseFormModal({
           toast.error("Receipt must be an image or PDF");
           return;
         }
-        // Attachment.entity_id must be a Mongo ObjectId. When creating, use a
-        // provisional id; the expense stores receipt_attachment by attachment _id.
-        const entityId = String(
-          initial?._id || initial?.id || provisionalEntityId(),
-        );
-        const fd = new FormData();
-        fd.append("file", file);
-        fd.append("entity_type", "work_plan_expense");
-        fd.append("entity_id", entityId);
-        fd.append("remarks", "Work plan expense receipt");
-        const uploaded = (await createAttachment(fd).unwrap()) as {
-          _id?: string;
-          id?: string;
-          original_name?: string;
-        };
-        nextReceiptId = String(uploaded._id || uploaded.id || "");
-        if (!nextReceiptId) {
-          toast.error("Receipt uploaded but no attachment id returned");
-          return;
+        nextReceiptId = await uploadAttachment(file, "Work plan expense receipt");
+      }
+      if (isPrivateBike) {
+        if (startReadingFile) {
+          if (!startReadingFile.type.startsWith("image/")) {
+            toast.error("Start reading must be an image");
+            return;
+          }
+          nextStartImageId = await uploadAttachment(
+            startReadingFile,
+            "Private Bike start reading",
+          );
+        }
+        if (endReadingFile) {
+          if (!endReadingFile.type.startsWith("image/")) {
+            toast.error("End reading must be an image");
+            return;
+          }
+          nextEndImageId = await uploadAttachment(
+            endReadingFile,
+            "Private Bike end reading",
+          );
         }
       }
 
-      if (
-        Number(amount) > RECEIPT_REQUIRED_ABOVE &&
-        !nextReceiptId
-      ) {
+      if (Number(amount) > RECEIPT_REQUIRED_ABOVE && !nextReceiptId) {
         toast.error("Receipt (image/PDF) is required for expenses over 499");
         return;
       }
@@ -240,6 +332,10 @@ export function ExpenseFormModal({
         description: description.trim() || undefined,
         work_plan_visit: visitId || null,
         receipt_attachment: nextReceiptId,
+        start_reading: isPrivateBike ? Number(startReading) : null,
+        closing_reading: isPrivateBike ? Number(closingReading) : null,
+        start_reading_image: isPrivateBike ? nextStartImageId : null,
+        end_reading_image: isPrivateBike ? nextEndImageId : null,
       });
     } catch {
       // Parent / upload toast handles errors
@@ -268,6 +364,9 @@ export function ExpenseFormModal({
               {receiptRequired
                 ? " Receipt (image/PDF) is required for amounts over 499."
                 : " Receipts are optional for amounts up to 499."}
+              {isPrivateBike
+                ? " Private Bike requires start/closing meter readings and images."
+                : ""}
             </p>
           </div>
 
@@ -332,7 +431,13 @@ export function ExpenseFormModal({
                 <select
                   value={category}
                   disabled={busy}
-                  onChange={(e) => setCategory(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setCategory(next);
+                    if (next === "Travel" && !subCategory) {
+                      setSubCategory(DEFAULT_TRAVEL_SUB);
+                    }
+                  }}
                   className={inputClass}
                 >
                   {WORK_PLAN_EXPENSE_CATEGORIES.map((c) => (
@@ -353,7 +458,7 @@ export function ExpenseFormModal({
                     onChange={(e) => setSubCategory(e.target.value)}
                     className={inputClass}
                   >
-                    {WORK_PLAN_TRAVEL_SUB_CATEGORIES.map((c) => (
+                    {travelSubOptions.map((c) => (
                       <option key={c} value={c}>
                         {c}
                       </option>
@@ -398,6 +503,92 @@ export function ExpenseFormModal({
                     </option>
                   ))}
                 </select>
+              </div>
+            ) : null}
+
+            {isPrivateBike ? (
+              <div className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-white/10">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Private Bike meter readings
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Start reading
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={startReading}
+                      disabled={busy}
+                      onChange={(e) => setStartReading(e.target.value)}
+                      className={inputClass}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Closing reading
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={closingReading}
+                      disabled={busy}
+                      onChange={(e) => setClosingReading(e.target.value)}
+                      className={inputClass}
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                    Start reading image
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={busy}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      setStartReadingFile(f);
+                      if (f) setStartReadingImageLabel(f.name);
+                    }}
+                    className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700 dark:text-slate-300 dark:file:bg-white/10 dark:file:text-slate-100"
+                  />
+                  {startReadingImageLabel ? (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {startReadingFile
+                        ? `Selected: ${startReadingImageLabel}`
+                        : `Current: ${startReadingImageLabel}`}
+                    </p>
+                  ) : null}
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                    End reading image
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={busy}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      setEndReadingFile(f);
+                      if (f) setEndReadingImageLabel(f.name);
+                    }}
+                    className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700 dark:text-slate-300 dark:file:bg-white/10 dark:file:text-slate-100"
+                  />
+                  {endReadingImageLabel ? (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {endReadingFile
+                        ? `Selected: ${endReadingImageLabel}`
+                        : `Current: ${endReadingImageLabel}`}
+                    </p>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 
@@ -455,9 +646,6 @@ export function ExpenseFormModal({
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
                 Receipt (image / PDF)
-                {receiptRequired ? (
-                  <span className="ml-1 text-rose-600 dark:text-rose-400">*</span>
-                ) : null}
               </label>
               <input
                 type="file"
@@ -465,15 +653,6 @@ export function ExpenseFormModal({
                 disabled={busy}
                 onChange={(e) => {
                   const f = e.target.files?.[0] || null;
-                  if (f) {
-                    const isImage = f.type.startsWith("image/");
-                    const isPdf = f.type === "application/pdf";
-                    if (!isImage && !isPdf) {
-                      toast.error("Receipt must be an image or PDF");
-                      e.target.value = "";
-                      return;
-                    }
-                  }
                   setFile(f);
                   if (f) setReceiptLabel(f.name);
                 }}
@@ -482,10 +661,6 @@ export function ExpenseFormModal({
               {receiptLabel ? (
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {file ? `Selected: ${receiptLabel}` : `Current: ${receiptLabel}`}
-                </p>
-              ) : receiptRequired ? (
-                <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
-                  Required for amounts over 499
                 </p>
               ) : null}
             </div>

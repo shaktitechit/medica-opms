@@ -101,6 +101,8 @@ async function loadExpenses(planId) {
   const { WorkPlanExpense } = getModels();
   const rows = await WorkPlanExpense.find({ work_plan: planId, deletedAt: null })
     .populate('receipt_attachment')
+    .populate('start_reading_image')
+    .populate('end_reading_image')
     .populate('approved_by', 'name email')
     .populate('created_by', 'name email')
     .sort({ expense_date: 1, createdAt: 1 })
@@ -965,6 +967,62 @@ function applyExpenseFields(expense, body, { isCreate = false } = {}) {
         ? null
         : body.receipt_attachment;
   }
+
+  const isPrivateBike =
+    expense.category === 'Travel' && expense.sub_category === 'Private Bike';
+
+  if (isPrivateBike) {
+    if (isCreate || body.start_reading !== undefined) {
+      expense.start_reading = Number(body.start_reading);
+    }
+    if (isCreate || body.closing_reading !== undefined) {
+      expense.closing_reading = Number(body.closing_reading);
+    }
+    if (body.start_reading_image !== undefined) {
+      expense.start_reading_image =
+        body.start_reading_image === null || body.start_reading_image === ''
+          ? null
+          : body.start_reading_image;
+    }
+    if (body.end_reading_image !== undefined) {
+      expense.end_reading_image =
+        body.end_reading_image === null || body.end_reading_image === ''
+          ? null
+          : body.end_reading_image;
+    }
+  } else if (
+    isCreate ||
+    body.category !== undefined ||
+    body.sub_category !== undefined
+  ) {
+    expense.start_reading = undefined;
+    expense.closing_reading = undefined;
+    expense.start_reading_image = null;
+    expense.end_reading_image = null;
+  }
+}
+
+function assertPrivateBikeExpense(expense) {
+  if (expense.category !== 'Travel' || expense.sub_category !== 'Private Bike') {
+    return;
+  }
+  const start = Number(expense.start_reading);
+  const closing = Number(expense.closing_reading);
+  if (!Number.isFinite(start) || start < 0) {
+    throw new ApiError(400, 'start_reading is required for Private Bike expenses');
+  }
+  if (!Number.isFinite(closing) || closing < 0) {
+    throw new ApiError(400, 'closing_reading is required for Private Bike expenses');
+  }
+  if (closing < start) {
+    throw new ApiError(400, 'closing_reading must be greater than or equal to start_reading');
+  }
+  if (!expense.start_reading_image) {
+    throw new ApiError(400, 'start_reading_image is required for Private Bike expenses');
+  }
+  if (!expense.end_reading_image) {
+    throw new ApiError(400, 'end_reading_image is required for Private Bike expenses');
+  }
 }
 
 async function listAllExpenses(query = {}, user) {
@@ -1019,6 +1077,8 @@ async function listAllExpenses(query = {}, user) {
         populate: { path: 'party', select: 'party_name' },
       })
       .populate('receipt_attachment')
+      .populate('start_reading_image')
+      .populate('end_reading_image')
       .populate('approved_by', 'name email')
       .populate('created_by', 'name email')
       .sort({ expense_date: -1, createdAt: -1 })
@@ -1078,6 +1138,7 @@ async function addExpense(planId, body, user) {
     updated_by: userId(user),
   });
   applyExpenseFields(expense, body, { isCreate: true });
+  assertPrivateBikeExpense(expense);
   assertSalesExpenseReceipt(expense, user);
   await expense.save();
 
@@ -1118,6 +1179,7 @@ async function updateExpense(planId, expenseId, body, user) {
     expense.approved_at = undefined;
   }
 
+  assertPrivateBikeExpense(expense);
   assertSalesExpenseReceipt(expense, user);
   expense.updated_by = userId(user);
   await expense.save();

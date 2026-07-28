@@ -69,6 +69,19 @@ function visitLabel(exp: WorkPlanExpenseRecord) {
   return party ? `${seq} — ${party}` : seq;
 }
 
+function attachmentName(
+  att: WorkPlanExpenseRecord["receipt_attachment"],
+): string {
+  if (!att) return "";
+  if (typeof att === "string") return "Attached";
+  return att.original_name || att.file_name || "Attached";
+}
+
+function readingValue(n?: number | null) {
+  if (n == null || !Number.isFinite(Number(n))) return "";
+  return String(n);
+}
+
 export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalProps) {
   const [preset, setPreset] = useState<PeriodPreset>("current_month");
   const [customFrom, setCustomFrom] = useState("");
@@ -162,15 +175,21 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
       "Visit",
       "Category",
       "Sub-category",
+      "Start reading",
+      "Closing reading",
+      "Start reading image",
+      "End reading image",
       "Amount",
       "Payment",
       "Status",
       "Vendor",
       "Bill number",
       "Description",
+      "Receipt",
     ];
     const csvRows = rows.map((r) => {
       const plan = planRef(r);
+      const isPrivateBike = r.sub_category === "Private Bike";
       return [
         formatPlanDate(r.expense_date),
         formatPlanDate(plan.plan_date),
@@ -178,12 +197,17 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
         visitLabel(r),
         r.category || "",
         r.sub_category || "",
+        isPrivateBike ? readingValue(r.start_reading) : "",
+        isPrivateBike ? readingValue(r.closing_reading) : "",
+        isPrivateBike ? attachmentName(r.start_reading_image) : "",
+        isPrivateBike ? attachmentName(r.end_reading_image) : "",
         Number(r.amount) || 0,
         r.payment_mode || "",
         r.status || "",
         r.vendor_name || "",
         r.bill_number || "",
         r.description || "",
+        attachmentName(r.receipt_attachment),
       ];
     });
     downloadCsvFile(
@@ -320,6 +344,7 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
                     <th className="px-3 py-2.5 font-semibold">Location</th>
                     <th className="px-3 py-2.5 font-semibold">Visit</th>
                     <th className="px-3 py-2.5 font-semibold">Category</th>
+                    <th className="px-3 py-2.5 font-semibold">Meter reading</th>
                     <th className="px-3 py-2.5 font-semibold">Amount</th>
                     <th className="px-3 py-2.5 font-semibold">Payment</th>
                     <th className="px-3 py-2.5 font-semibold">Status</th>
@@ -328,6 +353,7 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
                 <tbody>
                   {rows.map((row) => {
                     const plan = planRef(row);
+                    const isPrivateBike = row.sub_category === "Private Bike";
                     return (
                       <tr
                         key={planIdOf(row)}
@@ -352,6 +378,30 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
                               {row.sub_category}
                             </div>
                           ) : null}
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">
+                          {isPrivateBike ? (
+                            <div>
+                              <div className="tabular-nums">
+                                {readingValue(row.start_reading) || "—"} →{" "}
+                                {readingValue(row.closing_reading) || "—"}
+                              </div>
+                              <div className="mt-0.5 text-[11px] text-slate-500">
+                                {[
+                                  attachmentName(row.start_reading_image)
+                                    ? "Start img"
+                                    : null,
+                                  attachmentName(row.end_reading_image)
+                                    ? "End img"
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ") || "No images"}
+                              </div>
+                            </div>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className="px-3 py-2.5 tabular-nums font-medium text-slate-900 dark:text-slate-100">
                           {formatMoney(row.amount)}

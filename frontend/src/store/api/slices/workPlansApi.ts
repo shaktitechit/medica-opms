@@ -35,11 +35,12 @@ export type WorkPlanExpenseCategory =
   | "Miscellaneous";
 
 export type WorkPlanExpenseTravelSubCategory =
-  | "Fuel"
   | "Cab"
+  | "Auto"
+  | "Bus"
+  | "Online Bike"
+  | "Private Bike"
   | "Train"
-  | "Flight"
-  | "Toll"
   | "Parking";
 
 export type WorkPlanExpensePaymentMode =
@@ -61,7 +62,7 @@ export const WORK_PLAN_EXPENSE_CATEGORIES: WorkPlanExpenseCategory[] = [
 ];
 
 export const WORK_PLAN_TRAVEL_SUB_CATEGORIES: WorkPlanExpenseTravelSubCategory[] =
-  ["Fuel", "Cab", "Train", "Flight", "Toll", "Parking"];
+  ["Cab", "Auto", "Bus", "Online Bike", "Private Bike", "Train", "Parking"];
 
 export const WORK_PLAN_EXPENSE_PAYMENT_MODES: WorkPlanExpensePaymentMode[] = [
   "Cash",
@@ -70,6 +71,15 @@ export const WORK_PLAN_EXPENSE_PAYMENT_MODES: WorkPlanExpensePaymentMode[] = [
   "Bank Transfer",
   "Company Card",
 ];
+
+export type WorkPlanExpenseAttachment = {
+  _id: string;
+  original_name?: string;
+  file_name?: string;
+  mime_type?: string;
+  url?: string;
+  key?: string;
+};
 
 export type WorkPlanExpenseRecord = {
   _id?: string;
@@ -107,17 +117,11 @@ export type WorkPlanExpenseRecord = {
   bill_number?: string;
   bill_date?: string;
   description?: string;
-  receipt_attachment?:
-    | string
-    | {
-        _id: string;
-        original_name?: string;
-        file_name?: string;
-        mime_type?: string;
-        url?: string;
-        key?: string;
-      }
-    | null;
+  receipt_attachment?: string | WorkPlanExpenseAttachment | null;
+  start_reading?: number | null;
+  closing_reading?: number | null;
+  start_reading_image?: string | WorkPlanExpenseAttachment | null;
+  end_reading_image?: string | WorkPlanExpenseAttachment | null;
   status?: WorkPlanExpenseStatus;
   approved_by?: string | { _id: string; name?: string; email?: string };
   approved_at?: string;

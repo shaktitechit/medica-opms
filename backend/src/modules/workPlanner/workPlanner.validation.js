@@ -242,6 +242,31 @@ function assertExpenseCreate(body) {
   if (body.receipt_attachment) {
     assertObjectId(body.receipt_attachment, 'receipt_attachment');
   }
+  if (body.start_reading_image) {
+    assertObjectId(body.start_reading_image, 'start_reading_image');
+  }
+  if (body.end_reading_image) {
+    assertObjectId(body.end_reading_image, 'end_reading_image');
+  }
+  if (category === 'Travel' && String(body.sub_category || '').trim() === 'Private Bike') {
+    const start = Number(body.start_reading);
+    const closing = Number(body.closing_reading);
+    if (!Number.isFinite(start) || start < 0) {
+      throw new ApiError(400, 'start_reading is required for Private Bike expenses');
+    }
+    if (!Number.isFinite(closing) || closing < 0) {
+      throw new ApiError(400, 'closing_reading is required for Private Bike expenses');
+    }
+    if (closing < start) {
+      throw new ApiError(400, 'closing_reading must be greater than or equal to start_reading');
+    }
+    if (!body.start_reading_image) {
+      throw new ApiError(400, 'start_reading_image is required for Private Bike expenses');
+    }
+    if (!body.end_reading_image) {
+      throw new ApiError(400, 'end_reading_image is required for Private Bike expenses');
+    }
+  }
 }
 
 function assertExpenseUpdate(body) {
@@ -272,6 +297,15 @@ function assertExpenseUpdate(body) {
       }
     }
   }
+  if (body.sub_category !== undefined && body.sub_category !== null && body.sub_category !== '') {
+    const sub = String(body.sub_category).trim();
+    if (!TRAVEL_SUB_CATEGORIES.includes(sub)) {
+      throw new ApiError(
+        400,
+        `sub_category must be one of: ${TRAVEL_SUB_CATEGORIES.join(', ')}`,
+      );
+    }
+  }
   if (body.payment_mode !== undefined) {
     const mode = String(body.payment_mode).trim();
     if (!EXPENSE_PAYMENT_MODES.includes(mode)) {
@@ -292,6 +326,32 @@ function assertExpenseUpdate(body) {
     body.receipt_attachment !== ''
   ) {
     assertObjectId(body.receipt_attachment, 'receipt_attachment');
+  }
+  if (
+    body.start_reading_image !== undefined &&
+    body.start_reading_image !== null &&
+    body.start_reading_image !== ''
+  ) {
+    assertObjectId(body.start_reading_image, 'start_reading_image');
+  }
+  if (
+    body.end_reading_image !== undefined &&
+    body.end_reading_image !== null &&
+    body.end_reading_image !== ''
+  ) {
+    assertObjectId(body.end_reading_image, 'end_reading_image');
+  }
+  if (body.start_reading !== undefined && body.start_reading !== null && body.start_reading !== '') {
+    const start = Number(body.start_reading);
+    if (!Number.isFinite(start) || start < 0) {
+      throw new ApiError(400, 'start_reading must be a non-negative number');
+    }
+  }
+  if (body.closing_reading !== undefined && body.closing_reading !== null && body.closing_reading !== '') {
+    const closing = Number(body.closing_reading);
+    if (!Number.isFinite(closing) || closing < 0) {
+      throw new ApiError(400, 'closing_reading must be a non-negative number');
+    }
   }
 }
 

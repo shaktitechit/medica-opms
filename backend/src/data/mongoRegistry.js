@@ -1994,11 +1994,12 @@ function registerModels() {
     'Miscellaneous',
   ];
   const WORK_PLAN_EXPENSE_TRAVEL_SUB_CATEGORIES = [
-    'Fuel',
     'Cab',
+    'Auto',
+    'Bus',
+    'Online Bike',
+    'Private Bike',
     'Train',
-    'Flight',
-    'Toll',
     'Parking',
   ];
   const WORK_PLAN_EXPENSE_PAYMENT_MODES = [
@@ -2042,6 +2043,19 @@ function registerModels() {
       bill_date: Date,
       description: { type: String, trim: true },
       receipt_attachment: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Attachment',
+        default: null,
+      },
+      /** Private Bike meter readings */
+      start_reading: { type: Number, min: 0 },
+      closing_reading: { type: Number, min: 0 },
+      start_reading_image: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Attachment',
+        default: null,
+      },
+      end_reading_image: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Attachment',
         default: null,

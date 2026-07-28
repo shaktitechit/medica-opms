@@ -42,11 +42,12 @@ const EXPENSE_CATEGORIES = Object.freeze([
 ]);
 
 const TRAVEL_SUB_CATEGORIES = Object.freeze([
-  'Fuel',
   'Cab',
+  'Auto',
+  'Bus',
+  'Online Bike',
+  'Private Bike',
   'Train',
-  'Flight',
-  'Toll',
   'Parking',
 ]);
 

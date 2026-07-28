@@ -79,7 +79,13 @@ function resolveFileUrl(url: string): string {
 }
 
 function receiptPreview(exp: WorkPlanExpenseRecord): PreviewFile | null {
-  const att = exp.receipt_attachment;
+  return attachmentPreview(exp.receipt_attachment, "Receipt");
+}
+
+function attachmentPreview(
+  att: WorkPlanExpenseRecord["receipt_attachment"],
+  fallbackName: string,
+): PreviewFile | null {
   if (!att || typeof att === "string") return null;
 
   let path = String(att.url || "").trim();
@@ -98,7 +104,7 @@ function receiptPreview(exp: WorkPlanExpenseRecord): PreviewFile | null {
   }
 
   return {
-    name: String(att.original_name || att.file_name || "Receipt"),
+    name: String(att.original_name || att.file_name || fallbackName),
     url: resolveFileUrl(path),
     mime: String(att.mime_type || ""),
   };
@@ -369,6 +375,14 @@ export function ExpenseListSection({
                   (exp.status === "draft" || exp.status === "rejected");
                 const canApprove = isAdmin && exp.status === "submitted";
                 const receipt = receiptPreview(exp);
+                const startImg = attachmentPreview(
+                  exp.start_reading_image,
+                  "Start reading",
+                );
+                const endImg = attachmentPreview(
+                  exp.end_reading_image,
+                  "End reading",
+                );
 
                 return (
                   <tr key={id} className="align-top">
@@ -380,6 +394,12 @@ export function ExpenseListSection({
                       {exp.sub_category ? (
                         <div className="text-xs text-slate-500">
                           {exp.sub_category}
+                        </div>
+                      ) : null}
+                      {exp.sub_category === "Private Bike" &&
+                      (exp.start_reading != null || exp.closing_reading != null) ? (
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          Reading: {exp.start_reading ?? "—"} → {exp.closing_reading ?? "—"}
                         </div>
                       ) : null}
                       {exp.vendor_name ? (
@@ -404,17 +424,38 @@ export function ExpenseListSection({
                     </td>
                     <td className="px-3 py-2">{statusBadge(exp.status)}</td>
                     <td className="px-3 py-2">
-                      {receipt ? (
-                        <button
-                          type="button"
-                          onClick={() => void openPreview(receipt)}
-                          className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-                        >
-                          Preview
-                        </button>
-                      ) : (
-                        <span className="text-xs text-slate-400">—</span>
-                      )}
+                      <div className="flex flex-col items-start gap-1">
+                        {receipt ? (
+                          <button
+                            type="button"
+                            onClick={() => void openPreview(receipt)}
+                            className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+                          >
+                            Receipt
+                          </button>
+                        ) : null}
+                        {startImg ? (
+                          <button
+                            type="button"
+                            onClick={() => void openPreview(startImg)}
+                            className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+                          >
+                            Start reading
+                          </button>
+                        ) : null}
+                        {endImg ? (
+                          <button
+                            type="button"
+                            onClick={() => void openPreview(endImg)}
+                            className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+                          >
+                            End reading
+                          </button>
+                        ) : null}
+                        {!receipt && !startImg && !endImg ? (
+                          <span className="text-xs text-slate-400">—</span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap justify-end gap-1">

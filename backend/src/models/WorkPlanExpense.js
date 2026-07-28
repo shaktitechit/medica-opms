@@ -61,6 +61,18 @@ const workPlanExpenseSchema = new mongoose.Schema(
       ref: "Attachment",
       default: null,
     },
+    start_reading: { type: Number, min: 0 },
+    closing_reading: { type: Number, min: 0 },
+    start_reading_image: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Attachment",
+      default: null,
+    },
+    end_reading_image: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Attachment",
+      default: null,
+    },
     status: {
       type: String,
       enum: WORK_PLAN_EXPENSE_STATUSES,
