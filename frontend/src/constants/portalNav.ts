@@ -44,7 +44,15 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
       ],
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
-    { segments: ["work-planner"], label: "Work Planner", icon: "CalendarDays" },
+    {
+      segments: ["work-planner"],
+      label: "Work Planner",
+      icon: "CalendarDays",
+      children: [
+        { label: "Sales Work Plan", query: "view=plans", icon: "CalendarDays" },
+        { label: "Sales Expenses", query: "view=expenses", icon: "Wallet" },
+      ],
+    },
     { segments: ["parties"], label: "Party Master", icon: "Users" },
     {
       segments: ["products"],
@@ -72,7 +80,15 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
       ],
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
-    { segments: ["work-planner"], label: "Work Planner", icon: "CalendarDays" },
+    {
+      segments: ["work-planner"],
+      label: "Work Planner",
+      icon: "CalendarDays",
+      children: [
+        { label: "Sales Work Plan", query: "view=plans", icon: "CalendarDays" },
+        { label: "Sales Expenses", query: "view=expenses", icon: "Wallet" },
+      ],
+    },
   ],
   finance: [
     { segments: [], label: "Overview", icon: "LayoutDashboard" },
@@ -155,7 +171,15 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
       ],
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
-    { segments: ["work-planner"], label: "Work Planner", icon: "CalendarDays" },
+    {
+      segments: ["work-planner"],
+      label: "Work Planner",
+      icon: "CalendarDays",
+      children: [
+        { label: "Sales Work Plan", query: "view=plans", icon: "CalendarDays" },
+        { label: "Sales Expenses", query: "view=expenses", icon: "Wallet" },
+      ],
+    },
     { segments: ["users"], label: "Users", icon: "Users" },
     { segments: ["parties"], label: "Party Master", icon: "Building2" },
     {

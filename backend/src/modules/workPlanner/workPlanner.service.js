@@ -2,6 +2,7 @@
  * @fileoverview Work Planner: business rules and mongoose persistence.
  * @module modules/workPlanner/workPlanner.service
  */
+const mongoose = require('mongoose');
 const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
@@ -9,14 +10,29 @@ const activityService = require('../activity/activity.service');
 const notificationService = require('../notifications/notification.service');
 const {
   EDITABLE_PLAN_STATUSES,
+  EDITABLE_EXPENSE_STATUSES,
   TERMINAL_VISIT_STATUSES,
+  TRAVEL_SUB_CATEGORIES,
   startOfDay,
   endOfDay,
   isAdminDept,
+  isExpenseAddWindowOpen,
+  isExpenseReceiptRequired,
 } = require('./workPlanner.constants');
 
 function userId(user) {
   return user?._id || user?.id;
+}
+
+/** Aggregate $match needs ObjectId; req.user ids are strings (see toReqUser). */
+function asObjectId(id) {
+  if (!id) return null;
+  if (id instanceof mongoose.Types.ObjectId) return id;
+  try {
+    return new mongoose.Types.ObjectId(String(id));
+  } catch {
+    return null;
+  }
 }
 
 function sameId(a, b) {
@@ -81,10 +97,42 @@ async function loadVisits(planId) {
   return rows.map(toPlain);
 }
 
+async function loadExpenses(planId) {
+  const { WorkPlanExpense } = getModels();
+  const rows = await WorkPlanExpense.find({ work_plan: planId, deletedAt: null })
+    .populate('receipt_attachment')
+    .populate('approved_by', 'name email')
+    .populate('created_by', 'name email')
+    .sort({ expense_date: 1, createdAt: 1 })
+    .lean();
+  return rows.map(toPlain);
+}
+
+function buildExpenseTotals(expenses) {
+  let expense_total = 0;
+  let expense_approved_total = 0;
+  const visit_expense_totals = {};
+
+  for (const exp of expenses) {
+    const amount = Number(exp.amount) || 0;
+    expense_total += amount;
+    if (exp.status === 'approved') expense_approved_total += amount;
+    const visitKey = exp.work_plan_visit
+      ? String(exp.work_plan_visit._id || exp.work_plan_visit)
+      : null;
+    if (visitKey) {
+      visit_expense_totals[visitKey] = (visit_expense_totals[visitKey] || 0) + amount;
+    }
+  }
+
+  return { expense_total, expense_approved_total, visit_expense_totals };
+}
+
 async function getWithVisits(id) {
   const plan = await loadPlanOrThrow(id);
-  const visits = await loadVisits(id);
-  return { ...toPlain(plan), visits };
+  const [visits, expenses] = await Promise.all([loadVisits(id), loadExpenses(id)]);
+  const totals = buildExpenseTotals(expenses);
+  return { ...toPlain(plan), visits, expenses, ...totals };
 }
 
 async function renumberVisits(planId) {
@@ -178,23 +226,54 @@ async function list(query = {}, user) {
   ]);
   const countMap = new Map(visitCounts.map((c) => [String(c._id), c.count]));
 
+  const includeVisits =
+    query.include_visits === '1' ||
+    query.include_visits === 1 ||
+    query.include_visits === true ||
+    query.include_visits === 'true';
+
+  const visitsByPlan = new Map();
+  if (includeVisits && planIds.length) {
+    const allVisits = await WorkPlanVisit.find({
+      work_plan: { $in: planIds },
+      deletedAt: null,
+    })
+      .populate(
+        'party',
+        'party_name mobile email contact_person contacts billing_address shipping_address',
+      )
+      .sort({ sequence: 1 })
+      .lean();
+    for (const visit of allVisits) {
+      const key = String(visit.work_plan);
+      if (!visitsByPlan.has(key)) visitsByPlan.set(key, []);
+      visitsByPlan.get(key).push(toPlain(visit));
+    }
+  }
+
   return {
     total,
     page,
     limit,
     pages: Math.ceil(total / limit) || 0,
-    data: rows.map((r) => ({
-      ...toPlain(r),
-      visit_count: countMap.get(String(r._id)) || 0,
-    })),
+    data: rows.map((r) => {
+      const id = String(r._id);
+      const visits = includeVisits ? visitsByPlan.get(id) || [] : undefined;
+      return {
+        ...toPlain(r),
+        visit_count: countMap.get(id) || (visits ? visits.length : 0),
+        ...(includeVisits ? { visits } : {}),
+      };
+    }),
   };
 }
 
 async function get(id, user) {
   const plan = await loadPlanOrThrow(id);
   assertCanView(plan, user);
-  const visits = await loadVisits(id);
-  return { ...toPlain(plan), visits };
+  const [visits, expenses] = await Promise.all([loadVisits(id), loadExpenses(id)]);
+  const totals = buildExpenseTotals(expenses);
+  return { ...toPlain(plan), visits, expenses, ...totals };
 }
 
 async function create(body, user) {
@@ -208,6 +287,7 @@ async function create(body, user) {
       sales_user: salesUserId,
       status: 'draft',
       remarks: body.remarks?.trim() || undefined,
+      location: body.location?.trim() || undefined,
       created_by: userId(user),
       updated_by: userId(user),
     });
@@ -235,6 +315,10 @@ async function update(id, body, user) {
   if (body.remarks !== undefined) {
     plan.remarks = typeof body.remarks === 'string' ? body.remarks.trim() : body.remarks;
   }
+  if (body.location !== undefined) {
+    plan.location =
+      typeof body.location === 'string' ? body.location.trim() : body.location;
+  }
   // Rejected plans return to draft when edited
   if (plan.status === 'rejected') {
     plan.status = 'draft';
@@ -260,7 +344,7 @@ async function update(id, body, user) {
 }
 
 async function remove(id, user) {
-  const { WorkPlan, WorkPlanVisit } = getModels();
+  const { WorkPlan, WorkPlanVisit, WorkPlanExpense } = getModels();
   const plan = await WorkPlan.findOne({ _id: id, deletedAt: null });
   if (!plan) throw new ApiError(404, 'Work plan not found');
 
@@ -276,6 +360,7 @@ async function remove(id, user) {
   plan.updated_by = userId(user);
   await plan.save();
   await WorkPlanVisit.updateMany({ work_plan: id, deletedAt: null }, { $set: { deletedAt: now } });
+  await WorkPlanExpense.updateMany({ work_plan: id, deletedAt: null }, { $set: { deletedAt: now } });
 
   await logActivity(user, plan._id, 'deleted', 'Work plan deleted');
   return toPlain(plan.toObject());
@@ -375,8 +460,12 @@ async function addVisit(planId, body, user) {
   if (!plan) throw new ApiError(404, 'Work plan not found');
   assertCanEditStructure(plan, user);
 
-  const party = await Party.findOne({ _id: body.party, deletedAt: null }).lean();
-  if (!party) throw new ApiError(404, 'Party not found');
+  const partyType = body.party_type || (body.party ? 'existing' : '');
+  let partyDoc = null;
+  if (partyType === 'existing') {
+    partyDoc = await Party.findOne({ _id: body.party, deletedAt: null }).lean();
+    if (!partyDoc) throw new ApiError(404, 'Party not found');
+  }
 
   const maxSeq = await WorkPlanVisit.findOne({ work_plan: planId, deletedAt: null })
     .sort({ sequence: -1 })
@@ -384,13 +473,20 @@ async function addVisit(planId, body, user) {
     .lean();
   const sequence = body.sequence ? Number(body.sequence) : (maxSeq?.sequence || 0) + 1;
 
+  const partyName =
+    body.party_name?.trim() ||
+    partyDoc?.party_name ||
+    undefined;
+
   const visit = await WorkPlanVisit.create({
     work_plan: planId,
     sequence,
-    party: body.party,
-    contact_person: body.contact_person?.trim() || party.contact_person || undefined,
-    contact_number: body.contact_number?.trim() || party.mobile || undefined,
-    address: body.address?.trim() || undefined,
+    party_type: partyType,
+    party: partyType === 'existing' ? body.party : undefined,
+    party_name: partyName,
+    contact_person: body.contact_person?.trim() || undefined,
+    contact_number: body.contact_number?.trim() || undefined,
+    contact_email: body.contact_email?.trim()?.toLowerCase() || undefined,
     planned_start_time: body.planned_start_time ? new Date(body.planned_start_time) : undefined,
     planned_end_time: body.planned_end_time ? new Date(body.planned_end_time) : undefined,
     purpose: body.purpose?.trim() || undefined,
@@ -421,15 +517,33 @@ async function updateVisit(planId, visitId, body, user) {
   const visit = await WorkPlanVisit.findOne({ _id: visitId, work_plan: planId, deletedAt: null });
   if (!visit) throw new ApiError(404, 'Visit not found');
 
-  if (body.party !== undefined) {
-    const party = await Party.findOne({ _id: body.party, deletedAt: null }).lean();
-    if (!party) throw new ApiError(404, 'Party not found');
-    visit.party = body.party;
+  const nextPartyType =
+    body.party_type !== undefined
+      ? String(body.party_type)
+      : visit.party_type || (visit.party ? 'existing' : 'new_party');
+
+  if (body.party_type !== undefined) visit.party_type = nextPartyType;
+
+  if (nextPartyType === 'existing') {
+    const partyId = body.party !== undefined ? body.party : visit.party;
+    if (!partyId) throw new ApiError(400, 'party is required for existing party visits');
+    const partyDoc = await Party.findOne({ _id: partyId, deletedAt: null }).lean();
+    if (!partyDoc) throw new ApiError(404, 'Party not found');
+    visit.party = partyId;
+    if (body.party_name === undefined && !visit.party_name) {
+      visit.party_name = partyDoc.party_name;
+    }
+  } else {
+    visit.party = undefined;
   }
-  if (body.sequence !== undefined) visit.sequence = Number(body.sequence);
+
+  if (body.party_name !== undefined) visit.party_name = body.party_name?.trim() || undefined;
   if (body.contact_person !== undefined) visit.contact_person = body.contact_person?.trim() || undefined;
   if (body.contact_number !== undefined) visit.contact_number = body.contact_number?.trim() || undefined;
-  if (body.address !== undefined) visit.address = body.address?.trim() || undefined;
+  if (body.contact_email !== undefined) {
+    visit.contact_email = body.contact_email?.trim()?.toLowerCase() || undefined;
+  }
+  if (body.sequence !== undefined) visit.sequence = Number(body.sequence);
   if (body.planned_start_time !== undefined) {
     visit.planned_start_time = body.planned_start_time ? new Date(body.planned_start_time) : undefined;
   }
@@ -551,11 +665,14 @@ async function completeVisit(planId, visitId, body, user) {
 
   visit.status = 'completed';
   visit.outcome = body.outcome.trim();
+  visit.meeting_with_doctor = body.meeting_with_doctor;
+  visit.meeting_with_purchase = body.meeting_with_purchase;
+  visit.meeting_with_finance = body.meeting_with_finance;
+  visit.meeting_with_engineer = body.meeting_with_engineer;
+  visit.new_product_introduced = body.new_product_introduced;
+  visit.order_received = body.order_received;
   if (!visit.actual_check_out) visit.actual_check_out = new Date();
   if (!visit.actual_check_in) visit.actual_check_in = visit.actual_check_out;
-  if (body.next_followup_date) {
-    visit.next_followup_date = new Date(body.next_followup_date);
-  }
   await visit.save();
 
   await logActivity(user, planId, 'status_changed', `Visit ${visit.sequence} completed`);
@@ -564,7 +681,7 @@ async function completeVisit(planId, visitId, body, user) {
 }
 
 async function stats(query = {}, user) {
-  const { WorkPlan, WorkPlanVisit } = getModels();
+  const { WorkPlan, WorkPlanVisit, WorkPlanExpense } = getModels();
   const filter = { deletedAt: null };
 
   if (!isAdminDept(user)) {
@@ -582,6 +699,14 @@ async function stats(query = {}, user) {
   const today = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
 
+  // Mongoose casts string ids on find/count; aggregation $match does not.
+  const salesUserOid = filter.sales_user ? asObjectId(filter.sales_user) : null;
+  const salesUserMatch = salesUserOid ? { 'plan.sales_user': salesUserOid } : {};
+  const planAggMatch = {
+    ...filter,
+    ...(salesUserOid ? { sales_user: salesUserOid } : {}),
+  };
+
   const [
     todayPlans,
     pendingApproval,
@@ -591,6 +716,8 @@ async function stats(query = {}, user) {
     statusGroups,
     visitAgg,
     monthlyTrend,
+    expenseAgg,
+    expenseMonthlyTrend,
   ] = await Promise.all([
     WorkPlan.countDocuments({ ...filter, plan_date: { $gte: today, $lte: todayEnd } }),
     WorkPlan.countDocuments({ ...filter, status: 'submitted' }),
@@ -598,7 +725,7 @@ async function stats(query = {}, user) {
     WorkPlan.countDocuments({ ...filter, status: 'completed' }),
     WorkPlan.countDocuments({ ...filter, status: 'rejected' }),
     WorkPlan.aggregate([
-      { $match: filter },
+      { $match: planAggMatch },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]),
     WorkPlanVisit.aggregate([
@@ -615,7 +742,7 @@ async function stats(query = {}, user) {
         $match: {
           deletedAt: null,
           'plan.deletedAt': null,
-          ...(filter.sales_user ? { 'plan.sales_user': filter.sales_user } : {}),
+          ...salesUserMatch,
         },
       },
       {
@@ -633,13 +760,82 @@ async function stats(query = {}, user) {
       },
     ]),
     WorkPlan.aggregate([
-      { $match: filter },
+      { $match: planAggMatch },
       {
         $group: {
           _id: {
             year: { $year: '$plan_date' },
             month: { $month: '$plan_date' },
           },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+      { $limit: 12 },
+    ]),
+    WorkPlanExpense.aggregate([
+      {
+        $lookup: {
+          from: 'workplans',
+          localField: 'work_plan',
+          foreignField: '_id',
+          as: 'plan',
+        },
+      },
+      { $unwind: '$plan' },
+      {
+        $match: {
+          deletedAt: null,
+          'plan.deletedAt': null,
+          ...salesUserMatch,
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          expense_total: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'approved'] }, '$amount', 0],
+            },
+          },
+          expense_pending_approval: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'submitted'] }, 1, 0],
+            },
+          },
+          expense_approved_count: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'approved'] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]),
+    WorkPlanExpense.aggregate([
+      {
+        $lookup: {
+          from: 'workplans',
+          localField: 'work_plan',
+          foreignField: '_id',
+          as: 'plan',
+        },
+      },
+      { $unwind: '$plan' },
+      {
+        $match: {
+          deletedAt: null,
+          status: 'approved',
+          'plan.deletedAt': null,
+          ...salesUserMatch,
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$expense_date' },
+            month: { $month: '$expense_date' },
+          },
+          amount: { $sum: '$amount' },
           count: { $sum: 1 },
         },
       },
@@ -655,6 +851,11 @@ async function stats(query = {}, user) {
       : 0;
 
   const byStatus = Object.fromEntries(statusGroups.map((g) => [g._id, g.count]));
+  const expenseSummary = expenseAgg[0] || {
+    expense_total: 0,
+    expense_pending_approval: 0,
+    expense_approved_count: 0,
+  };
 
   return {
     today_plans: todayPlans,
@@ -669,6 +870,663 @@ async function stats(query = {}, user) {
       month: m._id.month,
       count: m.count,
     })),
+    expense_total: expenseSummary.expense_total || 0,
+    expense_pending_approval: expenseSummary.expense_pending_approval || 0,
+    expense_approved_count: expenseSummary.expense_approved_count || 0,
+    expense_monthly_trend: expenseMonthlyTrend.map((m) => ({
+      year: m._id.year,
+      month: m._id.month,
+      amount: m.amount,
+      count: m.count,
+    })),
+  };
+}
+
+function assertCanManageExpense(plan, user) {
+  if (!isOwner(plan, user) && !isAdminDept(user)) {
+    throw new ApiError(403, 'Only the plan owner or admin can manage expenses');
+  }
+}
+
+function assertCanEditExpense(expense, plan, user) {
+  assertCanManageExpense(plan, user);
+  const admin = isAdminDept(user);
+  if (admin) {
+    if (expense.status === 'approved') {
+      throw new ApiError(400, 'Cannot edit an approved expense');
+    }
+    return;
+  }
+  if (!EDITABLE_EXPENSE_STATUSES.includes(expense.status)) {
+    throw new ApiError(400, `Cannot edit an expense in status "${expense.status}"`);
+  }
+}
+
+async function resolveExpenseVisit(planId, visitId) {
+  if (!visitId) return null;
+  const { WorkPlanVisit } = getModels();
+  const visit = await WorkPlanVisit.findOne({
+    _id: visitId,
+    work_plan: planId,
+    deletedAt: null,
+  }).lean();
+  if (!visit) throw new ApiError(400, 'work_plan_visit must belong to this work plan');
+  return visit._id;
+}
+
+function applyExpenseFields(expense, body, { isCreate = false } = {}) {
+  if (isCreate || body.expense_date !== undefined) {
+    expense.expense_date = startOfDay(body.expense_date);
+  }
+  if (isCreate || body.category !== undefined) {
+    expense.category = String(body.category).trim();
+  }
+  if (isCreate || body.category !== undefined || body.sub_category !== undefined) {
+    if (expense.category === 'Travel') {
+      const sub = String(body.sub_category || expense.sub_category || '').trim();
+      if (!TRAVEL_SUB_CATEGORIES.includes(sub)) {
+        throw new ApiError(
+          400,
+          `sub_category must be one of: ${TRAVEL_SUB_CATEGORIES.join(', ')} when category is Travel`,
+        );
+      }
+      expense.sub_category = sub;
+    } else {
+      expense.sub_category = undefined;
+    }
+  }
+  if (isCreate || body.amount !== undefined) {
+    expense.amount = Number(body.amount);
+  }
+  if (isCreate || body.payment_mode !== undefined) {
+    expense.payment_mode = String(body.payment_mode).trim();
+  }
+  if (body.vendor_name !== undefined) {
+    expense.vendor_name =
+      typeof body.vendor_name === 'string' ? body.vendor_name.trim() : body.vendor_name;
+  }
+  if (body.bill_number !== undefined) {
+    expense.bill_number =
+      typeof body.bill_number === 'string' ? body.bill_number.trim() : body.bill_number;
+  }
+  if (body.bill_date !== undefined) {
+    expense.bill_date =
+      body.bill_date === null || body.bill_date === ''
+        ? undefined
+        : startOfDay(body.bill_date);
+  }
+  if (body.description !== undefined) {
+    expense.description =
+      typeof body.description === 'string' ? body.description.trim() : body.description;
+  }
+  if (body.receipt_attachment !== undefined) {
+    expense.receipt_attachment =
+      body.receipt_attachment === null || body.receipt_attachment === ''
+        ? null
+        : body.receipt_attachment;
+  }
+}
+
+async function listAllExpenses(query = {}, user) {
+  const { WorkPlan, WorkPlanExpense } = getModels();
+  const planFilter = { deletedAt: null };
+
+  if (!isAdminDept(user)) {
+    planFilter.sales_user = userId(user);
+  } else if (query.sales_user) {
+    planFilter.sales_user = query.sales_user;
+  }
+
+  const planIds = await WorkPlan.find(planFilter).distinct('_id');
+
+  const filter = {
+    deletedAt: null,
+    work_plan: { $in: planIds },
+  };
+
+  if (query.status) {
+    // Admin review list never surfaces sales drafts.
+    if (isAdminDept(user) && query.status === 'draft') {
+      filter.status = { $in: [] };
+    } else {
+      filter.status = query.status;
+    }
+  } else if (isAdminDept(user)) {
+    filter.status = { $ne: 'draft' };
+  }
+
+  if (query.from || query.to) {
+    filter.expense_date = {};
+    if (query.from) filter.expense_date.$gte = startOfDay(query.from);
+    if (query.to) filter.expense_date.$lte = endOfDay(query.to);
+  }
+
+  const limit = Math.min(parseInt(query.limit, 10) || 50, 200);
+  const page = Math.max(parseInt(query.page, 10) || 1, 1);
+  const skip = (page - 1) * limit;
+
+  const [total, rows] = await Promise.all([
+    WorkPlanExpense.countDocuments(filter),
+    WorkPlanExpense.find(filter)
+      .populate({
+        path: 'work_plan',
+        select: 'plan_date sales_user location status',
+        populate: { path: 'sales_user', select: 'name email department' },
+      })
+      .populate({
+        path: 'work_plan_visit',
+        select: 'sequence party_type party party_name contact_person',
+        populate: { path: 'party', select: 'party_name' },
+      })
+      .populate('receipt_attachment')
+      .populate('approved_by', 'name email')
+      .populate('created_by', 'name email')
+      .sort({ expense_date: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+  ]);
+
+  return {
+    total,
+    page,
+    limit,
+    pages: Math.ceil(total / limit) || 0,
+    data: rows.map(toPlain),
+  };
+}
+
+async function listExpenses(planId, user) {
+  const plan = await loadPlanOrThrow(planId);
+  assertCanView(plan, user);
+  const expenses = await loadExpenses(planId);
+  const totals = buildExpenseTotals(expenses);
+  return { expenses, ...totals };
+}
+
+function assertSalesExpenseReceipt(expense, user) {
+  if (isAdminDept(user)) return;
+  if (!isExpenseReceiptRequired(expense.amount)) return;
+  if (!expense.receipt_attachment) {
+    throw new ApiError(
+      400,
+      'Receipt (image/PDF) is required for expenses over 499',
+    );
+  }
+}
+
+async function addExpense(planId, body, user) {
+  const { WorkPlan, WorkPlanExpense } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+  assertCanManageExpense(plan, user);
+
+  if (!isAdminDept(user) && !isExpenseAddWindowOpen(plan.plan_date)) {
+    throw new ApiError(
+      400,
+      'Expenses can only be added from the work plan day through the next 2 days (3 days total). Earlier or later entries are not allowed.',
+    );
+  }
+
+  const visitId = await resolveExpenseVisit(planId, body.work_plan_visit || null);
+
+  const expense = new WorkPlanExpense({
+    work_plan: planId,
+    work_plan_visit: visitId,
+    status: 'draft',
+    created_by: userId(user),
+    updated_by: userId(user),
+  });
+  applyExpenseFields(expense, body, { isCreate: true });
+  assertSalesExpenseReceipt(expense, user);
+  await expense.save();
+
+  await logActivity(
+    user,
+    planId,
+    'created',
+    `Expense created (${expense.category}, ${expense.amount})`,
+  );
+  return getWithVisits(planId);
+}
+
+async function updateExpense(planId, expenseId, body, user) {
+  const { WorkPlan, WorkPlanExpense } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+
+  const expense = await WorkPlanExpense.findOne({
+    _id: expenseId,
+    work_plan: planId,
+    deletedAt: null,
+  });
+  if (!expense) throw new ApiError(404, 'Expense not found');
+  assertCanEditExpense(expense, plan, user);
+
+  if (body.work_plan_visit !== undefined) {
+    expense.work_plan_visit = await resolveExpenseVisit(
+      planId,
+      body.work_plan_visit || null,
+    );
+  }
+  applyExpenseFields(expense, body, { isCreate: false });
+
+  if (expense.status === 'rejected') {
+    expense.status = 'draft';
+    expense.rejection_reason = undefined;
+    expense.approved_by = undefined;
+    expense.approved_at = undefined;
+  }
+
+  assertSalesExpenseReceipt(expense, user);
+  expense.updated_by = userId(user);
+  await expense.save();
+
+  await logActivity(
+    user,
+    planId,
+    'updated',
+    `Expense updated (${expense.category}, ${expense.amount})`,
+  );
+  return getWithVisits(planId);
+}
+
+async function removeExpense(planId, expenseId, user) {
+  const { WorkPlan, WorkPlanExpense } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+
+  const expense = await WorkPlanExpense.findOne({
+    _id: expenseId,
+    work_plan: planId,
+    deletedAt: null,
+  });
+  if (!expense) throw new ApiError(404, 'Expense not found');
+  assertCanManageExpense(plan, user);
+
+  if (!isAdminDept(user) && !EDITABLE_EXPENSE_STATUSES.includes(expense.status)) {
+    throw new ApiError(400, 'Only draft or rejected expenses can be deleted');
+  }
+  if (isAdminDept(user) && expense.status === 'approved') {
+    throw new ApiError(400, 'Cannot delete an approved expense');
+  }
+
+  expense.deletedAt = new Date();
+  expense.updated_by = userId(user);
+  await expense.save();
+
+  await logActivity(user, planId, 'deleted', `Expense deleted (${expense.category}, ${expense.amount})`);
+  return getWithVisits(planId);
+}
+
+async function submitExpense(planId, expenseId, user) {
+  const { WorkPlan, WorkPlanExpense } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+  assertCanManageExpense(plan, user);
+
+  const expense = await WorkPlanExpense.findOne({
+    _id: expenseId,
+    work_plan: planId,
+    deletedAt: null,
+  });
+  if (!expense) throw new ApiError(404, 'Expense not found');
+  if (!EDITABLE_EXPENSE_STATUSES.includes(expense.status)) {
+    throw new ApiError(400, `Cannot submit an expense in status "${expense.status}"`);
+  }
+
+  expense.status = 'submitted';
+  expense.rejection_reason = undefined;
+  expense.updated_by = userId(user);
+  await expense.save();
+
+  await logActivity(
+    user,
+    planId,
+    'submitted',
+    `Expense submitted for approval (${expense.category}, ${expense.amount})`,
+  );
+  return getWithVisits(planId);
+}
+
+async function approveExpense(planId, expenseId, user) {
+  if (!isAdminDept(user)) {
+    throw new ApiError(403, 'Only admin can approve expenses');
+  }
+  const { WorkPlan, WorkPlanExpense } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+
+  const expense = await WorkPlanExpense.findOne({
+    _id: expenseId,
+    work_plan: planId,
+    deletedAt: null,
+  });
+  if (!expense) throw new ApiError(404, 'Expense not found');
+  if (expense.status !== 'submitted') {
+    throw new ApiError(400, 'Only submitted expenses can be approved');
+  }
+
+  expense.status = 'approved';
+  expense.approved_by = userId(user);
+  expense.approved_at = new Date();
+  expense.rejection_reason = undefined;
+  expense.updated_by = userId(user);
+  await expense.save();
+
+  await logActivity(
+    user,
+    planId,
+    'approved',
+    `Expense approved (${expense.category}, ${expense.amount})`,
+  );
+  await notificationService.createForUser(plan.sales_user, {
+    title: 'Expense approved',
+    message: `Your expense of ${expense.amount} (${expense.category}) was approved.`,
+    type: 'success',
+    module: 'system',
+    entity_type: 'work_plan',
+    entity_id: plan._id,
+  });
+
+  return getWithVisits(planId);
+}
+
+async function rejectExpense(planId, expenseId, body, user) {
+  if (!isAdminDept(user)) {
+    throw new ApiError(403, 'Only admin can reject expenses');
+  }
+  const { WorkPlan, WorkPlanExpense } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+
+  const expense = await WorkPlanExpense.findOne({
+    _id: expenseId,
+    work_plan: planId,
+    deletedAt: null,
+  });
+  if (!expense) throw new ApiError(404, 'Expense not found');
+  if (expense.status !== 'submitted') {
+    throw new ApiError(400, 'Only submitted expenses can be rejected');
+  }
+
+  expense.status = 'rejected';
+  expense.rejection_reason = body.rejection_reason.trim();
+  expense.approved_by = userId(user);
+  expense.approved_at = new Date();
+  expense.updated_by = userId(user);
+  await expense.save();
+
+  await logActivity(
+    user,
+    planId,
+    'rejected',
+    `Expense rejected: ${expense.rejection_reason}`,
+  );
+  await notificationService.createForUser(plan.sales_user, {
+    title: 'Expense rejected',
+    message: `Your expense of ${expense.amount} (${expense.category}) was rejected. Reason: ${expense.rejection_reason}`,
+    type: 'warning',
+    module: 'system',
+    entity_type: 'work_plan',
+    entity_id: plan._id,
+  });
+
+  return getWithVisits(planId);
+}
+
+async function submitAllExpenses(planId, user) {
+  const { WorkPlan, WorkPlanExpense } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+  assertCanManageExpense(plan, user);
+
+  const result = await WorkPlanExpense.updateMany(
+    {
+      work_plan: planId,
+      deletedAt: null,
+      status: { $in: [...EDITABLE_EXPENSE_STATUSES] },
+    },
+    {
+      $set: {
+        status: 'submitted',
+        updated_by: userId(user),
+      },
+      $unset: { rejection_reason: 1 },
+    },
+  );
+
+  const count = result.modifiedCount || result.nModified || 0;
+  if (count < 1) {
+    throw new ApiError(400, 'No draft or rejected expenses to submit');
+  }
+
+  await logActivity(
+    user,
+    planId,
+    'submitted',
+    `All day expenses submitted for approval (${count})`,
+  );
+  return getWithVisits(planId);
+}
+
+async function approveAllExpenses(planId, user) {
+  if (!isAdminDept(user)) {
+    throw new ApiError(403, 'Only admin can approve expenses');
+  }
+  const { WorkPlan, WorkPlanExpense } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+
+  const now = new Date();
+  const result = await WorkPlanExpense.updateMany(
+    {
+      work_plan: planId,
+      deletedAt: null,
+      status: 'submitted',
+    },
+    {
+      $set: {
+        status: 'approved',
+        approved_by: userId(user),
+        approved_at: now,
+        updated_by: userId(user),
+      },
+      $unset: { rejection_reason: 1 },
+    },
+  );
+
+  const count = result.modifiedCount || result.nModified || 0;
+  if (count < 1) {
+    throw new ApiError(400, 'No submitted expenses to approve');
+  }
+
+  await logActivity(
+    user,
+    planId,
+    'approved',
+    `All day expenses approved (${count})`,
+  );
+  await notificationService.createForUser(plan.sales_user, {
+    title: 'Expenses approved',
+    message: `${count} expense(s) on your work plan for ${plan.plan_date.toISOString().slice(0, 10)} were approved.`,
+    type: 'success',
+    module: 'system',
+    entity_type: 'work_plan',
+    entity_id: plan._id,
+  });
+
+  return getWithVisits(planId);
+}
+
+async function rejectAllExpenses(planId, body, user) {
+  if (!isAdminDept(user)) {
+    throw new ApiError(403, 'Only admin can reject expenses');
+  }
+  const { WorkPlan, WorkPlanExpense } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+
+  const reason = body.rejection_reason.trim();
+  const result = await WorkPlanExpense.updateMany(
+    {
+      work_plan: planId,
+      deletedAt: null,
+      status: 'submitted',
+    },
+    {
+      $set: {
+        status: 'rejected',
+        rejection_reason: reason,
+        approved_by: userId(user),
+        approved_at: new Date(),
+        updated_by: userId(user),
+      },
+    },
+  );
+
+  const count = result.modifiedCount || result.nModified || 0;
+  if (count < 1) {
+    throw new ApiError(400, 'No submitted expenses to reject');
+  }
+
+  await logActivity(
+    user,
+    planId,
+    'rejected',
+    `All day expenses rejected (${count}): ${reason}`,
+  );
+  await notificationService.createForUser(plan.sales_user, {
+    title: 'Expenses rejected',
+    message: `${count} expense(s) on your work plan for ${plan.plan_date.toISOString().slice(0, 10)} were rejected. Reason: ${reason}`,
+    type: 'warning',
+    module: 'system',
+    entity_type: 'work_plan',
+    entity_id: plan._id,
+  });
+
+  return getWithVisits(planId);
+}
+
+/**
+ * From a completed visit, find-or-create the sales user's plan on `plan_date`
+ * (copying location + sales user), then create a NEW pending visit (never move
+ * or clone the completed visit's execution status).
+ */
+async function scheduleNextVisit(planId, visitId, body, user) {
+  const { WorkPlan, WorkPlanVisit } = getModels();
+  const sourcePlan = await loadPlanOrThrow(planId);
+  assertCanView(sourcePlan, user);
+
+  const sourceVisit = await WorkPlanVisit.findOne({
+    _id: visitId,
+    work_plan: planId,
+    deletedAt: null,
+  }).lean();
+  if (!sourceVisit) throw new ApiError(404, 'Visit not found');
+  if (sourceVisit.status !== 'completed') {
+    throw new ApiError(400, 'Next visit can only be planned from a completed visit');
+  }
+
+  const salesUserId = sourcePlan.sales_user?._id || sourcePlan.sales_user;
+  if (!isAdminDept(user) && !sameId(salesUserId, userId(user))) {
+    throw new ApiError(403, 'Only the plan owner or admin can schedule the next visit');
+  }
+
+  const planDate = startOfDay(body.plan_date);
+  const sourcePlanDate = startOfDay(sourcePlan.plan_date);
+  if (planDate.getTime() === sourcePlanDate.getTime()) {
+    throw new ApiError(400, 'Choose a different date than the current work plan');
+  }
+
+  let target = await WorkPlan.findOne({
+    sales_user: salesUserId,
+    plan_date: planDate,
+    deletedAt: null,
+  });
+
+  let created = false;
+  if (!target) {
+    target = await WorkPlan.create({
+      plan_date: planDate,
+      sales_user: salesUserId,
+      status: 'draft',
+      location: sourcePlan.location || undefined,
+      created_by: userId(user),
+      updated_by: userId(user),
+    });
+    created = true;
+    await logActivity(
+      user,
+      target._id,
+      'created',
+      `Draft work plan created for next visit on ${planDate.toISOString().slice(0, 10)}`,
+    );
+  } else if (target.status === 'completed') {
+    target.status = 'draft';
+    target.updated_by = userId(user);
+    if (!target.location && sourcePlan.location) {
+      target.location = sourcePlan.location;
+    }
+    await target.save();
+  } else if (!target.location && sourcePlan.location) {
+    target.location = sourcePlan.location;
+    target.updated_by = userId(user);
+    await target.save();
+  }
+
+  const maxSeq = await WorkPlanVisit.findOne({ work_plan: target._id, deletedAt: null })
+    .sort({ sequence: -1 })
+    .select('sequence')
+    .lean();
+  const sequence = (maxSeq?.sequence || 0) + 1;
+
+  // Brand-new visit row — copy party/contact identity only; never execution/completion fields.
+  const newVisit = await WorkPlanVisit.create({
+    work_plan: target._id,
+    sequence,
+    party_type: sourceVisit.party_type || (sourceVisit.party ? 'existing' : 'new_party'),
+    party: sourceVisit.party || undefined,
+    party_name: sourceVisit.party_name || undefined,
+    contact_person: sourceVisit.contact_person || undefined,
+    contact_number: sourceVisit.contact_number || undefined,
+    contact_email: sourceVisit.contact_email || undefined,
+    purpose: sourceVisit.purpose || undefined,
+    notes: sourceVisit.notes || undefined,
+    status: 'pending',
+    actual_check_in: null,
+    actual_check_out: null,
+    outcome: null,
+    next_followup_date: null,
+  });
+
+  // Belt-and-suspenders: completed source must never leak onto the new row.
+  if (newVisit.status !== 'pending') {
+    newVisit.status = 'pending';
+    newVisit.actual_check_in = undefined;
+    newVisit.actual_check_out = undefined;
+    newVisit.outcome = undefined;
+    newVisit.next_followup_date = undefined;
+    await newVisit.save();
+  }
+
+  await renumberVisits(target._id);
+  await logActivity(
+    user,
+    target._id,
+    'updated',
+    `New pending visit created from plan ${planId} visit ${visitId}`,
+  );
+
+  const result = await getWithVisits(target._id);
+  return {
+    ...result,
+    _meta: {
+      created,
+      reused: !created,
+      new_visit_id: String(newVisit._id),
+      new_visit_status: 'pending',
+    },
   };
 }
 
@@ -687,5 +1545,17 @@ module.exports = {
   checkIn,
   checkOut,
   completeVisit,
+  scheduleNextVisit,
+  listAllExpenses,
+  listExpenses,
+  addExpense,
+  updateExpense,
+  removeExpense,
+  submitExpense,
+  approveExpense,
+  rejectExpense,
+  submitAllExpenses,
+  approveAllExpenses,
+  rejectAllExpenses,
   stats,
 };

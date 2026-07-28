@@ -5,8 +5,10 @@ import {
   CalendarDays,
   CheckCircle,
   ClipboardList,
+  IndianRupee,
   ShieldCheck,
   TrendingUp,
+  Wallet,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -23,6 +25,14 @@ type StatCard = {
   iconTone: string;
   Icon: LucideIcon;
 };
+
+function formatMoney(n?: number) {
+  const v = Number(n) || 0;
+  return v.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
 
 export default function WorkPlannerStatsWidgets() {
   const portalHome = "/sales" as const;
@@ -91,7 +101,41 @@ export default function WorkPlannerStatsWidgets() {
     },
   ];
 
+  const expenseCards: StatCard[] = [
+    {
+      key: "exp-total",
+      label: "Total Expenses",
+      value: formatMoney(data?.expense_total),
+      href: `${portalHome}/work-planner?view=expenses`,
+      accent: "bg-teal-500",
+      iconWrap: "bg-teal-50 dark:bg-teal-950/30",
+      iconTone: "text-teal-600 dark:text-teal-400",
+      Icon: IndianRupee,
+    },
+    {
+      key: "exp-pending",
+      label: "Pending Expense Approvals",
+      value: data?.expense_pending_approval ?? 0,
+      href: `${portalHome}/work-planner?view=expenses&status=submitted`,
+      accent: "bg-violet-500",
+      iconWrap: "bg-violet-50 dark:bg-violet-950/30",
+      iconTone: "text-violet-600 dark:text-violet-400",
+      Icon: ShieldCheck,
+    },
+    {
+      key: "exp-approved",
+      label: "Approved Expenses",
+      value: data?.expense_approved_count ?? 0,
+      href: `${portalHome}/work-planner?view=expenses&status=approved`,
+      accent: "bg-lime-500",
+      iconWrap: "bg-lime-50 dark:bg-lime-950/30",
+      iconTone: "text-lime-600 dark:text-lime-400",
+      Icon: Wallet,
+    },
+  ];
+
   const trend = data?.monthly_trend ?? [];
+  const expenseTrend = data?.expense_monthly_trend ?? [];
 
   return (
     <div className="space-y-2.5 font-sans w-full">
@@ -141,10 +185,39 @@ export default function WorkPlannerStatsWidgets() {
         ))}
       </div>
 
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3 w-full">
+        {expenseCards.map((card) => (
+          <Link
+            key={card.key}
+            href={card.href}
+            className={`group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 dark:border-white/10 dark:bg-slate-900 dark:hover:border-white/20 ${
+              isFetching ? "opacity-70" : ""
+            }`}
+          >
+            <div className={`absolute inset-x-0 top-0 h-0.5 ${card.accent}`} />
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  {card.label}
+                </div>
+                <div className="mt-1 text-xl font-bold tabular-nums text-slate-900 dark:text-slate-50">
+                  {card.value}
+                </div>
+              </div>
+              <div
+                className={`flex h-8 w-8 items-center justify-center rounded-lg ${card.iconWrap}`}
+              >
+                <card.Icon className={`h-4 w-4 ${card.iconTone}`} />
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
+
       {trend.length > 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Monthly trend
+            Monthly plan trend
           </div>
           <div className="flex flex-wrap gap-2">
             {trend.map((m) => (
@@ -156,6 +229,30 @@ export default function WorkPlannerStatsWidgets() {
                   {m.year}-{String(m.month).padStart(2, "0")}
                 </span>
                 <span className="ml-2 tabular-nums text-slate-500">{m.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {expenseTrend.length > 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Monthly expense trend (approved)
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {expenseTrend.map((m) => (
+              <div
+                key={`exp-${m.year}-${m.month}`}
+                className="rounded-lg bg-teal-50 px-2.5 py-1.5 text-xs dark:bg-teal-950/30"
+              >
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  {m.year}-{String(m.month).padStart(2, "0")}
+                </span>
+                <span className="ml-2 tabular-nums text-teal-700 dark:text-teal-300">
+                  {formatMoney(m.amount)}
+                </span>
+                <span className="ml-1 text-slate-400">({m.count})</span>
               </div>
             ))}
           </div>

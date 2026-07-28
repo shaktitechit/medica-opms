@@ -9,6 +9,22 @@ export const WORK_PLAN_STATUS_TABS = [
   { id: "completed", label: "Completed" },
 ] as const;
 
+export const WORK_PLAN_EXPENSE_STATUS_TABS = [
+  { id: "all", label: "All" },
+  { id: "draft", label: "Draft" },
+  { id: "submitted", label: "Pending Approval" },
+  { id: "approved", label: "Approved" },
+  { id: "rejected", label: "Rejected" },
+] as const;
+
+/** Admin review list — drafts are sales-only and never shown here. */
+export const ADMIN_WORK_PLAN_EXPENSE_STATUS_TABS = [
+  { id: "all", label: "All" },
+  { id: "submitted", label: "Pending Approval" },
+  { id: "approved", label: "Approved" },
+  { id: "rejected", label: "Rejected" },
+] as const;
+
 export function formatPlanDate(dateVal: unknown): string {
   if (!dateVal) return "—";
   const d = new Date(String(dateVal));
@@ -42,11 +58,24 @@ export function salesUserLabel(
 }
 
 export function partyLabel(
-  party: string | { _id?: string; party_name?: string } | undefined
+  party: string | { _id?: string; party_name?: string } | undefined,
+  fallbackName?: string,
 ): string {
+  if (fallbackName && fallbackName.trim()) return fallbackName.trim();
   if (!party) return "—";
   if (typeof party === "string") return party;
   return party.party_name || party._id || "—";
+}
+
+export function visitPartyLabel(visit: {
+  party?: string | { _id?: string; party_name?: string };
+  party_name?: string;
+  party_type?: string;
+}): string {
+  const name = partyLabel(visit.party, visit.party_name);
+  if (visit.party_type === "new_party") return `${name} (New party)`;
+  if (visit.party_type === "new_lead") return `${name} (New lead)`;
+  return name;
 }
 
 export function planIdOf(row: { _id?: string; id?: string } | null | undefined): string {
@@ -92,6 +121,36 @@ export function renderPlanStatusBadge(status: string | undefined) {
       className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ring-1 ring-inset ${meta.wrap}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+      {meta.label}
+    </span>
+  );
+}
+
+export function renderExpenseStatusBadge(status: string | undefined) {
+  const s = status || "draft";
+  const map: Record<string, { wrap: string; label: string }> = {
+    draft: {
+      wrap: "bg-slate-50 text-slate-600 ring-slate-500/10 dark:bg-white/5 dark:text-slate-400",
+      label: "Draft",
+    },
+    submitted: {
+      wrap: "bg-indigo-50 text-indigo-700 ring-indigo-700/10 dark:bg-indigo-950/30 dark:text-indigo-400",
+      label: "Pending Approval",
+    },
+    approved: {
+      wrap: "bg-emerald-50 text-emerald-700 ring-emerald-700/10 dark:bg-emerald-950/30 dark:text-emerald-400",
+      label: "Approved",
+    },
+    rejected: {
+      wrap: "bg-rose-50 text-rose-700 ring-rose-700/10 dark:bg-rose-950/30 dark:text-rose-400",
+      label: "Rejected",
+    },
+  };
+  const meta = map[s] || map.draft;
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${meta.wrap}`}
+    >
       {meta.label}
     </span>
   );

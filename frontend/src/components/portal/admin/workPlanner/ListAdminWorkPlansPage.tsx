@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-import { CalendarDays, ExternalLink, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { CalendarDays, Download, ExternalLink, Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { ListEntitySearchPanel } from "@/components/portal/shared/orderList/ListEntitySearchPanel";
@@ -17,6 +17,7 @@ import {
   useListWorkPlansQuery,
 } from "@/store/api";
 import { ConfirmDeleteWorkPlanModal } from "./ConfirmDeleteWorkPlanModal";
+import { DownloadWorkPlansModal } from "./DownloadWorkPlansModal";
 import {
   WORK_PLAN_STATUS_TABS,
   canEditPlan,
@@ -46,6 +47,7 @@ export default function ListAdminWorkPlansPage({
   const [salesUserFilter, setSalesUserFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
     label: string;
@@ -89,8 +91,14 @@ export default function ListAdminWorkPlansPage({
     return rows.filter((r) => {
       const sales = salesUserLabel(r.sales_user).toLowerCase();
       const remarks = (r.remarks || "").toLowerCase();
+      const location = (r.location || "").toLowerCase();
       const status = (r.status || "").toLowerCase();
-      return sales.includes(q) || remarks.includes(q) || status.includes(q);
+      return (
+        sales.includes(q) ||
+        remarks.includes(q) ||
+        location.includes(q) ||
+        status.includes(q)
+      );
     });
   }, [rows, searchQuery]);
 
@@ -110,7 +118,7 @@ export default function ListAdminWorkPlansPage({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-            Work Planner
+            Sales Work Plan
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {isAdmin
@@ -119,6 +127,14 @@ export default function ListAdminWorkPlansPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setDownloadOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download plans
+          </button>
           <button
             type="button"
             onClick={() => void refetch()}
@@ -150,7 +166,7 @@ export default function ListAdminWorkPlansPage({
           setSearchQuery(v);
           setCurrentPage(1);
         }}
-        desktopPlaceholder="Search remarks or sales user…"
+        desktopPlaceholder="Search location, remarks or sales user…"
         mobilePlaceholder="Search…"
       />
 
@@ -222,6 +238,7 @@ export default function ListAdminWorkPlansPage({
                 ) : null}
                 <th className="px-3 py-2.5 font-semibold">Status</th>
                 <th className="px-3 py-2.5 font-semibold">Visits</th>
+                <th className="px-3 py-2.5 font-semibold">Location / City</th>
                 <th className="px-3 py-2.5 font-semibold">Remarks</th>
                 <th className="px-3 py-2.5 font-semibold text-right">Actions</th>
               </tr>
@@ -230,7 +247,7 @@ export default function ListAdminWorkPlansPage({
               {filteredRows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={isAdmin ? 6 : 5}
+                    colSpan={isAdmin ? 7 : 6}
                     className="px-3 py-10 text-center text-slate-500"
                   >
                     No work plans found.
@@ -255,6 +272,9 @@ export default function ListAdminWorkPlansPage({
                       <td className="px-3 py-2.5">{renderPlanStatusBadge(row.status)}</td>
                       <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">
                         {row.visit_count ?? 0}
+                      </td>
+                      <td className="max-w-[160px] truncate px-3 py-2.5 text-slate-700 dark:text-slate-300">
+                        {row.location || "—"}
                       </td>
                       <td className="max-w-[220px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400">
                         {row.remarks || "—"}
@@ -352,6 +372,11 @@ export default function ListAdminWorkPlansPage({
         isDeleting={isDeleting}
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
+      />
+
+      <DownloadWorkPlansModal
+        open={downloadOpen}
+        onClose={() => setDownloadOpen(false)}
       />
     </div>
   );

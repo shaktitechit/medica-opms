@@ -4,10 +4,10 @@ import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import {
   useListPartiesQuery,
   useListUsersQuery,
+  type WorkPlanVisitPartyType,
   type WorkPlanVisitRecord,
 } from "@/store/api";
 import { useEffect, useMemo, useState } from "react";
-import { salesUserLabel } from "./workPlanUtils";
 
 export type VisitFormModalProps = {
   open: boolean;
@@ -29,6 +29,14 @@ function partyIdOf(party: WorkPlanVisitRecord["party"]): string {
   return String(party._id || "");
 }
 
+function userLabel(u: { name?: string; email?: string; _id?: string; id?: string }): string {
+  return u.name || u.email || String(u._id || u.id || "") || "—";
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 type SalesUserRow = {
   _id?: string;
   id?: string;
@@ -36,6 +44,25 @@ type SalesUserRow = {
   email?: string;
   department?: string;
 };
+
+type PartyRow = {
+  _id?: string;
+  id?: string;
+  party_name?: string;
+  mobile?: string;
+  email?: string;
+  contact_person?: string;
+};
+
+const PARTY_TYPE_OPTIONS: Array<{ value: WorkPlanVisitPartyType; label: string }> = [
+  { value: "existing", label: "Existing Party" },
+  { value: "new_party", label: "New Party" },
+  { value: "new_lead", label: "New Leads" },
+];
+
+const inputClass =
+  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
+const labelClass = "mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400";
 
 export function VisitFormModal({
   open,
@@ -56,11 +83,11 @@ export function VisitFormModal({
 
   const parties = useMemo(() => {
     const raw = partiesQ.data;
-    if (Array.isArray(raw)) return raw;
+    if (Array.isArray(raw)) return raw as PartyRow[];
     if (raw && typeof raw === "object" && Array.isArray((raw as { data?: unknown }).data)) {
-      return (raw as { data: unknown[] }).data;
+      return (raw as { data: PartyRow[] }).data;
     }
-    return [];
+    return [] as PartyRow[];
   }, [partiesQ.data]);
 
   const salesUsers = useMemo(() => {
@@ -72,13 +99,15 @@ export function VisitFormModal({
     return [] as SalesUserRow[];
   }, [usersQ.data]);
 
+  const [partyType, setPartyType] = useState<WorkPlanVisitPartyType>("existing");
   const [partySearch, setPartySearch] = useState("");
   const [partyId, setPartyId] = useState("");
+  const [partyName, setPartyName] = useState("");
   const [salesSearch, setSalesSearch] = useState("");
   const [salesUserId, setSalesUserId] = useState("");
   const [contactPerson, setContactPerson] = useState("");
   const [contactNumber, setContactNumber] = useState("");
-  const [address, setAddress] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [purpose, setPurpose] = useState("");
@@ -86,10 +115,23 @@ export function VisitFormModal({
 
   useEffect(() => {
     if (!open) return;
+    const initialType =
+      initial?.party_type ||
+      (partyIdOf(initial?.party) ? "existing" : initial?.party_name ? "new_party" : "existing");
+    setPartyType(initialType);
     setPartyId(partyIdOf(initial?.party));
+    setPartyName(
+      initial?.party_name ||
+        (typeof initial?.party === "object" ? initial.party?.party_name || "" : "") ||
+        "",
+    );
     setContactPerson(initial?.contact_person || "");
     setContactNumber(initial?.contact_number || "");
-    setAddress(initial?.address || "");
+    setContactEmail(
+      initial?.contact_email ||
+        (typeof initial?.party === "object" ? initial.party?.email || "" : "") ||
+        "",
+    );
     setStartTime(
       initial?.planned_start_time
         ? new Date(initial.planned_start_time).toISOString().slice(0, 16)
@@ -103,7 +145,9 @@ export function VisitFormModal({
     setPurpose(initial?.purpose || "");
     setNotes(initial?.notes || "");
     setPartySearch(
-      typeof initial?.party === "object" ? initial.party?.party_name || "" : "",
+      typeof initial?.party === "object"
+        ? initial.party?.party_name || ""
+        : initial?.party_name || "",
     );
     const nextSalesId = salesUserIdProp || "";
     setSalesUserId(nextSalesId);
@@ -112,10 +156,7 @@ export function VisitFormModal({
         (u) => String(u._id || u.id || "") === nextSalesId,
       );
       setSalesSearch(
-        salesUserLabelProp ||
-          (fromList
-            ? salesUserLabel(fromList)
-            : salesUserLabelProp || ""),
+        salesUserLabelProp || (fromList ? userLabel(fromList) : salesUserLabelProp || ""),
       );
     } else {
       setSalesSearch("");
@@ -138,15 +179,8 @@ export function VisitFormModal({
 
   const filteredParties = useMemo(() => {
     const q = partySearch.trim().toLowerCase();
-    const list = parties as Array<{
-      _id?: string;
-      id?: string;
-      party_name?: string;
-      mobile?: string;
-      contact_person?: string;
-    }>;
-    if (!q) return list.slice(0, 20);
-    return list
+    if (!q) return parties.slice(0, 20);
+    return parties
       .filter((p) => String(p.party_name || "").toLowerCase().includes(q))
       .slice(0, 20);
   }, [parties, partySearch]);
@@ -163,10 +197,26 @@ export function VisitFormModal({
       .slice(0, 20);
   }, [salesUsers, salesSearch]);
 
+  const switchPartyType = (next: WorkPlanVisitPartyType) => {
+    setPartyType(next);
+    setPartyId("");
+    setPartySearch("");
+    if (next !== "existing") {
+      // Keep manually entered contact fields when switching between new party / lead.
+    } else {
+      setPartyName("");
+    }
+  };
+
   if (!open) return null;
 
-  const canSubmit =
-    Boolean(partyId) && (!allowSalesUserSelect || Boolean(salesUserId));
+  const requiredOk =
+    Boolean(partyName.trim()) &&
+    Boolean(contactPerson.trim()) &&
+    Boolean(contactNumber.trim()) &&
+    isValidEmail(contactEmail) &&
+    (partyType !== "existing" || Boolean(partyId)) &&
+    (!allowSalesUserSelect || Boolean(salesUserId));
 
   return (
     <LargeModalPortal>
@@ -189,9 +239,7 @@ export function VisitFormModal({
           <div className="space-y-3 px-5 py-4">
             {allowSalesUserSelect ? (
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Sales person
-                </label>
+                <label className={labelClass}>Sales person</label>
                 <input
                   type="text"
                   value={salesSearch}
@@ -200,7 +248,7 @@ export function VisitFormModal({
                     setSalesUserId("");
                   }}
                   placeholder="Search sales user…"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+                  className={inputClass}
                 />
                 {salesSearch && !salesUserId ? (
                   <ul className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10">
@@ -211,7 +259,7 @@ export function VisitFormModal({
                     ) : (
                       filteredSalesUsers.map((u) => {
                         const id = String(u._id || u.id || "");
-                        const label = salesUserLabel(u);
+                        const label = userLabel(u);
                         return (
                           <li key={id}>
                             <button
@@ -226,9 +274,7 @@ export function VisitFormModal({
                                 {u.name || "Unnamed"}
                               </div>
                               {u.email ? (
-                                <div className="text-2xs text-slate-500">
-                                  {u.email}
-                                </div>
+                                <div className="text-2xs text-slate-500">{u.email}</div>
                               ) : null}
                             </button>
                           </li>
@@ -250,122 +296,179 @@ export function VisitFormModal({
             ) : null}
 
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                Party
-              </label>
-              <input
-                type="text"
-                value={partySearch}
-                onChange={(e) => {
-                  setPartySearch(e.target.value);
-                  setPartyId("");
-                }}
-                placeholder="Search party…"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
-              />
-              {partySearch && !partyId ? (
-                <ul className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10">
-                  {filteredParties.map((p) => {
-                    const id = String(p._id || p.id || "");
-                    return (
-                      <li key={id}>
-                        <button
-                          type="button"
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-white/5"
-                          onClick={() => {
-                            setPartyId(id);
-                            setPartySearch(p.party_name || "");
-                            if (!contactPerson && p.contact_person) {
-                              setContactPerson(p.contact_person);
-                            }
-                            if (!contactNumber && p.mobile) {
-                              setContactNumber(p.mobile);
-                            }
-                          }}
-                        >
-                          {p.party_name}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
+              <label className={labelClass}>Party type</label>
+              <div className="flex flex-wrap gap-3">
+                {PARTY_TYPE_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300"
+                  >
+                    <input
+                      type="radio"
+                      name="visit-party-type"
+                      value={opt.value}
+                      checked={partyType === opt.value}
+                      onChange={() => switchPartyType(opt.value)}
+                      className="h-3.5 w-3.5 border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
             </div>
+
+            {partyType === "existing" ? (
+              <div>
+                <label className={labelClass}>
+                  Party name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={partySearch}
+                  onChange={(e) => {
+                    setPartySearch(e.target.value);
+                    setPartyId("");
+                    setPartyName("");
+                  }}
+                  placeholder="Search and select party…"
+                  className={inputClass}
+                />
+                {partySearch && !partyId ? (
+                  <ul className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10">
+                    {filteredParties.length === 0 ? (
+                      <li className="px-3 py-2 text-sm text-slate-500">No parties found</li>
+                    ) : (
+                      filteredParties.map((p) => {
+                        const id = String(p._id || p.id || "");
+                        return (
+                          <li key={id}>
+                            <button
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-white/5"
+                              onClick={() => {
+                                setPartyId(id);
+                                setPartySearch(p.party_name || "");
+                                setPartyName(p.party_name || "");
+                                setContactPerson(p.contact_person || "");
+                                setContactNumber(p.mobile || "");
+                                setContactEmail(p.email || "");
+                              }}
+                            >
+                              <div className="font-medium text-slate-800 dark:text-slate-100">
+                                {p.party_name}
+                              </div>
+                              {p.mobile || p.email ? (
+                                <div className="text-2xs text-slate-500">
+                                  {[p.mobile, p.email].filter(Boolean).join(" · ")}
+                                </div>
+                              ) : null}
+                            </button>
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
+                ) : null}
+                {partyId ? (
+                  <p className="mt-1 text-2xs text-emerald-700 dark:text-emerald-400">
+                    Party selected — contact fields below are required and editable
+                  </p>
+                ) : (
+                  <p className="mt-1 text-2xs text-slate-500">Select an existing party</p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <label className={labelClass}>
+                  Party name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  value={partyName}
+                  onChange={(e) => setPartyName(e.target.value)}
+                  placeholder={
+                    partyType === "new_lead"
+                      ? "Enter lead / prospect name"
+                      : "Enter new party name"
+                  }
+                  className={inputClass}
+                />
+              </div>
+            )}
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Contact person
+                <label className={labelClass}>
+                  Contact person name <span className="text-rose-500">*</span>
                 </label>
                 <input
                   value={contactPerson}
                   onChange={(e) => setContactPerson(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Contact number
+                <label className={labelClass}>
+                  Contact number <span className="text-rose-500">*</span>
                 </label>
                 <input
                   value={contactNumber}
                   onChange={(e) => setContactNumber(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+                  className={inputClass}
                 />
               </div>
             </div>
+
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                Address
+              <label className={labelClass}>
+                Contact email <span className="text-rose-500">*</span>
               </label>
               <input
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+                type="email"
+                value={contactEmail}
+                onChange={(e) => setContactEmail(e.target.value)}
+                placeholder="name@example.com"
+                className={inputClass}
               />
+              {contactEmail.trim() && !isValidEmail(contactEmail) ? (
+                <p className="mt-1 text-2xs text-rose-600">Enter a valid email address</p>
+              ) : null}
             </div>
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Planned start
-                </label>
+                <label className={labelClass}>Planned start</label>
                 <input
                   type="datetime-local"
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Planned end
-                </label>
+                <label className={labelClass}>Planned end</label>
                 <input
                   type="datetime-local"
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+                  className={inputClass}
                 />
               </div>
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                Purpose
-              </label>
+              <label className={labelClass}>Purpose</label>
               <input
                 value={purpose}
                 onChange={(e) => setPurpose(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+                className={inputClass}
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                Notes
-              </label>
+              <label className={labelClass}>Notes</label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+                className={inputClass}
               />
             </div>
           </div>
@@ -380,16 +483,18 @@ export function VisitFormModal({
             </button>
             <button
               type="button"
-              disabled={isSaving || !canSubmit}
+              disabled={isSaving || !requiredOk}
               onClick={() =>
                 void onSubmit({
-                  party: partyId,
+                  party_type: partyType,
+                  ...(partyType === "existing" ? { party: partyId } : {}),
                   ...(allowSalesUserSelect && salesUserId
                     ? { sales_user: salesUserId }
                     : {}),
-                  contact_person: contactPerson || undefined,
-                  contact_number: contactNumber || undefined,
-                  address: address || undefined,
+                  party_name: partyName.trim(),
+                  contact_person: contactPerson.trim(),
+                  contact_number: contactNumber.trim(),
+                  contact_email: contactEmail.trim().toLowerCase(),
                   planned_start_time: startTime
                     ? new Date(startTime).toISOString()
                     : undefined,
@@ -410,3 +515,5 @@ export function VisitFormModal({
     </LargeModalPortal>
   );
 }
+
+export default VisitFormModal;

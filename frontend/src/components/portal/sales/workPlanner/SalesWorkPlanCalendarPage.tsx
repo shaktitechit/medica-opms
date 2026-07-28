@@ -358,14 +358,14 @@ export default function SalesWorkPlanCalendarPage() {
                         <div
                           key={planIdOf(plan)}
                           className={`truncate rounded px-1 py-0.5 text-[10px] font-medium ${STATUS_CHIP[status]}`}
-                          title={`${salesUserLabel(plan.sales_user)} · ${status} · ${plan.visit_count ?? 0} visits`}
+                          title={`${salesUserLabel(plan.sales_user)}${plan.location ? ` · ${plan.location}` : ""} · ${status} · ${plan.visit_count ?? 0} visits`}
                         >
                           <span
                             className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`}
                           />
                           {isAdmin
-                            ? salesUserLabel(plan.sales_user)
-                            : `${plan.visit_count ?? 0} visit${(plan.visit_count ?? 0) === 1 ? "" : "s"}`}
+                            ? `${salesUserLabel(plan.sales_user)}${plan.location ? ` · ${plan.location}` : ""}`
+                            : `${plan.location ? `${plan.location} · ` : ""}${plan.visit_count ?? 0} visit${(plan.visit_count ?? 0) === 1 ? "" : "s"}`}
                         </div>
                       );
                     })}
@@ -437,6 +437,7 @@ export default function SalesWorkPlanCalendarPage() {
                             {salesUserLabel(plan.sales_user)}
                           </div>
                           <div className="mt-0.5 text-[11px] text-slate-500">
+                            {plan.location ? `${plan.location} · ` : ""}
                             {plan.visit_count ?? 0} visits
                             {plan.remarks ? ` · ${plan.remarks}` : ""}
                           </div>

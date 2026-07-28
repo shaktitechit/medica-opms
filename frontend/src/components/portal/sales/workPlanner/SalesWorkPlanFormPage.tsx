@@ -24,7 +24,7 @@ import {
   canEditPlan,
   formatDateTime,
   formatPlanDate,
-  partyLabel,
+  visitPartyLabel,
   planIdOf,
   renderPlanStatusBadge,
   renderVisitStatusBadge,
@@ -50,6 +50,7 @@ export default function SalesWorkPlanFormPage({
     searchParams.get("plan_date") || new Date().toISOString().slice(0, 10);
   const [planDate, setPlanDate] = useState(initialPlanDate);
   const [remarks, setRemarks] = useState("");
+  const [location, setLocation] = useState("");
   const [salesUserId, setSalesUserId] = useState("");
   const [salesSearch, setSalesSearch] = useState("");
   const [visitModalOpen, setVisitModalOpen] = useState(false);
@@ -103,6 +104,7 @@ export default function SalesWorkPlanFormPage({
       setPlanDate(new Date(plan.plan_date).toISOString().slice(0, 10));
     }
     setRemarks(plan.remarks || "");
+    setLocation(plan.location || "");
     if (plan.sales_user) {
       const id =
         typeof plan.sales_user === "string"
@@ -139,7 +141,7 @@ export default function SalesWorkPlanFormPage({
       try {
         await patchPlan({
           id: effectiveId,
-          patch: { plan_date: planDate, remarks },
+          patch: { plan_date: planDate, remarks, location },
         }).unwrap();
         return effectiveId;
       } catch (rejected) {
@@ -151,6 +153,7 @@ export default function SalesWorkPlanFormPage({
       const created = await createPlan({
         plan_date: planDate,
         remarks: remarks || undefined,
+        location: location || undefined,
         ...(isAdmin && salesId ? { sales_user: salesId } : {}),
       }).unwrap();
       const id = planIdOf(created);
@@ -308,6 +311,18 @@ export default function SalesWorkPlanFormPage({
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+              Location / City
+            </label>
+            <input
+              value={location}
+              disabled={!editable}
+              onChange={(e) => setLocation(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+              placeholder="e.g. Mumbai, Pune"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
               Remarks
             </label>
             <input
@@ -433,11 +448,14 @@ export default function SalesWorkPlanFormPage({
                     className="border-t border-slate-100 dark:border-white/5"
                   >
                     <td className="px-3 py-2">{v.sequence}</td>
-                    <td className="px-3 py-2 font-medium">{partyLabel(v.party)}</td>
+                    <td className="px-3 py-2 font-medium">{visitPartyLabel(v)}</td>
                     <td className="px-3 py-2">
                       {v.contact_person || "—"}
                       {v.contact_number ? (
                         <div className="text-slate-500">{v.contact_number}</div>
+                      ) : null}
+                      {v.contact_email ? (
+                        <div className="text-slate-500">{v.contact_email}</div>
                       ) : null}
                     </td>
                     <td className="px-3 py-2">

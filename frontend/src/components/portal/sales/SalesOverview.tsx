@@ -13,6 +13,7 @@ import SalesFeaturedProductGroupSalesUserTable from "./components/SalesFeaturedP
 import SalesFeaturedProductGroupFeaturedPartyTable from "./components/SalesFeaturedProductGroupFeaturedPartyTable";
 import {
   useGetDashboardSalesQuery,
+  useGetWorkPlanStatsQuery,
   useListOrdersQuery,
   useListOrderReturnsQuery,
   useListPartiesQuery,
@@ -42,6 +43,11 @@ export default function SalesOverview() {
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardSalesQuery();
+
+  const {
+    isFetching: isWorkPlanStatsFetching,
+    refetch: refetchWorkPlanStats,
+  } = useGetWorkPlanStatsQuery({});
 
   const {
     data: ordersData,
@@ -81,6 +87,7 @@ export default function SalesOverview() {
       await Promise.all([
         refetchKpi().unwrap(),
         refetchOrders().unwrap(),
+        refetchWorkPlanStats().unwrap(),
       ]);
     } catch (e) {
       // Ignore errors
@@ -90,7 +97,10 @@ export default function SalesOverview() {
   };
 
   const isAnyLoading =
-    isKpiFetching || isOrdersFetching || isRefreshing;
+    isKpiFetching ||
+    isOrdersFetching ||
+    isWorkPlanStatsFetching ||
+    isRefreshing;
 
   return (
     <div className="space-y-8 pb-10 font-sans">

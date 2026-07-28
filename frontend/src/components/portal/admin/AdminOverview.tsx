@@ -17,6 +17,7 @@ import {
 } from "./adminOrderUtils";
 import {
   useGetDashboardAdminQuery,
+  useGetWorkPlanStatsQuery,
   useListOrderReturnsQuery,
   useListOrdersQuery,
   useListPartiesQuery,
@@ -64,6 +65,11 @@ export default function AdminOverview() {
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardAdminQuery();
+
+  const {
+    isFetching: isWorkPlanStatsFetching,
+    refetch: refetchWorkPlanStats,
+  } = useGetWorkPlanStatsQuery({});
 
   const {
     data: ordersData,
@@ -315,6 +321,7 @@ export default function AdminOverview() {
       await Promise.all([
         refetchKpi().unwrap(),
         refetchOrders().unwrap(),
+        refetchWorkPlanStats().unwrap(),
       ]);
     } catch (e) {
       // Ignore errors
@@ -324,7 +331,10 @@ export default function AdminOverview() {
   };
 
   const isAnyLoading =
-    isKpiFetching || isOrdersFetching || isRefreshing;
+    isKpiFetching ||
+    isOrdersFetching ||
+    isWorkPlanStatsFetching ||
+    isRefreshing;
 
   const showEnableBanner =
     hasPendingAdmin &&

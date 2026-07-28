@@ -23,6 +23,8 @@ const workPlanSchema = new mongoose.Schema(
       index: true,
     },
     remarks: { type: String, trim: true },
+    /** Free-text location / city for the day's plan. */
+    location: { type: String, trim: true },
     submitted_at: Date,
     approved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     approved_at: Date,

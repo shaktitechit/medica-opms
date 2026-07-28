@@ -1,16 +1,18 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
 import {
   PortalOverview,
   PortalSectionPlaceholder,
   ListMyOrdersPage,
   ListAdminWorkPlansPage,
+  ListAdminExpensesPage,
   AdminWorkPlanFormPage,
   AdminWorkPlanDetailPage,
   AdminWorkPlanCalendarPage,
   ListSalesWorkPlansPage,
+  ListSalesExpensesPage,
   SalesWorkPlanFormPage,
   SalesWorkPlanDetailPage,
   SalesWorkPlanCalendarPage,
@@ -51,6 +53,7 @@ import {
 
 export default function PortalCatchAllPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
 
   const raw =
     typeof params.portal === "string"
@@ -68,6 +71,7 @@ export default function PortalCatchAllPage() {
       : [];
 
   const title = resolvePortalPageTitle(portal, restArr);
+  const workPlannerView = searchParams.get("view") || "plans";
 
   if (restArr.length === 0) {
     return <PortalOverview portal={portal} />;
@@ -81,6 +85,9 @@ export default function PortalCatchAllPage() {
     return <AdminCreateOrderPage />;
   }
   if (portal === "admin" && restArr.length === 1 && restArr[0] === "work-planner") {
+    if (workPlannerView === "expenses") {
+      return <ListAdminExpensesPage portalHome="/admin" />;
+    }
     return <ListAdminWorkPlansPage portalHome="/admin" />;
   }
   if (portal === "admin" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "calendar") {
@@ -118,6 +125,9 @@ export default function PortalCatchAllPage() {
     return <ListMyOrdersPage />;
   }
   if (portal === "sales" && restArr.length === 1 && restArr[0] === "work-planner") {
+    if (workPlannerView === "expenses") {
+      return <ListSalesExpensesPage />;
+    }
     return <ListSalesWorkPlansPage />;
   }
   if (portal === "sales" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "calendar") {
@@ -232,6 +242,9 @@ export default function PortalCatchAllPage() {
     return <SuperAdminCreateOrderPage />;
   }
   if (portal === "super_admin" && restArr.length === 1 && restArr[0] === "work-planner") {
+    if (workPlannerView === "expenses") {
+      return <ListAdminExpensesPage portalHome="/super_admin" />;
+    }
     return <ListAdminWorkPlansPage portalHome="/super_admin" />;
   }
   if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "calendar") {

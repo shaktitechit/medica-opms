@@ -15,6 +15,7 @@ router.use(requireAuth);
 
 router.get('/', requireDepartment(...salesAndAdmin), controller.list);
 router.get('/stats', requireDepartment(...salesAndAdmin), controller.stats);
+router.get('/expenses', requireDepartment(...salesAndAdmin), controller.listAllExpenses);
 router.post('/', requireDepartment(...salesAndAdmin), controller.create);
 
 router.get('/:id', requireDepartment(...salesAndAdmin), controller.get);
@@ -35,6 +36,54 @@ router.post(
   '/:id/visits/:visitId/complete',
   requireDepartment(...salesAndAdmin),
   controller.completeVisit
+);
+router.post(
+  '/:id/visits/:visitId/schedule-next',
+  requireDepartment(...salesAndAdmin),
+  controller.scheduleNextVisit
+);
+
+router.get('/:id/expenses', requireDepartment(...salesAndAdmin), controller.listExpenses);
+router.post('/:id/expenses', requireDepartment(...salesAndAdmin), controller.addExpense);
+router.post(
+  '/:id/expenses/submit-all',
+  requireDepartment(...salesAndAdmin),
+  controller.submitAllExpenses
+);
+router.post(
+  '/:id/expenses/approve-all',
+  requireDepartment(...adminOnly),
+  controller.approveAllExpenses
+);
+router.post(
+  '/:id/expenses/reject-all',
+  requireDepartment(...adminOnly),
+  controller.rejectAllExpenses
+);
+router.patch(
+  '/:id/expenses/:expenseId',
+  requireDepartment(...salesAndAdmin),
+  controller.updateExpense
+);
+router.delete(
+  '/:id/expenses/:expenseId',
+  requireDepartment(...salesAndAdmin),
+  controller.removeExpense
+);
+router.post(
+  '/:id/expenses/:expenseId/submit',
+  requireDepartment(...salesAndAdmin),
+  controller.submitExpense
+);
+router.post(
+  '/:id/expenses/:expenseId/approve',
+  requireDepartment(...adminOnly),
+  controller.approveExpense
+);
+router.post(
+  '/:id/expenses/:expenseId/reject',
+  requireDepartment(...adminOnly),
+  controller.rejectExpense
 );
 
 module.exports = router;

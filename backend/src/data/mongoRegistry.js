@@ -1415,6 +1415,7 @@ function registerModels() {
           "delivery",
           "return",
           "order_due_sheet",
+          "work_plan_expense",
         ],
         required: true,
       },
@@ -1899,6 +1900,8 @@ function registerModels() {
         index: true,
       },
       remarks: { type: String, trim: true },
+      /** Free-text location / city for the day's plan. */
+      location: { type: String, trim: true },
       submitted_at: Date,
       approved_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       approved_at: Date,
@@ -1928,14 +1931,22 @@ function registerModels() {
         index: true,
       },
       sequence: { type: Number, required: true, min: 1 },
+      party_type: {
+        type: String,
+        enum: ['existing', 'new_party', 'new_lead'],
+        default: 'existing',
+        index: true,
+      },
       party: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Party',
-        required: true,
+        required: false,
         index: true,
       },
+      party_name: { type: String, trim: true },
       contact_person: { type: String, trim: true },
       contact_number: { type: String, trim: true },
+      contact_email: { type: String, trim: true, lowercase: true },
       address: { type: String, trim: true },
       planned_start_time: Date,
       planned_end_time: Date,
@@ -1950,6 +1961,12 @@ function registerModels() {
       actual_check_in: Date,
       actual_check_out: Date,
       outcome: { type: String, trim: true },
+      meeting_with_doctor: { type: Boolean },
+      meeting_with_purchase: { type: Boolean },
+      meeting_with_finance: { type: Boolean },
+      meeting_with_engineer: { type: Boolean },
+      new_product_introduced: { type: Boolean },
+      order_received: { type: Boolean },
       next_followup_date: Date,
       deletedAt: { type: Date, default: null, index: true },
     },
@@ -1964,6 +1981,89 @@ function registerModels() {
   );
   workPlanVisitSchema.plugin(softDeletePlugin);
   mongoose.model('WorkPlanVisit', workPlanVisitSchema);
+
+  const WORK_PLAN_EXPENSE_STATUSES = ['draft', 'submitted', 'approved', 'rejected'];
+  const WORK_PLAN_EXPENSE_CATEGORIES = [
+    'Travel',
+    'Accommodation',
+    'Food',
+    'Communication',
+    'Client Entertainment',
+    'Marketing',
+    'Office',
+    'Miscellaneous',
+  ];
+  const WORK_PLAN_EXPENSE_TRAVEL_SUB_CATEGORIES = [
+    'Fuel',
+    'Cab',
+    'Train',
+    'Flight',
+    'Toll',
+    'Parking',
+  ];
+  const WORK_PLAN_EXPENSE_PAYMENT_MODES = [
+    'Cash',
+    'UPI',
+    'Card',
+    'Bank Transfer',
+    'Company Card',
+  ];
+
+  const workPlanExpenseSchema = new mongoose.Schema(
+    {
+      work_plan: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'WorkPlan',
+        required: true,
+        index: true,
+      },
+      work_plan_visit: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'WorkPlanVisit',
+        default: null,
+        index: true,
+      },
+      expense_date: { type: Date, required: true, index: true },
+      category: {
+        type: String,
+        enum: WORK_PLAN_EXPENSE_CATEGORIES,
+        required: true,
+        index: true,
+      },
+      sub_category: { type: String, trim: true },
+      amount: { type: Number, required: true, min: 0 },
+      payment_mode: {
+        type: String,
+        enum: WORK_PLAN_EXPENSE_PAYMENT_MODES,
+        required: true,
+      },
+      vendor_name: { type: String, trim: true },
+      bill_number: { type: String, trim: true },
+      bill_date: Date,
+      description: { type: String, trim: true },
+      receipt_attachment: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Attachment',
+        default: null,
+      },
+      status: {
+        type: String,
+        enum: WORK_PLAN_EXPENSE_STATUSES,
+        default: 'draft',
+        index: true,
+      },
+      approved_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      approved_at: Date,
+      rejection_reason: { type: String, trim: true },
+      deletedAt: { type: Date, default: null, index: true },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    },
+    { timestamps: true }
+  );
+  workPlanExpenseSchema.index({ work_plan: 1, status: 1, deletedAt: 1 });
+  workPlanExpenseSchema.plugin(softDeletePlugin);
+  mongoose.model('WorkPlanExpense', workPlanExpenseSchema);
 
   // --- Transport Planner ---
   const TRANSPORT_PLAN_STATUSES = [
@@ -2128,6 +2228,8 @@ function registerModels() {
     Reminder: mongoose.models.Reminder || mongoose.model('Reminder', reminderSchema),
     WorkPlan: mongoose.models.WorkPlan || mongoose.model('WorkPlan', workPlanSchema),
     WorkPlanVisit: mongoose.models.WorkPlanVisit || mongoose.model('WorkPlanVisit', workPlanVisitSchema),
+    WorkPlanExpense:
+      mongoose.models.WorkPlanExpense || mongoose.model('WorkPlanExpense', workPlanExpenseSchema),
     TransportPlan:
       mongoose.models.TransportPlan || mongoose.model('TransportPlan', transportPlanSchema),
     TransportPlanOrder:

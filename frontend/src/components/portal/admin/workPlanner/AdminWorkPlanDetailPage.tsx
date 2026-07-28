@@ -1,11 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { ArrowLeft, Check, LogIn, LogOut, Pencil, X } from "lucide-react";
+import { ArrowLeft, CalendarPlus, Check, LogIn, LogOut, Pencil, Receipt, Route, X } from "lucide-react";
 
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
+import { CompleteVisitModal } from "./CompleteVisitModal";
+import { ExpenseListSection } from "./ExpenseListSection";
+import { NextVisitPlanModal } from "./NextVisitPlanModal";
+import { RejectWorkPlanModal } from "./RejectWorkPlanModal";
+import {
+  canEditPlan,
+  formatDateTime,
+  formatPlanDate,
+  visitPartyLabel,
+  planIdOf,
+  renderPlanStatusBadge,
+  renderVisitStatusBadge,
+  salesUserLabel
+} from "./workPlanUtils";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import {
@@ -15,20 +29,9 @@ import {
   useCompleteWorkPlanVisitMutation,
   useGetWorkPlanQuery,
   useRejectWorkPlanMutation,
+  useScheduleNextWorkPlanVisitMutation,
   type WorkPlanVisitRecord,
 } from "@/store/api";
-import { CompleteVisitModal } from "./CompleteVisitModal";
-import { RejectWorkPlanModal } from "./RejectWorkPlanModal";
-import {
-  canEditPlan,
-  formatDateTime,
-  formatPlanDate,
-  partyLabel,
-  planIdOf,
-  renderPlanStatusBadge,
-  renderVisitStatusBadge,
-  salesUserLabel
-} from "./workPlanUtils";
 
 type Props = {
   planId: string;
@@ -40,6 +43,7 @@ export default function AdminWorkPlanDetailPage({
   portalHome = "/admin",
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const base = portalHome;
   const isAdmin = true;
 
@@ -52,11 +56,18 @@ export default function AdminWorkPlanDetailPage({
   const [checkIn, checkInState] = useCheckInWorkPlanVisitMutation();
   const [checkOut, checkOutState] = useCheckOutWorkPlanVisitMutation();
   const [completeVisit, completeState] = useCompleteWorkPlanVisitMutation();
+  const [scheduleNext, scheduleNextState] = useScheduleNextWorkPlanVisitMutation();
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [completeTarget, setCompleteTarget] = useState<WorkPlanVisitRecord | null>(
     null
   );
+  const [nextVisitTarget, setNextVisitTarget] = useState<WorkPlanVisitRecord | null>(
+    null
+  );
+  const initialTab =
+    searchParams.get("tab") === "expenses" ? "expenses" : "visits";
+  const [activeTab, setActiveTab] = useState<"visits" | "expenses">(initialTab);
 
   const visits = plan?.visits ?? [];
   const busy =
@@ -66,7 +77,12 @@ export default function AdminWorkPlanDetailPage({
     rejectState.isLoading ||
     checkInState.isLoading ||
     checkOutState.isLoading ||
-    completeState.isLoading;
+    completeState.isLoading ||
+    scheduleNextState.isLoading;
+
+  const currentPlanDateYmd = plan?.plan_date
+    ? new Date(plan.plan_date).toISOString().slice(0, 10)
+    : "";
 
   async function handleApprove() {
     try {
@@ -82,6 +98,29 @@ export default function AdminWorkPlanDetailPage({
       await rejectPlan({ id: planId, rejection_reason: reason }).unwrap();
       toast.success("Work plan rejected");
       setRejectOpen(false);
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }
+
+  async function handleScheduleNext(planDate: string) {
+    if (!nextVisitTarget) return;
+    try {
+      const result = await scheduleNext({
+        id: planId,
+        visitId: planIdOf(nextVisitTarget),
+        plan_date: planDate,
+      }).unwrap();
+      const targetId = planIdOf(result);
+      toast.success(
+        result._meta?.created
+          ? "Draft work plan created with a new pending visit"
+          : "New pending visit created on that work plan",
+      );
+      setNextVisitTarget(null);
+      if (targetId) {
+        router.push(`${base}/work-planner/${targetId}`);
+      }
     } catch (rejected) {
       toast.error(mutationRejectedMessage(rejected));
     }
@@ -164,10 +203,31 @@ export default function AdminWorkPlanDetailPage({
             </div>
             <div>
               <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                Location / City
+              </div>
+              <div className="mt-0.5 text-slate-700 dark:text-slate-300">
+                {plan.location || "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
                 Remarks
               </div>
               <div className="mt-0.5 text-slate-700 dark:text-slate-300">
                 {plan.remarks || "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                Expenses
+              </div>
+              <div className="mt-0.5 font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                {(plan.expense_total ?? 0).toLocaleString()}
+                {plan.expense_approved_total != null ? (
+                  <span className="ml-2 text-xs font-normal text-slate-500">
+                    (approved {(plan.expense_approved_total ?? 0).toLocaleString()})
+                  </span>
+                ) : null}
               </div>
             </div>
             {plan.submitted_at ? (
@@ -214,6 +274,34 @@ export default function AdminWorkPlanDetailPage({
             </div>
           ) : null}
 
+          <div className="flex border-b border-slate-200 dark:border-white/10">
+            <button
+              type="button"
+              onClick={() => setActiveTab("visits")}
+              className={`-mb-px flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-semibold transition ${
+                activeTab === "visits"
+                  ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
+                  : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              <Route className="h-4 w-4" />
+              Visits ({visits.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("expenses")}
+              className={`-mb-px flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-semibold transition ${
+                activeTab === "expenses"
+                  ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
+                  : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              <Receipt className="h-4 w-4" />
+              Expenses ({plan.expenses?.length ?? 0})
+            </button>
+          </div>
+
+          {activeTab === "visits" ? (
           <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
             <div className="border-b border-slate-100 px-4 py-3 dark:border-white/10">
               <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
@@ -229,6 +317,7 @@ export default function AdminWorkPlanDetailPage({
                     <th className="px-3 py-2 font-semibold">Purpose</th>
                     <th className="px-3 py-2 font-semibold">Planned</th>
                     <th className="px-3 py-2 font-semibold">Status</th>
+                    <th className="px-3 py-2 font-semibold">Expense</th>
                     <th className="px-3 py-2 font-semibold">Execution</th>
                     <th className="px-3 py-2 font-semibold text-right">Actions</th>
                   </tr>
@@ -244,10 +333,11 @@ export default function AdminWorkPlanDetailPage({
                       >
                         <td className="px-3 py-2">{v.sequence}</td>
                         <td className="px-3 py-2">
-                          <div className="font-medium">{partyLabel(v.party)}</div>
+                          <div className="font-medium">{visitPartyLabel(v)}</div>
                           <div className="text-slate-500">
                             {v.contact_person || "—"}
                             {v.contact_number ? ` · ${v.contact_number}` : ""}
+                            {v.contact_email ? ` · ${v.contact_email}` : ""}
                           </div>
                         </td>
                         <td className="px-3 py-2">{v.purpose || "—"}</td>
@@ -257,12 +347,39 @@ export default function AdminWorkPlanDetailPage({
                         <td className="px-3 py-2">
                           {renderVisitStatusBadge(v.status)}
                         </td>
+                        <td className="px-3 py-2 tabular-nums text-slate-700 dark:text-slate-300">
+                          {(
+                            plan.visit_expense_totals?.[visitId] ?? 0
+                          ).toLocaleString()}
+                        </td>
                         <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
                           {v.actual_check_in
                             ? `In: ${formatDateTime(v.actual_check_in)}`
                             : "—"}
                           {v.actual_check_out ? (
                             <div>Out: {formatDateTime(v.actual_check_out)}</div>
+                          ) : null}
+                          {v.meeting_with_doctor != null ? (
+                            <div>Doctor: {v.meeting_with_doctor ? "Yes" : "No"}</div>
+                          ) : null}
+                          {v.meeting_with_purchase != null ? (
+                            <div>Purchase: {v.meeting_with_purchase ? "Yes" : "No"}</div>
+                          ) : null}
+                          {v.meeting_with_finance != null ? (
+                            <div>Finance: {v.meeting_with_finance ? "Yes" : "No"}</div>
+                          ) : null}
+                          {v.meeting_with_engineer != null ? (
+                            <div>
+                              Engineer/tech: {v.meeting_with_engineer ? "Yes" : "No"}
+                            </div>
+                          ) : null}
+                          {v.new_product_introduced != null ? (
+                            <div>
+                              New product: {v.new_product_introduced ? "Yes" : "No"}
+                            </div>
+                          ) : null}
+                          {v.order_received != null ? (
+                            <div>Order received: {v.order_received ? "Yes" : "No"}</div>
                           ) : null}
                           {v.outcome ? <div>Outcome: {v.outcome}</div> : null}
                         </td>
@@ -320,6 +437,16 @@ export default function AdminWorkPlanDetailPage({
                               Complete
                             </button>
                           ) : null}
+                          {v.status === "completed" ? (
+                            <button
+                              type="button"
+                              onClick={() => setNextVisitTarget(v)}
+                              className="inline-flex items-center gap-1 rounded bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700"
+                            >
+                              <CalendarPlus className="h-3 w-3" />
+                              Next Visit Plan
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     );
@@ -328,6 +455,17 @@ export default function AdminWorkPlanDetailPage({
               </table>
             </div>
           </div>
+          ) : (
+          <ExpenseListSection
+            planId={planId}
+            expenses={plan.expenses ?? []}
+            visits={visits}
+            expenseTotal={plan.expense_total}
+            expenseApprovedTotal={plan.expense_approved_total}
+            isAdmin={isAdmin}
+            canManage
+          />
+          )}
         </>
       ) : null}
 
@@ -355,6 +493,14 @@ export default function AdminWorkPlanDetailPage({
             toast.error(mutationRejectedMessage(rejected));
           }
         }}
+      />
+      <NextVisitPlanModal
+        open={nextVisitTarget != null}
+        isSaving={scheduleNextState.isLoading}
+        partyLabel={nextVisitTarget ? visitPartyLabel(nextVisitTarget) : undefined}
+        currentPlanDate={currentPlanDateYmd}
+        onClose={() => setNextVisitTarget(null)}
+        onConfirm={handleScheduleNext}
       />
     </div>
   );
