@@ -15,6 +15,7 @@ import {
   resolveProductId,
   type MatrixEntity,
   type MatrixMetric,
+  type MatrixQtyBasis,
 } from "@/components/portal/admin/components/featuredMatrixUtils";
 import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
 import {
@@ -33,6 +34,7 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
   isOrdersFetching,
 }: FinanceFeaturedProductGroupSalesUserTableProps) {
   const [metric, setMetric] = useState<MatrixMetric>("quantity");
+  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>("net");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const {
@@ -129,7 +131,7 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
       for (const item of items) {
         const productId = resolveProductId(item);
         if (!productId) continue;
-        const val = itemMetricValue(item, metric);
+        const val = itemMetricValue(item, metric, qtyBasis);
 
         const gId = productToGroupMap.get(productId);
         if (!gId || !groupIdSet.has(gId)) continue;
@@ -154,6 +156,7 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
     productToGroupMap,
     productsByGroup,
     metric,
+    qtyBasis,
   ]);
 
   const toggleGroup = (groupId: string) => {
@@ -208,6 +211,7 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
         `Report: Featured Groups × Sales Persons`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${metric}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -216,11 +220,18 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
   return (
     <FeaturedMatrixTableFrame
       title="Featured Groups × Sales Persons"
-      subtitle="Net sales by product group (expandable to products) across sales persons"
+      subtitle={
+        qtyBasis === "net"
+          ? "Net sales by product group (expandable to products) across sales persons"
+          : "Approved sales by product group (expandable to products) across sales persons"
+      }
       icon={<LayoutGrid className="h-5 w-5" />}
       accentClass="text-violet-600 dark:text-violet-400"
       metric={metric}
       onMetricChange={setMetric}
+      qtyBasis={qtyBasis}
+      onQtyBasisChange={setQtyBasis}
+      showQtyBasisToggle
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}

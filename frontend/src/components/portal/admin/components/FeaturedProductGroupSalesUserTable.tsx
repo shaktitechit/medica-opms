@@ -15,6 +15,7 @@ import {
   resolveProductId,
   type MatrixEntity,
   type MatrixMetric,
+  type MatrixQtyBasis,
 } from "./featuredMatrixUtils";
 import { formatPeriodLabel } from "./periodFilterUtils";
 import {
@@ -30,6 +31,8 @@ interface FeaturedProductGroupSalesUserTableProps {
   syncWithExternalFilter?: boolean;
   /** Caption shown when syncWithExternalFilter is on. */
   externalFilterCaption?: string;
+  /** Initial Net/Approved basis (default: net). */
+  initialQtyBasis?: MatrixQtyBasis;
 }
 
 export default function FeaturedProductGroupSalesUserTable({
@@ -37,8 +40,10 @@ export default function FeaturedProductGroupSalesUserTable({
   isOrdersFetching,
   syncWithExternalFilter = false,
   externalFilterCaption,
+  initialQtyBasis = "net",
 }: FeaturedProductGroupSalesUserTableProps) {
   const [metric, setMetric] = useState<MatrixMetric>("quantity");
+  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>(initialQtyBasis);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const {
@@ -137,7 +142,7 @@ export default function FeaturedProductGroupSalesUserTable({
       for (const item of items) {
         const productId = resolveProductId(item);
         if (!productId) continue;
-        const val = itemMetricValue(item, metric);
+        const val = itemMetricValue(item, metric, qtyBasis);
 
         const gId = productToGroupMap.get(productId);
         if (!gId || !groupIdSet.has(gId)) continue;
@@ -162,6 +167,7 @@ export default function FeaturedProductGroupSalesUserTable({
     productToGroupMap,
     productsByGroup,
     metric,
+    qtyBasis,
   ]);
 
   const toggleGroup = (groupId: string) => {
@@ -216,6 +222,7 @@ export default function FeaturedProductGroupSalesUserTable({
         `Report: Featured Groups × Sales Persons`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${metric}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -224,11 +231,18 @@ export default function FeaturedProductGroupSalesUserTable({
   return (
     <FeaturedMatrixTableFrame
       title="Featured Groups × Sales Persons"
-      subtitle="Net sales by product group (expandable to products) across sales persons"
+      subtitle={
+        qtyBasis === "net"
+          ? "Net sales by product group (expandable to products) across sales persons"
+          : "Approved sales by product group (expandable to products) across sales persons"
+      }
       icon={<LayoutGrid className="h-5 w-5" />}
       accentClass="text-violet-600 dark:text-violet-400"
       metric={metric}
       onMetricChange={setMetric}
+      qtyBasis={qtyBasis}
+      onQtyBasisChange={setQtyBasis}
+      showQtyBasisToggle
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}

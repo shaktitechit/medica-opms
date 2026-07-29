@@ -14,6 +14,7 @@ import {
   resolveOrderPartyId,
   resolveProductId,
   type MatrixEntity,
+  type MatrixQtyBasis,
 } from "@/components/portal/admin/components/featuredMatrixUtils";
 import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
 import {
@@ -37,6 +38,7 @@ export default function SalesFeaturedProductGroupFeaturedPartyTable({
   orders,
   isOrdersFetching,
 }: SalesFeaturedProductGroupFeaturedPartyTableProps) {
+  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>("net");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const {
@@ -118,7 +120,7 @@ export default function SalesFeaturedProductGroupFeaturedPartyTable({
       for (const item of items) {
         const productId = resolveProductId(item);
         if (!productId) continue;
-        const val = itemMetricValue(item, METRIC);
+        const val = itemMetricValue(item, METRIC, qtyBasis);
 
         const gId = productToGroupMap.get(productId);
         if (!gId || !groupIdSet.has(gId)) continue;
@@ -142,6 +144,7 @@ export default function SalesFeaturedProductGroupFeaturedPartyTable({
     partyIdSet,
     productToGroupMap,
     productsByGroup,
+    qtyBasis,
   ]);
 
   const toggleGroup = (groupId: string) => {
@@ -197,6 +200,7 @@ export default function SalesFeaturedProductGroupFeaturedPartyTable({
         `Report: Featured Groups × Featured Parties`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${METRIC}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -205,10 +209,17 @@ export default function SalesFeaturedProductGroupFeaturedPartyTable({
   return (
     <FeaturedMatrixTableFrame
       title="Featured Groups × Featured Parties"
-      subtitle="Net quantity by product group (expandable to products) across featured parties (your orders)"
+      subtitle={
+        qtyBasis === "net"
+          ? "Net quantity by product group (expandable to products) across featured parties (your orders)"
+          : "Approved quantity by product group (expandable to products) across featured parties (your orders)"
+      }
       icon={<Table2 className="h-5 w-5" />}
       accentClass="text-emerald-600 dark:text-emerald-400"
       showMetricToggle={false}
+      qtyBasis={qtyBasis}
+      onQtyBasisChange={setQtyBasis}
+      showQtyBasisToggle
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}

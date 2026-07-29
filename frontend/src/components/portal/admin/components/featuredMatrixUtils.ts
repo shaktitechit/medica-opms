@@ -1,4 +1,5 @@
 export type MatrixMetric = "quantity" | "volume";
+export type MatrixQtyBasis = "net" | "approved";
 
 export type MatrixEntity = {
   id: string;
@@ -31,8 +32,20 @@ export function itemNetQty(item: any): number {
   return del - ret;
 }
 
-export function itemMetricValue(item: any, metric: MatrixMetric): number {
-  const qty = itemNetQty(item);
+export function itemApprovedQty(item: any): number {
+  return Number(item.approved_quantity) || 0;
+}
+
+export function itemQty(item: any, basis: MatrixQtyBasis = "net"): number {
+  return basis === "approved" ? itemApprovedQty(item) : itemNetQty(item);
+}
+
+export function itemMetricValue(
+  item: any,
+  metric: MatrixMetric,
+  basis: MatrixQtyBasis = "net",
+): number {
+  const qty = itemQty(item, basis);
   if (metric === "quantity") return qty;
   const unitPrice = Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
   return qty * unitPrice;

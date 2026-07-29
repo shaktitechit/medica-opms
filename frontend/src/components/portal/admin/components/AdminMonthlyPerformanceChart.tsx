@@ -13,6 +13,7 @@ interface AdminMonthlyPerformanceChartProps {
 }
 
 type Metric = "quantity" | "volume";
+type QtyBasis = "net" | "approved";
 
 const MONTH_LABELS = [
   "Jan",
@@ -44,15 +45,23 @@ function itemNetQty(item: any): number {
   return del - ret;
 }
 
+function itemApprovedQty(item: any): number {
+  return Number(item.approved_quantity) || 0;
+}
+
+function itemQty(item: any, basis: QtyBasis): number {
+  return basis === "approved" ? itemApprovedQty(item) : itemNetQty(item);
+}
+
 function itemUnitPrice(item: any): number {
   return Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
 }
 
-function orderMetricValue(order: any, metric: Metric): number {
+function orderMetricValue(order: any, metric: Metric, basis: QtyBasis): number {
   const items = Array.isArray(order?.order_items) ? order.order_items : [];
   let total = 0;
   for (const item of items) {
-    const qty = itemNetQty(item);
+    const qty = itemQty(item, basis);
     total += metric === "quantity" ? qty : qty * itemUnitPrice(item);
   }
   return total;
@@ -93,6 +102,7 @@ export default function AdminMonthlyPerformanceChart({
   isOrdersFetching,
 }: AdminMonthlyPerformanceChartProps) {
   const [metric, setMetric] = useState<Metric>("quantity");
+  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("net");
   const [selectedYears, setSelectedYears] = useState<number[]>([
     new Date().getFullYear(),
   ]);
@@ -149,10 +159,10 @@ export default function AdminMonthlyPerformanceChart({
       const ym = orderYearMonth(o);
       if (!ym || !map.has(ym.year)) continue;
       const row = map.get(ym.year)!;
-      row[ym.month] += orderMetricValue(o, metric);
+      row[ym.month] += orderMetricValue(o, metric, qtyBasis);
     }
     return map;
-  }, [orders, activeYears, metric]);
+  }, [orders, activeYears, metric, qtyBasis]);
 
   const maxVal = useMemo(() => {
     let max = 0;
@@ -207,6 +217,7 @@ export default function AdminMonthlyPerformanceChart({
         `Report: Monthly Performance`,
         `Period: ${formatPeriodLabel(selectedYears)}`,
         `Metric: ${metric}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -225,9 +236,13 @@ export default function AdminMonthlyPerformanceChart({
             </h2>
             <PeriodHeadingCaption selectedYears={selectedYears} />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {metric === "quantity"
-                ? "System-wide net sales quantity by month across selected years"
-                : "System-wide net sales volume (₹) by month across selected years"}
+              {qtyBasis === "net"
+                ? metric === "quantity"
+                  ? "System-wide net sales quantity by month across selected years"
+                  : "System-wide net sales volume (₹) by month across selected years"
+                : metric === "quantity"
+                  ? "System-wide approved quantity by month across selected years"
+                  : "System-wide approved volume (₹) by month across selected years"}
             </p>
           </div>
         </div>
@@ -238,6 +253,31 @@ export default function AdminMonthlyPerformanceChart({
             disabled={isOrdersFetching || activeYears.length === 0}
             size="sm"
           />
+
+          <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+            <button
+              type="button"
+              onClick={() => setQtyBasis("net")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                qtyBasis === "net"
+                  ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                  : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              Net
+            </button>
+            <button
+              type="button"
+              onClick={() => setQtyBasis("approved")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                qtyBasis === "approved"
+                  ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                  : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              Approved
+            </button>
+          </div>
 
           <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
             <button

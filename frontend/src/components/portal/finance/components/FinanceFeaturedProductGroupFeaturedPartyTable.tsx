@@ -15,6 +15,7 @@ import {
   resolveProductId,
   type MatrixEntity,
   type MatrixMetric,
+  type MatrixQtyBasis,
 } from "@/components/portal/admin/components/featuredMatrixUtils";
 import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
 import {
@@ -33,6 +34,7 @@ export default function FinanceFeaturedProductGroupFeaturedPartyTable({
   isOrdersFetching,
 }: FinanceFeaturedProductGroupFeaturedPartyTableProps) {
   const [metric, setMetric] = useState<MatrixMetric>("quantity");
+  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>("net");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const {
@@ -115,7 +117,7 @@ export default function FinanceFeaturedProductGroupFeaturedPartyTable({
       for (const item of items) {
         const productId = resolveProductId(item);
         if (!productId) continue;
-        const val = itemMetricValue(item, metric);
+        const val = itemMetricValue(item, metric, qtyBasis);
 
         const gId = productToGroupMap.get(productId);
         if (!gId || !groupIdSet.has(gId)) continue;
@@ -140,6 +142,7 @@ export default function FinanceFeaturedProductGroupFeaturedPartyTable({
     productToGroupMap,
     productsByGroup,
     metric,
+    qtyBasis,
   ]);
 
   const toggleGroup = (groupId: string) => {
@@ -195,6 +198,7 @@ export default function FinanceFeaturedProductGroupFeaturedPartyTable({
         `Report: Featured Groups × Featured Parties`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${metric}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -203,11 +207,18 @@ export default function FinanceFeaturedProductGroupFeaturedPartyTable({
   return (
     <FeaturedMatrixTableFrame
       title="Featured Groups × Featured Parties"
-      subtitle="Net sales by product group (expandable to products) across featured parties"
+      subtitle={
+        qtyBasis === "net"
+          ? "Net sales by product group (expandable to products) across featured parties"
+          : "Approved sales by product group (expandable to products) across featured parties"
+      }
       icon={<Table2 className="h-5 w-5" />}
       accentClass="text-emerald-600 dark:text-emerald-400"
       metric={metric}
       onMetricChange={setMetric}
+      qtyBasis={qtyBasis}
+      onQtyBasisChange={setQtyBasis}
+      showQtyBasisToggle
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}

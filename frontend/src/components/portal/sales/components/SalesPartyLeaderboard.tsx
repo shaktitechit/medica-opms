@@ -18,6 +18,7 @@ interface SalesPartyLeaderboardProps {
   partyNameById: Map<string, string>;
 }
 
+type QtyBasis = "net" | "approved";
 type RateBucket = { qty: number; sr: number; sra: number; cr: number };
 
 function normalizeRateType(raw: unknown): "SR" | "SRA" | "CR" | null {
@@ -26,7 +27,8 @@ function normalizeRateType(raw: unknown): "SR" | "SRA" | "CR" | null {
   return null;
 }
 
-function itemNetQty(item: any): number {
+function itemQty(item: any, basis: QtyBasis): number {
+  if (basis === "approved") return Number(item.approved_quantity) || 0;
   const del = Number(item.delivered_quantity) || 0;
   const ret = Number(item.returned_quantity) || 0;
   return del - ret;
@@ -38,6 +40,7 @@ export default function SalesPartyLeaderboard({
   partyNameById,
 }: SalesPartyLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
+  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("net");
   const {
     availableYears,
     selectedYears,
@@ -54,7 +57,7 @@ export default function SalesPartyLeaderboard({
       const items = Array.isArray(o.order_items) ? o.order_items : [];
       const bucket = map.get(partyLabel) ?? { qty: 0, sr: 0, sra: 0, cr: 0 };
       for (const item of items) {
-        const qty = itemNetQty(item);
+        const qty = itemQty(item, qtyBasis);
         bucket.qty += qty;
         const rateType = normalizeRateType(item.applied_rate_type);
         if (rateType === "SR") bucket.sr += qty;
@@ -66,7 +69,7 @@ export default function SalesPartyLeaderboard({
     return Array.from(map.entries())
       .map(([name, stats]) => ({ name, ...stats }))
       .sort((a, b) => b.qty - a.qty);
-  }, [filteredOrders, partyNameById]);
+  }, [filteredOrders, partyNameById, qtyBasis]);
 
   const totals = useMemo(
     () =>
@@ -82,10 +85,43 @@ export default function SalesPartyLeaderboard({
     [partyQuantities]
   );
 
+  const valueLabel = qtyBasis === "net" ? "Net Qty" : "Approved Qty";
+  const breakdownTitle =
+    qtyBasis === "net"
+      ? "Party Sales breakdown (Net Quantity)"
+      : "Party Sales breakdown (Approved Quantity)";
+
+  const basisToggle = (
+    <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+      <button
+        type="button"
+        onClick={() => setQtyBasis("net")}
+        className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
+          qtyBasis === "net"
+            ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-300"
+            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+        }`}
+      >
+        Net
+      </button>
+      <button
+        type="button"
+        onClick={() => setQtyBasis("approved")}
+        className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
+          qtyBasis === "approved"
+            ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-300"
+            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+        }`}
+      >
+        Approved
+      </button>
+    </div>
+  );
+
 
   const handleDownload = () => {
     if (partyQuantities.length === 0) return;
-    const headers = ["Party", "Net Qty", "SR", "SRA", "CR"];
+    const headers = ["Party", valueLabel, "SR", "SRA", "CR"];
     const rows = partyQuantities.map((r) => [r.name, r.qty, r.sr, r.sra, r.cr]);
     downloadCsvFile(
       reportFilename("salespartyleaderboard", selectedYears, selectedMonths),
@@ -94,6 +130,7 @@ export default function SalesPartyLeaderboard({
       [
         `Report: SalesPartyLeaderboard`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -127,13 +164,16 @@ export default function SalesPartyLeaderboard({
                   />
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowAll(true)}
-                className="text-xs font-semibold text-emerald-650 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:underline cursor-pointer shrink-0"
-              >
-                View All
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {basisToggle}
+                <button
+                  type="button"
+                  onClick={() => setShowAll(true)}
+                  className="text-xs font-semibold text-emerald-650 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:underline cursor-pointer shrink-0"
+                >
+                  View All
+                </button>
+              </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               {periodFilter}
@@ -150,7 +190,7 @@ export default function SalesPartyLeaderboard({
               <thead>
                 <tr className="text-slate-400 dark:text-slate-500 border-b border-slate-100/50 dark:border-white/5">
                   <th className="py-2 font-semibold">Party Name</th>
-                  <th className="py-2 text-right font-semibold">Net Qty</th>
+                  <th className="py-2 text-right font-semibold">{valueLabel}</th>
                   <th className="py-2 text-right font-semibold">SR</th>
                   <th className="py-2 text-right font-semibold">SRA</th>
                   <th className="py-2 text-right font-semibold">CR</th>
@@ -205,7 +245,7 @@ export default function SalesPartyLeaderboard({
                   <Users className="h-5 w-5 shrink-0 text-emerald-600" />
                   <div className="min-w-0">
                     <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
-                      Party Sales breakdown (Net Quantity)
+                      {breakdownTitle}
                     </h3>
                     <PeriodHeadingCaption
                       selectedYears={selectedYears}
@@ -213,13 +253,16 @@ export default function SalesPartyLeaderboard({
                     />
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAll(false)}
-                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-250 cursor-pointer shrink-0"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {basisToggle}
+                  <button
+                    type="button"
+                    onClick={() => setShowAll(false)}
+                    className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-250 cursor-pointer shrink-0"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
               {periodFilter}
@@ -236,7 +279,7 @@ export default function SalesPartyLeaderboard({
                 <thead>
                   <tr className="text-slate-455 dark:text-slate-505 border-b border-slate-100 dark:border-white/5">
                     <th className="py-2 font-semibold">Party Name</th>
-                    <th className="py-2 text-right font-semibold">Net Qty</th>
+                    <th className="py-2 text-right font-semibold">{valueLabel}</th>
                     <th className="py-2 text-right font-semibold">SR</th>
                     <th className="py-2 text-right font-semibold">SRA</th>
                     <th className="py-2 text-right font-semibold">CR</th>

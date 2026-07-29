@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import type { MatrixMetric } from "./featuredMatrixUtils";
+import type { MatrixMetric, MatrixQtyBasis } from "./featuredMatrixUtils";
 import AdminPeriodFilter from "./AdminPeriodFilter";
 import PeriodHeadingCaption from "./PeriodHeadingCaption";
 import ReportDownloadButton from "./ReportDownloadButton";
@@ -15,6 +15,10 @@ interface FeaturedMatrixTableFrameProps {
   onMetricChange?: (metric: MatrixMetric) => void;
   /** When false, hides Quantity/Volume toggle (e.g. sales portal quantity-only). */
   showMetricToggle?: boolean;
+  qtyBasis?: MatrixQtyBasis;
+  onQtyBasisChange?: (basis: MatrixQtyBasis) => void;
+  /** When false, hides Net/Approved toggle. */
+  showQtyBasisToggle?: boolean;
   availableYears: number[];
   selectedYears: number[];
   selectedMonths: number[];
@@ -37,6 +41,9 @@ export default function FeaturedMatrixTableFrame({
   metric,
   onMetricChange,
   showMetricToggle = true,
+  qtyBasis,
+  onQtyBasisChange,
+  showQtyBasisToggle = false,
   availableYears,
   selectedYears,
   selectedMonths,
@@ -79,6 +86,32 @@ export default function FeaturedMatrixTableFrame({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {showQtyBasisToggle && onQtyBasisChange && (
+              <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+                <button
+                  type="button"
+                  onClick={() => onQtyBasisChange("net")}
+                  className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
+                    qtyBasis === "net"
+                      ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
+                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                >
+                  Net
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onQtyBasisChange("approved")}
+                  className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
+                    qtyBasis === "approved"
+                      ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
+                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                >
+                  Approved
+                </button>
+              </div>
+            )}
             {showMetricToggle && onMetricChange && (
               <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
                 <button

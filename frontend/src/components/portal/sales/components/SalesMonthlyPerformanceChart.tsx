@@ -12,6 +12,8 @@ interface SalesMonthlyPerformanceChartProps {
   isOrdersFetching: boolean;
 }
 
+type QtyBasis = "net" | "approved";
+
 const MONTH_LABELS = [
   "Jan",
   "Feb",
@@ -36,13 +38,18 @@ const YEAR_COLORS = [
   { fill: "fill-cyan-500", hover: "fill-cyan-400", swatch: "bg-cyan-500" },
 ] as const;
 
-function orderNetQty(order: any): number {
+function itemQty(item: any, basis: QtyBasis): number {
+  if (basis === "approved") return Number(item.approved_quantity) || 0;
+  const del = Number(item.delivered_quantity) || 0;
+  const ret = Number(item.returned_quantity) || 0;
+  return del - ret;
+}
+
+function orderQty(order: any, basis: QtyBasis): number {
   const items = Array.isArray(order?.order_items) ? order.order_items : [];
   let qty = 0;
   for (const item of items) {
-    const del = Number(item.delivered_quantity) || 0;
-    const ret = Number(item.returned_quantity) || 0;
-    qty += del - ret;
+    qty += itemQty(item, basis);
   }
   return qty;
 }
@@ -65,6 +72,7 @@ export default function SalesMonthlyPerformanceChart({
   orders,
   isOrdersFetching,
 }: SalesMonthlyPerformanceChartProps) {
+  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("net");
   const [selectedYears, setSelectedYears] = useState<number[]>([
     new Date().getFullYear(),
   ]);
@@ -112,7 +120,7 @@ export default function SalesMonthlyPerformanceChart({
     [selectedYears],
   );
 
-  /** month index 0-11 -> year -> net qty */
+  /** month index 0-11 -> year -> qty (net or approved) */
   const monthlyByYear = useMemo(() => {
     const map = new Map<number, number[]>();
     for (const year of activeYears) {
@@ -122,10 +130,10 @@ export default function SalesMonthlyPerformanceChart({
       const ym = orderYearMonth(o);
       if (!ym || !map.has(ym.year)) continue;
       const row = map.get(ym.year)!;
-      row[ym.month] += orderNetQty(o);
+      row[ym.month] += orderQty(o, qtyBasis);
     }
     return map;
-  }, [orders, activeYears]);
+  }, [orders, activeYears, qtyBasis]);
 
   const maxVal = useMemo(() => {
     let max = 0;
@@ -177,6 +185,7 @@ export default function SalesMonthlyPerformanceChart({
       [
         `Report: Monthly Performance`,
         `Period: ${formatPeriodLabel(selectedYears)}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -195,7 +204,9 @@ export default function SalesMonthlyPerformanceChart({
             </h2>
             <PeriodHeadingCaption selectedYears={selectedYears} />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Net sales quantity by month across selected years
+              {qtyBasis === "net"
+                ? "Net sales quantity by month across selected years"
+                : "Approved quantity by month across selected years"}
             </p>
           </div>
         </div>
@@ -206,6 +217,30 @@ export default function SalesMonthlyPerformanceChart({
             disabled={isOrdersFetching || activeYears.length === 0}
             size="sm"
           />
+          <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+            <button
+              type="button"
+              onClick={() => setQtyBasis("net")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                qtyBasis === "net"
+                  ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                  : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              Net
+            </button>
+            <button
+              type="button"
+              onClick={() => setQtyBasis("approved")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                qtyBasis === "approved"
+                  ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                  : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              Approved
+            </button>
+          </div>
           <div className="relative" ref={yearMenuRef}>
             <button
               type="button"

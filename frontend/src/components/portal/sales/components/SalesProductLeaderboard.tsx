@@ -16,6 +16,7 @@ interface SalesProductLeaderboardProps {
   isOrdersFetching: boolean;
 }
 
+type QtyBasis = "net" | "approved";
 type RateBucket = { qty: number; sr: number; sra: number; cr: number };
 
 function normalizeRateType(raw: unknown): "SR" | "SRA" | "CR" | null {
@@ -24,7 +25,8 @@ function normalizeRateType(raw: unknown): "SR" | "SRA" | "CR" | null {
   return null;
 }
 
-function itemNetQty(item: any): number {
+function itemQty(item: any, basis: QtyBasis): number {
+  if (basis === "approved") return Number(item.approved_quantity) || 0;
   const del = Number(item.delivered_quantity) || 0;
   const ret = Number(item.returned_quantity) || 0;
   return del - ret;
@@ -44,6 +46,7 @@ export default function SalesProductLeaderboard({
   isOrdersFetching,
 }: SalesProductLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
+  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("net");
   const {
     availableYears,
     selectedYears,
@@ -60,7 +63,7 @@ export default function SalesProductLeaderboard({
       for (const item of items) {
         const prodName = resolveProductName(item);
         if (!prodName) continue;
-        const qty = itemNetQty(item);
+        const qty = itemQty(item, qtyBasis);
         const bucket = map.get(prodName) ?? { qty: 0, sr: 0, sra: 0, cr: 0 };
         bucket.qty += qty;
         const rateType = normalizeRateType(item.applied_rate_type);
@@ -73,7 +76,7 @@ export default function SalesProductLeaderboard({
     return Array.from(map.entries())
       .map(([name, stats]) => ({ name, ...stats }))
       .sort((a, b) => b.qty - a.qty);
-  }, [filteredOrders]);
+  }, [filteredOrders, qtyBasis]);
 
   const totals = useMemo(
     () =>
@@ -89,10 +92,43 @@ export default function SalesProductLeaderboard({
     [productQuantities]
   );
 
+  const valueLabel = qtyBasis === "net" ? "Net Qty" : "Approved Qty";
+  const breakdownTitle =
+    qtyBasis === "net"
+      ? "Product Sales breakdown (Net Quantity)"
+      : "Product Sales breakdown (Approved Quantity)";
+
+  const basisToggle = (
+    <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+      <button
+        type="button"
+        onClick={() => setQtyBasis("net")}
+        className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
+          qtyBasis === "net"
+            ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
+            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+        }`}
+      >
+        Net
+      </button>
+      <button
+        type="button"
+        onClick={() => setQtyBasis("approved")}
+        className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
+          qtyBasis === "approved"
+            ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
+            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+        }`}
+      >
+        Approved
+      </button>
+    </div>
+  );
+
 
   const handleDownload = () => {
     if (productQuantities.length === 0) return;
-    const headers = ["Product", "Net Qty", "SR", "SRA", "CR"];
+    const headers = ["Product", valueLabel, "SR", "SRA", "CR"];
     const rows = productQuantities.map((r) => [r.name, r.qty, r.sr, r.sra, r.cr]);
     downloadCsvFile(
       reportFilename("salesproductleaderboard", selectedYears, selectedMonths),
@@ -101,6 +137,7 @@ export default function SalesProductLeaderboard({
       [
         `Report: SalesProductLeaderboard`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -134,13 +171,16 @@ export default function SalesProductLeaderboard({
                   />
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowAll(true)}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer shrink-0"
-              >
-                View All
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {basisToggle}
+                <button
+                  type="button"
+                  onClick={() => setShowAll(true)}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer shrink-0"
+                >
+                  View All
+                </button>
+              </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               {periodFilter}
@@ -157,7 +197,7 @@ export default function SalesProductLeaderboard({
               <thead>
                 <tr className="text-slate-400 dark:text-slate-500 border-b border-slate-100/50 dark:border-white/5">
                   <th className="py-2 font-semibold">Product Name</th>
-                  <th className="py-2 text-right font-semibold">Net Qty</th>
+                  <th className="py-2 text-right font-semibold">{valueLabel}</th>
                   <th className="py-2 text-right font-semibold">SR</th>
                   <th className="py-2 text-right font-semibold">SRA</th>
                   <th className="py-2 text-right font-semibold">CR</th>
@@ -212,7 +252,7 @@ export default function SalesProductLeaderboard({
                   <Package className="h-5 w-5 shrink-0 text-blue-600" />
                   <div className="min-w-0">
                     <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
-                      Product Sales breakdown (Net Quantity)
+                      {breakdownTitle}
                     </h3>
                     <PeriodHeadingCaption
                       selectedYears={selectedYears}
@@ -220,13 +260,16 @@ export default function SalesProductLeaderboard({
                     />
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAll(false)}
-                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-250 cursor-pointer shrink-0"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {basisToggle}
+                  <button
+                    type="button"
+                    onClick={() => setShowAll(false)}
+                    className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-250 cursor-pointer shrink-0"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
               {periodFilter}
@@ -243,7 +286,7 @@ export default function SalesProductLeaderboard({
                 <thead>
                   <tr className="text-slate-450 dark:text-slate-505 border-b border-slate-100 dark:border-white/5">
                     <th className="py-2 font-semibold">Product Name</th>
-                    <th className="py-2 text-right font-semibold">Net Qty</th>
+                    <th className="py-2 text-right font-semibold">{valueLabel}</th>
                     <th className="py-2 text-right font-semibold">SR</th>
                     <th className="py-2 text-right font-semibold">SRA</th>
                     <th className="py-2 text-right font-semibold">CR</th>

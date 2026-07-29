@@ -15,6 +15,7 @@ import {
   resolveProductId,
   type MatrixEntity,
   type MatrixMetric,
+  type MatrixQtyBasis,
 } from "./featuredMatrixUtils";
 import { formatPeriodLabel } from "./periodFilterUtils";
 import {
@@ -30,6 +31,8 @@ interface FeaturedProductGroupFeaturedPartyTableProps {
   syncWithExternalFilter?: boolean;
   /** Caption shown when syncWithExternalFilter is on. */
   externalFilterCaption?: string;
+  /** Initial Net/Approved basis (default: net). */
+  initialQtyBasis?: MatrixQtyBasis;
 }
 
 export default function FeaturedProductGroupFeaturedPartyTable({
@@ -37,8 +40,10 @@ export default function FeaturedProductGroupFeaturedPartyTable({
   isOrdersFetching,
   syncWithExternalFilter = false,
   externalFilterCaption,
+  initialQtyBasis = "net",
 }: FeaturedProductGroupFeaturedPartyTableProps) {
   const [metric, setMetric] = useState<MatrixMetric>("quantity");
+  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>(initialQtyBasis);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const {
@@ -123,7 +128,7 @@ export default function FeaturedProductGroupFeaturedPartyTable({
       for (const item of items) {
         const productId = resolveProductId(item);
         if (!productId) continue;
-        const val = itemMetricValue(item, metric);
+        const val = itemMetricValue(item, metric, qtyBasis);
 
         const gId = productToGroupMap.get(productId);
         if (!gId || !groupIdSet.has(gId)) continue;
@@ -148,6 +153,7 @@ export default function FeaturedProductGroupFeaturedPartyTable({
     productToGroupMap,
     productsByGroup,
     metric,
+    qtyBasis,
   ]);
 
   const toggleGroup = (groupId: string) => {
@@ -203,6 +209,7 @@ export default function FeaturedProductGroupFeaturedPartyTable({
         `Report: Featured Groups × Featured Parties`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${metric}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -211,11 +218,18 @@ export default function FeaturedProductGroupFeaturedPartyTable({
   return (
     <FeaturedMatrixTableFrame
       title="Featured Groups × Featured Parties"
-      subtitle="Net sales by product group (expandable to products) across featured parties"
+      subtitle={
+        qtyBasis === "net"
+          ? "Net sales by product group (expandable to products) across featured parties"
+          : "Approved sales by product group (expandable to products) across featured parties"
+      }
       icon={<Table2 className="h-5 w-5" />}
       accentClass="text-emerald-600 dark:text-emerald-400"
       metric={metric}
       onMetricChange={setMetric}
+      qtyBasis={qtyBasis}
+      onQtyBasisChange={setQtyBasis}
+      showQtyBasisToggle
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}

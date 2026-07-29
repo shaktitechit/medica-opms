@@ -54,19 +54,19 @@ type AnalyticalRow = {
   rawDate: Date;
 };
 
-/** How KPI / chart / ranking volume & qty are measured. Default = net sales. */
+/** How KPI / chart / ranking volume & qty are measured. Default = approved. */
 type VolumeBasis =
+  | "approved"
   | "net_sales"
   | "order_value"
-  | "approved"
   | "dispatched"
   | "delivered"
   | "returned";
 
 const VOLUME_BASIS_OPTIONS: ReadonlyArray<{ id: VolumeBasis; label: string; short: string }> = [
+  { id: "approved", label: "Approved (approved qty × rate)", short: "Approved" },
   { id: "net_sales", label: "Net sales (delivered − returned)", short: "Net sales" },
   { id: "order_value", label: "Order value (ordered qty × rate)", short: "Order value" },
-  { id: "approved", label: "Approved (approved qty × rate)", short: "Approved" },
   { id: "dispatched", label: "Dispatched (dispatched qty × rate)", short: "Dispatched" },
   { id: "delivered", label: "Delivered (before returns)", short: "Delivered" },
   { id: "returned", label: "Returned", short: "Returned" },
@@ -235,7 +235,7 @@ export function GoogleSheetAnalyticsModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
-  // Filters — default date = today; volume = net sales (delivered − returned)
+  // Filters — default date = today; volume = approved
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterParty, setFilterParty] = useState<string>("all");
@@ -243,7 +243,7 @@ export function GoogleSheetAnalyticsModal({
   const [filterDatePreset, setFilterDatePreset] = useState<string>("today");
   const [filterStartDate, setFilterStartDate] = useState<string>("");
   const [filterEndDate, setFilterEndDate] = useState<string>("");
-  const [filterVolumeBasis, setFilterVolumeBasis] = useState<VolumeBasis>("net_sales");
+  const [filterVolumeBasis, setFilterVolumeBasis] = useState<VolumeBasis>("approved");
 
   // Chart state
   const [chartMetric, setChartMetric] = useState<"volume" | "qty">("volume");
@@ -416,7 +416,7 @@ export function GoogleSheetAnalyticsModal({
     searchQuery,
   ]);
 
-  /** True when filters differ from the default (today + net sales + all dimensions). */
+  /** True when filters differ from the default (today + approved + all dimensions). */
   const hasNonDefaultFilters = useMemo(() => {
     return (
       filterStatus !== "all" ||
@@ -424,7 +424,7 @@ export function GoogleSheetAnalyticsModal({
       filterParty !== "all" ||
       filterSalesPerson !== "all" ||
       filterDatePreset !== "today" ||
-      filterVolumeBasis !== "net_sales" ||
+      filterVolumeBasis !== "approved" ||
       searchQuery.trim() !== ""
     );
   }, [
@@ -445,7 +445,7 @@ export function GoogleSheetAnalyticsModal({
     setFilterDatePreset("today");
     setFilterStartDate("");
     setFilterEndDate("");
-    setFilterVolumeBasis("net_sales");
+    setFilterVolumeBasis("approved");
     setSearchQuery("");
   }, []);
 
@@ -546,7 +546,7 @@ export function GoogleSheetAnalyticsModal({
     [filteredOrders],
   );
 
-  // KPI Calculations — driven by volume basis filter (default: net sales)
+  // KPI Calculations — driven by volume basis filter (default: approved)
   const kpis = useMemo(() => {
     let totalVolume = 0;
     let totalQty = 0;
@@ -977,7 +977,7 @@ export function GoogleSheetAnalyticsModal({
                       ))}
                     </select>
                     <p className="mt-1 text-2xs text-slate-400">
-                      Default is net sales (delivered − returned), same as featured matrices.
+                      Default is approved (approved qty × rate). Switch to net sales or other bases as needed.
                     </p>
                   </div>
 
@@ -1639,6 +1639,7 @@ export function GoogleSheetAnalyticsModal({
                   isOrdersFetching={isOrdersLoading || isOrdersFetching}
                   syncWithExternalFilter
                   externalFilterCaption={filterContext.dateLabel}
+                  initialQtyBasis="approved"
                 />
 
                 <FeaturedProductGroupFeaturedPartyTable
@@ -1646,6 +1647,7 @@ export function GoogleSheetAnalyticsModal({
                   isOrdersFetching={isOrdersLoading || isOrdersFetching}
                   syncWithExternalFilter
                   externalFilterCaption={filterContext.dateLabel}
+                  initialQtyBasis="approved"
                 />
               </div>
             )}

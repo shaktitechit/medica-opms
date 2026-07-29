@@ -17,6 +17,7 @@ interface AdminProductLeaderboardProps {
 }
 
 type Metric = "quantity" | "volume";
+type QtyBasis = "net" | "approved";
 type RateBucket = { total: number; sr: number; sra: number; cr: number };
 
 function normalizeRateType(raw: unknown): "SR" | "SRA" | "CR" | null {
@@ -31,8 +32,16 @@ function itemNetQty(item: any): number {
   return del - ret;
 }
 
-function itemMetricValue(item: any, metric: Metric): number {
-  const qty = itemNetQty(item);
+function itemApprovedQty(item: any): number {
+  return Number(item.approved_quantity) || 0;
+}
+
+function itemQty(item: any, basis: QtyBasis): number {
+  return basis === "approved" ? itemApprovedQty(item) : itemNetQty(item);
+}
+
+function itemMetricValue(item: any, metric: Metric, basis: QtyBasis): number {
+  const qty = itemQty(item, basis);
   if (metric === "quantity") return qty;
   const unitPrice = Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
   return qty * unitPrice;
@@ -63,6 +72,7 @@ export default function AdminProductLeaderboard({
 }: AdminProductLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
   const [metric, setMetric] = useState<Metric>("quantity");
+  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("net");
   const {
     availableYears,
     selectedYears,
@@ -79,7 +89,7 @@ export default function AdminProductLeaderboard({
       for (const item of items) {
         const prodName = resolveProductName(item);
         if (!prodName) continue;
-        const value = itemMetricValue(item, metric);
+        const value = itemMetricValue(item, metric, qtyBasis);
         const bucket = map.get(prodName) ?? { total: 0, sr: 0, sra: 0, cr: 0 };
         bucket.total += value;
         const rateType = normalizeRateType(item.applied_rate_type);
@@ -92,7 +102,7 @@ export default function AdminProductLeaderboard({
     return Array.from(map.entries())
       .map(([name, stats]) => ({ name, ...stats }))
       .sort((a, b) => b.total - a.total);
-  }, [filteredOrders, metric]);
+  }, [filteredOrders, metric, qtyBasis]);
 
   const totals = useMemo(
     () =>
@@ -108,11 +118,49 @@ export default function AdminProductLeaderboard({
     [productRows]
   );
 
-  const netLabel = metric === "quantity" ? "Net Qty" : "Net Vol";
+  const valueLabel =
+    qtyBasis === "net"
+      ? metric === "quantity"
+        ? "Net Qty"
+        : "Net Vol"
+      : metric === "quantity"
+        ? "Approved Qty"
+        : "Approved Vol";
   const breakdownTitle =
-    metric === "quantity"
-      ? "Product Sales breakdown (Net Quantity)"
-      : "Product Sales breakdown (Net Volume)";
+    qtyBasis === "net"
+      ? metric === "quantity"
+        ? "Product Sales breakdown (Net Quantity)"
+        : "Product Sales breakdown (Net Volume)"
+      : metric === "quantity"
+        ? "Product Sales breakdown (Approved Quantity)"
+        : "Product Sales breakdown (Approved Volume)";
+
+  const basisToggle = (
+    <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+      <button
+        type="button"
+        onClick={() => setQtyBasis("net")}
+        className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
+          qtyBasis === "net"
+            ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
+            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+        }`}
+      >
+        Net
+      </button>
+      <button
+        type="button"
+        onClick={() => setQtyBasis("approved")}
+        className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
+          qtyBasis === "approved"
+            ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
+            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+        }`}
+      >
+        Approved
+      </button>
+    </div>
+  );
 
   const metricToggle = (
     <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
@@ -144,8 +192,7 @@ export default function AdminProductLeaderboard({
 
   const handleDownload = () => {
     if (productRows.length === 0) return;
-    const netLabel = metric === "quantity" ? "Net Qty" : "Net Vol";
-    const headers = ["Product", netLabel, "SR", "SRA", "CR"];
+    const headers = ["Product", valueLabel, "SR", "SRA", "CR"];
     const rows = productRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
     downloadCsvFile(
       reportFilename("adminproductleaderboard", selectedYears, selectedMonths),
@@ -155,6 +202,7 @@ export default function AdminProductLeaderboard({
         `Report: AdminProductLeaderboard`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${metric}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -189,6 +237,7 @@ export default function AdminProductLeaderboard({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {basisToggle}
                 {metricToggle}
                 <button
                   type="button"
@@ -214,7 +263,7 @@ export default function AdminProductLeaderboard({
               <thead>
                 <tr className="text-slate-400 dark:text-slate-500 border-b border-slate-100/50 dark:border-white/5">
                   <th className="py-2 font-semibold">Product Name</th>
-                  <th className="py-2 text-right font-semibold">{netLabel}</th>
+                  <th className="py-2 text-right font-semibold">{valueLabel}</th>
                   <th className="py-2 text-right font-semibold">SR</th>
                   <th className="py-2 text-right font-semibold">SRA</th>
                   <th className="py-2 text-right font-semibold">CR</th>
@@ -278,6 +327,7 @@ export default function AdminProductLeaderboard({
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  {basisToggle}
                   {metricToggle}
                   <button
                     type="button"
@@ -303,7 +353,7 @@ export default function AdminProductLeaderboard({
                 <thead>
                   <tr className="text-slate-450 dark:text-slate-505 border-b border-slate-100 dark:border-white/5">
                     <th className="py-2 font-semibold">Product Name</th>
-                    <th className="py-2 text-right font-semibold">{netLabel}</th>
+                    <th className="py-2 text-right font-semibold">{valueLabel}</th>
                     <th className="py-2 text-right font-semibold">SR</th>
                     <th className="py-2 text-right font-semibold">SRA</th>
                     <th className="py-2 text-right font-semibold">CR</th>

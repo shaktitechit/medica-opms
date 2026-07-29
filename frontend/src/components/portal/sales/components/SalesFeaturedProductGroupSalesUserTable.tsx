@@ -14,6 +14,7 @@ import {
   resolveOrderSalesUserId,
   resolveProductId,
   type MatrixEntity,
+  type MatrixQtyBasis,
 } from "@/components/portal/admin/components/featuredMatrixUtils";
 import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
 import {
@@ -52,6 +53,7 @@ export default function SalesFeaturedProductGroupSalesUserTable({
   isOrdersFetching,
 }: SalesFeaturedProductGroupSalesUserTableProps) {
   const user = useAppSelector((state) => state.auth.user);
+  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>("net");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const {
@@ -131,7 +133,7 @@ export default function SalesFeaturedProductGroupSalesUserTable({
       for (const item of items) {
         const productId = resolveProductId(item);
         if (!productId) continue;
-        const val = itemMetricValue(item, METRIC);
+        const val = itemMetricValue(item, METRIC, qtyBasis);
 
         const gId = productToGroupMap.get(productId);
         if (!gId || !groupIdSet.has(gId)) continue;
@@ -155,6 +157,7 @@ export default function SalesFeaturedProductGroupSalesUserTable({
     salesIdSet,
     productToGroupMap,
     productsByGroup,
+    qtyBasis,
   ]);
 
   const toggleGroup = (groupId: string) => {
@@ -209,6 +212,7 @@ export default function SalesFeaturedProductGroupSalesUserTable({
         `Report: Featured Groups × My Sales`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${METRIC}`,
+        `Basis: ${qtyBasis}`,
       ],
     );
   };
@@ -217,10 +221,17 @@ export default function SalesFeaturedProductGroupSalesUserTable({
   return (
     <FeaturedMatrixTableFrame
       title="Featured Groups × My Sales"
-      subtitle="Net quantity by product group (expandable to products) for your portfolio"
+      subtitle={
+        qtyBasis === "net"
+          ? "Net quantity by product group (expandable to products) for your portfolio"
+          : "Approved quantity by product group (expandable to products) for your portfolio"
+      }
       icon={<LayoutGrid className="h-5 w-5" />}
       accentClass="text-violet-600 dark:text-violet-400"
       showMetricToggle={false}
+      qtyBasis={qtyBasis}
+      onQtyBasisChange={setQtyBasis}
+      showQtyBasisToggle
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}
