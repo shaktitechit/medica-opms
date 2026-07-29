@@ -26,6 +26,8 @@ import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 export type PartyDetailModalProps = {
   partyId: string | null;
   create?: boolean;
+  /** When creating, load this party's fields into the form (new record on save). */
+  duplicateFromId?: string | null;
   portalHome?: string;
   initialTab?: "details" | "contacts" | "address";
   onClose: () => void;
@@ -124,21 +126,64 @@ function toDateString(v: unknown): string {
   return d.toISOString().split("T")[0];
 }
 
+function partyToFormState(p: Record<string, unknown>, opts?: { asCopy?: boolean }): PartyState {
+  const bAddr = (p.billing_address || {}) as Record<string, unknown>;
+  const sAddr = (p.shipping_address || {}) as Record<string, unknown>;
+  const loadedContacts = contactsFromParty(p);
+  const baseName = stringField(p.party_name);
+  return {
+    party_name: opts?.asCopy && baseName ? `${baseName} (Copy)` : baseName,
+    party_type: PARTY_TYPE_OPTIONS.includes(p.party_type as (typeof PARTY_TYPE_OPTIONS)[number])
+      ? (p.party_type as PartyState["party_type"])
+      : "customer",
+    contacts: loadedContacts.length > 0 ? loadedContacts : [emptyPartyContact()],
+    gst_no: stringField(p.gst_no),
+    drug_license_no: stringField(p.drug_license_no),
+    district: stringField(p.district),
+    state: stringField(p.state),
+    payment_terms: stringField(p.payment_terms),
+    is_active: p.is_active !== false,
+    is_featured: p.is_featured === true,
+    sra: p.sra === true,
+    sra_from_date: toDateString(p.sra_from_date),
+    sra_to_date: toDateString(p.sra_to_date),
+    billing_address: {
+      address_line_1: stringField(bAddr.address_line_1),
+      address_line_2: stringField(bAddr.address_line_2),
+      city: stringField(bAddr.city),
+      state: stringField(bAddr.state),
+      pincode: stringField(bAddr.pincode),
+      country: stringField(bAddr.country) || "India",
+    },
+    shipping_address: {
+      address_line_1: stringField(sAddr.address_line_1),
+      address_line_2: stringField(sAddr.address_line_2),
+      city: stringField(sAddr.city),
+      state: stringField(sAddr.state),
+      pincode: stringField(sAddr.pincode),
+      country: stringField(sAddr.country) || "India",
+    },
+  };
+}
+
 export function PartyDetailModal({
   partyId,
   create = false,
+  duplicateFromId = null,
   portalHome,
   initialTab = "details",
   onClose,
 }: PartyDetailModalProps) {
-  const show = create || (partyId != null && partyId !== "");
-  const isEditing = partyId != null && partyId !== "";
+  const isEditing = !create && partyId != null && partyId !== "";
+  const isDuplicating = create && !!duplicateFromId;
+  const show = create || isEditing;
+  const sourcePartyId = isEditing ? (partyId ?? "") : isDuplicating ? (duplicateFromId ?? "") : "";
   const portal = portalHome?.replace("/", "") ?? "";
   const { portalName } = resolvePortalPresentation(portal || "admin");
 
-  // Queries
-  const { data: rawParty, isFetching } = useGetPartyQuery(partyId ?? "", {
-    skip: !isEditing,
+  // Queries — edit loads partyId; duplicate create loads the source party for prefills
+  const { data: rawParty, isFetching } = useGetPartyQuery(sourcePartyId, {
+    skip: !sourcePartyId,
   });
 
   const [createParty, { isLoading: isCreating }] = useCreatePartyMutation();
@@ -150,51 +195,18 @@ export function PartyDetailModal({
   const [activeTab, setActiveTab] = useState<"details" | "contacts" | "address">(initialTab);
   const filledContactCount = sanitizePartyContacts(form.contacts).length;
 
-  // Sync loaded party into form
+  // Sync loaded party into form (edit or duplicate-create)
   useEffect(() => {
-    if (rawParty && typeof rawParty === "object") {
-      const p = rawParty as any;
-      const bAddr = p.billing_address || {};
-      const sAddr = p.shipping_address || {};
-
-      const loadedContacts = contactsFromParty(p);
-      setForm({
-        party_name: stringField(p.party_name),
-        party_type: PARTY_TYPE_OPTIONS.includes(p.party_type)
-          ? p.party_type
-          : "customer",
-        contacts: loadedContacts.length > 0 ? loadedContacts : [emptyPartyContact()],
-        gst_no: stringField(p.gst_no),
-        drug_license_no: stringField(p.drug_license_no),
-        district: stringField(p.district),
-        state: stringField(p.state),
-        payment_terms: stringField(p.payment_terms),
-        is_active: p.is_active !== false,
-        is_featured: p.is_featured === true,
-        sra: p.sra === true,
-        sra_from_date: toDateString(p.sra_from_date),
-        sra_to_date: toDateString(p.sra_to_date),
-        billing_address: {
-          address_line_1: stringField(bAddr.address_line_1),
-          address_line_2: stringField(bAddr.address_line_2),
-          city: stringField(bAddr.city),
-          state: stringField(bAddr.state),
-          pincode: stringField(bAddr.pincode),
-          country: stringField(bAddr.country) || "India",
-        },
-        shipping_address: {
-          address_line_1: stringField(sAddr.address_line_1),
-          address_line_2: stringField(sAddr.address_line_2),
-          city: stringField(sAddr.city),
-          state: stringField(sAddr.state),
-          pincode: stringField(sAddr.pincode),
-          country: stringField(sAddr.country) || "India",
-        },
-      });
-    } else if (create) {
+    if (rawParty && typeof rawParty === "object" && sourcePartyId) {
+      setForm(
+        partyToFormState(rawParty as Record<string, unknown>, {
+          asCopy: isDuplicating,
+        }),
+      );
+    } else if (create && !isDuplicating) {
       setForm(defaultPartyState());
     }
-  }, [rawParty, create]);
+  }, [rawParty, create, isDuplicating, sourcePartyId]);
 
   // Clean form when modal closes
   useEffect(() => {
@@ -345,10 +357,22 @@ export function PartyDetailModal({
               </span>
             ) : null}
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-              {create ? "Add Party" : isFetching ? "Loading Details..." : form.party_name || "Party Detail"}
+              {create
+                ? isDuplicating
+                  ? isFetching
+                    ? "Loading…"
+                    : "Duplicate Party"
+                  : "Add Party"
+                : isFetching
+                  ? "Loading Details..."
+                  : form.party_name || "Party Detail"}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {create ? "Create customer or supplier profile" : "View or edit contact and location records"}
+              {create
+                ? isDuplicating
+                  ? "Review the copied details, then save as a new party"
+                  : "Create customer or supplier profile"
+                : "View or edit contact and location records"}
             </p>
           </div>
           <button
@@ -799,10 +823,16 @@ export function PartyDetailModal({
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={isSaving}
+            disabled={isSaving || (isDuplicating && isFetching)}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
           >
-            {isSaving ? "Saving..." : create ? "Add Party" : "Save Changes"}
+            {isSaving
+              ? "Saving..."
+              : create
+                ? isDuplicating
+                  ? "Create Duplicate"
+                  : "Add Party"
+                : "Save Changes"}
           </button>
         </div>
       </div>

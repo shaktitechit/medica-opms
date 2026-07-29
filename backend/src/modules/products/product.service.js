@@ -63,8 +63,42 @@ function normalizeRefInput(val) {
   return s || null;
 }
 
+function isDuplicateKeyError(err) {
+  return Boolean(err && (err.code === 11000 || err.code === '11000'));
+}
+
+/**
+ * Find an active named catalog entity (case-insensitive), or create it.
+ * Handles concurrent unique-index races by re-reading after duplicate-key errors.
+ */
+async function findOrCreateNamedRef(Model, name, { extraFilter = {}, createFields = {}, user } = {}) {
+  const nameFilter = {
+    name: { $regex: new RegExp(`^${escapeRegex(name)}$`, 'i') },
+    deletedAt: null,
+    ...extraFilter,
+  };
+
+  let doc = await Model.findOne(nameFilter);
+  if (doc) return doc;
+
+  try {
+    doc = await Model.create({
+      name,
+      ...createFields,
+      created_by: user?._id,
+    });
+    return doc;
+  } catch (err) {
+    if (!isDuplicateKeyError(err)) throw err;
+    doc = await Model.findOne(nameFilter);
+    if (doc) return doc;
+    throw err;
+  }
+}
+
 /**
  * Resolve name/ObjectId inputs to Product* ObjectIds.
+ * Unknown names for group / brand / manufacturer / subgroup are created and linked.
  * @param {object} payload
  * @param {object|null} user
  * @param {object|null} [existing] current product doc (for subgroup → group fallback)
@@ -86,16 +120,14 @@ async function resolveProductRefs(payload, user, existing = null) {
       continue;
     }
     if (isObjectId(normalized)) {
-      payload[field.key] = normalized;
+      const existingDoc = await field.model.findOne({ _id: normalized, deletedAt: null });
+      if (!existingDoc) {
+        throw new ApiError(400, `Unknown ${field.key.replace(/_/g, ' ')}`);
+      }
+      payload[field.key] = existingDoc._id;
       continue;
     }
-    let doc = await field.model.findOne({
-      name: { $regex: new RegExp(`^${escapeRegex(normalized)}$`, 'i') },
-      deletedAt: null,
-    });
-    if (!doc) {
-      doc = await field.model.create({ name: normalized, created_by: user?._id });
-    }
+    const doc = await findOrCreateNamedRef(field.model, normalized, { user });
     payload[field.key] = doc._id;
   }
 
@@ -106,41 +138,35 @@ async function resolveProductRefs(payload, user, existing = null) {
     payload.product_subgroup = null;
     return;
   }
-  if (isObjectId(normalizedSub)) {
-    payload.product_subgroup = normalizedSub;
-    return;
+
+  // Prefer group from this patch (including explicit null); else keep the product's existing group.
+  let groupRef = null;
+  if (Object.prototype.hasOwnProperty.call(payload, 'product_group')) {
+    groupRef = payload.product_group;
+  } else if (existing?.product_group != null) {
+    groupRef = existing.product_group;
   }
 
-  // Prefer group from this patch; else keep the product's existing group.
-  const groupRef =
-    payload.product_group != null
-      ? payload.product_group
-      : existing?.product_group != null
-        ? existing.product_group
-        : null;
+  if (isObjectId(normalizedSub)) {
+    const existingSub = await ProductSubgroup.findOne({ _id: normalizedSub, deletedAt: null });
+    if (!existingSub) throw new ApiError(400, 'Unknown product subgroup');
+    // Keep subgroup aligned to the product's group when a group is known.
+    if (groupRef && String(existingSub.group) !== String(groupRef)) {
+      throw new ApiError(400, 'Product subgroup does not belong to the selected group');
+    }
+    payload.product_subgroup = existingSub._id;
+    return;
+  }
 
   if (!groupRef) {
-    // No group context — match by name alone, or clear.
-    const alone = await ProductSubgroup.findOne({
-      name: { $regex: new RegExp(`^${escapeRegex(normalizedSub)}$`, 'i') },
-      deletedAt: null,
-    });
-    payload.product_subgroup = alone?._id || null;
-    return;
+    throw new ApiError(400, 'Product group is required when setting a subgroup');
   }
 
-  let subgroup = await ProductSubgroup.findOne({
-    name: { $regex: new RegExp(`^${escapeRegex(normalizedSub)}$`, 'i') },
-    group: groupRef,
-    deletedAt: null,
+  const subgroup = await findOrCreateNamedRef(ProductSubgroup, normalizedSub, {
+    extraFilter: { group: groupRef },
+    createFields: { group: groupRef },
+    user,
   });
-  if (!subgroup) {
-    subgroup = await ProductSubgroup.create({
-      name: normalizedSub,
-      group: groupRef,
-      created_by: user?._id,
-    });
-  }
   payload.product_subgroup = subgroup._id;
 }
 

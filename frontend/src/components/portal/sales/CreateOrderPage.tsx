@@ -13,6 +13,7 @@ import {
   Plus,
   ArrowLeft,
   Check,
+  History,
 } from "lucide-react";
 
 import {
@@ -23,10 +24,13 @@ import {
   useCreateOrderMutation,
   useListPartiesQuery,
   useListProductsQuery,
-  useLazyListOrdersQuery,
 } from "@/store/api";
 import { useAppSelector } from "@/store";
 import { Button } from "@/components/ui/Button";
+import {
+  PreviousPartyItemsModal,
+  type PreviousPartyOrderItem,
+} from "@/components/portal/shared/PreviousPartyItemsModal";
 
 const inputClass =
   "w-full rounded-lg border border-slate-200/95 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50";
@@ -370,9 +374,26 @@ export default function CreateOrderPage() {
   const headerDiscount = "0";
   const [remarks, setRemarks] = useState("");
   const [lines, setLines] = useState<LineRow[]>(() => [newLine()]);
+  const [previousItemsModalOpen, setPreviousItemsModalOpen] = useState(false);
 
   const [createOrder, { isLoading }] = useCreateOrderMutation();
-  const [triggerListOrders] = useLazyListOrdersQuery();
+
+  const selectedParty = useMemo(() => {
+    return parties.find((p) => String(p._id ?? p.id ?? "") === String(partyId));
+  }, [parties, partyId]);
+
+  const selectedPartyName = selectedParty
+    ? String(selectedParty.party_name || "")
+    : "";
+
+  const onPartyChange = useCallback((id: string) => {
+    setPartyId(id);
+    if (id) {
+      setPreviousItemsModalOpen(true);
+    } else {
+      setPreviousItemsModalOpen(false);
+    }
+  }, []);
 
   const onProductRowChange = useCallback(
     (key: string, productId: string) => {
@@ -437,61 +458,51 @@ export default function CreateOrderPage() {
     [products],
   );
 
-  const populateFromLastOrder = useCallback((lastOrder: any) => {
-    if (!lastOrder || !Array.isArray(lastOrder.order_items)) return;
+  const loadPreviousItems = useCallback(
+    (items: PreviousPartyOrderItem[]) => {
+      const mappedLines: LineRow[] = items.map((item) => {
+        const prod = products.find(
+          (pr) => String(pr._id ?? pr.id ?? "") === String(item.productId),
+        );
+        const rateType = item.applied_rate_type || "SR";
+        const price = getPriceForRateType(prod, rateType);
+        const gst = prod
+          ? Number(prod.gst_percent ?? prod.default_gst_rate ?? prod.gst_rate ?? 18)
+          : item.gst_percent;
 
-    const mappedLines = lastOrder.order_items.map((item: any) => {
-      const prod = products.find((pr) => String(pr._id ?? pr.id ?? "") === String(item.product?._id ?? item.product?.id ?? item.product ?? ""));
-      const rateType = String(item.applied_rate_type || "SR");
-      const price = prod ? getPriceForRateType(prod, rateType) : Number(item.unit_price ?? 0);
-      const gst = prod ? Number(prod.gst_percent ?? prod.default_gst_rate ?? 18) : Number(item.gst_percent ?? 18);
+        return {
+          key:
+            typeof crypto !== "undefined" && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          productId: item.productId,
+          product_name: item.product_name,
+          sku: item.sku,
+          brand: item.brand,
+          manufacturer: item.manufacturer,
+          product_group: item.product_group,
+          product_subgroup: item.product_subgroup,
+          unit: item.unit,
+          quantity: item.quantity,
+          free_qty: item.free_qty,
+          unit_price: price,
+          discount_percent: 0,
+          discount_amount: 0,
+          gst_percent: gst,
+          applied_rate_type: rateType,
+          remarks: item.remarks,
+        };
+      });
 
-      return {
-        key: typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        productId: String(item.product?._id ?? item.product?.id ?? item.product ?? ""),
-        product_name: String(item.product_name ?? ""),
-        sku: String(item.sku ?? ""),
-        brand: String(item.brand ?? ""),
-        manufacturer: String(item.manufacturer ?? ""),
-        product_group: String(item.product_group ?? ""),
-        product_subgroup: String(item.product_subgroup ?? ""),
-        unit: String(item.unit ?? ""),
-        quantity: Number(item.ordered_quantity ?? item.quantity ?? 1),
-        free_qty: Number(item.free_quantity ?? item.free_qty ?? 0),
-        unit_price: price,
-        discount_percent: 0,
-        discount_amount: 0,
-        gst_percent: gst,
-        applied_rate_type: rateType,
-        remarks: String(item.remarks ?? ""),
-      };
-    });
-
-    if (mappedLines.length > 0) {
-      setLines(mappedLines);
-      toast.success("Auto-populated line items from the last order placed by this party.");
-    }
-  }, [products]);
-
-  useEffect(() => {
-    if (!partyId) return;
-
-    const fetchLastOrder = async () => {
-      try {
-        const res = await triggerListOrders({ party: partyId }).unwrap();
-        const orders = pickList(res);
-        if (orders && orders.length > 0) {
-          populateFromLastOrder(orders[0]);
-        }
-      } catch (err) {
-        console.error("Failed to fetch last order:", err);
+      if (mappedLines.length > 0) {
+        setLines(mappedLines);
+        toast.success(
+          `Loaded ${mappedLines.length} previous item${mappedLines.length === 1 ? "" : "s"} for this party.`,
+        );
       }
-    };
-
-    fetchLastOrder();
-  }, [partyId, triggerListOrders, populateFromLastOrder]);
+    },
+    [products],
+  );
 
   const onSubmit = useCallback(
     async (e: FormEvent) => {
@@ -624,7 +635,7 @@ export default function CreateOrderPage() {
               <PartyAutocomplete
                 parties={parties}
                 selectedId={partyId}
-                onChange={setPartyId}
+                onChange={onPartyChange}
                 className={inputClass}
               />
               {partiesQ.isError && (
@@ -649,9 +660,21 @@ export default function CreateOrderPage() {
                   </p>
                 </div>
               </div>
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
-                {lines.length} {lines.length === 1 ? "item" : "items"}
-              </span>
+              <div className="flex items-center gap-2">
+                {partyId ? (
+                  <button
+                    type="button"
+                    onClick={() => setPreviousItemsModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5"
+                  >
+                    <History className="h-3.5 w-3.5" />
+                    Previous items
+                  </button>
+                ) : null}
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
+                  {lines.length} {lines.length === 1 ? "item" : "items"}
+                </span>
+              </div>
             </header>
 
             {productsQ.isError && (
@@ -891,6 +914,15 @@ export default function CreateOrderPage() {
           </div>
         </div>
       </form>
+
+      <PreviousPartyItemsModal
+        open={previousItemsModalOpen}
+        onClose={() => setPreviousItemsModalOpen(false)}
+        partyId={partyId}
+        partyName={selectedPartyName}
+        hidePrice
+        onLoad={loadPreviousItems}
+      />
     </div>
   );
 }

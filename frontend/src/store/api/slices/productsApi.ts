@@ -76,7 +76,13 @@ export const productsApi = medicaApi.injectEndpoints({
     createProduct: build.mutation<unknown, ProductWriteBody>({
       query: (body) => ({ url: "products", method: "POST", body }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: ["Products"],
+      invalidatesTags: [
+        "Products",
+        "ProductGroups",
+        "ProductSubgroups",
+        "ProductBrands",
+        "ProductManufacturers",
+      ],
     }),
     patchProduct: build.mutation<
       unknown,
@@ -91,6 +97,10 @@ export const productsApi = medicaApi.injectEndpoints({
       invalidatesTags: (_r, _e, arg) => [
         "Products",
         { type: "Products", id: arg.id },
+        "ProductGroups",
+        "ProductSubgroups",
+        "ProductBrands",
+        "ProductManufacturers",
       ],
     }),
     deleteProduct: build.mutation<unknown, string>({
@@ -120,7 +130,13 @@ export const productsApi = medicaApi.injectEndpoints({
         body,
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: ["Products"],
+      invalidatesTags: [
+        "Products",
+        "ProductGroups",
+        "ProductSubgroups",
+        "ProductBrands",
+        "ProductManufacturers",
+      ],
     }),
     bulkDeleteProducts: build.mutation<unknown, string[]>({
       query: (ids) => ({

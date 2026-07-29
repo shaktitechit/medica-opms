@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   mutationRejectedMessage,
@@ -19,6 +19,8 @@ import { LargeModalPortal } from "./LargeModalPortal";
 export type ProductDetailModalProps = {
   productId: string | null;
   create?: boolean;
+  /** When creating, load this product's fields into the form (new record on save). */
+  duplicateFromId?: string | null;
   onClose: () => void;
 };
 
@@ -100,17 +102,56 @@ const defaultProductState = (): ProductState => ({
   is_featured: false,
 });
 
+function productToFormState(
+  p: Record<string, unknown>,
+  opts?: { asCopy?: boolean },
+): ProductState {
+  const als = Array.isArray(p.aliases) ? (p.aliases as string[]).join(", ") : "";
+  const tgs = Array.isArray(p.tags) ? (p.tags as string[]).join(", ") : "";
+  const baseName = stringField(p.product_name);
+  return {
+    product_name: opts?.asCopy && baseName ? `${baseName} (Copy)` : baseName,
+    generic_name: stringField(p.generic_name),
+    // Clear SKU on duplicate so the new product can get a unique code
+    sku: opts?.asCopy ? "" : stringField(p.sku),
+    product_group: productRefLabel(p.product_group),
+    product_subgroup: productRefLabel(p.product_subgroup),
+    brand: productRefLabel(p.brand),
+    manufacturer: productRefLabel(p.manufacturer),
+    unit: UNIT_OPTIONS.includes(p.unit as (typeof UNIT_OPTIONS)[number])
+      ? (p.unit as ProductState["unit"])
+      : "pcs",
+    base_price: numField(p.base_price),
+    minimum_sale_rate: numField(p.minimum_sale_rate),
+    mrp: numField(p.mrp),
+    gst_percent: numField(p.gst_percent ?? 18),
+    warranty_months: numField(p.warranty_months ?? 0),
+    description: stringField(p.description),
+    aliases: als,
+    tags: tgs,
+    is_active: p.is_active !== false,
+    is_featured: p.is_featured === true,
+  };
+}
+
 export function ProductDetailModal({
   productId,
   create = false,
+  duplicateFromId = null,
   onClose,
 }: ProductDetailModalProps) {
-  const show = create || (productId != null && productId !== "");
-  const isEditing = productId != null && productId !== "";
+  const isEditing = !create && productId != null && productId !== "";
+  const isDuplicating = create && !!duplicateFromId;
+  const show = create || isEditing;
+  const sourceProductId = isEditing
+    ? (productId ?? "")
+    : isDuplicating
+      ? (duplicateFromId ?? "")
+      : "";
 
-  // Query details
-  const { data: rawProduct, isFetching } = useGetProductQuery(productId ?? "", {
-    skip: !isEditing,
+  // Query details — edit loads productId; duplicate create loads the source product
+  const { data: rawProduct, isFetching } = useGetProductQuery(sourceProductId, {
+    skip: !sourceProductId,
   });
 
   const [createProduct, { isLoading: isCreating }] = useCreateProductMutation();
@@ -122,37 +163,42 @@ export function ProductDetailModal({
   const [form, setForm] = useState<ProductState>(defaultProductState());
   const [activeTab, setActiveTab] = useState<"basic" | "commercial">("basic");
 
-  // Sync details to form state
-  useEffect(() => {
-    if (rawProduct && typeof rawProduct === "object") {
-      const p = rawProduct as any;
-      const als = Array.isArray(p.aliases) ? p.aliases.join(", ") : "";
-      const tgs = Array.isArray(p.tags) ? p.tags.join(", ") : "";
+  const selectedGroupId = useMemo(() => {
+    const name = form.product_group.trim().toLowerCase();
+    if (!name || !metaOptions?.groups?.length) return "";
+    const match = metaOptions.groups.find(
+      (g) => g.name.trim().toLowerCase() === name,
+    );
+    return match?._id ?? "";
+  }, [form.product_group, metaOptions?.groups]);
 
-      setForm({
-        product_name: stringField(p.product_name),
-        generic_name: stringField(p.generic_name),
-        sku: stringField(p.sku),
-        product_group: productRefLabel(p.product_group),
-        product_subgroup: productRefLabel(p.product_subgroup),
-        brand: productRefLabel(p.brand),
-        manufacturer: productRefLabel(p.manufacturer),
-        unit: UNIT_OPTIONS.includes(p.unit) ? p.unit : "pcs",
-        base_price: numField(p.base_price),
-        minimum_sale_rate: numField(p.minimum_sale_rate),
-        mrp: numField(p.mrp),
-        gst_percent: numField(p.gst_percent ?? 18),
-        warranty_months: numField(p.warranty_months ?? 0),
-        description: stringField(p.description),
-        aliases: als,
-        tags: tgs,
-        is_active: p.is_active !== false,
-        is_featured: p.is_featured === true,
-      });
-    } else if (create) {
+  const subgroupOptions = useMemo(() => {
+    const list = metaOptions?.subgroups ?? [];
+    if (!selectedGroupId) return list;
+    return list.filter((sg) => {
+      const g = sg.group;
+      const gid =
+        typeof g === "string"
+          ? g
+          : g && typeof g === "object" && "_id" in (g as object)
+            ? String((g as { _id: unknown })._id)
+            : String(g ?? "");
+      return gid === selectedGroupId;
+    });
+  }, [metaOptions?.subgroups, selectedGroupId]);
+
+  // Sync details to form state (edit or duplicate-create)
+  useEffect(() => {
+    if (rawProduct && typeof rawProduct === "object" && sourceProductId) {
+      setForm(
+        productToFormState(rawProduct as Record<string, unknown>, {
+          asCopy: isDuplicating,
+        }),
+      );
+    } else if (create && !isDuplicating) {
       setForm(defaultProductState());
     }
-  }, [rawProduct, create]);
+  }, [rawProduct, create, isDuplicating, sourceProductId]);
 
   // Clean form when modal closes
   useEffect(() => {
@@ -203,12 +249,20 @@ export function ProductDetailModal({
       .map((s) => s.trim())
       .filter(Boolean);
 
+    const groupName = form.product_group.trim();
+    const subgroupName = form.product_subgroup.trim();
+    if (subgroupName && !groupName) {
+      toast.error("Select or enter a commercial group before setting a subgroup");
+      setActiveTab("basic");
+      return;
+    }
+
     const payload: Record<string, any> = {
       product_name: form.product_name.trim(),
       generic_name: form.generic_name.trim() || undefined,
       sku: form.sku.trim() || undefined,
-      product_group: form.product_group.trim() || undefined,
-      product_subgroup: form.product_subgroup.trim() || undefined,
+      product_group: groupName || undefined,
+      product_subgroup: subgroupName || undefined,
       brand: form.brand.trim() || undefined,
       manufacturer: form.manufacturer.trim() || undefined,
       unit: form.unit,
@@ -242,8 +296,15 @@ export function ProductDetailModal({
         if (!valsEqual(form.product_name.trim(), pObj.product_name)) patch.product_name = form.product_name.trim();
         if (!valsEqual(form.generic_name.trim(), pObj.generic_name)) patch.generic_name = form.generic_name.trim() || null;
         if (!valsEqual(form.sku.trim(), pObj.sku)) patch.sku = form.sku.trim() || null;
-        if (!valsEqual(form.product_group.trim(), oldGroup)) patch.product_group = form.product_group.trim() || null;
-        if (!valsEqual(form.product_subgroup.trim(), oldSubgroup)) patch.product_subgroup = form.product_subgroup.trim() || null;
+
+        const groupChanged = !valsEqual(groupName, oldGroup);
+        const subgroupChanged = !valsEqual(subgroupName, oldSubgroup);
+        if (groupChanged || subgroupChanged) {
+          // Always send both so new names can be created and linked under the right group.
+          patch.product_group = groupName || null;
+          patch.product_subgroup = subgroupName || null;
+        }
+
         if (!valsEqual(form.brand.trim(), oldBrand)) patch.brand = form.brand.trim() || null;
         if (!valsEqual(form.manufacturer.trim(), oldManufacturer)) patch.manufacturer = form.manufacturer.trim() || null;
         if (form.unit !== pObj.unit) patch.unit = form.unit;
@@ -305,10 +366,22 @@ export function ProductDetailModal({
         <div className="flex items-center justify-between border-b border-slate-200/90 px-5 py-4 dark:border-white/10">
           <div>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-              {create ? "Add Product" : isFetching ? "Loading Product Details..." : form.product_name || "Product Detail"}
+              {create
+                ? isDuplicating
+                  ? isFetching
+                    ? "Loading…"
+                    : "Duplicate Product"
+                  : "Add Product"
+                : isFetching
+                  ? "Loading Product Details..."
+                  : form.product_name || "Product Detail"}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {create ? "Create catalog product profile" : "View or edit catalog specifications and pricing"}
+              {create
+                ? isDuplicating
+                  ? "Review the copied details, then save as a new product"
+                  : "Create catalog product profile"
+                : "View or edit catalog specifications and pricing"}
             </p>
           </div>
           <button
@@ -398,14 +471,22 @@ export function ProductDetailModal({
                   className={inputClass}
                   placeholder="e.g. Tablets"
                   value={form.product_group}
-                  onChange={(e) => setForm((f) => ({ ...f, product_group: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      product_group: e.target.value,
+                    }))
+                  }
                   disabled={isSaving}
                 />
                 <datalist id="group-options">
-                  {metaOptions?.groups?.map(g => (
+                  {metaOptions?.groups?.map((g) => (
                     <option key={g._id} value={g.name} />
                   ))}
                 </datalist>
+                <p className="text-2xs text-slate-500 dark:text-slate-400">
+                  Pick an existing group or type a new name to create it on save.
+                </p>
               </div>
 
               <div className="space-y-1">
@@ -417,13 +498,18 @@ export function ProductDetailModal({
                   placeholder="e.g. Analgesics"
                   value={form.product_subgroup}
                   onChange={(e) => setForm((f) => ({ ...f, product_subgroup: e.target.value }))}
-                  disabled={isSaving}
+                  disabled={isSaving || !form.product_group.trim()}
                 />
                 <datalist id="subgroup-options">
-                  {metaOptions?.subgroups?.map(sg => (
+                  {subgroupOptions.map((sg) => (
                     <option key={sg._id} value={sg.name} />
                   ))}
                 </datalist>
+                <p className="text-2xs text-slate-500 dark:text-slate-400">
+                  {form.product_group.trim()
+                    ? "Pick an existing subgroup or type a new name to create it under this group."
+                    : "Enter a commercial group first to set or create a subgroup."}
+                </p>
               </div>
 
               <div className="space-y-1">
@@ -438,10 +524,13 @@ export function ProductDetailModal({
                   disabled={isSaving}
                 />
                 <datalist id="brand-options">
-                  {metaOptions?.brands?.map(b => (
+                  {metaOptions?.brands?.map((b) => (
                     <option key={b._id} value={b.name} />
                   ))}
                 </datalist>
+                <p className="text-2xs text-slate-500 dark:text-slate-400">
+                  Pick an existing brand or type a new name to create it on save.
+                </p>
               </div>
 
               <div className="space-y-1">
@@ -456,10 +545,13 @@ export function ProductDetailModal({
                   disabled={isSaving}
                 />
                 <datalist id="manufacturer-options">
-                  {metaOptions?.manufacturers?.map(m => (
+                  {metaOptions?.manufacturers?.map((m) => (
                     <option key={m._id} value={m.name} />
                   ))}
                 </datalist>
+                <p className="text-2xs text-slate-500 dark:text-slate-400">
+                  Pick an existing manufacturer or type a new name to create it on save.
+                </p>
               </div>
 
               <div className="space-y-1">
@@ -620,10 +712,16 @@ export function ProductDetailModal({
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={isSaving}
+            disabled={isSaving || (isDuplicating && isFetching)}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
           >
-            {isSaving ? "Saving..." : create ? "Add Product" : "Save Changes"}
+            {isSaving
+              ? "Saving..."
+              : create
+                ? isDuplicating
+                  ? "Create Duplicate"
+                  : "Add Product"
+                : "Save Changes"}
           </button>
         </div>
       </div>

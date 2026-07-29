@@ -16,6 +16,7 @@ import {
   Plus,
   Upload,
   TableProperties,
+  Copy,
 } from "lucide-react";
 
 import { primaryContactDisplay } from "@/lib/partyContacts";
@@ -202,6 +203,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
 
   const [detailId, setDetailId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [duplicateFromId, setDuplicateFromId] = useState<string | null>(null);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   const [googleSheetOpen, setGoogleSheetOpen] = useState(false);
 
@@ -272,10 +274,18 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
   const closePartyModal = useCallback(() => {
     setDetailId(null);
     setCreateOpen(false);
+    setDuplicateFromId(null);
   }, []);
 
   const openCreate = useCallback(() => {
     setDetailId(null);
+    setDuplicateFromId(null);
+    setCreateOpen(true);
+  }, []);
+
+  const openDuplicate = useCallback((id: string) => {
+    setDetailId(null);
+    setDuplicateFromId(id);
     setCreateOpen(true);
   }, []);
 
@@ -395,6 +405,7 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
       <PartyDetailModal
         partyId={createOpen ? null : detailId}
         create={createOpen}
+        duplicateFromId={duplicateFromId}
         portalHome={portalHome}
         onClose={closePartyModal}
       />
@@ -696,6 +707,15 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
                               <span>View</span>
                               <ExternalLink className="h-3 w-3" />
                             </Link>
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center rounded border border-slate-200 p-1 text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-white/10 dark:text-slate-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 transition cursor-pointer disabled:opacity-50"
+                              onClick={() => id && openDuplicate(id)}
+                              disabled={!id}
+                              title="Duplicate party"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
                             <button
                               type="button"
                               className="inline-flex items-center justify-center rounded border border-slate-200 hover:border-rose-300 p-1 text-rose-600 hover:bg-rose-50 dark:border-white/10 dark:text-rose-400 dark:hover:bg-rose-950/30 transition cursor-pointer disabled:opacity-50"

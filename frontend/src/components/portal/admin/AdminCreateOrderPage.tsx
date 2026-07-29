@@ -14,11 +14,11 @@ import {
   Plus,
   ArrowLeft,
   Check,
+  History,
 } from "lucide-react";
 
 import {
   mutationRejectedMessage,
-  mutationSuccessCopy,
 } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import {
@@ -26,6 +26,10 @@ import {
   type MapOrderLinePriceSuccess,
   type MapOrderLinePriceTarget,
 } from "@/components/portal/shared/MapOrderLinePriceModal";
+import {
+  PreviousPartyItemsModal,
+  type PreviousPartyOrderItem,
+} from "@/components/portal/shared/PreviousPartyItemsModal";
 import { Button } from "@/components/ui/Button";
 import {
   LineRateStatusBadge,
@@ -36,7 +40,6 @@ import {
 import {
   useCheckPartyLineRatesQuery,
   useCreateOrderMutation,
-  useLazyListOrdersQuery,
   useListPartiesQuery,
   useListProductsQuery,
   useListUsersQuery,
@@ -609,12 +612,29 @@ export default function AdminCreateOrderPage({
 
   const [mapTarget, setMapTarget] = useState<MapOrderLinePriceTarget | null>(null);
   const [mapModalOpen, setMapModalOpen] = useState(false);
+  const [previousItemsModalOpen, setPreviousItemsModalOpen] = useState(false);
 
   const [createOrder, { isLoading: isCreating }] = useCreateOrderMutation();
-  const [triggerListOrders] = useLazyListOrdersQuery();
 
   const isLoading = isCreating;
   const canMapPrice = Boolean(partyId);
+
+  const selectedParty = useMemo(() => {
+    return parties.find((p) => String(p._id ?? p.id ?? "") === String(partyId));
+  }, [parties, partyId]);
+
+  const selectedPartyName = selectedParty
+    ? String(selectedParty.party_name || "")
+    : "";
+
+  const onPartyChange = useCallback((id: string) => {
+    setPartyId(id);
+    if (id) {
+      setPreviousItemsModalOpen(true);
+    } else {
+      setPreviousItemsModalOpen(false);
+    }
+  }, []);
 
   const lineRateCheckInput = useMemo(() => {
     if (!partyId) return null;
@@ -838,54 +858,37 @@ export default function AdminCreateOrderPage({
     };
   }, [lines]);
 
-  const populateFromLastOrder = useCallback((lastOrder: any) => {
-    if (!lastOrder || !Array.isArray(lastOrder.order_items)) return;
-
-    const mappedLines = lastOrder.order_items.map((item: any) => ({
-      key: typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      productId: String(item.product?._id ?? item.product?.id ?? item.product ?? ""),
-      product_name: String(item.product_name ?? ""),
-      sku: String(item.sku ?? ""),
-      brand: String(item.brand ?? ""),
-      manufacturer: String(item.manufacturer ?? ""),
-      product_group: String(item.product_group ?? ""),
-      product_subgroup: String(item.product_subgroup ?? ""),
-      unit: String(item.unit ?? ""),
-      quantity: Number(item.ordered_quantity ?? item.quantity ?? 1),
-      free_qty: Number(item.free_quantity ?? item.free_qty ?? 0),
-      unit_price: Number(item.unit_price ?? 0),
-      discount_percent: Number(item.discount_percent ?? 0),
-      discount_amount: Number(item.discount_amount ?? 0),
-      gst_percent: Number(item.gst_percent ?? 18),
-      applied_rate_type: String(item.applied_rate_type || "SR"),
-      remarks: String(item.remarks ?? ""),
+  const loadPreviousItems = useCallback((items: PreviousPartyOrderItem[]) => {
+    const mappedLines: LineRow[] = items.map((item) => ({
+      key:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      productId: item.productId,
+      product_name: item.product_name,
+      sku: item.sku,
+      brand: item.brand,
+      manufacturer: item.manufacturer,
+      product_group: item.product_group,
+      product_subgroup: item.product_subgroup,
+      unit: item.unit,
+      quantity: item.quantity,
+      free_qty: item.free_qty,
+      unit_price: item.unit_price,
+      discount_percent: item.discount_percent,
+      discount_amount: item.discount_amount,
+      gst_percent: item.gst_percent,
+      applied_rate_type: item.applied_rate_type,
+      remarks: item.remarks,
     }));
 
     if (mappedLines.length > 0) {
       setLines(mappedLines);
-      toast.success("Auto-populated line items from the last order placed by this party.");
+      toast.success(
+        `Loaded ${mappedLines.length} previous item${mappedLines.length === 1 ? "" : "s"} for this party.`,
+      );
     }
   }, []);
-
-  useEffect(() => {
-    if (!partyId) return;
-
-    const fetchLastOrder = async () => {
-      try {
-        const res = await triggerListOrders({ party: partyId }).unwrap();
-        const orders = pickList(res);
-        if (orders && orders.length > 0) {
-          populateFromLastOrder(orders[0]);
-        }
-      } catch (err) {
-        console.error("Failed to fetch last order:", err);
-      }
-    };
-
-    fetchLastOrder();
-  }, [partyId, triggerListOrders, populateFromLastOrder]);
 
   const onSubmit = useCallback(
     async (e: FormEvent) => {
@@ -1088,7 +1091,7 @@ export default function AdminCreateOrderPage({
                 <PartyAutocomplete
                   parties={parties}
                   selectedId={partyId}
-                  onChange={setPartyId}
+                  onChange={onPartyChange}
                   className={inputClass}
                 />
                 {partiesQ.isError && (
@@ -1142,9 +1145,21 @@ export default function AdminCreateOrderPage({
                   </p>
                 </div>
               </div>
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
-                {lines.length} {lines.length === 1 ? "item" : "items"}
-              </span>
+              <div className="flex items-center gap-2">
+                {partyId ? (
+                  <button
+                    type="button"
+                    onClick={() => setPreviousItemsModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5"
+                  >
+                    <History className="h-3.5 w-3.5" />
+                    Previous items
+                  </button>
+                ) : null}
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
+                  {lines.length} {lines.length === 1 ? "item" : "items"}
+                </span>
+              </div>
             </header>
 
             {productsQ.isError && (
@@ -1572,6 +1587,14 @@ export default function AdminCreateOrderPage({
         partyId={partyId}
         target={mapTarget}
         onSuccess={handleMapPriceSuccess}
+      />
+
+      <PreviousPartyItemsModal
+        open={previousItemsModalOpen}
+        onClose={() => setPreviousItemsModalOpen(false)}
+        partyId={partyId}
+        partyName={selectedPartyName}
+        onLoad={loadPreviousItems}
       />
     </div>
   );
