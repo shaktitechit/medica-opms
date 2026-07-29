@@ -117,9 +117,9 @@ export function AccountApprovalRecordCard({
   const pdfTemplateRef = useRef<HTMLDivElement>(null);
 
   const canAmend =
-    approvalStatus === "approved" ||
-    approvalStatus === "fully_approved" ||
-    approvalStatus === "partially_approved";
+    Boolean(approval.is_finance_approved) &&
+    (approvalStatus === "fully_approved" ||
+      approvalStatus === "partially_approved");
 
   const items = useMemo(() => {
     return Array.isArray(approval.approval_items)

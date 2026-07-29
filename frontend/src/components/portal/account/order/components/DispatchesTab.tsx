@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import { CreateAccountDispatchModal } from "./CreateAccountDispatchModal";
+import { SettleRestOrderModal } from "./SettleRestOrderModal";
 import {
   filterAccountApprovalsForUser,
   groupAccountDispatchesByRelease,
@@ -12,7 +13,6 @@ import {
   summarizeReleaseDispatchState,
 } from "./accountDispatchAvailability";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
-import { resolveUserDisplay } from "@/components/portal/shared/userDisplay";
 import {
   useListDispatchesQuery,
   useListOrderApprovalsQuery,
@@ -130,6 +130,10 @@ export function DispatchesTab({
   const [isCreateDispatchModalOpen, setIsCreateDispatchModalOpen] = useState(false);
   const [createDispatchApprovalId, setCreateDispatchApprovalId] = useState("");
   const [editingDispatch, setEditingDispatch] = useState<Record<string, any> | null>(null);
+  const [settleModalContext, setSettleModalContext] = useState<{
+    approval: Record<string, unknown>;
+    releaseNo: string;
+  } | null>(null);
   const [submittingDispatchId, setSubmittingDispatchId] = useState<string | null>(null);
   const [patchDispatch] = usePatchDispatchMutation();
 
@@ -267,6 +271,26 @@ export function DispatchesTab({
       return summary.canContinueDispatch;
     });
 
+  const firstSettleableRelease = useMemo(() => {
+    if (["cancelled", "on_hold"].includes(orderStatus)) return null;
+    for (const approval of accountApprovals) {
+      if (!isFullyClearedApproval(approval)) continue;
+      const summary = summarizeReleaseDispatchState(
+        approval,
+        dispatches,
+        orderItems,
+        orderReturns,
+        { includeWarehouseReturns: true },
+      );
+      if (!summary.canResolveRelease) continue;
+      return {
+        approval,
+        releaseNo: String(approval.approval_no ?? idFromRef(approval._id ?? approval.id)),
+      };
+    }
+    return null;
+  }, [accountApprovals, dispatches, orderItems, orderReturns, orderStatus]);
+
   const openCreateDispatch = useCallback((approvalId?: string) => {
     setEditingDispatch(null);
     setCreateDispatchApprovalId(approvalId ?? "");
@@ -278,6 +302,13 @@ export function DispatchesTab({
     setEditingDispatch(disp);
     setIsCreateDispatchModalOpen(true);
   }, []);
+
+  const openSettleRestOrder = useCallback(
+    (approval: Record<string, unknown>, releaseNo: string) => {
+      setSettleModalContext({ approval, releaseNo });
+    },
+    [],
+  );
 
   const openPrimaryDispatchAction = useCallback(() => {
     if (canCreateDispatch) {
@@ -415,6 +446,20 @@ export function DispatchesTab({
                   ? "Continue dispatch"
                   : "Create dispatch"}
             </button>
+            {firstSettleableRelease ? (
+              <button
+                type="button"
+                onClick={() =>
+                  openSettleRestOrder(
+                    firstSettleableRelease.approval,
+                    firstSettleableRelease.releaseNo,
+                  )
+                }
+                className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+              >
+                Settle Rest Order
+              </button>
+            ) : null}
           </div>
         </div>
         {!canCreateDispatch && !editableDraftForClearedRelease && createDispatchDisabledReason ? (
@@ -486,6 +531,17 @@ export function DispatchesTab({
                             className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
                           >
                             Continue dispatch
+                          </button>
+                        ) : null}
+                        {releaseSummary.canResolveRelease && group.approval ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openSettleRestOrder(group.approval!, group.releaseNo)
+                            }
+                            className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                          >
+                            Settle Rest Order
                           </button>
                         ) : null}
                       </div>
@@ -915,6 +971,17 @@ export function DispatchesTab({
         initialApprovalId={createDispatchApprovalId || undefined}
         editingDispatch={editingDispatch}
         onCreated={handleRefetch}
+      />
+
+      <SettleRestOrderModal
+        open={settleModalContext !== null}
+        onClose={() => setSettleModalContext(null)}
+        orderId={orderId}
+        approval={settleModalContext?.approval ?? null}
+        dispatches={dispatches}
+        orderItems={orderItems}
+        releaseNo={settleModalContext?.releaseNo}
+        onSettled={handleRefetch}
       />
     </div>
   );

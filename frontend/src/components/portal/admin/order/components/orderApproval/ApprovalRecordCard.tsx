@@ -233,10 +233,14 @@ export function ApprovalRecordCard({
   const isAccountApproved = Boolean(approval.is_account_approved);
   const canAccountApprove =
     isAccountPortal &&
+    isFinanceApproved &&
     !isAccountApproved &&
     !isAmendBlocked;
   const canAccountAmend =
-    isAccountPortal && isAccountApproved && !isAmendBlocked;
+    isAccountPortal &&
+    isFinanceApproved &&
+    isAccountApproved &&
+    !isAmendBlocked;
   const canAmend = isAmendBlocked
     ? false
     : isFinancePortal || isAccountPortal

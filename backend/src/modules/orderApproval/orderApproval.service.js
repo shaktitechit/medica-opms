@@ -1057,12 +1057,7 @@ function finalizeAccountOverrideApproval(doc, user) {
   doc.is_account_approved = true;
   doc.account_approved_by = doc.account_approved_by || user._id;
   doc.account_approved_at = doc.account_approved_at || now;
-  // Keep pipeline flags consistent so dispatch availability sees a fully cleared batch.
-  if (!doc.is_finance_approved) {
-    doc.is_finance_approved = true;
-    doc.finance_approved_by = doc.finance_approved_by || user._id;
-    doc.finance_approved_at = doc.finance_approved_at || now;
-  }
+  // Do not stamp finance clearance here — account approval must not imply finance approved.
   if (!doc.is_admin_approved) {
     doc.is_admin_approved = true;
     doc.admin_approved_by = doc.admin_approved_by || doc.approved_by || user._id;
@@ -1134,8 +1129,11 @@ async function syncOrderLinesFromFinanceAmendment(order, approvalDoc, rateByLine
     const approvedPrice = Number(item.approved_unit_price ?? line.unit_price ?? 0);
     const currentOrdered = Number(line.ordered_quantity ?? line.quantity ?? 0);
 
-    // Finance only updates finance-cleared qty; do not shrink admin/order ordered pool.
-    if (approvedQty > currentOrdered) {
+    // Finance amend: grow ordered pool only. Settle/resolve: shrink ordered to net settled.
+    if (options.shrinkOrderedToApproved) {
+      line.ordered_quantity = approvedQty;
+      line.quantity = approvedQty;
+    } else if (approvedQty > currentOrdered) {
       line.ordered_quantity = approvedQty;
       line.quantity = approvedQty;
     }
@@ -1996,7 +1994,9 @@ async function amendByAccount(id, body, user) {
   const doc = await OrderApproval.findOne({ _id: id, deletedAt: null });
   if (!doc) throw new ApiError(404, APPROVAL_NF);
 
-
+  if (!doc.is_finance_approved) {
+    throw new ApiError(400, 'Finance approval must be completed before account approval or amendment');
+  }
 
   const dispatchExists = await OrderDispatch.exists({
     order: doc.order,
@@ -2089,8 +2089,8 @@ async function amendByAccount(id, body, user) {
     entity_id: doc._id,
     action: 'updated',
     message: wasAccountApproved
-      ? `Finance approval ${doc.approval_no} amended and account-updated`
-      : `Finance approval ${doc.approval_no} approved by account`,
+      ? `Account approval ${doc.approval_no} amended`
+      : `Account approval ${doc.approval_no} approved`,
   });
 
   return decideAccount(id, 'approved', {
@@ -2369,7 +2369,11 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
     });
   }
 
-  if (approvalItemOverrides.length === 0) {
+  // Prefer client-provided settled approval items when present (modal builds them).
+  const clientOverrides = Array.isArray(body?.approval_items) ? body.approval_items : [];
+  const overridesToApply = clientOverrides.length > 0 ? clientOverrides : approvalItemOverrides;
+
+  if (overridesToApply.length === 0) {
     throw new ApiError(400, 'No dispatched or return quantities found to resolve against');
   }
 
@@ -2377,7 +2381,7 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
     approvalItems.map((item) => String(item.order_item_id)),
   );
 
-  mergeApprovalItemOverrides(doc, approvalItemOverrides);
+  mergeApprovalItemOverrides(doc, overridesToApply);
 
   for (const item of doc.approval_items || []) {
     const key = String(item.order_item_id);
@@ -2394,7 +2398,11 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
     [...priorLineIds].filter((lineId) => !activeLineIds.has(lineId)),
   );
 
-  await syncOrderLinesFromFinanceAmendment(order, doc, rateByLine, { removedLineIds });
+  // Amend both the approval batch (via merge above) and the order lines to net settled qtys.
+  await syncOrderLinesFromFinanceAmendment(order, doc, rateByLine, {
+    removedLineIds,
+    shrinkOrderedToApproved: true,
+  });
 
   if (hasReturnsToSettle) {
     const orderDispatches = await OrderDispatch.find({
@@ -2511,13 +2519,14 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
     entity_type: 'approval',
     entity_id: doc._id,
     action: 'updated',
-    message: `Finance approval ${doc.approval_no} resolved to net settled quantities`,
+    message: `Account approval ${doc.approval_no} settled to net dispatched quantities (approval + order amended)`,
   });
 
+  // bypassSequence: do not copy stale order line qtys back onto the settled approval items.
   return decideAccount(id, 'approved', {
     approval_notes: note,
     approved_total_amount: doc.approved_total_amount,
-  }, user, options);
+  }, user, { ...options, bypassSequence: true });
 }
 
 async function amend(id, body, user) {
