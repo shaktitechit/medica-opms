@@ -147,11 +147,6 @@ function resolveOrderApprovalPending(approvalDocs = [], order = {}) {
   };
 }
 
-function resolveOrderAllRatesMapped(approvalDocs = []) {
-  const active = (approvalDocs || []).filter((doc) => !isApprovalRejected(doc));
-  return active.some((doc) => doc.all_rates_mapped === true);
-}
-
 async function enrichOrdersWithApprovalPending(rows, models) {
   if (!Array.isArray(rows) || rows.length === 0) return [];
 
@@ -163,7 +158,6 @@ async function enrichOrdersWithApprovalPending(rows, models) {
     return rows.map((row) => ({
       ...row,
       approval_pending: resolveOrderApprovalPending([], row),
-      all_rates_mapped: false,
     }));
   }
 
@@ -171,9 +165,7 @@ async function enrichOrdersWithApprovalPending(rows, models) {
     order: { $in: orderIds },
     deletedAt: null,
   })
-    .select(
-      'order is_admin_approved is_finance_approved is_account_approved rejection_reason rejected_by all_rates_mapped rates_reviewed',
-    )
+    .select('order is_admin_approved is_finance_approved is_account_approved rejection_reason rejected_by')
     .lean();
 
   const byOrder = new Map();
@@ -184,15 +176,10 @@ async function enrichOrdersWithApprovalPending(rows, models) {
     byOrder.set(key, list);
   }
 
-  return rows.map((row) => {
-    const docs = byOrder.get(String(row._id)) || [];
-    return {
-      ...row,
-      approval_pending: resolveOrderApprovalPending(docs, row),
-      // Super-admin rate check on any active approval clears the due-sheet gate.
-      all_rates_mapped: resolveOrderAllRatesMapped(docs),
-    };
-  });
+  return rows.map((row) => ({
+    ...row,
+    approval_pending: resolveOrderApprovalPending(byOrder.get(String(row._id)) || [], row),
+  }));
 }
 
 async function enrichOrdersWithDueSheetStatus(rows, models) {
@@ -281,7 +268,6 @@ module.exports = {
   findOrderIdsWithAnyPendingApproval,
   isAnyPendingApprovalStatus,
   resolveOrderApprovalPending,
-  resolveOrderAllRatesMapped,
   enrichOrdersWithApprovalPending,
   enrichOrdersWithDueSheetStatus,
   enrichOrdersWithFlagStatus,

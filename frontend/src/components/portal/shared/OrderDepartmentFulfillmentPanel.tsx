@@ -15,7 +15,7 @@ import {
 import {
   isAccountCleared,
   isAdminCleared,
-  isDueSheetStageCleared,
+  isDueSheetUploaded,
   isFinanceCleared,
 } from "./orderList/orderWorkflowTabs";
 
@@ -238,8 +238,7 @@ export function OrderDepartmentFulfillmentPanel({
     }
     return {
       adminCleared: isAdminCleared(order),
-      // Unlock finance qty when due sheet uploaded OR all approval rates mapped.
-      dueSheetUploaded: isDueSheetStageCleared(order),
+      dueSheetUploaded: isDueSheetUploaded(order),
       financeCleared: isFinanceCleared(order),
       accountCleared: isAccountCleared(order),
     };
@@ -264,8 +263,7 @@ export function OrderDepartmentFulfillmentPanel({
           </h3>
           {!workflowGates.dueSheetUploaded && workflowGates.adminCleared ? (
             <p className="mb-2 text-2xs text-amber-700 dark:text-amber-400">
-              Finance quantities stay at 0 until the due sheet is uploaded or all
-              approval rates are mapped.
+              Finance quantities stay at 0 until the due sheet is uploaded.
             </p>
           ) : null}
           <ItemsFulfillmentTable lines={lines} gates={workflowGates} />

@@ -188,48 +188,13 @@ export function isDueSheetUploaded(order: unknown): boolean {
 }
 
 /**
- * True when super-admin (or approval flow) has mapped all line rates on an
- * active order approval. Enriched onto list/detail as `all_rates_mapped`.
- */
-export function areOrderRatesMapped(order: unknown): boolean {
-  if (!order || typeof order !== "object") return false;
-  const row = order as Record<string, unknown>;
-  if (row.all_rates_mapped === true) return true;
-
-  for (const key of [
-    "last_admin_approval",
-    "last_finance_approval",
-    "last_account_approval",
-  ] as const) {
-    const ref = row[key];
-    if (
-      ref &&
-      typeof ref === "object" &&
-      (ref as Record<string, unknown>).all_rates_mapped === true
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Due-sheet workflow gate: upload OR all rates checked on order approval.
- * Either path unblocks finance.
- */
-export function isDueSheetStageCleared(order: unknown): boolean {
-  return isDueSheetUploaded(order) || areOrderRatesMapped(order);
-}
-
-/**
  * Exclusive pending stage for list tabs.
  *
  * Flow:
  * 1. submitted → admin pending
- * 2. admin cleared + no due sheet / rates → due sheet pending (handled by isDueSheetPending)
- * 3. admin + due sheet (or rates mapped) + finance not cleared → finance pending
- * 4. admin + due sheet (or rates mapped) + finance + account not cleared → account pending
+ * 2. admin cleared + no due sheet → due sheet pending (handled by isDueSheetPending)
+ * 3. admin + due sheet + finance not cleared → finance pending
+ * 4. admin + due sheet + finance + account not cleared → account pending
  * 5. otherwise no approval stage pending (dispatch / later)
  *
  * Always sequential — overlapping API `approval_pending` flags are ignored for
@@ -252,8 +217,8 @@ export function resolveApprovalPending(order: unknown): ApprovalPendingSummary {
     return { admin: true, finance: false, account: false, stage: "admin" };
   }
 
-  if (!isDueSheetStageCleared(row)) {
-    // Due sheet / rates gate is its own tab; no approval stage is "current" here.
+  if (!isDueSheetUploaded(row)) {
+    // Due sheet is its own tab; no approval stage is "current" here.
     return { admin: false, finance: false, account: false, stage: null };
   }
 
@@ -350,8 +315,8 @@ export function isOrderClosedOrDelivered(order: unknown): boolean {
 }
 
 /**
- * Admin cleared, and neither due sheet uploaded nor all approval rates mapped.
- * Finance cannot start until one of those clears the due-sheet gate.
+ * Admin cleared, due sheet not uploaded yet.
+ * Finance cannot start until due sheet is present.
  */
 export function isDueSheetPending(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
@@ -365,7 +330,7 @@ export function isDueSheetPending(order: unknown): boolean {
   if (isOrderClosedOrDelivered(row)) return false;
 
   if (!isAdminCleared(row)) return false;
-  if (isDueSheetStageCleared(row)) return false;
+  if (isDueSheetUploaded(row)) return false;
 
   return true;
 }
@@ -375,8 +340,8 @@ export function isDueSheetPending(order: unknown): boolean {
  *
  * submitted → admin pending
  * admin done → due sheet pending
- * admin + due sheet (or rates mapped) → finance pending
- * admin + due sheet (or rates mapped) + finance → account pending
+ * admin + due sheet → finance pending
+ * admin + due sheet + finance → account pending
  * all of the above done → dispatch pending
  */
 export function getOrderWorkflowTabCategory(order: unknown): OrderWorkflowTabCategory | null {
