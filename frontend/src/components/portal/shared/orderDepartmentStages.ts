@@ -1,7 +1,23 @@
 /**
- * Per-department workflow boxes: status, qty progress, remaining, and relevant action.
- * Stages follow the exclusive order pipeline:
- * submitted → admin → due sheet → finance → account → dispatch → delivery/return.
+ * Per-department workflow boxes — synced with backend models:
+ *
+ * | Box        | Source of truth |
+ * |------------|-----------------|
+ * | Sales      | Order.lifecycle_status / workflow_stage=sales |
+ * | Admin      | OrderApproval.is_admin_approved + Order.admin_approval_status |
+ * | Due sheet  | OrderDueSheet (active) OR OrderApproval.is_due_sheet_uploaded |
+ * | Finance    | OrderApproval.is_finance_approved + Order.finance_approval_status |
+ * | Account    | OrderApproval.is_account_approved + Order.account_approval_status |
+ * | Dispatch   | Order.dispatch_status (rollup) + OrderDispatch.dispatch_status |
+ * | Delivery   | Order.delivery_status (rollup) + TransportShipment / OrderDelivery |
+ * | Return     | OrderReturn.return_status (+ line returned qty) |
+ *
+ * Order.workflow_stage (ORDER_WORKFLOW_STAGE): sales → admin_review →
+ * finance_review → account_review → dispatch → completed.
+ * Due sheet is a gate between admin and finance (not a workflow_stage value).
+ * OrderWorkflow is audit-only (not used for box state).
+ *
+ * Pipeline: submitted → admin → due sheet → finance → account → dispatch → delivery/return.
  */
 
 import {
@@ -351,18 +367,68 @@ function actionForDepartment(
   return deriveAction(order);
 }
 
+/**
+ * Normalize Order.workflow_stage to canonical ORDER_WORKFLOW_STAGE values
+ * (mirrors backend normalizeWorkflowStage).
+ */
+function normalizeWorkflowStage(stage: string): string {
+  const s = String(stage || "").toLowerCase();
+  if (s === "dispatch_review" || s === "dispatch_execution") return "dispatch";
+  if (s === "hold") return "on_hold";
+  if (s === "delivered") return "completed";
+  return s;
+}
+
+/** Index into Order.workflow_stage pipeline (canonical + legacy aliases). */
 function stageIndex(stage: string): number {
   const order = [
     "sales",
     "admin_review",
     "finance_review",
     "account_review",
-    "dispatch_review",
-    "dispatch_execution",
+    "dispatch",
     "completed",
   ];
-  const idx = order.indexOf(stage);
+  const idx = order.indexOf(normalizeWorkflowStage(stage));
   return idx >= 0 ? idx : -1;
+}
+
+/** Order.dispatch_status rollup (FULFILLMENT_STATUS) — not OrderDispatch.dispatch_status. */
+function orderDispatchRollup(value: unknown): string {
+  return String(value || "pending").toLowerCase();
+}
+
+/** Order.delivery_status rollup (FULFILLMENT_STATUS). */
+function orderDeliveryRollup(value: unknown): string {
+  return String(value || "pending").toLowerCase();
+}
+
+/**
+ * TransportShipment.shipment_status when nested on dispatches / order.
+ * Used only as a delivery-box hint after a batch is submitted.
+ */
+function latestShipmentStatus(
+  dispatches?: Record<string, unknown>[] | null,
+  order?: Record<string, unknown> | null,
+): string {
+  const fromOrder = order?.latest_shipment_status ?? order?.shipment_status;
+  if (fromOrder != null && String(fromOrder)) {
+    return String(fromOrder).toLowerCase();
+  }
+  if (!Array.isArray(dispatches)) return "";
+  for (let i = dispatches.length - 1; i >= 0; i -= 1) {
+    const d = dispatches[i];
+    const nested =
+      d.shipment_status ??
+      (d.transport && typeof d.transport === "object"
+        ? (d.transport as Record<string, unknown>).shipment_status
+        : null) ??
+      (d.shipment && typeof d.shipment === "object"
+        ? (d.shipment as Record<string, unknown>).shipment_status
+        : null);
+    if (nested != null && String(nested)) return String(nested).toLowerCase();
+  }
+  return "";
 }
 
 export function computeDepartmentStageBoxes(
@@ -378,16 +444,19 @@ export function computeDepartmentStageBoxes(
   let totals = totalsFromSources(order, fulfillmentSnapshot, options);
   const salesResolved = resolveSalesApprovedTotals(order, totals);
   totals = { ...totals, ...salesResolved };
-  const stage = String(order.workflow_stage || "");
+  const stage = normalizeWorkflowStage(String(order.workflow_stage || ""));
   const lifecycle = String(order.lifecycle_status || "");
-  const dispatchStatus = String(
-    fulfillmentSnapshot?.dispatch_status ?? order.dispatch_status ?? "pending",
+  // Order.* rollups (FULFILLMENT_STATUS) — distinct from OrderDispatch / OrderDelivery enums.
+  const dispatchStatus = orderDispatchRollup(
+    fulfillmentSnapshot?.dispatch_status ?? order.dispatch_status,
   );
-  const deliveryStatus = String(
-    fulfillmentSnapshot?.delivery_status ?? order.delivery_status ?? "pending",
+  const deliveryStatus = orderDeliveryRollup(
+    fulfillmentSnapshot?.delivery_status ?? order.delivery_status,
   );
+  const shipmentStatus = latestShipmentStatus(options?.dispatches, order);
   const currentIdx = stageIndex(stage);
-  const cancelled = lifecycle === "cancelled" || stage === "cancelled";
+  const cancelled =
+    lifecycle === "cancelled" || stage === "cancelled" || String(order.status || "") === "cancelled";
 
   const mk = (
     id: string,
@@ -484,7 +553,7 @@ export function computeDepartmentStageBoxes(
     dueSheetStatus = {
       key: "flagged",
       label: "Marked uploaded",
-      detail: "is_due_sheet_uploaded on approval",
+      detail: "Flagged on order approval",
       tone: "success",
     };
   }
@@ -568,14 +637,16 @@ export function computeDepartmentStageBoxes(
       tone: "info",
     };
   } else if (submittedDispatch) {
+    // OrderDispatch.dispatch_status: submitted | transport_created
     dispatchStatusDim = {
       key: "submitted",
       label: "Submitted for transport",
       tone: "info",
     };
   } else if (
-    ["dispatch_review", "dispatch_execution"].includes(stage) ||
-    currentIdx >= stageIndex("dispatch_review") ||
+    stage === "dispatch" ||
+    currentIdx >= stageIndex("dispatch") ||
+    workflowStatus === "dispatch" ||
     workflowStatus === "dispatch_pending" ||
     workflowStatus === "fully_account_approved" ||
     workflowStatus === "account_approved"
@@ -594,7 +665,11 @@ export function computeDepartmentStageBoxes(
           ? "Awaiting dispatch submit"
           : "Awaiting dispatch",
     };
-  } else if (deliveryStatus === "completed" || (totals.delivered > 0 && totals.pendingDelivery === 0)) {
+  } else if (
+    deliveryStatus === "completed" ||
+    shipmentStatus === "delivered" ||
+    (totals.delivered > 0 && totals.pendingDelivery === 0)
+  ) {
     deliveryStatusDim = {
       key: "fulfilled",
       label: "Fully delivered",
@@ -608,11 +683,24 @@ export function computeDepartmentStageBoxes(
       detail: `${totals.pendingDelivery} qty in transit / pending`,
       tone: "info",
     };
+  } else if (
+    shipmentStatus === "in_transit" ||
+    shipmentStatus === "out_for_delivery" ||
+    shipmentStatus === "picked_up"
+  ) {
+    deliveryStatusDim = {
+      key: "in_transit",
+      label: "In transit",
+      detail: shipmentStatus.replaceAll("_", " "),
+      tone: "info",
+    };
   } else if (submittedDispatch || totals.dispatched > 0) {
     deliveryStatusDim = {
       key: "pending",
       label: "Transport pending",
-      detail: "Dispatch submitted for transport",
+      detail: shipmentStatus
+        ? shipmentStatus.replaceAll("_", " ")
+        : "Dispatch submitted for transport",
       tone: "warning",
     };
   } else {
@@ -621,7 +709,10 @@ export function computeDepartmentStageBoxes(
 
   const returnCap = totals.delivered > 0 ? totals.delivered : totals.dispatched;
   const returnedQty = totals.returned;
-  const pendingReturnQty = totals.pendingReturn;
+  // OrderReturn.return_status: pending | received_at_warehouse
+  const pendingReturnQty =
+    totals.pendingReturn ||
+    (options?.returns?.length ? totalPendingReturnQty(options.returns) : 0);
 
   let returnStatusDim: OrderStatusDimension;
   if (returnCap <= 0) {
