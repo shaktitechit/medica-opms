@@ -147,6 +147,10 @@ function resolveOrderApprovalPending(approvalDocs = [], order = {}) {
   };
 }
 
+function isTruthyFlag(value) {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
 async function enrichOrdersWithApprovalPending(rows, models) {
   if (!Array.isArray(rows) || rows.length === 0) return [];
 
@@ -162,6 +166,8 @@ async function enrichOrdersWithApprovalPending(rows, models) {
     }));
   }
 
+  const objectIds = orderIds.map((id) => new mongoose.Types.ObjectId(String(id)));
+
   const approvals = await models.OrderApproval.find({
     order: { $in: orderIds },
     deletedAt: null,
@@ -170,6 +176,17 @@ async function enrichOrdersWithApprovalPending(rows, models) {
       'order is_admin_approved is_finance_approved is_account_approved rejection_reason rejected_by is_due_sheet_uploaded',
     )
     .lean();
+
+  // Native collection read so a stale/cached schema path cannot hide the flag.
+  const flaggedOrderIds = new Set(
+    (
+      await models.OrderApproval.collection.distinct('order', {
+        order: { $in: objectIds },
+        deletedAt: null,
+        is_due_sheet_uploaded: true,
+      })
+    ).map((id) => String(id)),
+  );
 
   const byOrder = new Map();
   for (const doc of approvals) {
@@ -180,13 +197,14 @@ async function enrichOrdersWithApprovalPending(rows, models) {
   }
 
   return rows.map((row) => {
-    const docs = byOrder.get(String(row._id)) || [];
-    const active = docs.filter((doc) => !isApprovalRejected(doc));
+    const orderKey = String(row._id);
+    const docs = byOrder.get(orderKey) || [];
+    // Do not require non-rejected — leftover rejection_reason must not hide the flag.
+    const fromDocs = docs.some((doc) => isTruthyFlag(doc.is_due_sheet_uploaded));
     return {
       ...row,
       approval_pending: resolveOrderApprovalPending(docs, row),
-      // Surface OrderApproval.is_due_sheet_uploaded for due-sheet stage gate.
-      is_due_sheet_uploaded: active.some((doc) => doc.is_due_sheet_uploaded === true),
+      is_due_sheet_uploaded: fromDocs || flaggedOrderIds.has(orderKey),
     };
   });
 }
@@ -216,10 +234,16 @@ async function enrichOrdersWithDueSheetStatus(rows, models) {
 
   const uploadedOrderIds = new Set(activeDueSheets.map((ds) => String(ds.order)));
 
-  return rows.map((row) => ({
-    ...row,
-    due_sheet_uploaded: uploadedOrderIds.has(String(row._id)),
-  }));
+  return rows.map((row) => {
+    const uploaded =
+      uploadedOrderIds.has(String(row._id)) || isTruthyFlag(row.is_due_sheet_uploaded);
+    return {
+      ...row,
+      // Keep list tabs / badges in sync: physical sheet OR approval DB flag.
+      due_sheet_uploaded: uploaded,
+      is_due_sheet_uploaded: uploaded || isTruthyFlag(row.is_due_sheet_uploaded),
+    };
+  });
 }
 
 async function enrichOrdersWithFlagStatus(rows, models) {

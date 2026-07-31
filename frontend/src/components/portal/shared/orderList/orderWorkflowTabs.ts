@@ -182,10 +182,14 @@ export function isAccountCleared(order: unknown): boolean {
   );
 }
 
+function isTruthyFlag(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
 /** True when an active OrderDueSheet exists (list/detail enrichment). */
 export function isDueSheetUploaded(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
-  return (order as Record<string, unknown>).due_sheet_uploaded === true;
+  return isTruthyFlag((order as Record<string, unknown>).due_sheet_uploaded);
 }
 
 /**
@@ -195,7 +199,7 @@ export function isDueSheetUploaded(order: unknown): boolean {
 export function isApprovalDueSheetUploaded(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
   const row = order as Record<string, unknown>;
-  if (row.is_due_sheet_uploaded === true) return true;
+  if (isTruthyFlag(row.is_due_sheet_uploaded)) return true;
 
   for (const key of [
     "last_admin_approval",
@@ -206,7 +210,7 @@ export function isApprovalDueSheetUploaded(order: unknown): boolean {
     if (
       ref &&
       typeof ref === "object" &&
-      (ref as Record<string, unknown>).is_due_sheet_uploaded === true
+      isTruthyFlag((ref as Record<string, unknown>).is_due_sheet_uploaded)
     ) {
       return true;
     }
