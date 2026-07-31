@@ -158,6 +158,7 @@ async function enrichOrdersWithApprovalPending(rows, models) {
     return rows.map((row) => ({
       ...row,
       approval_pending: resolveOrderApprovalPending([], row),
+      is_due_sheet_uploaded: false,
     }));
   }
 
@@ -165,7 +166,9 @@ async function enrichOrdersWithApprovalPending(rows, models) {
     order: { $in: orderIds },
     deletedAt: null,
   })
-    .select('order is_admin_approved is_finance_approved is_account_approved rejection_reason rejected_by')
+    .select(
+      'order is_admin_approved is_finance_approved is_account_approved rejection_reason rejected_by is_due_sheet_uploaded',
+    )
     .lean();
 
   const byOrder = new Map();
@@ -176,10 +179,16 @@ async function enrichOrdersWithApprovalPending(rows, models) {
     byOrder.set(key, list);
   }
 
-  return rows.map((row) => ({
-    ...row,
-    approval_pending: resolveOrderApprovalPending(byOrder.get(String(row._id)) || [], row),
-  }));
+  return rows.map((row) => {
+    const docs = byOrder.get(String(row._id)) || [];
+    const active = docs.filter((doc) => !isApprovalRejected(doc));
+    return {
+      ...row,
+      approval_pending: resolveOrderApprovalPending(docs, row),
+      // Surface OrderApproval.is_due_sheet_uploaded for due-sheet stage gate.
+      is_due_sheet_uploaded: active.some((doc) => doc.is_due_sheet_uploaded === true),
+    };
+  });
 }
 
 async function enrichOrdersWithDueSheetStatus(rows, models) {

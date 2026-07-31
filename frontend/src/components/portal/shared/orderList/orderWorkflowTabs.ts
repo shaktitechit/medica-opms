@@ -182,9 +182,45 @@ export function isAccountCleared(order: unknown): boolean {
   );
 }
 
+/** True when an active OrderDueSheet exists (list/detail enrichment). */
 export function isDueSheetUploaded(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
   return (order as Record<string, unknown>).due_sheet_uploaded === true;
+}
+
+/**
+ * True when OrderApproval.is_due_sheet_uploaded is set in the DB
+ * (on the order enrichment or nested last_*_approval refs).
+ */
+export function isApprovalDueSheetUploaded(order: unknown): boolean {
+  if (!order || typeof order !== "object") return false;
+  const row = order as Record<string, unknown>;
+  if (row.is_due_sheet_uploaded === true) return true;
+
+  for (const key of [
+    "last_admin_approval",
+    "last_finance_approval",
+    "last_account_approval",
+  ] as const) {
+    const ref = row[key];
+    if (
+      ref &&
+      typeof ref === "object" &&
+      (ref as Record<string, unknown>).is_due_sheet_uploaded === true
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Due-sheet workflow gate: physical upload OR approval flag in DB.
+ * Either path clears due-sheet pending and unblocks finance.
+ */
+export function isDueSheetStageCleared(order: unknown): boolean {
+  return isDueSheetUploaded(order) || isApprovalDueSheetUploaded(order);
 }
 
 /**
@@ -192,9 +228,9 @@ export function isDueSheetUploaded(order: unknown): boolean {
  *
  * Flow:
  * 1. submitted → admin pending
- * 2. admin cleared + no due sheet → due sheet pending (handled by isDueSheetPending)
- * 3. admin + due sheet + finance not cleared → finance pending
- * 4. admin + due sheet + finance + account not cleared → account pending
+ * 2. admin cleared + due sheet not cleared → due sheet pending (handled by isDueSheetPending)
+ * 3. admin + due sheet cleared + finance not cleared → finance pending
+ * 4. admin + due sheet cleared + finance + account not cleared → account pending
  * 5. otherwise no approval stage pending (dispatch / later)
  *
  * Always sequential — overlapping API `approval_pending` flags are ignored for
@@ -217,8 +253,8 @@ export function resolveApprovalPending(order: unknown): ApprovalPendingSummary {
     return { admin: true, finance: false, account: false, stage: "admin" };
   }
 
-  if (!isDueSheetUploaded(row)) {
-    // Due sheet is its own tab; no approval stage is "current" here.
+  if (!isDueSheetStageCleared(row)) {
+    // Due sheet gate is its own tab; no approval stage is "current" here.
     return { admin: false, finance: false, account: false, stage: null };
   }
 
@@ -315,8 +351,8 @@ export function isOrderClosedOrDelivered(order: unknown): boolean {
 }
 
 /**
- * Admin cleared, due sheet not uploaded yet.
- * Finance cannot start until due sheet is present.
+ * Admin cleared, and due sheet not yet cleared.
+ * Clears when a due sheet is uploaded OR OrderApproval.is_due_sheet_uploaded is true.
  */
 export function isDueSheetPending(order: unknown): boolean {
   if (!order || typeof order !== "object") return false;
@@ -330,7 +366,7 @@ export function isDueSheetPending(order: unknown): boolean {
   if (isOrderClosedOrDelivered(row)) return false;
 
   if (!isAdminCleared(row)) return false;
-  if (isDueSheetUploaded(row)) return false;
+  if (isDueSheetStageCleared(row)) return false;
 
   return true;
 }
@@ -340,8 +376,8 @@ export function isDueSheetPending(order: unknown): boolean {
  *
  * submitted → admin pending
  * admin done → due sheet pending
- * admin + due sheet → finance pending
- * admin + due sheet + finance → account pending
+ * admin + due sheet cleared → finance pending
+ * admin + due sheet cleared + finance → account pending
  * all of the above done → dispatch pending
  */
 export function getOrderWorkflowTabCategory(order: unknown): OrderWorkflowTabCategory | null {

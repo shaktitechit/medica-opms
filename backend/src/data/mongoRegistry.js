@@ -1228,6 +1228,7 @@ function registerModels() {
       // Operational properties
       rates_reviewed: { type: Boolean, default: false },
       all_rates_mapped: { type: Boolean, default: false },
+      is_due_sheet_uploaded: { type: Boolean, default: false, index: true },
       credit_limit_checked: { type: Boolean, default: false },
       outstanding_checked: { type: Boolean, default: false },
       risk_level: { type: String, enum: ["low", "medium", "high", "critical"], default: "low" },

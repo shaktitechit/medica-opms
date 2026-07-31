@@ -25,6 +25,8 @@ import {
 import {
   isAccountCleared,
   isAdminCleared,
+  isApprovalDueSheetUploaded,
+  isDueSheetStageCleared,
   isDueSheetUploaded,
   isFinanceCleared,
 } from "./orderList/orderWorkflowTabs";
@@ -427,6 +429,9 @@ export function computeDepartmentStageBoxes(
   const workflowStatus = deriveOrderWorkflowStatus(order);
   const adminCleared = isAdminCleared(order);
   const dueSheetUploaded = isDueSheetUploaded(order);
+  const approvalDueSheetFlagged = isApprovalDueSheetUploaded(order);
+  // Pass when due sheet file exists OR OrderApproval.is_due_sheet_uploaded is true.
+  const dueSheetCleared = isDueSheetStageCleared(order);
   const financeCleared = isFinanceCleared(order);
   const accountCleared = isAccountCleared(order);
   const submittedDispatch = hasSubmittedDispatch(options?.dispatches);
@@ -467,12 +472,19 @@ export function computeDepartmentStageBoxes(
   let dueSheetStatus: OrderStatusDimension;
   if (!adminCleared) {
     dueSheetStatus = { ...WAITING, detail: "Awaiting admin approval" };
-  } else if (!dueSheetUploaded) {
+  } else if (!dueSheetCleared) {
     dueSheetStatus = { ...PENDING, detail: "Upload required before finance" };
-  } else {
+  } else if (dueSheetUploaded) {
     dueSheetStatus = {
       key: "uploaded",
       label: "Uploaded",
+      tone: "success",
+    };
+  } else {
+    dueSheetStatus = {
+      key: "flagged",
+      label: "Marked uploaded",
+      detail: "is_due_sheet_uploaded on approval",
       tone: "success",
     };
   }
@@ -480,7 +492,7 @@ export function computeDepartmentStageBoxes(
   let financeStatus: OrderStatusDimension;
   if (!adminCleared) {
     financeStatus = { ...WAITING, detail: "Awaiting admin approval" };
-  } else if (!dueSheetUploaded) {
+  } else if (!dueSheetCleared) {
     financeStatus = { ...WAITING, detail: "Awaiting due sheet" };
   } else if (!financeCleared) {
     financeStatus =
@@ -502,7 +514,7 @@ export function computeDepartmentStageBoxes(
   let accountStatusDim: OrderStatusDimension;
   if (!adminCleared) {
     accountStatusDim = { ...WAITING, detail: "Awaiting admin approval" };
-  } else if (!dueSheetUploaded) {
+  } else if (!dueSheetCleared) {
     accountStatusDim = { ...WAITING, detail: "Awaiting due sheet" };
   } else if (!financeCleared) {
     accountStatusDim = { ...WAITING, detail: "Awaiting finance approval" };
@@ -535,7 +547,7 @@ export function computeDepartmentStageBoxes(
       ...WAITING,
       detail: !adminCleared
         ? "Awaiting admin approval"
-        : !dueSheetUploaded
+        : !dueSheetCleared
           ? "Awaiting due sheet"
           : !financeCleared
             ? "Awaiting finance approval"
@@ -654,10 +666,10 @@ export function computeDepartmentStageBoxes(
     };
   }
 
-  const financeCap = dueSheetUploaded ? totals.salesApproved || totals.ordered : 0;
+  const financeCap = dueSheetCleared ? totals.salesApproved || totals.ordered : 0;
   const accountCap = financeCleared ? totals.approved : 0;
-  const financeCompleted = dueSheetUploaded ? totals.approved : 0;
-  const financeRemaining = dueSheetUploaded ? totals.pendingFinance : 0;
+  const financeCompleted = dueSheetCleared ? totals.approved : 0;
+  const financeRemaining = dueSheetCleared ? totals.pendingFinance : 0;
   const accountCompleted = financeCleared ? totals.accountCleared : 0;
   const accountRemaining = financeCleared ? totals.pendingAccount : 0;
   const dispatchCompleted = accountCleared ? totals.dispatched : 0;
@@ -686,10 +698,14 @@ export function computeDepartmentStageBoxes(
       "due_sheet",
       "Due Sheet",
       dueSheetStatus,
-      dueSheetUploaded ? 1 : 0,
-      adminCleared && !dueSheetUploaded ? 1 : 0,
+      dueSheetCleared ? 1 : 0,
+      adminCleared && !dueSheetCleared ? 1 : 0,
       1,
-      "Due sheet upload",
+      dueSheetUploaded
+        ? "Due sheet upload"
+        : approvalDueSheetFlagged
+          ? "Approval due-sheet flag"
+          : "Due sheet upload",
     ),
     mk(
       "finance",

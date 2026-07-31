@@ -38,6 +38,18 @@ const {
 
 const APPROVAL_NF = 'Order approval not found';
 
+async function resolveIsDueSheetUploaded(orderId) {
+  if (!orderId) return false;
+  const { OrderDueSheet } = getModels();
+  const hasCurrent = await OrderDueSheet.exists({
+    order: orderId,
+    deletedAt: null,
+    is_current: true,
+    status: 'active',
+  });
+  return Boolean(hasCurrent);
+}
+
 const ADMIN_REVIEW_STATUSES = new Set(['submitted', 'on_hold']);
 const ADMIN_CREATE_STATUSES = new Set([
   'draft',
@@ -581,6 +593,12 @@ async function createAdminApproval(body, user) {
     });
   }
 
+  // Keep due-sheet flag on the approval (set from body or current due sheet).
+  doc.is_due_sheet_uploaded = body.is_due_sheet_uploaded != null
+    ? Boolean(body.is_due_sheet_uploaded)
+    : await resolveIsDueSheetUploaded(body.order);
+  await doc.save();
+
   order.admin_approval_status = APPROVAL_STATUS.PENDING;
   order.last_admin_approval = doc._id;
   await order.save();
@@ -675,6 +693,11 @@ async function createFinanceApproval(body, user) {
     await doc.save();
   }
 
+  doc.is_due_sheet_uploaded = body.is_due_sheet_uploaded != null
+    ? Boolean(body.is_due_sheet_uploaded)
+    : await resolveIsDueSheetUploaded(body.order);
+  await doc.save();
+
   await workflowService.transitionOrderStatus({
     orderId: body.order,
     nextStatus: 'finance_review',
@@ -728,6 +751,7 @@ async function patch(id, patchBody, user) {
     'rejected_total_amount',
     'rates_reviewed',
     'all_rates_mapped',
+    'is_due_sheet_uploaded',
     'credit_limit_checked',
     'outstanding_checked',
     'risk_level',
@@ -2993,6 +3017,7 @@ async function superSheetUpdate(id, body, user) {
     'is_account_approved',
     'rates_reviewed',
     'all_rates_mapped',
+    'is_due_sheet_uploaded',
     'credit_limit_checked',
     'outstanding_checked',
     'finance_amended',

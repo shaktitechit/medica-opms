@@ -43,6 +43,7 @@ type ApprovalHeaderDraft = {
   is_account_approved: boolean;
   rates_reviewed: boolean;
   all_rates_mapped: boolean;
+  is_due_sheet_uploaded: boolean;
   credit_limit_checked: boolean;
   outstanding_checked: boolean;
   approval_notes: string;
@@ -142,6 +143,7 @@ function headerFromApproval(approval: Record<string, unknown>): ApprovalHeaderDr
     is_account_approved: Boolean(approval.is_account_approved),
     rates_reviewed: Boolean(approval.rates_reviewed),
     all_rates_mapped: Boolean(approval.all_rates_mapped),
+    is_due_sheet_uploaded: Boolean(approval.is_due_sheet_uploaded),
     credit_limit_checked: Boolean(approval.credit_limit_checked),
     outstanding_checked: Boolean(approval.outstanding_checked),
     approval_notes: String(approval.approval_notes ?? ""),
@@ -567,6 +569,7 @@ export function OrderApprovalsForm({
                       ["is_account_approved", "Account approved"],
                       ["rates_reviewed", "Rates reviewed"],
                       ["all_rates_mapped", "All rates mapped"],
+                      ["is_due_sheet_uploaded", "Due sheet uploaded"],
                       ["credit_limit_checked", "Credit checked"],
                       ["outstanding_checked", "Outstanding checked"],
                     ] as const
