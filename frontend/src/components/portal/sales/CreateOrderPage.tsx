@@ -370,6 +370,13 @@ export default function CreateOrderPage() {
   const products = useMemo(() => pickList(productsQ.data), [productsQ.data]);
 
   const [partyId, setPartyId] = useState("");
+  const [orderDate, setOrderDate] = useState(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  });
   const [expectedDate, setExpectedDate] = useState("");
   const headerDiscount = "0";
   const [remarks, setRemarks] = useState("");
@@ -547,6 +554,10 @@ export default function CreateOrderPage() {
         toast.error("Each line needs quantity ≥ 1.");
         return;
       }
+      if (!orderDate.trim()) {
+        toast.error("Order date is required.");
+        return;
+      }
       if (!expectedDate.trim()) {
         toast.error("Expected delivery date is required.");
         return;
@@ -558,6 +569,7 @@ export default function CreateOrderPage() {
         discount_amount: Number(headerDiscount || 0),
         priority: "normal",
         remarks: remarks.trim() || "",
+        order_date: orderDate,
         expected_delivery_date: expectedDate,
         assigned_sales_user: (user?._id || user?.id) ? String(user?._id || user?.id) : undefined,
       };
@@ -577,6 +589,7 @@ export default function CreateOrderPage() {
     [
       partyId,
       createOrder,
+      orderDate,
       expectedDate,
       lines,
       remarks,
@@ -862,6 +875,20 @@ export default function CreateOrderPage() {
                   Specify details and save draft.
                 </p>
               </header>
+
+              <div className="space-y-1">
+                <label htmlFor="co-order-date" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                  Order Date <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="co-order-date"
+                  type="date"
+                  required
+                  value={orderDate}
+                  onChange={(e) => setOrderDate(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
 
               <div className="space-y-1">
                 <label htmlFor="co-eta" className="text-xs font-semibold text-slate-600 dark:text-slate-400">

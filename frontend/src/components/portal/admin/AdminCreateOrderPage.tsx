@@ -604,6 +604,13 @@ export default function AdminCreateOrderPage({
   const salesUsers = useMemo(() => pickList(salesUsersQ.data), [salesUsersQ.data]);
 
   const [partyId, setPartyId] = useState("");
+  const [orderDate, setOrderDate] = useState(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  });
   const [expectedDate, setExpectedDate] = useState("");
   const headerDiscount = "0";
   const [remarks, setRemarks] = useState("");
@@ -905,6 +912,10 @@ export default function AdminCreateOrderPage({
         toast.error("Please negotiate all items before submitting the order.");
         return;
       }
+      if (!orderDate.trim()) {
+        toast.error("Order date is required.");
+        return;
+      }
       if (!expectedDate.trim()) {
         toast.error("Expected delivery date is required.");
         return;
@@ -1003,6 +1014,7 @@ export default function AdminCreateOrderPage({
           remarks: remarks.trim() || "",
           submit_on_create: true,
           submit_remarks: "Initial submission upon creation",
+          order_date: orderDate,
           expected_delivery_date: expectedDate,
           [portalConfig.assignedUserField]: actorId,
           assigned_sales_user: assignedSales,
@@ -1026,6 +1038,7 @@ export default function AdminCreateOrderPage({
     [
       partyId,
       createOrder,
+      orderDate,
       expectedDate,
       lines,
       remarks,
@@ -1101,7 +1114,21 @@ export default function AdminCreateOrderPage({
                 )}
               </div>
 
-              <div className="space-y-1 sm:col-span-2 lg:col-span-4">
+              <div className="space-y-1 sm:col-span-2 lg:col-span-2">
+                <label htmlFor="co-order-date" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                  Order Date <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="co-order-date"
+                  type="date"
+                  required
+                  value={orderDate}
+                  onChange={(e) => setOrderDate(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+
+              <div className="space-y-1 sm:col-span-2 lg:col-span-2">
                 <label htmlFor="co-eta" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Expected delivery <span className="text-rose-500">*</span>
                 </label>
