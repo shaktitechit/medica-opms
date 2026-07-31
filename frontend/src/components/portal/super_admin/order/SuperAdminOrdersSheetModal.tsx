@@ -69,6 +69,12 @@ import { OrderDispatchesForm } from "./OrderDispatchesForm";
 import { OrderTransportsForm } from "./OrderTransportsForm";
 import { OrderDeliveriesForm } from "./OrderDeliveriesForm";
 import { OrderReturnsForm } from "./OrderReturnsForm";
+import {
+  ORDER_WORKFLOW_TABS,
+  orderMatchesWorkflowTab,
+  type OrderWorkflowTabCategory,
+} from "@/components/portal/shared/orderList/orderWorkflowTabs";
+import { getOrderListTabIcon } from "@/components/portal/shared/orderList/orderListTabIcons";
 
 export type SuperAdminOrdersSheetModalProps = {
   isOpen: boolean;
@@ -849,6 +855,7 @@ export function SuperAdminOrdersSheetModal({
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "yesterday" | "last7" | "thisMonth" | "custom">("all");
   const [customDateFrom, setCustomDateFrom] = useState("");
   const [customDateTo, setCustomDateTo] = useState("");
+  const [workflowTab, setWorkflowTab] = useState<OrderWorkflowTabCategory>("all");
   const [sheetTab, setSheetTab] = useState<"orders" | "bin">("orders");
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
   const [savingApprovalIds, setSavingApprovalIds] = useState<
@@ -1139,6 +1146,9 @@ export function SuperAdminOrdersSheetModal({
         if (dateTo && orderDate >= dateTo) return false;
       }
 
+      // Shared workflow tab (admin → due sheet → finance → account → dispatch…)
+      if (!orderMatchesWorkflowTab(o, workflowTab)) return false;
+
       // Text search
       if (!q) return true;
       const id = refId(o._id || o.id);
@@ -1196,7 +1206,17 @@ export function SuperAdminOrdersSheetModal({
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [localOrders, searchQuery, dateFilter, customDateFrom, customDateTo, partyNameById, userNameById, approvalById]);
+  }, [
+    localOrders,
+    searchQuery,
+    dateFilter,
+    customDateFrom,
+    customDateTo,
+    workflowTab,
+    partyNameById,
+    userNameById,
+    approvalById,
+  ]);
 
   const itemsOrder = useMemo(
     () =>
@@ -1837,64 +1857,6 @@ export function SuperAdminOrdersSheetModal({
               </button>
             ) : null}
           </div>
-          {/* Date filter row */}
-          <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-2 shrink-0 dark:border-slate-800 dark:bg-slate-900">
-            <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400">Order Date</span>
-            {([
-              ["all", "All"],
-              ["today", "Today"],
-              ["yesterday", "Yesterday"],
-              ["last7", "Last 7 days"],
-              ["thisMonth", "This month"],
-              ["custom", "Custom range"],
-            ] as [string, string][]).map(([val, label]) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => setDateFilter(val as any)}
-                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                  dateFilter === val
-                    ? "bg-amber-500 text-white shadow-sm"
-                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-            {dateFilter === "custom" && (
-              <div className="flex items-center gap-1.5 ml-1">
-                <input
-                  type="date"
-                  value={customDateFrom}
-                  onChange={(e) => setCustomDateFrom(e.target.value)}
-                  className="rounded border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900"
-                  placeholder="From"
-                />
-                <span className="text-xs text-slate-400">→</span>
-                <input
-                  type="date"
-                  value={customDateTo}
-                  onChange={(e) => setCustomDateTo(e.target.value)}
-                  className="rounded border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900"
-                  placeholder="To"
-                />
-                {(customDateFrom || customDateTo) && (
-                  <button
-                    type="button"
-                    onClick={() => { setCustomDateFrom(""); setCustomDateTo(""); }}
-                    className="rounded px-2 py-1 text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            )}
-            {dateFilter !== "all" && (
-              <span className="ml-auto text-2xs text-slate-400">
-                {filteredOrders.length} matching order{filteredOrders.length !== 1 ? "s" : ""}
-              </span>
-            )}
-          </div>
           <div className="relative w-64">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
@@ -1904,6 +1866,103 @@ export function SuperAdminOrdersSheetModal({
               className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900"
             />
           </div>
+        </div>
+
+        {/* Date filter row */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-2 shrink-0 dark:border-slate-800 dark:bg-slate-900">
+          <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400">Order Date</span>
+          {([
+            ["all", "All"],
+            ["today", "Today"],
+            ["yesterday", "Yesterday"],
+            ["last7", "Last 7 days"],
+            ["thisMonth", "This month"],
+            ["custom", "Custom range"],
+          ] as [string, string][]).map(([val, label]) => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => setDateFilter(val as typeof dateFilter)}
+              className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                dateFilter === val
+                  ? "bg-amber-500 text-white shadow-sm"
+                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          {dateFilter === "custom" && (
+            <div className="flex items-center gap-1.5 ml-1">
+              <input
+                type="date"
+                value={customDateFrom}
+                onChange={(e) => setCustomDateFrom(e.target.value)}
+                className="rounded border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900"
+                placeholder="From"
+              />
+              <span className="text-xs text-slate-400">→</span>
+              <input
+                type="date"
+                value={customDateTo}
+                onChange={(e) => setCustomDateTo(e.target.value)}
+                className="rounded border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900"
+                placeholder="To"
+              />
+              {(customDateFrom || customDateTo) && (
+                <button
+                  type="button"
+                  onClick={() => { setCustomDateFrom(""); setCustomDateTo(""); }}
+                  className="rounded px-2 py-1 text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+          {(dateFilter !== "all" || workflowTab !== "all") && (
+            <span className="ml-auto text-2xs text-slate-400">
+              {filteredOrders.length} matching order{filteredOrders.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+
+        {/* Workflow status — shared ORDER_WORKFLOW_TABS */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-2 shrink-0 dark:border-slate-800 dark:bg-slate-900">
+          <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400">
+            Workflow
+          </span>
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
+            {ORDER_WORKFLOW_TABS.map((tab) => {
+              const TabIcon = getOrderListTabIcon(tab.id);
+              const active = workflowTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  title={tab.label}
+                  onClick={() => setWorkflowTab(tab.id)}
+                  className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                    active
+                      ? "bg-amber-500 text-white shadow-sm"
+                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  <TabIcon className="h-3 w-3 shrink-0" aria-hidden />
+                  <span className="whitespace-nowrap">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          {workflowTab !== "all" ? (
+            <button
+              type="button"
+              onClick={() => setWorkflowTab("all")}
+              className="shrink-0 rounded px-2 py-1 text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+            >
+              Clear
+            </button>
+          ) : null}
         </div>
 
         <div className="relative min-h-0 flex-1 overflow-auto bg-slate-100 dark:bg-slate-950">
@@ -2126,10 +2185,13 @@ export function SuperAdminOrdersSheetModal({
           </table>
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-500 shrink-0 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex flex-col gap-1 border-t border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-500 shrink-0 dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
           <span>
             {filteredOrders.length} / {localOrders.length}{" "}
             {isBin ? "deleted orders" : "orders"}
+            {workflowTab !== "all"
+              ? ` · ${ORDER_WORKFLOW_TABS.find((t) => t.id === workflowTab)?.label ?? workflowTab}`
+              : ""}
             {!isBin
               ? " · trash = delete · package = items · clipboard = approvals · truck = dispatches"
               : " · restore returns the order to the active sheet"}
