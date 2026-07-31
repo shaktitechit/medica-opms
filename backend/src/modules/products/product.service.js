@@ -114,7 +114,7 @@ async function resolveProductRefs(payload, user, existing = null) {
 
   for (const field of fields) {
     if (!Object.prototype.hasOwnProperty.call(payload, field.key) && existing) {
-      const existingVal = existing.get ? existing.get(field.key) : existing[field.key];
+      const existingVal = existing._doc ? existing._doc[field.key] : (existing.get ? existing.get(field.key) : existing[field.key]);
       if (existingVal !== undefined && existingVal !== null && typeof existingVal === 'string' && !isObjectId(existingVal)) {
         payload[field.key] = existingVal;
       }
@@ -139,7 +139,7 @@ async function resolveProductRefs(payload, user, existing = null) {
   }
 
   if (!Object.prototype.hasOwnProperty.call(payload, 'product_subgroup') && existing) {
-    const existingVal = existing.get ? existing.get('product_subgroup') : existing.product_subgroup;
+    const existingVal = existing._doc ? existing._doc.product_subgroup : (existing.get ? existing.get('product_subgroup') : existing.product_subgroup);
     if (existingVal !== undefined && existingVal !== null && typeof existingVal === 'string' && !isObjectId(existingVal)) {
       payload.product_subgroup = existingVal;
     }
@@ -691,10 +691,14 @@ async function syncFromGoogleSheet(row) {
   }
 
   if (skuVal) payload.sku = skuVal;
-  if (row.product_group || row.group) payload.product_group = String(row.product_group || row.group).trim();
-  if (row.product_subgroup || row.subgroup) payload.product_subgroup = String(row.product_subgroup || row.subgroup).trim();
-  if (row.brand) payload.brand = String(row.brand).trim();
-  if (row.manufacturer) payload.manufacturer = String(row.manufacturer).trim();
+  if (row.product_group !== undefined || row.group !== undefined) {
+    payload.product_group = String(row.product_group ?? row.group ?? '').trim();
+  }
+  if (row.product_subgroup !== undefined || row.subgroup !== undefined) {
+    payload.product_subgroup = String(row.product_subgroup ?? row.subgroup ?? '').trim();
+  }
+  if (row.brand !== undefined) payload.brand = String(row.brand ?? '').trim();
+  if (row.manufacturer !== undefined) payload.manufacturer = String(row.manufacturer ?? '').trim();
 
   if (unitRaw && ['pcs', 'box', 'kg', 'ltr', 'meter', 'set', 'kit', 'bottle'].includes(unitRaw)) {
     payload.unit = unitRaw;
