@@ -104,6 +104,18 @@ async function findOrCreateNamedRef(Model, name, { extraFilter = {}, createField
  * @param {object|null} [existing] current product doc (for subgroup → group fallback)
  */
 async function resolveProductRefs(payload, user, existing = null) {
+  console.log('[DEBUG] resolveProductRefs payload before:', JSON.stringify(payload));
+  try {
+    await _resolveProductRefs(payload, user, existing);
+  } catch (err) {
+    console.error('[DEBUG] resolveProductRefs threw error:', err);
+    throw err;
+  } finally {
+    console.log('[DEBUG] resolveProductRefs payload after:', JSON.stringify(payload));
+  }
+}
+
+async function _resolveProductRefs(payload, user, existing = null) {
   const { ProductGroup, ProductSubgroup, ProductBrand, ProductManufacturer } = getModels();
 
   const fields = [
@@ -457,7 +469,7 @@ async function create(body, user) {
 }
 
 async function update(id, patch, user) {
-  const doc = await getModels().Product.findOne({ _id: id, deletedAt: null });
+  const doc = await getModels().Product.findOne({ _id: id, deletedAt: null }).lean();
   if (!doc) throw new ApiError(404, nf);
 
   const sanitized = sanitizePatch(patch);
@@ -471,11 +483,7 @@ async function update(id, patch, user) {
     sanitized.updated_by = user._id;
   }
 
-  for (const [k, v] of Object.entries(sanitized)) {
-    doc.set(k, v);
-  }
-
-  await doc.save();
+  await getModels().Product.updateOne({ _id: id }, { $set: sanitized });
 
   if (user) {
     await activityService.create({
@@ -636,6 +644,7 @@ async function bulkDelete(ids, user) {
 }
 
 async function syncFromGoogleSheet(row) {
+  console.log('[DEBUG] syncFromGoogleSheet row:', JSON.stringify(row));
   const { Product } = getModels();
 
   if (!row || typeof row !== 'object') {
@@ -648,12 +657,12 @@ async function syncFromGoogleSheet(row) {
 
   let doc = null;
   if (isMongoId) {
-    doc = await Product.findOne({ _id: rawId, deletedAt: null });
+    doc = await Product.findOne({ _id: rawId, deletedAt: null }).lean();
   }
 
   const skuVal = row.sku ? String(row.sku).trim().toUpperCase() : '';
   if (!doc && skuVal) {
-    doc = await Product.findOne({ sku: skuVal, deletedAt: null });
+    doc = await Product.findOne({ sku: skuVal, deletedAt: null }).lean();
   }
 
   // Parse attributes
@@ -726,10 +735,7 @@ async function syncFromGoogleSheet(row) {
   await resolveProductRefs(payload, null, doc);
 
   if (doc) {
-    for (const [k, v] of Object.entries(payload)) {
-      doc.set(k, v);
-    }
-    await doc.save();
+    await Product.updateOne({ _id: doc._id }, { $set: payload });
     const [populated] = await findProductsLean({ _id: doc._id, deletedAt: null });
     return toPlain(populated);
   }
