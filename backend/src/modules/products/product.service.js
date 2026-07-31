@@ -113,6 +113,13 @@ async function resolveProductRefs(payload, user, existing = null) {
   ];
 
   for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(payload, field.key) && existing) {
+      const existingVal = existing.get ? existing.get(field.key) : existing[field.key];
+      if (existingVal !== undefined && existingVal !== null && typeof existingVal === 'string' && !isObjectId(existingVal)) {
+        payload[field.key] = existingVal;
+      }
+    }
+
     if (!Object.prototype.hasOwnProperty.call(payload, field.key)) continue;
     const normalized = normalizeRefInput(payload[field.key]);
     if (normalized == null) {
@@ -129,6 +136,13 @@ async function resolveProductRefs(payload, user, existing = null) {
     }
     const doc = await findOrCreateNamedRef(field.model, normalized, { user });
     payload[field.key] = doc._id;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(payload, 'product_subgroup') && existing) {
+    const existingVal = existing.get ? existing.get('product_subgroup') : existing.product_subgroup;
+    if (existingVal !== undefined && existingVal !== null && typeof existingVal === 'string' && !isObjectId(existingVal)) {
+      payload.product_subgroup = existingVal;
+    }
   }
 
   if (!Object.prototype.hasOwnProperty.call(payload, 'product_subgroup')) return;
