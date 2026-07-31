@@ -15,6 +15,7 @@ import {
   Save,
   ClipboardCheck,
   RotateCcw,
+  Truck,
 } from "lucide-react";
 import {
   useListOrdersQuery,
@@ -27,6 +28,16 @@ import {
   useSuperSheetPatchOrderApprovalMutation,
   useDeleteOrderMutation,
   useRestoreOrderMutation,
+  useListDispatchesQuery,
+  usePatchDispatchMutation,
+  useCreateDispatchMutation,
+  useListTransportsQuery,
+  useCreateTransportMutation,
+  usePatchTransportMutation,
+  useListOrderDeliveriesQuery,
+  useLogShipmentDeliveryMutation,
+  useListOrderReturnsQuery,
+  useCreateOrderReturnMutation,
 } from "@/store/api";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import {
@@ -39,10 +50,25 @@ import {
   resolveUserDisplay,
 } from "@/components/portal/shared/userDisplay";
 import { toast } from "@/lib/toast";
+import { SettleRestOrderModal } from "@/components/portal/account/order/components/SettleRestOrderModal";
+import { summarizeReleaseDispatchState } from "@/components/portal/account/order/components/accountDispatchAvailability";
 import {
   mutationRejectedMessage,
   mutationSuccessCopy,
 } from "@/lib/mutationMessages";
+import {
+  refId,
+  toDateInput,
+  formatMoney,
+  NamedOption,
+  ProductOption,
+} from "./utils";
+import { OrderItemsForm } from "./OrderItemsForm";
+import { OrderApprovalsForm } from "./OrderApprovalsForm";
+import { OrderDispatchesForm } from "./OrderDispatchesForm";
+import { OrderTransportsForm } from "./OrderTransportsForm";
+import { OrderDeliveriesForm } from "./OrderDeliveriesForm";
+import { OrderReturnsForm } from "./OrderReturnsForm";
 
 export type SuperAdminOrdersSheetModalProps = {
   isOpen: boolean;
@@ -422,82 +448,7 @@ const ORDER_COLUMNS: ColDef[] = [
   },
 ];
 
-type ProductOption = {
-  id: string;
-  product_name: string;
-  sku: string;
-  brand: string;
-  manufacturer: string;
-  unit: string;
-  hsn_code: string;
-  gst_percent: number;
-  base_price: number;
-};
 
-type NamedOption = { id: string; name: string };
-
-type LineDraft = {
-  key: string;
-  _id?: string;
-  product: string;
-  product_name: string;
-  sku: string;
-  brand: string;
-  manufacturer: string;
-  product_group: string;
-  product_subgroup: string;
-  unit: string;
-  hsn_code: string;
-  gst_percent: number;
-  ordered_quantity: number;
-  approved_quantity: number;
-  dispatched_quantity: number;
-  delivered_quantity: number;
-  returned_quantity: number;
-  line_status: string;
-  free_quantity: number;
-  unit_price: number;
-  applied_rate_type: string;
-  pricing_reference: string;
-  pricing_validity_start: string;
-  pricing_validity_end: string;
-  manual_price_override: boolean;
-  approval_required: boolean;
-  approval_reason: string;
-  approved_by: string;
-  approved_at: string;
-  discount_percent: number;
-  discount_amount: number;
-  taxable_amount: number;
-  gst_amount: number;
-  total_amount: number;
-  remarks: string;
-};
-
-function refId(v: unknown): string {
-  if (v == null || v === "") return "";
-  if (typeof v === "string") return v;
-  if (typeof v === "object" && v !== null) {
-    const o = v as { _id?: unknown; id?: unknown };
-    if (o._id != null) return String(o._id);
-    if (o.id != null) return String(o.id);
-  }
-  return String(v);
-}
-
-function toDateInput(v: unknown): string {
-  if (v == null || v === "") return "";
-  const d = v instanceof Date ? v : new Date(String(v));
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
-}
-
-function formatMoney(v: number): string {
-  return v.toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 function displayOrderField(
   order: any,
@@ -695,48 +646,6 @@ function approvalOptionsForOrder(
   return opts.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function applyProductSnapshot(
-  line: LineDraft,
-  product: ProductOption | null,
-): LineDraft {
-  if (!product) {
-    return {
-      ...line,
-      product: "",
-      product_name: "",
-      sku: "",
-      brand: "",
-      manufacturer: "",
-      unit: "pcs",
-      hsn_code: "",
-      gst_percent: 0,
-      unit_price: 0,
-      ...calcLineAmounts({
-        ...line,
-        product: "",
-        ordered_quantity: line.ordered_quantity,
-        unit_price: 0,
-        gst_percent: 0,
-        discount_percent: line.discount_percent,
-        discount_amount: 0,
-      }),
-    };
-  }
-  const next: LineDraft = {
-    ...line,
-    product: product.id,
-    product_name: product.product_name,
-    sku: product.sku,
-    brand: product.brand,
-    manufacturer: product.manufacturer,
-    unit: product.unit || line.unit || "pcs",
-    hsn_code: product.hsn_code,
-    gst_percent: product.gst_percent,
-    unit_price: product.base_price || line.unit_price,
-  };
-  return { ...next, ...calcLineAmounts(next) };
-}
-
 function readOrderField(order: any, key: string): string | number | boolean {
   const v = order?.[key];
   if (key === "_id") return refId(order?._id || order?.id);
@@ -761,7 +670,10 @@ function readOrderField(order: any, key: string): string | number | boolean {
   }
   if (typeof v === "boolean") return v;
   if (typeof v === "number") return v;
-  return v == null ? "" : String(v);
+  if (v == null) return "";
+  // Guard: never return a raw object as it would crash React render
+  if (typeof v === "object") return refId(v);
+  return String(v);
 }
 
 function parseCellValue(col: ColDef, raw: string): unknown {
@@ -779,799 +691,8 @@ function parseCellValue(col: ColDef, raw: string): unknown {
   return raw;
 }
 
-function calcLineAmounts(line: Partial<LineDraft>): {
-  discount_amount: number;
-  taxable_amount: number;
-  gst_amount: number;
-  total_amount: number;
-} {
-  const qty = Number(line.ordered_quantity ?? 0) || 0;
-  const price = Number(line.unit_price ?? 0) || 0;
-  const gstPct = Number(line.gst_percent ?? 0) || 0;
-  const discPct = Number(line.discount_percent ?? 0) || 0;
-  const lineGross = qty * price;
-  let disc = Number(line.discount_amount ?? 0) || 0;
-  if (discPct > 0) {
-    disc = (lineGross * discPct) / 100;
-  }
-  const taxable = Math.max(0, lineGross - disc);
-  const gst = (taxable * gstPct) / 100;
-  return {
-    discount_amount: Number(disc.toFixed(2)),
-    taxable_amount: Number(taxable.toFixed(2)),
-    gst_amount: Number(gst.toFixed(2)),
-    total_amount: Number((taxable + gst).toFixed(2)),
-  };
-}
 
-function calcOrderTotals(
-  lines: LineDraft[],
-  header: {
-    discount_amount?: number;
-    extra_charges?: number;
-    penalty_amount?: number;
-    damage_charge?: number;
-  },
-) {
-  let subtotal = 0;
-  let gstAmount = 0;
-  for (const line of lines) {
-    const c = calcLineAmounts(line);
-    subtotal += c.taxable_amount;
-    gstAmount += c.gst_amount;
-  }
-  const headerDisc = Number(header.discount_amount ?? 0) || 0;
-  const extra = Number(header.extra_charges ?? 0) || 0;
-  const penalty = Number(header.penalty_amount ?? 0) || 0;
-  const damage = Number(header.damage_charge ?? 0) || 0;
-  const grand = subtotal + gstAmount - headerDisc + extra + penalty + damage;
-  return {
-    subtotal: Number(subtotal.toFixed(2)),
-    taxable_amount: Number(subtotal.toFixed(2)),
-    gst_amount: Number(gstAmount.toFixed(2)),
-    grand_total: Number(grand.toFixed(2)),
-  };
-}
 
-function lineFromRaw(line: any, idx: number, orderId: string): LineDraft {
-  const id = refId(line?._id || line?.id);
-  const base: LineDraft = {
-    key: id || `${orderId}-new-${idx}-${Math.random().toString(36).slice(2, 7)}`,
-    _id: id || undefined,
-    product: refId(line?.product),
-    product_name: String(line?.product_name || ""),
-    sku: String(line?.sku || ""),
-    brand: String(line?.brand || ""),
-    manufacturer: String(line?.manufacturer || ""),
-    product_group: String(line?.product_group || ""),
-    product_subgroup: String(line?.product_subgroup || ""),
-    unit: String(line?.unit || "pcs"),
-    hsn_code: String(line?.hsn_code || ""),
-    gst_percent: Number(line?.gst_percent ?? 0),
-    ordered_quantity: Number(line?.ordered_quantity ?? line?.quantity ?? 0),
-    approved_quantity: Number(line?.approved_quantity ?? 0),
-    dispatched_quantity: Number(line?.dispatched_quantity ?? 0),
-    delivered_quantity: Number(line?.delivered_quantity ?? 0),
-    returned_quantity: Number(line?.returned_quantity ?? 0),
-    line_status: String(line?.line_status || "active"),
-    free_quantity: Number(line?.free_quantity ?? 0),
-    unit_price: Number(line?.unit_price ?? 0),
-    applied_rate_type: String(line?.applied_rate_type || "MANUAL"),
-    pricing_reference: refId(line?.pricing_reference),
-    pricing_validity_start: toDateInput(line?.pricing_validity_start),
-    pricing_validity_end: toDateInput(line?.pricing_validity_end),
-    manual_price_override: Boolean(line?.manual_price_override),
-    approval_required: Boolean(line?.approval_required),
-    approval_reason: String(line?.approval_reason || ""),
-    approved_by: refId(line?.approved_by),
-    approved_at: toDateInput(line?.approved_at),
-    discount_percent: Number(line?.discount_percent ?? 0),
-    discount_amount: Number(line?.discount_amount ?? 0),
-    taxable_amount: Number(line?.taxable_amount ?? 0),
-    gst_amount: Number(line?.gst_amount ?? 0),
-    total_amount: Number(line?.total_amount ?? 0),
-    remarks: String(line?.remarks || ""),
-  };
-  return { ...base, ...calcLineAmounts(base) };
-}
-
-function emptyLine(): LineDraft {
-  const base: LineDraft = {
-    key: `new-${Math.random().toString(36).slice(2, 9)}`,
-    product: "",
-    product_name: "",
-    sku: "",
-    brand: "",
-    manufacturer: "",
-    product_group: "",
-    product_subgroup: "",
-    unit: "pcs",
-    hsn_code: "",
-    gst_percent: 0,
-    ordered_quantity: 1,
-    approved_quantity: 1,
-    dispatched_quantity: 0,
-    delivered_quantity: 0,
-    returned_quantity: 0,
-    line_status: "active",
-    free_quantity: 0,
-    unit_price: 0,
-    applied_rate_type: "MANUAL",
-    pricing_reference: "",
-    pricing_validity_start: "",
-    pricing_validity_end: "",
-    manual_price_override: false,
-    approval_required: false,
-    approval_reason: "",
-    approved_by: "",
-    approved_at: "",
-    discount_percent: 0,
-    discount_amount: 0,
-    taxable_amount: 0,
-    gst_amount: 0,
-    total_amount: 0,
-    remarks: "",
-  };
-  return { ...base, ...calcLineAmounts(base) };
-}
-
-function linesToPayload(lines: LineDraft[]) {
-  return lines.map((line) => {
-    const calc = calcLineAmounts(line);
-    const row: Record<string, unknown> = {
-      product: line.product || undefined,
-      product_name: line.product_name || "Item",
-      sku: line.sku,
-      brand: line.brand,
-      manufacturer: line.manufacturer,
-      product_group: line.product_group,
-      product_subgroup: line.product_subgroup,
-      unit: line.unit,
-      hsn_code: line.hsn_code,
-      gst_percent: line.gst_percent,
-      ordered_quantity: line.ordered_quantity,
-      approved_quantity: line.approved_quantity,
-      dispatched_quantity: line.dispatched_quantity,
-      delivered_quantity: line.delivered_quantity,
-      returned_quantity: line.returned_quantity,
-      line_status: line.line_status,
-      free_quantity: line.free_quantity,
-      unit_price: line.unit_price,
-      applied_rate_type: line.applied_rate_type,
-      pricing_reference: line.pricing_reference || undefined,
-      pricing_validity_start: line.pricing_validity_start || undefined,
-      pricing_validity_end: line.pricing_validity_end || undefined,
-      manual_price_override: line.manual_price_override,
-      approval_required: line.approval_required,
-      approval_reason: line.approval_reason,
-      approved_by: line.approved_by || undefined,
-      approved_at: line.approved_at || undefined,
-      discount_percent: line.discount_percent,
-      discount_amount: calc.discount_amount,
-      taxable_amount: calc.taxable_amount,
-      gst_amount: calc.gst_amount,
-      total_amount: calc.total_amount,
-      remarks: line.remarks,
-    };
-    if (line._id) row._id = line._id;
-    return row;
-  });
-}
-
-/* ─── Order Items Form Panel ───────────────────────────────────────────── */
-
-function OrderItemsForm({
-  order,
-  onClose,
-  onSaved,
-  saving,
-  onSave,
-  products,
-}: {
-  order: any;
-  onClose: () => void;
-  onSaved: () => void;
-  saving: boolean;
-  onSave: (patch: Record<string, unknown>) => Promise<void>;
-  products: ProductOption[];
-}) {
-  const orderId = refId(order._id || order.id);
-  const [lines, setLines] = useState<LineDraft[]>(() =>
-    (Array.isArray(order.order_items) ? order.order_items : []).map(
-      (l: any, i: number) => lineFromRaw(l, i, orderId),
-    ),
-  );
-  const [headerDiscount, setHeaderDiscount] = useState(
-    Number(order.discount_amount ?? 0) || 0,
-  );
-  const [extraCharges, setExtraCharges] = useState(
-    Number(order.extra_charges ?? 0) || 0,
-  );
-  const [penaltyAmount, setPenaltyAmount] = useState(
-    Number(order.penalty_amount ?? 0) || 0,
-  );
-  const [damageCharge, setDamageCharge] = useState(
-    Number(order.damage_charge ?? 0) || 0,
-  );
-
-  useEffect(() => {
-    setLines(
-      (Array.isArray(order.order_items) ? order.order_items : []).map(
-        (l: any, i: number) => lineFromRaw(l, i, orderId),
-      ),
-    );
-    setHeaderDiscount(Number(order.discount_amount ?? 0) || 0);
-    setExtraCharges(Number(order.extra_charges ?? 0) || 0);
-    setPenaltyAmount(Number(order.penalty_amount ?? 0) || 0);
-    setDamageCharge(Number(order.damage_charge ?? 0) || 0);
-  }, [order, orderId]);
-
-  const totals = useMemo(
-    () =>
-      calcOrderTotals(lines, {
-        discount_amount: headerDiscount,
-        extra_charges: extraCharges,
-        penalty_amount: penaltyAmount,
-        damage_charge: damageCharge,
-      }),
-    [lines, headerDiscount, extraCharges, penaltyAmount, damageCharge],
-  );
-
-  const productById = useMemo(() => {
-    const map = new Map<string, ProductOption>();
-    for (const p of products) map.set(p.id, p);
-    return map;
-  }, [products]);
-
-  const updateLine = (key: string, field: keyof LineDraft, value: unknown) => {
-    setLines((prev) =>
-      prev.map((line) => {
-        if (line.key !== key) return line;
-        const next = { ...line, [field]: value } as LineDraft;
-        // Recalc when commercial inputs change
-        if (
-          [
-            "ordered_quantity",
-            "unit_price",
-            "gst_percent",
-            "discount_percent",
-            "discount_amount",
-          ].includes(String(field))
-        ) {
-          // If user edits discount_amount directly, clear percent-driven overwrite unless percent is 0
-          if (field === "discount_amount") {
-            const qty = Number(next.ordered_quantity) || 0;
-            const price = Number(next.unit_price) || 0;
-            const gstPct = Number(next.gst_percent) || 0;
-            const disc = Number(value) || 0;
-            const taxable = Math.max(0, qty * price - disc);
-            const gst = (taxable * gstPct) / 100;
-            return {
-              ...next,
-              discount_amount: disc,
-              taxable_amount: Number(taxable.toFixed(2)),
-              gst_amount: Number(gst.toFixed(2)),
-              total_amount: Number((taxable + gst).toFixed(2)),
-            };
-          }
-          return { ...next, ...calcLineAmounts(next) };
-        }
-        return next;
-      }),
-    );
-  };
-
-  const selectProduct = (key: string, productId: string) => {
-    setLines((prev) =>
-      prev.map((line) => {
-        if (line.key !== key) return line;
-        return applyProductSnapshot(
-          line,
-          productId ? productById.get(productId) || null : null,
-        );
-      }),
-    );
-  };
-
-  const addLine = () => setLines((prev) => [...prev, emptyLine()]);
-
-  const removeLine = (key: string) => {
-    if (lines.length <= 1) {
-      toast.error("Order must keep at least one line item");
-      return;
-    }
-    setLines((prev) => prev.filter((l) => l.key !== key));
-  };
-
-  const handleSave = async () => {
-    for (const line of lines) {
-      if (!line.product?.trim()) {
-        toast.error("Every line needs a product");
-        return;
-      }
-      if (!line.product_name?.trim()) {
-        toast.error("Every line needs a product name");
-        return;
-      }
-    }
-    await onSave({
-      order_items: linesToPayload(lines),
-      discount_amount: headerDiscount,
-      extra_charges: extraCharges,
-      penalty_amount: penaltyAmount,
-      damage_charge: damageCharge,
-      subtotal: totals.subtotal,
-      taxable_amount: totals.taxable_amount,
-      gst_amount: totals.gst_amount,
-      grand_total: totals.grand_total,
-    });
-    onSaved();
-  };
-
-  const inputClass =
-    "w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs outline-none focus:border-amber-500";
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4">
-      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-        <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-950/40">
-          <div>
-            <h3 className="text-sm font-bold text-amber-950 dark:text-amber-100">
-              Order Items — {order.order_no || orderId}
-            </h3>
-            <p className="text-2xs text-amber-800/80 dark:text-amber-200/70">
-              Add / edit / delete lines. Totals recalculate automatically, then Save to MongoDB (bypass).
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-auto p-4 space-y-4">
-          {lines.map((line, idx) => (
-            <div
-              key={line.key}
-              className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-950/40"
-            >
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Line {idx + 1}
-                  {!line._id ? (
-                    <span className="ml-2 text-2xs font-normal text-amber-600">
-                      new
-                    </span>
-                  ) : null}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeLine(line.key)}
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-2xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                >
-                  <Trash2 className="h-3 w-3" />
-                  Delete
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500 col-span-2">
-                  product*
-                  <select
-                    className={inputClass}
-                    value={line.product}
-                    onChange={(e) => selectProduct(line.key, e.target.value)}
-                  >
-                    <option value="">Select product…</option>
-                    {line.product && !productById.has(line.product) ? (
-                      <option value={line.product}>
-                        {line.product_name || "Current product"}
-                      </option>
-                    ) : null}
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.product_name}
-                        {p.sku ? ` (${p.sku})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500 col-span-2">
-                  product_name*
-                  <input
-                    className={inputClass}
-                    value={line.product_name}
-                    onChange={(e) =>
-                      updateLine(line.key, "product_name", e.target.value)
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  sku
-                  <input
-                    className={inputClass}
-                    value={line.sku}
-                    onChange={(e) => updateLine(line.key, "sku", e.target.value)}
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  unit
-                  <input
-                    className={inputClass}
-                    value={line.unit}
-                    onChange={(e) =>
-                      updateLine(line.key, "unit", e.target.value)
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  ordered_quantity
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={line.ordered_quantity}
-                    onChange={(e) =>
-                      updateLine(
-                        line.key,
-                        "ordered_quantity",
-                        Number(e.target.value) || 0,
-                      )
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  approved_quantity
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={line.approved_quantity}
-                    onChange={(e) =>
-                      updateLine(
-                        line.key,
-                        "approved_quantity",
-                        Number(e.target.value) || 0,
-                      )
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  unit_price
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={line.unit_price}
-                    onChange={(e) =>
-                      updateLine(
-                        line.key,
-                        "unit_price",
-                        Number(e.target.value) || 0,
-                      )
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  gst_percent
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={line.gst_percent}
-                    onChange={(e) =>
-                      updateLine(
-                        line.key,
-                        "gst_percent",
-                        Number(e.target.value) || 0,
-                      )
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  discount_percent
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={line.discount_percent}
-                    onChange={(e) =>
-                      updateLine(
-                        line.key,
-                        "discount_percent",
-                        Number(e.target.value) || 0,
-                      )
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  discount_amount
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={line.discount_amount}
-                    onChange={(e) =>
-                      updateLine(
-                        line.key,
-                        "discount_amount",
-                        Number(e.target.value) || 0,
-                      )
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  free_quantity
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={line.free_quantity}
-                    onChange={(e) =>
-                      updateLine(
-                        line.key,
-                        "free_quantity",
-                        Number(e.target.value) || 0,
-                      )
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  line_status
-                  <select
-                    className={inputClass}
-                    value={line.line_status}
-                    onChange={(e) =>
-                      updateLine(line.key, "line_status", e.target.value)
-                    }
-                  >
-                    {LINE_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  applied_rate_type
-                  <select
-                    className={inputClass}
-                    value={line.applied_rate_type}
-                    onChange={(e) =>
-                      updateLine(line.key, "applied_rate_type", e.target.value)
-                    }
-                  >
-                    {RATE_TYPES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  brand
-                  <input
-                    className={inputClass}
-                    value={line.brand}
-                    onChange={(e) =>
-                      updateLine(line.key, "brand", e.target.value)
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  manufacturer
-                  <input
-                    className={inputClass}
-                    value={line.manufacturer}
-                    onChange={(e) =>
-                      updateLine(line.key, "manufacturer", e.target.value)
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  hsn_code
-                  <input
-                    className={inputClass}
-                    value={line.hsn_code}
-                    onChange={(e) =>
-                      updateLine(line.key, "hsn_code", e.target.value)
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500 col-span-2">
-                  remarks
-                  <input
-                    className={inputClass}
-                    value={line.remarks}
-                    onChange={(e) =>
-                      updateLine(line.key, "remarks", e.target.value)
-                    }
-                  />
-                </label>
-              </div>
-
-              <div className="mt-2 flex flex-wrap gap-3 rounded-md bg-white px-2.5 py-2 text-2xs dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                <span>
-                  Taxable:{" "}
-                  <strong className="font-mono">
-                    ₹{formatMoney(line.taxable_amount)}
-                  </strong>
-                </span>
-                <span>
-                  GST:{" "}
-                  <strong className="font-mono">
-                    ₹{formatMoney(line.gst_amount)}
-                  </strong>
-                </span>
-                <span>
-                  Line total:{" "}
-                  <strong className="font-mono text-amber-700 dark:text-amber-400">
-                    ₹{formatMoney(line.total_amount)}
-                  </strong>
-                </span>
-                <span className="text-slate-400">
-                  dispatched {line.dispatched_quantity} · delivered{" "}
-                  {line.delivered_quantity} · returned {line.returned_quantity}
-                </span>
-              </div>
-
-              <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  dispatched_quantity
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={line.dispatched_quantity}
-                    onChange={(e) =>
-                      updateLine(
-                        line.key,
-                        "dispatched_quantity",
-                        Number(e.target.value) || 0,
-                      )
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  delivered_quantity
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={line.delivered_quantity}
-                    onChange={(e) =>
-                      updateLine(
-                        line.key,
-                        "delivered_quantity",
-                        Number(e.target.value) || 0,
-                      )
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  returned_quantity
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={line.returned_quantity}
-                    onChange={(e) =>
-                      updateLine(
-                        line.key,
-                        "returned_quantity",
-                        Number(e.target.value) || 0,
-                      )
-                    }
-                  />
-                </label>
-                <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                  product_group
-                  <input
-                    className={inputClass}
-                    value={line.product_group}
-                    onChange={(e) =>
-                      updateLine(line.key, "product_group", e.target.value)
-                    }
-                  />
-                </label>
-              </div>
-            </div>
-          ))}
-
-          <button
-            type="button"
-            onClick={addLine}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-200"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add line item
-          </button>
-        </div>
-
-        <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-950">
-          <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-            <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-              Header discount_amount
-              <input
-                type="number"
-                className={inputClass}
-                value={headerDiscount}
-                onChange={(e) =>
-                  setHeaderDiscount(Number(e.target.value) || 0)
-                }
-              />
-            </label>
-            <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-              extra_charges
-              <input
-                type="number"
-                className={inputClass}
-                value={extraCharges}
-                onChange={(e) => setExtraCharges(Number(e.target.value) || 0)}
-              />
-            </label>
-            <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-              penalty_amount
-              <input
-                type="number"
-                className={inputClass}
-                value={penaltyAmount}
-                onChange={(e) => setPenaltyAmount(Number(e.target.value) || 0)}
-              />
-            </label>
-            <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-              damage_charge
-              <input
-                type="number"
-                className={inputClass}
-                value={damageCharge}
-                onChange={(e) => setDamageCharge(Number(e.target.value) || 0)}
-              />
-            </label>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-4 text-xs">
-              <span>
-                Subtotal:{" "}
-                <strong className="font-mono">
-                  ₹{formatMoney(totals.subtotal)}
-                </strong>
-              </span>
-              <span>
-                GST:{" "}
-                <strong className="font-mono">
-                  ₹{formatMoney(totals.gst_amount)}
-                </strong>
-              </span>
-              <span>
-                Grand total:{" "}
-                <strong className="font-mono text-base text-amber-700 dark:text-amber-400">
-                  ₹{formatMoney(totals.grand_total)}
-                </strong>
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold dark:border-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void handleSave()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-amber-700 disabled:opacity-60"
-              >
-                {saving ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="h-3.5 w-3.5" />
-                )}
-                Save items & totals
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ─── Order Approvals Form Panel ───────────────────────────────────────── */
 
@@ -1717,771 +838,6 @@ function headerFromApproval(approval: Record<string, unknown>): ApprovalHeaderDr
   };
 }
 
-function OrderApprovalsForm({
-  order,
-  approvals,
-  users,
-  products,
-  saving,
-  onClose,
-  onSave,
-}: {
-  order: any;
-  approvals: Record<string, unknown>[];
-  users: NamedOption[];
-  products: ProductOption[];
-  saving: boolean;
-  onClose: () => void;
-  onSave: (approvalId: string, patch: Record<string, unknown>) => Promise<void>;
-}) {
-  const orderId = refId(order._id || order.id);
-  const sortedApprovals = useMemo(
-    () =>
-      [...approvals].sort((a, b) => {
-        const ra = Number(a.revision_number ?? 0);
-        const rb = Number(b.revision_number ?? 0);
-        if (rb !== ra) return rb - ra;
-        return String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? ""));
-      }),
-    [approvals],
-  );
-
-  const productById = useMemo(() => {
-    const map = new Map<string, ProductOption>();
-    for (const p of products) map.set(p.id, p);
-    return map;
-  }, [products]);
-
-  const [selectedId, setSelectedId] = useState(
-    () => refId(sortedApprovals[0]?._id || sortedApprovals[0]?.id) || "",
-  );
-  const [header, setHeader] = useState<ApprovalHeaderDraft>(() =>
-    headerFromApproval(sortedApprovals[0] || {}),
-  );
-  const [lines, setLines] = useState<ApprovalItemDraft[]>(() =>
-    (Array.isArray(sortedApprovals[0]?.approval_items)
-      ? (sortedApprovals[0].approval_items as unknown[])
-      : []
-    ).map((item, i) => approvalItemFromRaw(item, i)),
-  );
-  const [totalsManual, setTotalsManual] = useState(false);
-
-  const selectedApproval = useMemo(
-    () =>
-      sortedApprovals.find(
-        (a) => refId(a._id || a.id) === selectedId,
-      ) || null,
-    [sortedApprovals, selectedId],
-  );
-
-  useEffect(() => {
-    if (!sortedApprovals.length) {
-      setSelectedId("");
-      setHeader(headerFromApproval({}));
-      setLines([]);
-      return;
-    }
-    const stillValid = sortedApprovals.some(
-      (a) => refId(a._id || a.id) === selectedId,
-    );
-    const nextId = stillValid
-      ? selectedId
-      : refId(sortedApprovals[0]._id || sortedApprovals[0].id);
-    if (nextId !== selectedId) setSelectedId(nextId);
-  }, [sortedApprovals, selectedId]);
-
-  useEffect(() => {
-    if (!selectedApproval) return;
-    setHeader(headerFromApproval(selectedApproval));
-    setLines(
-      (Array.isArray(selectedApproval.approval_items)
-        ? (selectedApproval.approval_items as unknown[])
-        : []
-      ).map((item, i) => approvalItemFromRaw(item, i)),
-    );
-    setTotalsManual(false);
-  }, [selectedApproval]);
-
-  const linesTotal = useMemo(
-    () =>
-      Number(
-        lines
-          .reduce((sum, l) => sum + Number(l.approved_total_amount || 0), 0)
-          .toFixed(2),
-      ),
-    [lines],
-  );
-
-  useEffect(() => {
-    if (totalsManual) return;
-    setHeader((prev) =>
-      prev.approved_total_amount === linesTotal
-        ? prev
-        : { ...prev, approved_total_amount: linesTotal },
-    );
-  }, [linesTotal, totalsManual]);
-
-  const updateLine = (
-    key: string,
-    field: keyof ApprovalItemDraft,
-    value: unknown,
-  ) => {
-    setLines((prev) =>
-      prev.map((line) => {
-        if (line.key !== key) return line;
-        const next = { ...line, [field]: value } as ApprovalItemDraft;
-        if (
-          [
-            "approved_quantity",
-            "approved_unit_price",
-            "discount_percent",
-            "gst_percent",
-            "ordered_quantity",
-            "ordered_unit_price",
-          ].includes(String(field))
-        ) {
-          if (
-            field === "ordered_quantity" ||
-            field === "ordered_unit_price"
-          ) {
-            const oq = Number(next.ordered_quantity) || 0;
-            const op = Number(next.ordered_unit_price) || 0;
-            next.ordered_total_amount = Number((oq * op).toFixed(2));
-          }
-          if (
-            [
-              "approved_quantity",
-              "approved_unit_price",
-              "discount_percent",
-              "gst_percent",
-            ].includes(String(field))
-          ) {
-            const calc = calcApprovalLineTotal(
-              Number(next.approved_quantity) || 0,
-              Number(next.approved_unit_price) || 0,
-              Number(next.discount_percent) || 0,
-              Number(next.gst_percent) || 0,
-            );
-            return { ...next, ...calc };
-          }
-        }
-        return next;
-      }),
-    );
-  };
-
-  const selectProduct = (key: string, productId: string) => {
-    setLines((prev) =>
-      prev.map((line) => {
-        if (line.key !== key) return line;
-        const product = productId ? productById.get(productId) || null : null;
-        if (!product) {
-          return {
-            ...line,
-            product: "",
-            product_label: "",
-            gst_percent: 0,
-            approved_unit_price: 0,
-            ordered_unit_price: 0,
-            approved_total_amount: 0,
-            ordered_total_amount: 0,
-            discount_amount: 0,
-          };
-        }
-        const next: ApprovalItemDraft = {
-          ...line,
-          product: product.id,
-          product_label: product.product_name,
-          gst_percent: product.gst_percent,
-          approved_unit_price: product.base_price || line.approved_unit_price,
-          ordered_unit_price: product.base_price || line.ordered_unit_price,
-          manual_price_override: true,
-          rate_mapped: false,
-        };
-        const oq = Number(next.ordered_quantity) || 0;
-        const op = Number(next.ordered_unit_price) || 0;
-        next.ordered_total_amount = Number((oq * op).toFixed(2));
-        const calc = calcApprovalLineTotal(
-          Number(next.approved_quantity) || 0,
-          Number(next.approved_unit_price) || 0,
-          Number(next.discount_percent) || 0,
-          Number(next.gst_percent) || 0,
-        );
-        return { ...next, ...calc };
-      }),
-    );
-  };
-
-  const addLine = () => setLines((prev) => [...prev, emptyApprovalLine()]);
-
-  const removeLine = (key: string) => {
-    setLines((prev) => prev.filter((l) => l.key !== key));
-  };
-
-  const handleSave = async () => {
-    if (!selectedId) {
-      toast.error("No approval batch selected");
-      return;
-    }
-    for (const line of lines) {
-      if (!line.product?.trim()) {
-        toast.error("Every approval line needs a product");
-        return;
-      }
-    }
-    const approval_items = lines.map((line) => ({
-      order_item_id: line.order_item_id || undefined,
-      product: line.product || undefined,
-      ordered_quantity: line.ordered_quantity,
-      ordered_unit_price: line.ordered_unit_price,
-      ordered_total_amount: line.ordered_total_amount,
-      approved_quantity: line.approved_quantity,
-      approved_unit_price: line.approved_unit_price,
-      approved_total_amount: line.approved_total_amount,
-      applied_rate_type: line.applied_rate_type,
-      pricing_reference: line.pricing_reference || undefined,
-      manual_price_override: line.manual_price_override,
-      rate_mapped: line.rate_mapped,
-      discount_percent: line.discount_percent,
-      discount_amount: line.discount_amount,
-      gst_percent: line.gst_percent,
-      free_quantity: line.free_quantity,
-      remarks: line.remarks,
-    }));
-
-    await onSave(selectedId, {
-      ...header,
-      assigned_finance_user: header.assigned_finance_user || null,
-      assigned_account_user: header.assigned_account_user || null,
-      approval_items,
-    });
-  };
-
-  const inputClass =
-    "w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs outline-none focus:border-amber-500";
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4">
-      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-        <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-950/40">
-          <div>
-            <h3 className="text-sm font-bold text-amber-950 dark:text-amber-100">
-              Order Approvals — {order.order_no || orderId}
-            </h3>
-            <p className="text-2xs text-amber-800/80 dark:text-amber-200/70">
-              Select a batch, edit header + approval lines, then Save (super-admin
-              bypass).
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-auto p-4 space-y-4">
-          {!sortedApprovals.length ? (
-            <div className="rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700">
-              No approval batches for this order.
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-2">
-                {sortedApprovals.map((a) => {
-                  const id = refId(a._id || a.id);
-                  const active = id === selectedId;
-                  const label =
-                    String(a.approval_no || "").trim() ||
-                    `Rev ${a.revision_number ?? "—"}`;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setSelectedId(id)}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
-                        active
-                          ? "border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
-                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                      }`}
-                    >
-                      {label}
-                      <span className="ml-2 text-2xs font-normal opacity-70">
-                        {a.is_admin_approved ? "A" : "—"}/
-                        {a.is_finance_approved ? "F" : "—"}/
-                        {a.is_account_approved ? "C" : "—"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-950/40">
-                <div className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Header
-                </div>
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
-                  <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                    approved_total_amount
-                    <input
-                      type="number"
-                      className={inputClass}
-                      value={header.approved_total_amount}
-                      onChange={(e) => {
-                        setTotalsManual(true);
-                        setHeader((h) => ({
-                          ...h,
-                          approved_total_amount: Number(e.target.value) || 0,
-                        }));
-                      }}
-                    />
-                  </label>
-                  <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                    rejected_total_amount
-                    <input
-                      type="number"
-                      className={inputClass}
-                      value={header.rejected_total_amount}
-                      onChange={(e) =>
-                        setHeader((h) => ({
-                          ...h,
-                          rejected_total_amount: Number(e.target.value) || 0,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                    ordered_total_amount
-                    <input
-                      type="number"
-                      className={inputClass}
-                      value={header.ordered_total_amount}
-                      onChange={(e) =>
-                        setHeader((h) => ({
-                          ...h,
-                          ordered_total_amount: Number(e.target.value) || 0,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                    risk_level
-                    <select
-                      className={inputClass}
-                      value={header.risk_level}
-                      onChange={(e) =>
-                        setHeader((h) => ({ ...h, risk_level: e.target.value }))
-                      }
-                    >
-                      {RISK_LEVEL_OPTS.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                    assigned_finance_user
-                    <select
-                      className={inputClass}
-                      value={header.assigned_finance_user}
-                      onChange={(e) =>
-                        setHeader((h) => ({
-                          ...h,
-                          assigned_finance_user: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">—</option>
-                      {users.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                    assigned_account_user
-                    <select
-                      className={inputClass}
-                      value={header.assigned_account_user}
-                      onChange={(e) =>
-                        setHeader((h) => ({
-                          ...h,
-                          assigned_account_user: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">—</option>
-                      {users.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-3">
-                  {(
-                    [
-                      ["is_admin_approved", "Admin approved"],
-                      ["is_finance_approved", "Finance approved"],
-                      ["is_account_approved", "Account approved"],
-                      ["rates_reviewed", "Rates reviewed"],
-                      ["all_rates_mapped", "All rates mapped"],
-                      ["credit_limit_checked", "Credit checked"],
-                      ["outstanding_checked", "Outstanding checked"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <label
-                      key={key}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-200"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={Boolean(header[key])}
-                        onChange={(e) =>
-                          setHeader((h) => ({ ...h, [key]: e.target.checked }))
-                        }
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-amber-600"
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-
-                <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-                  <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                    approval_notes
-                    <textarea
-                      rows={2}
-                      className={inputClass}
-                      value={header.approval_notes}
-                      onChange={(e) =>
-                        setHeader((h) => ({
-                          ...h,
-                          approval_notes: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                    rejection_reason
-                    <textarea
-                      rows={2}
-                      className={inputClass}
-                      value={header.rejection_reason}
-                      onChange={(e) =>
-                        setHeader((h) => ({
-                          ...h,
-                          rejection_reason: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                    hold_reason
-                    <input
-                      className={inputClass}
-                      value={header.hold_reason}
-                      onChange={(e) =>
-                        setHeader((h) => ({
-                          ...h,
-                          hold_reason: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                    remarks
-                    <input
-                      className={inputClass}
-                      value={header.remarks}
-                      onChange={(e) =>
-                        setHeader((h) => ({ ...h, remarks: e.target.value }))
-                      }
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Approval items ({lines.length})
-                </div>
-                {lines.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-500 dark:border-slate-700">
-                    No approval lines yet. Add a line below.
-                  </div>
-                ) : null}
-                {lines.map((line, idx) => {
-                  const isNew = !line.order_item_id;
-                  return (
-                  <div
-                    key={line.key}
-                    className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-950/40"
-                  >
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                        Line {idx + 1}
-                        {isNew ? (
-                          <span className="ml-2 text-2xs font-normal text-amber-600">
-                            new
-                          </span>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeLine(line.key)}
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-2xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                        Delete
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500 col-span-2">
-                        product*
-                        <select
-                          className={inputClass}
-                          value={line.product}
-                          onChange={(e) =>
-                            selectProduct(line.key, e.target.value)
-                          }
-                        >
-                          <option value="">Select product…</option>
-                          {line.product && !productById.has(line.product) ? (
-                            <option value={line.product}>
-                              {line.product_label || "Current product"}
-                            </option>
-                          ) : null}
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.product_name}
-                              {p.sku ? ` (${p.sku})` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                        ordered_qty
-                        <input
-                          type="number"
-                          className={inputClass}
-                          value={line.ordered_quantity}
-                          onChange={(e) =>
-                            updateLine(
-                              line.key,
-                              "ordered_quantity",
-                              Number(e.target.value) || 0,
-                            )
-                          }
-                        />
-                      </label>
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                        ordered_unit_price
-                        <input
-                          type="number"
-                          className={inputClass}
-                          value={line.ordered_unit_price}
-                          onChange={(e) =>
-                            updateLine(
-                              line.key,
-                              "ordered_unit_price",
-                              Number(e.target.value) || 0,
-                            )
-                          }
-                        />
-                      </label>
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                        approved_quantity
-                        <input
-                          type="number"
-                          className={inputClass}
-                          value={line.approved_quantity}
-                          onChange={(e) =>
-                            updateLine(
-                              line.key,
-                              "approved_quantity",
-                              Number(e.target.value) || 0,
-                            )
-                          }
-                        />
-                      </label>
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                        approved_unit_price
-                        <input
-                          type="number"
-                          className={inputClass}
-                          value={line.approved_unit_price}
-                          onChange={(e) =>
-                            updateLine(
-                              line.key,
-                              "approved_unit_price",
-                              Number(e.target.value) || 0,
-                            )
-                          }
-                        />
-                      </label>
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                        free_quantity
-                        <input
-                          type="number"
-                          className={inputClass}
-                          value={line.free_quantity}
-                          onChange={(e) =>
-                            updateLine(
-                              line.key,
-                              "free_quantity",
-                              Number(e.target.value) || 0,
-                            )
-                          }
-                        />
-                      </label>
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                        discount_percent
-                        <input
-                          type="number"
-                          className={inputClass}
-                          value={line.discount_percent}
-                          onChange={(e) =>
-                            updateLine(
-                              line.key,
-                              "discount_percent",
-                              Number(e.target.value) || 0,
-                            )
-                          }
-                        />
-                      </label>
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                        gst_percent
-                        <input
-                          type="number"
-                          className={inputClass}
-                          value={line.gst_percent}
-                          onChange={(e) =>
-                            updateLine(
-                              line.key,
-                              "gst_percent",
-                              Number(e.target.value) || 0,
-                            )
-                          }
-                        />
-                      </label>
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                        applied_rate_type
-                        <select
-                          className={inputClass}
-                          value={line.applied_rate_type}
-                          onChange={(e) =>
-                            updateLine(
-                              line.key,
-                              "applied_rate_type",
-                              e.target.value,
-                            )
-                          }
-                        >
-                          {RATE_TYPES.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500">
-                        approved_total
-                        <input
-                          type="number"
-                          className={`${inputClass} bg-slate-100 dark:bg-slate-900`}
-                          value={line.approved_total_amount}
-                          readOnly
-                        />
-                      </label>
-                      <label className="space-y-0.5 text-2xs font-semibold text-slate-500 col-span-2">
-                        remarks
-                        <input
-                          className={inputClass}
-                          value={line.remarks}
-                          onChange={(e) =>
-                            updateLine(line.key, "remarks", e.target.value)
-                          }
-                        />
-                      </label>
-                    </div>
-                  </div>
-                  );
-                })}
-                <button
-                  type="button"
-                  disabled={!selectedId}
-                  onClick={addLine}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-200"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add line
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-950">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-xs text-slate-600 dark:text-slate-300">
-              Lines total:{" "}
-              <strong className="font-mono">₹{formatMoney(linesTotal)}</strong>
-              {!totalsManual ? (
-                <span className="ml-2 text-2xs text-slate-400">
-                  (syncing to approved_total_amount)
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="ml-2 text-2xs font-semibold text-amber-700 underline"
-                  onClick={() => {
-                    setTotalsManual(false);
-                    setHeader((h) => ({
-                      ...h,
-                      approved_total_amount: linesTotal,
-                    }));
-                  }}
-                >
-                  Reset to lines total
-                </button>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold dark:border-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={saving || !selectedId}
-                onClick={() => void handleSave()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-amber-700 disabled:opacity-60"
-              >
-                {saving ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="h-3.5 w-3.5" />
-                )}
-                Save approval
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ─── Main Sheet Modal ─────────────────────────────────────────────────── */
 
 export function SuperAdminOrdersSheetModal({
@@ -2490,14 +846,29 @@ export function SuperAdminOrdersSheetModal({
   partyNameById: partyNameByIdProp,
 }: SuperAdminOrdersSheetModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState<"all" | "today" | "yesterday" | "last7" | "thisMonth" | "custom">("all");
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
   const [sheetTab, setSheetTab] = useState<"orders" | "bin">("orders");
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
   const [savingApprovalIds, setSavingApprovalIds] = useState<
     Record<string, boolean>
   >({});
+  const [savingDispatchIds, setSavingDispatchIds] = useState<
+    Record<string, boolean>
+  >({});
   const [localOrders, setLocalOrders] = useState<any[]>([]);
   const [itemsOrderId, setItemsOrderId] = useState<string | null>(null);
   const [approvalsOrderId, setApprovalsOrderId] = useState<string | null>(null);
+  const [dispatchesOrderId, setDispatchesOrderId] = useState<string | null>(null);
+  const [transportsOrderId, setTransportsOrderId] = useState<string | null>(null);
+  const [deliveriesOrderId, setDeliveriesOrderId] = useState<string | null>(null);
+  const [returnsOrderId, setReturnsOrderId] = useState<string | null>(null);
+  const [savingTransportIds, setSavingTransportIds] = useState<Record<string, boolean>>({});
+  const [savingDeliveryId, setSavingDeliveryId] = useState(false);
+  const [savingReturnId, setSavingReturnId] = useState(false);
+  const [settleApproval, setSettleApproval] = useState<any | null>(null);
+  const [settleReleaseNo, setSettleReleaseNo] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
     label: string;
@@ -2530,8 +901,18 @@ export function SuperAdminOrdersSheetModal({
   const usersQ = useListUsersQuery({}, { skip: !isOpen });
   const productsQ = useListProductsQuery({}, { skip: !isOpen });
   const approvalsQ = useListOrderApprovalsQuery({}, { skip: !isOpen });
+  const dispatchesQ = useListDispatchesQuery({}, { skip: !isOpen });
+  const transportsQ = useListTransportsQuery({}, { skip: !isOpen });
+  const deliveriesQ = useListOrderDeliveriesQuery({}, { skip: !isOpen });
+  const returnsQ = useListOrderReturnsQuery({}, { skip: !isOpen });
   const [superSheetPatch] = useSuperSheetPatchOrderMutation();
   const [superSheetPatchApproval] = useSuperSheetPatchOrderApprovalMutation();
+  const [patchDispatch] = usePatchDispatchMutation();
+  const [createDispatch] = useCreateDispatchMutation();
+  const [createTransport] = useCreateTransportMutation();
+  const [patchTransport] = usePatchTransportMutation();
+  const [logShipmentDelivery] = useLogShipmentDeliveryMutation();
+  const [createOrderReturn] = useCreateOrderReturnMutation();
   const [deleteOrder, { isLoading: isDeletingOrder }] =
     useDeleteOrderMutation();
   const [restoreOrder] = useRestoreOrderMutation();
@@ -2565,6 +946,63 @@ export function SuperAdminOrdersSheetModal({
     return map;
   }, [approvalsQ.data]);
 
+  const dispatchesByOrderId = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>[]>();
+    for (const row of pickList(dispatchesQ.data)) {
+      if (!row || typeof row !== "object") continue;
+      const o = row as Record<string, unknown>;
+      const orderId = refId(o.order);
+      if (!orderId) continue;
+      const list = map.get(orderId) || [];
+      list.push(o);
+      map.set(orderId, list);
+    }
+    return map;
+  }, [dispatchesQ.data]);
+
+  const transportsByOrderId = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>[]>();
+    for (const row of pickList(transportsQ.data)) {
+      if (!row || typeof row !== "object") continue;
+      const o = row as Record<string, unknown>;
+      const orderId = refId(o.order);
+      if (!orderId) continue;
+      const list = map.get(orderId) || [];
+      list.push(o);
+      map.set(orderId, list);
+    }
+    return map;
+  }, [transportsQ.data]);
+
+  const deliveriesByOrderId = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>[]>();
+    for (const row of pickList(deliveriesQ.data)) {
+      if (!row || typeof row !== "object") continue;
+      const o = row as Record<string, unknown>;
+      // deliveries are linked to transport->dispatch->order, try order field directly
+      const orderId = refId(o.order);
+      if (!orderId) continue;
+      const list = map.get(orderId) || [];
+      list.push(o);
+      map.set(orderId, list);
+    }
+    return map;
+  }, [deliveriesQ.data]);
+
+  const returnsByOrderId = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>[]>();
+    for (const row of pickList(returnsQ.data)) {
+      if (!row || typeof row !== "object") continue;
+      const o = row as Record<string, unknown>;
+      const orderId = refId(o.order);
+      if (!orderId) continue;
+      const list = map.get(orderId) || [];
+      list.push(o);
+      map.set(orderId, list);
+    }
+    return map;
+  }, [returnsQ.data]);
+
   const partyOptions = useMemo(
     () => buildPartyOptions(partiesQ.data, partyNameById),
     [partiesQ.data, partyNameById],
@@ -2591,8 +1029,17 @@ export function SuperAdminOrdersSheetModal({
     if (!isOpen) return;
     setItemsOrderId(null);
     setApprovalsOrderId(null);
+    setDispatchesOrderId(null);
+    setTransportsOrderId(null);
+    setDeliveriesOrderId(null);
+    setReturnsOrderId(null);
+    setSettleApproval(null);
+    setSettleReleaseNo("");
     setEditing(null);
     setDeleteTarget(null);
+    setDateFilter("all");
+    setCustomDateFrom("");
+    setCustomDateTo("");
   }, [sheetTab, isOpen]);
 
   useEffect(() => {
@@ -2605,6 +1052,27 @@ export function SuperAdminOrdersSheetModal({
       }
       if (approvalsOrderId) {
         setApprovalsOrderId(null);
+        return;
+      }
+      if (settleApproval) {
+        setSettleApproval(null);
+        setSettleReleaseNo("");
+        return;
+      }
+      if (dispatchesOrderId) {
+        setDispatchesOrderId(null);
+        return;
+      }
+      if (transportsOrderId) {
+        setTransportsOrderId(null);
+        return;
+      }
+      if (deliveriesOrderId) {
+        setDeliveriesOrderId(null);
+        return;
+      }
+      if (returnsOrderId) {
+        setReturnsOrderId(null);
         return;
       }
       if (itemsOrderId) {
@@ -2625,14 +1093,54 @@ export function SuperAdminOrdersSheetModal({
     onClose,
     itemsOrderId,
     approvalsOrderId,
+    dispatchesOrderId,
+    transportsOrderId,
+    deliveriesOrderId,
+    returnsOrderId,
+    settleApproval,
     deleteTarget,
     isDeletingOrder,
   ]);
 
   const filteredOrders = useMemo(() => {
+    // ─── Date filter bounds ───────────────────────────────────────────────
+    const now = new Date();
+    const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    let dateFrom: Date | null = null;
+    let dateTo: Date | null = null;
+    if (dateFilter === "today") {
+      dateFrom = startOfDay(now);
+      dateTo = new Date(dateFrom.getTime() + 86400000);
+    } else if (dateFilter === "yesterday") {
+      dateTo = startOfDay(now);
+      dateFrom = new Date(dateTo.getTime() - 86400000);
+    } else if (dateFilter === "last7") {
+      dateFrom = startOfDay(new Date(now.getTime() - 6 * 86400000));
+      dateTo = new Date(startOfDay(now).getTime() + 86400000);
+    } else if (dateFilter === "thisMonth") {
+      dateFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+      dateTo = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    } else if (dateFilter === "custom" && (customDateFrom || customDateTo)) {
+      dateFrom = customDateFrom ? new Date(customDateFrom) : null;
+      dateTo = customDateTo ? new Date(new Date(customDateTo).getTime() + 86400000) : null;
+    }
+
+    // ─── Text search ─────────────────────────────────────────────────────
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return localOrders;
+
     return localOrders.filter((o) => {
+      // Date filter
+      if (dateFrom || dateTo) {
+        const rawDate = o.order_date || o.createdAt;
+        if (!rawDate) return false;
+        const orderDate = new Date(String(rawDate));
+        if (isNaN(orderDate.getTime())) return false;
+        if (dateFrom && orderDate < dateFrom) return false;
+        if (dateTo && orderDate >= dateTo) return false;
+      }
+
+      // Text search
+      if (!q) return true;
       const id = refId(o._id || o.id);
       const hay = [
         id,
@@ -2671,14 +1179,24 @@ export function SuperAdminOrdersSheetModal({
         ),
         o.remarks,
         ...(Array.isArray(o.order_items)
-          ? o.order_items.map((l: any) => l.product_name || l.sku || "")
+          ? o.order_items.map((l: any) => {
+              const pn = l.product_name;
+              const sk = l.sku;
+              const productObj = l.product;
+              if (pn && typeof pn !== "object") return String(pn);
+              if (sk && typeof sk !== "object") return String(sk);
+              if (productObj && typeof productObj === "object") {
+                return String(productObj.product_name || productObj.name || "");
+              }
+              return "";
+            })
           : []),
       ]
         .join(" ")
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [localOrders, searchQuery, partyNameById, userNameById, approvalById]);
+  }, [localOrders, searchQuery, dateFilter, customDateFrom, customDateTo, partyNameById, userNameById, approvalById]);
 
   const itemsOrder = useMemo(
     () =>
@@ -2704,6 +1222,106 @@ export function SuperAdminOrdersSheetModal({
         ? approvalsByOrderId.get(approvalsOrderId) || []
         : [],
     [approvalsOrderId, approvalsByOrderId],
+  );
+
+  const dispatchesOrder = useMemo(
+    () =>
+      dispatchesOrderId
+        ? localOrders.find((o) => refId(o._id || o.id) === dispatchesOrderId) ||
+          rawOrders.find((o: any) => refId(o._id || o.id) === dispatchesOrderId)
+        : null,
+    [dispatchesOrderId, localOrders, rawOrders],
+  );
+
+  const dispatchesForSelectedOrder = useMemo(
+    () =>
+      dispatchesOrderId
+        ? dispatchesByOrderId.get(dispatchesOrderId) || []
+        : [],
+    [dispatchesOrderId, dispatchesByOrderId],
+  );
+
+  const transportsOrder = useMemo(
+    () =>
+      transportsOrderId
+        ? localOrders.find((o) => refId(o._id || o.id) === transportsOrderId) ||
+          rawOrders.find((o: any) => refId(o._id || o.id) === transportsOrderId)
+        : null,
+    [transportsOrderId, localOrders, rawOrders],
+  );
+
+  const transportsForSelectedOrder = useMemo(
+    () =>
+      transportsOrderId
+        ? transportsByOrderId.get(transportsOrderId) || []
+        : [],
+    [transportsOrderId, transportsByOrderId],
+  );
+
+  const dispatchesForTransportsOrder = useMemo(
+    () =>
+      transportsOrderId
+        ? dispatchesByOrderId.get(transportsOrderId) || []
+        : [],
+    [transportsOrderId, dispatchesByOrderId],
+  );
+
+  const deliveriesOrder = useMemo(
+    () =>
+      deliveriesOrderId
+        ? localOrders.find((o) => refId(o._id || o.id) === deliveriesOrderId) ||
+          rawOrders.find((o: any) => refId(o._id || o.id) === deliveriesOrderId)
+        : null,
+    [deliveriesOrderId, localOrders, rawOrders],
+  );
+
+  const deliveriesForSelectedOrder = useMemo(
+    () =>
+      deliveriesOrderId
+        ? deliveriesByOrderId.get(deliveriesOrderId) || []
+        : [],
+    [deliveriesOrderId, deliveriesByOrderId],
+  );
+
+  const transportsForDeliveriesOrder = useMemo(
+    () =>
+      deliveriesOrderId
+        ? transportsByOrderId.get(deliveriesOrderId) || []
+        : [],
+    [deliveriesOrderId, transportsByOrderId],
+  );
+
+  const dispatchesForDeliveriesOrder = useMemo(
+    () =>
+      deliveriesOrderId
+        ? dispatchesByOrderId.get(deliveriesOrderId) || []
+        : [],
+    [deliveriesOrderId, dispatchesByOrderId],
+  );
+
+  const returnsOrder = useMemo(
+    () =>
+      returnsOrderId
+        ? localOrders.find((o) => refId(o._id || o.id) === returnsOrderId) ||
+          rawOrders.find((o: any) => refId(o._id || o.id) === returnsOrderId)
+        : null,
+    [returnsOrderId, localOrders, rawOrders],
+  );
+
+  const returnsForSelectedOrder = useMemo(
+    () =>
+      returnsOrderId
+        ? returnsByOrderId.get(returnsOrderId) || []
+        : [],
+    [returnsOrderId, returnsByOrderId],
+  );
+
+  const dispatchesForReturnsOrder = useMemo(
+    () =>
+      returnsOrderId
+        ? dispatchesByOrderId.get(returnsOrderId) || []
+        : [],
+    [returnsOrderId, dispatchesByOrderId],
   );
 
   const saveOrderPatch = useCallback(
@@ -2743,6 +1361,117 @@ export function SuperAdminOrdersSheetModal({
       }
     },
     [superSheetPatchApproval, approvalsQ, refetch],
+  );
+
+  const saveDispatchPatch = useCallback(
+    async (dispatchId: string, patch: Record<string, unknown>) => {
+      setSavingDispatchIds((prev) => ({ ...prev, [dispatchId]: true }));
+      try {
+        await patchDispatch({ id: dispatchId, patch }).unwrap();
+        toast.success("Dispatch saved (bypass)");
+        await Promise.all([
+          dispatchesQ.refetch(),
+          refetch(),
+        ]);
+      } catch (err: any) {
+        toast.error(err?.data?.message || "Failed to save dispatch");
+        await dispatchesQ.refetch();
+        throw err;
+      } finally {
+        setSavingDispatchIds((prev) => ({ ...prev, [dispatchId]: false }));
+      }
+    },
+    [patchDispatch, dispatchesQ, refetch],
+  );
+
+  const handleCreateDispatch = useCallback(
+    async (formData: FormData) => {
+      const tempId = "new_dispatch_saving";
+      setSavingDispatchIds((prev) => ({ ...prev, [tempId]: true }));
+      try {
+        await createDispatch(formData).unwrap();
+        toast.success("Dispatch created successfully");
+        await Promise.all([
+          dispatchesQ.refetch(),
+          refetch(),
+        ]);
+      } catch (err: any) {
+        toast.error(err?.data?.message || "Failed to create dispatch");
+        throw err;
+      } finally {
+        setSavingDispatchIds((prev) => ({ ...prev, [tempId]: false }));
+      }
+    },
+    [createDispatch, dispatchesQ, refetch],
+  );
+
+  const handleCreateTransport = useCallback(
+    async (payload: Record<string, any>) => {
+      const tempId = "new_transport_saving";
+      setSavingTransportIds((prev) => ({ ...prev, [tempId]: true }));
+      try {
+        await createTransport(payload).unwrap();
+        toast.success("Transport created successfully");
+        await Promise.all([transportsQ.refetch(), refetch()]);
+      } catch (err: any) {
+        toast.error(err?.data?.message || "Failed to create transport");
+        throw err;
+      } finally {
+        setSavingTransportIds((prev) => ({ ...prev, [tempId]: false }));
+      }
+    },
+    [createTransport, transportsQ, refetch],
+  );
+
+  const handleSaveTransport = useCallback(
+    async (transportId: string, patch: Record<string, any>) => {
+      setSavingTransportIds((prev) => ({ ...prev, [transportId]: true }));
+      try {
+        await patchTransport({ id: transportId, patch }).unwrap();
+        toast.success("Transport saved (bypass)");
+        await transportsQ.refetch();
+      } catch (err: any) {
+        toast.error(err?.data?.message || "Failed to save transport");
+        throw err;
+      } finally {
+        setSavingTransportIds((prev) => ({ ...prev, [transportId]: false }));
+      }
+    },
+    [patchTransport, transportsQ],
+  );
+
+  const handleLogDelivery = useCallback(
+    async (payload: Record<string, any>) => {
+      setSavingDeliveryId(true);
+      try {
+        await logShipmentDelivery(payload).unwrap();
+        toast.success("Delivery logged successfully");
+        await Promise.all([deliveriesQ.refetch(), refetch()]);
+      } catch (err: any) {
+        toast.error(err?.data?.message || "Failed to log delivery");
+        throw err;
+      } finally {
+        setSavingDeliveryId(false);
+      }
+    },
+    [logShipmentDelivery, deliveriesQ, refetch],
+  );
+
+  const handleCreateReturn = useCallback(
+    async (payload: Record<string, any>) => {
+      setSavingReturnId(true);
+      try {
+        await createOrderReturn(payload).unwrap();
+        toast.success("Return submitted successfully");
+        await Promise.all([returnsQ.refetch(), refetch()]);
+      } catch (err: any) {
+        toast.error(err?.data?.message || "Failed to submit return");
+        throw err;
+      } finally {
+        setSavingReturnId(false);
+      }
+    },
+    [createOrderReturn, returnsQ, refetch],
   );
 
   const confirmDeleteOrder = useCallback(async () => {
@@ -2832,7 +1561,8 @@ export function SuperAdminOrdersSheetModal({
 
   const isSavingAny =
     Object.values(savingIds).some(Boolean) ||
-    Object.values(savingApprovalIds).some(Boolean);
+    Object.values(savingApprovalIds).some(Boolean) ||
+    Object.values(savingDispatchIds).some(Boolean);
 
   const renderCell = (
     orderId: string,
@@ -2852,9 +1582,14 @@ export function SuperAdminOrdersSheetModal({
       editing?.orderId === orderId && editing?.colKey === col.key;
 
     if (!col.editable || isBin) {
+      const safeDisplay = displayValue != null && typeof displayValue !== "object"
+        ? String(displayValue)
+        : typeof displayValue === "object" && displayValue !== null
+          ? String((displayValue as any).product_name || (displayValue as any).name || JSON.stringify(displayValue))
+          : "";
       return (
         <span className="block truncate text-slate-600 dark:text-slate-300">
-          {displayValue || "—"}
+          {safeDisplay || "—"}
         </span>
       );
     }
@@ -3082,11 +1817,12 @@ export function SuperAdminOrdersSheetModal({
               onClick={() => {
                 void refetch();
                 void approvalsQ.refetch();
+                void dispatchesQ.refetch();
               }}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold dark:border-slate-700 dark:bg-slate-900"
             >
               <RefreshCw
-                className={`h-3.5 w-3.5 ${isFetching || approvalsQ.isFetching ? "animate-spin" : ""}`}
+                className={`h-3.5 w-3.5 ${isFetching || approvalsQ.isFetching || dispatchesQ.isFetching ? "animate-spin" : ""}`}
               />
               Reload
             </button>
@@ -3100,6 +1836,64 @@ export function SuperAdminOrdersSheetModal({
                 Export CSV
               </button>
             ) : null}
+          </div>
+          {/* Date filter row */}
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-2 shrink-0 dark:border-slate-800 dark:bg-slate-900">
+            <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400">Order Date</span>
+            {([
+              ["all", "All"],
+              ["today", "Today"],
+              ["yesterday", "Yesterday"],
+              ["last7", "Last 7 days"],
+              ["thisMonth", "This month"],
+              ["custom", "Custom range"],
+            ] as [string, string][]).map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setDateFilter(val as any)}
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  dateFilter === val
+                    ? "bg-amber-500 text-white shadow-sm"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+            {dateFilter === "custom" && (
+              <div className="flex items-center gap-1.5 ml-1">
+                <input
+                  type="date"
+                  value={customDateFrom}
+                  onChange={(e) => setCustomDateFrom(e.target.value)}
+                  className="rounded border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900"
+                  placeholder="From"
+                />
+                <span className="text-xs text-slate-400">→</span>
+                <input
+                  type="date"
+                  value={customDateTo}
+                  onChange={(e) => setCustomDateTo(e.target.value)}
+                  className="rounded border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900"
+                  placeholder="To"
+                />
+                {(customDateFrom || customDateTo) && (
+                  <button
+                    type="button"
+                    onClick={() => { setCustomDateFrom(""); setCustomDateTo(""); }}
+                    className="rounded px-2 py-1 text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+            {dateFilter !== "all" && (
+              <span className="ml-auto text-2xs text-slate-400">
+                {filteredOrders.length} matching order{filteredOrders.length !== 1 ? "s" : ""}
+              </span>
+            )}
           </div>
           <div className="relative w-64">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -3133,6 +1927,18 @@ export function SuperAdminOrdersSheetModal({
                     <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
                       Appr
                     </th>
+                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
+                      Disp
+                    </th>
+                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
+                      Trsp
+                    </th>
+                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
+                      Delv
+                    </th>
+                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
+                      Retn
+                    </th>
                   </>
                 ) : null}
                 <th className="sticky top-0 z-20 w-10 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 text-slate-400 dark:border-slate-800 dark:bg-slate-900">
@@ -3156,7 +1962,7 @@ export function SuperAdminOrdersSheetModal({
               {filteredOrders.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={ORDER_COLUMNS.length + (isBin ? 2 : 4)}
+                    colSpan={ORDER_COLUMNS.length + (isBin ? 2 : 7)}
                     className="px-4 py-12 text-center text-sm text-slate-500"
                   >
                     {isBin
@@ -3172,6 +1978,14 @@ export function SuperAdminOrdersSheetModal({
                   : 0;
                 const approvalCount =
                   approvalsByOrderId.get(orderId)?.length ?? 0;
+                const dispatchCount =
+                  dispatchesByOrderId.get(orderId)?.length ?? 0;
+                const transportCount =
+                  transportsByOrderId.get(orderId)?.length ?? 0;
+                const deliveryCount =
+                  deliveriesByOrderId.get(orderId)?.length ?? 0;
+                const returnCount =
+                  returnsByOrderId.get(orderId)?.length ?? 0;
                 const orderLabel =
                   String(order.order_no || "").trim() || orderId;
                 return (
@@ -3234,6 +2048,58 @@ export function SuperAdminOrdersSheetModal({
                             </span>
                           </button>
                         </td>
+                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setDispatchesOrderId(orderId)}
+                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-blue-700 hover:bg-blue-100 dark:text-blue-300 dark:hover:bg-blue-900/40"
+                            title="Open order dispatches form"
+                          >
+                            <Truck className="h-4 w-4" />
+                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-0.5 text-[9px] font-bold text-white">
+                              {dispatchCount}
+                            </span>
+                          </button>
+                        </td>
+                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setTransportsOrderId(orderId)}
+                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-violet-700 hover:bg-violet-100 dark:text-violet-300 dark:hover:bg-violet-900/40"
+                            title="Open order transport shipments"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h18v13H3z"/><path d="M3 16l2 5h14l2-5"/><path d="M9 21v-5"/><path d="M15 21v-5"/></svg>
+                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-0.5 text-[9px] font-bold text-white">
+                              {transportCount}
+                            </span>
+                          </button>
+                        </td>
+                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setDeliveriesOrderId(orderId)}
+                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
+                            title="Open order deliveries"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-600 px-0.5 text-[9px] font-bold text-white">
+                              {deliveryCount}
+                            </span>
+                          </button>
+                        </td>
+                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setReturnsOrderId(orderId)}
+                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-rose-700 hover:bg-rose-100 dark:text-rose-300 dark:hover:bg-rose-900/40"
+                            title="Open order returns"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-0.5 text-[9px] font-bold text-white">
+                              {returnCount}
+                            </span>
+                          </button>
+                        </td>
                       </>
                     ) : null}
                     <td className="border-b border-r border-slate-100 px-2 py-1 text-center font-mono text-slate-400 dark:border-slate-800">
@@ -3265,7 +2131,7 @@ export function SuperAdminOrdersSheetModal({
             {filteredOrders.length} / {localOrders.length}{" "}
             {isBin ? "deleted orders" : "orders"}
             {!isBin
-              ? " · trash = delete · package = items · clipboard = approvals"
+              ? " · trash = delete · package = items · clipboard = approvals · truck = dispatches"
               : " · restore returns the order to the active sheet"}
           </span>
           <span className="font-semibold text-amber-700 dark:text-amber-400">
@@ -3301,6 +2167,95 @@ export function SuperAdminOrdersSheetModal({
             onClose={() => setApprovalsOrderId(null)}
             onSave={async (approvalId, patch) => {
               await saveApprovalPatch(approvalId, patch);
+            }}
+          />
+        ) : null}
+
+        {dispatchesOrder ? (
+          <OrderDispatchesForm
+            order={dispatchesOrder}
+            dispatches={dispatchesForSelectedOrder}
+            approvals={approvalsByOrderId.get(refId(dispatchesOrder._id || dispatchesOrder.id)) || []}
+            users={userOptions}
+            saving={Object.values(savingDispatchIds).some(Boolean)}
+            onClose={() => setDispatchesOrderId(null)}
+            onSave={async (dispatchId, patch) => {
+              await saveDispatchPatch(dispatchId, patch);
+            }}
+            onCreate={async (formData) => {
+              await handleCreateDispatch(formData);
+            }}
+            onSettleClick={(approval, releaseNo) => {
+              setSettleApproval(approval);
+              setSettleReleaseNo(releaseNo);
+            }}
+          />
+        ) : null}
+
+        {transportsOrder ? (
+          <OrderTransportsForm
+            order={transportsOrder}
+            dispatches={dispatchesForTransportsOrder}
+            transports={transportsForSelectedOrder}
+            users={userOptions}
+            saving={Object.values(savingTransportIds).some(Boolean)}
+            onClose={() => setTransportsOrderId(null)}
+            onCreate={async (payload) => {
+              await handleCreateTransport(payload);
+            }}
+            onSave={async (transportId, patch) => {
+              await handleSaveTransport(transportId, patch);
+            }}
+          />
+        ) : null}
+
+        {deliveriesOrder ? (
+          <OrderDeliveriesForm
+            order={deliveriesOrder}
+            dispatches={dispatchesForDeliveriesOrder}
+            transports={transportsForDeliveriesOrder}
+            deliveries={deliveriesForSelectedOrder}
+            saving={savingDeliveryId}
+            onClose={() => setDeliveriesOrderId(null)}
+            onLogDelivery={async (payload) => {
+              await handleLogDelivery(payload);
+            }}
+          />
+        ) : null}
+
+        {returnsOrder ? (
+          <OrderReturnsForm
+            order={returnsOrder}
+            dispatches={dispatchesForReturnsOrder}
+            returns={returnsForSelectedOrder}
+            saving={savingReturnId}
+            onClose={() => setReturnsOrderId(null)}
+            onCreateReturn={async (payload) => {
+              await handleCreateReturn(payload);
+            }}
+          />
+        ) : null}
+
+        {settleApproval ? (
+          <SettleRestOrderModal
+            open={Boolean(settleApproval)}
+            onClose={() => {
+              setSettleApproval(null);
+              setSettleReleaseNo("");
+            }}
+            orderId={refId(dispatchesOrder?._id || dispatchesOrder?.id || "")}
+            approval={settleApproval}
+            dispatches={dispatchesForSelectedOrder}
+            orderItems={dispatchesOrder?.order_items || []}
+            releaseNo={settleReleaseNo}
+            onSettled={async () => {
+              setSettleApproval(null);
+              setSettleReleaseNo("");
+              await Promise.all([
+                dispatchesQ.refetch(),
+                approvalsQ.refetch(),
+                refetch(),
+              ]);
             }}
           />
         ) : null}
