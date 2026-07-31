@@ -125,9 +125,9 @@ export function dispatchTabQueryParams(
     case "due_sheet_pending":
       return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     case "pending_finance_approval":
-      return { status: "pending_finance_review" };
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     case "pending_account_approval":
-      return { status: "pending_account_review" };
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     case "on_hold":
       return { status: "on_hold" };
     case "cancelled":
@@ -135,7 +135,7 @@ export function dispatchTabQueryParams(
     case "rejected":
       return { status: "finance_rejected" };
     case "open_dispatched":
-      return { status: "open" };
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected,delivered,closed" };
     case "closed_delivered":
       return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     default:

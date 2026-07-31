@@ -207,6 +207,11 @@ export function isFinanceCleared(order: unknown): boolean {
 /**
  * OrderApproval.is_account_approved / approval_pending.account /
  * Order.account_approval_status / post-account Order.status.
+ *
+ * Prefer enrichment: when no OrderApproval batch still needs account, treat as
+ * cleared even if Order.account_approval_status / status lagged (otherwise the
+ * order is counted as Account Pending but missing from that API queue and also
+ * filtered out of Dispatch Pending).
  */
 export function isAccountCleared(order: unknown): boolean {
   const row = asRow(order);
@@ -222,7 +227,7 @@ export function isAccountCleared(order: unknown): boolean {
   const accountStatus = String(row.account_approval_status || "pending").toLowerCase();
   if (deptApprovalCleared(accountStatus)) return true;
 
-  return (
+  const postAccountStatus =
     status === "account_approved" ||
     status === "fully_account_approved" ||
     status === "partially_account_approved" ||
@@ -233,8 +238,28 @@ export function isAccountCleared(order: unknown): boolean {
     status === "in_transit" ||
     status.startsWith("transport") ||
     status === "delivered" ||
-    status === "closed"
-  );
+    status === "closed";
+
+  if (postAccountStatus) return true;
+
+  // Enrichment: no batch still needs account, but Order.status / account_approval_status
+  // may still say account_review/pending. Trust OrderApproval so the order lands in
+  // Dispatch Pending instead of a ghost Account Pending count.
+  if (
+    enriched &&
+    !enriched.admin &&
+    !enriched.finance &&
+    !enriched.account &&
+    enriched.stage === null
+  ) {
+    if (row.last_account_approval != null && row.last_account_approval !== "") {
+      return true;
+    }
+    // Stuck at account_review after all batches were account-approved.
+    if (status === "account_review") return true;
+  }
+
+  return false;
 }
 
 /** OrderDueSheet present — list enrichment `due_sheet_uploaded`. */
@@ -483,9 +508,10 @@ export function workflowTabQueryParams(
     case "due_sheet_pending":
       return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     case "pending_finance_approval":
-      return { status: "pending_finance_review" };
+      // Broad fetch — client exclusive filter is source of truth for tab membership.
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     case "pending_account_approval":
-      return { status: "pending_account_review" };
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     case "on_hold":
       return { status: "on_hold" };
     case "cancelled":
@@ -493,7 +519,9 @@ export function workflowTabQueryParams(
     case "rejected":
       return { status: "finance_rejected" };
     case "open_dispatched":
-      return { status: "open" };
+      // Broad fetch so post-approval orders are not hidden when Order.status lags
+      // behind OrderApproval; client filter places them in Dispatch Pending.
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected,delivered,closed" };
     case "closed_delivered":
       return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     default:

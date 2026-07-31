@@ -1726,11 +1726,31 @@ async function decideAccount(id, decision, body, user, options = {}) {
   if (order) {
     const isApprovedOrPartial = finalStatus === 'fully_approved' || finalStatus === 'partially_approved';
 
+    const allApproved = (doc.approval_items || []).every((item) => isLineFullyApproved(item));
+
     if (isApprovedOrPartial) {
       await fulfillmentService.recomputeApprovedQuantitiesFromFinance(order._id);
       const refreshed = await Order.findById(order._id);
       if (refreshed) {
         refreshed.last_account_approval = doc._id;
+        // Keep Order rollup in sync with OrderApproval even if status transition is skipped.
+        refreshed.account_approval_status = allApproved
+          ? APPROVAL_STATUS.APPROVED
+          : APPROVAL_STATUS.PARTIAL;
+        if (
+          refreshed.workflow_stage === ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW
+          || refreshed.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW
+        ) {
+          refreshed.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
+        }
+        if (
+          !['account_approved', 'dispatch', 'in_transit', 'delivered', 'closed', 'cancelled'].includes(
+            String(refreshed.status || ''),
+          )
+        ) {
+          refreshed.status = ORDER_STATUS.ACCOUNT_APPROVED;
+        }
+        refreshed.current_action = allApproved ? 'fully_account_approved' : 'account_partial';
         recalcCommercials(refreshed);
         normalizeOrderWorkflowFields(refreshed);
         await refreshed.save();
@@ -1740,13 +1760,22 @@ async function decideAccount(id, decision, body, user, options = {}) {
       await order.save();
     }
 
-    const allApproved = (doc.approval_items || []).every((item) => isLineFullyApproved(item));
-
     const nextStatus = (isRejected || finalStatus === 'rejected')
       ? 'account_rejected'
       : (allApproved ? 'fully_account_approved' : 'partially_account_approved');
 
-    const isPastAccount = ['account_approved', 'fully_account_approved', 'partially_account_approved', 'dispatched', 'delivered', 'closed', 'cancelled'].includes(order.status);
+    const orderForTransition = await Order.findById(order._id).lean();
+    const currentStatus = String(orderForTransition?.status || order.status || '');
+    const isPastAccount = [
+      'account_approved',
+      'fully_account_approved',
+      'partially_account_approved',
+      'dispatch',
+      'dispatched',
+      'delivered',
+      'closed',
+      'cancelled',
+    ].includes(currentStatus);
     if (!isPastAccount) {
       await workflowService.transitionOrderStatus({
         orderId: order._id,
@@ -1763,6 +1792,15 @@ async function decideAccount(id, decision, body, user, options = {}) {
       if (orderAfterTransition) {
         await fulfillmentService.applyAccountWorkflowAction(orderAfterTransition);
         orderAfterTransition.last_account_approval = doc._id;
+        orderAfterTransition.account_approval_status = allApproved
+          ? APPROVAL_STATUS.APPROVED
+          : APPROVAL_STATUS.PARTIAL;
+        if (
+          orderAfterTransition.workflow_stage === ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW
+          || orderAfterTransition.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW
+        ) {
+          orderAfterTransition.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
+        }
         normalizeOrderWorkflowFields(orderAfterTransition);
         await orderAfterTransition.save();
 

@@ -150,7 +150,7 @@ export function financeTabQueryParams(
     case "rejected":
       return { status: "finance_rejected" };
     case "open_dispatched":
-      return { status: "open" };
+      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected,delivered,closed" };
     case "closed_delivered":
       return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
     default:
