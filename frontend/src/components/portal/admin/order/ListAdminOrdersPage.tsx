@@ -18,6 +18,7 @@ import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay"
 import { GoogleSheetOrdersModal } from "@/components/portal/shared/GoogleSheetOrdersModal";
 import { GoogleSheetAnalyticsModal } from "@/components/portal/shared/GoogleSheetAnalyticsModal";
 import { SuperAdminOrdersSheetModal } from "@/components/portal/super_admin/order/SuperAdminOrdersSheetModal";
+import { SuperAdminCreateOrderForm } from "@/components/portal/super_admin/order/SuperAdminCreateOrderForm";
 import { UnbilledOrdersModal } from "@/components/portal/shared/orderList/UnbilledOrdersModal";
 import { PRIORITY_OPTIONS } from "@/components/portal/shared/orderStatusOptions";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
@@ -271,6 +272,7 @@ export default function ListAdminOrdersPage({
   const [isGoogleSheetOpen, setIsGoogleSheetOpen] = useState(false);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
   const [isUnbilledOrdersOpen, setIsUnbilledOrdersOpen] = useState(false);
+  const [editOrderId, setEditOrderId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AdminOrderTabCategory>(() =>
     tabFromUrl ? normalizeAdminTabFromUrl(tabFromUrl) : defaultTab,
   );
@@ -851,6 +853,18 @@ export default function ListAdminOrdersPage({
                             >
                               View
                             </button>
+                            {portalHome === "/super_admin" && id && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditOrderId(id);
+                                }}
+                                className="rounded border border-blue-500/20 bg-blue-500/10 text-blue-700 hover:bg-blue-500/20 dark:text-blue-400 dark:hover:bg-blue-500/30 px-2 py-1 transition font-semibold"
+                              >
+                                Edit
+                              </button>
+                            )}
                             {isDraftRow && id && (
                               <button
                                 type="button"
@@ -951,6 +965,14 @@ export default function ListAdminOrdersPage({
         partyNameById={partyNameById}
         portal={analyticsPortal}
       />
+      {portalHome === "/super_admin" && editOrderId && (
+        <SuperAdminCreateOrderForm
+          isOpen={Boolean(editOrderId)}
+          onClose={() => setEditOrderId(null)}
+          orderId={editOrderId}
+          onOrderCreated={() => refetch()}
+        />
+      )}
 
       {viewOrderId && (
         <OrderDetailModal

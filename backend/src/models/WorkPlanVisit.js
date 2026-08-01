@@ -39,6 +39,13 @@ const workPlanVisitSchema = new mongoose.Schema(
     contact_person: { type: String, trim: true },
     contact_number: { type: String, trim: true },
     contact_email: { type: String, trim: true, lowercase: true },
+    contacts: [
+      {
+        contact_person: { type: String, trim: true },
+        contact_number: { type: String, trim: true },
+        contact_email: { type: String, trim: true, lowercase: true }
+      }
+    ],
     address: { type: String, trim: true },
     planned_start_time: Date,
     planned_end_time: Date,

@@ -83,7 +83,7 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
         const children = leaf.children ?? [];
         const key = leaf.segments.join("/") || "__root__";
         const isOpen = openKey === key;
-        const linkHref = children.length ? `${href}?${children[0].query}` : href;
+        const linkHref = href;
 
         if (children.length === 0) {
           return (
@@ -117,12 +117,13 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
               }
             }}
           >
-            <Link
-              href={linkHref}
+            <button
+              type="button"
               aria-expanded={isOpen}
               aria-haspopup="menu"
+              onClick={() => setOpenKey(isOpen ? null : key)}
               className={[
-                "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition",
+                "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition cursor-pointer",
                 active || isOpen
                   ? "bg-primary-muted text-foreground ring-1 ring-primary/30"
                   : "text-muted hover:bg-surface-muted hover:text-foreground",
@@ -135,7 +136,7 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
                 strokeWidth={2.5}
                 aria-hidden
               />
-            </Link>
+            </button>
 
             {isOpen && (
               <div

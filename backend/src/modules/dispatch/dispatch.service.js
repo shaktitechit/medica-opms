@@ -76,9 +76,6 @@ function assertBillingPayload(body, file) {
   if (!body.billing_date) {
     throw new ApiError(400, 'Billing date is required');
   }
-  if (!file && !body.bill_document) {
-    throw new ApiError(400, 'Bill document is required');
-  }
 }
 
 function isObjectId(value) {

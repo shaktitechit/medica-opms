@@ -69,6 +69,7 @@ import { OrderDispatchesForm } from "./OrderDispatchesForm";
 import { OrderTransportsForm } from "./OrderTransportsForm";
 import { OrderDeliveriesForm } from "./OrderDeliveriesForm";
 import { OrderReturnsForm } from "./OrderReturnsForm";
+import { SuperAdminCreateOrderForm } from "./SuperAdminCreateOrderForm";
 import {
   ORDER_WORKFLOW_TABS,
   orderMatchesWorkflowTab,
@@ -170,7 +171,6 @@ const LINE_STATUSES = ["active", "partial", "fulfilled", "cancelled"] as const;
 const RATE_TYPES = ["SR", "SRA", "CR", "MANUAL"] as const;
 
 const ORDER_COLUMNS: ColDef[] = [
-  { key: "_id", label: "Order ID", width: 110 },
   { key: "order_no", label: "order_no", editable: true, type: "text", width: 130 },
   { key: "order_date", label: "order_date", editable: true, type: "date", width: 120 },
   {
@@ -852,6 +852,7 @@ export function SuperAdminOrdersSheetModal({
   partyNameById: partyNameByIdProp,
 }: SuperAdminOrdersSheetModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [createOrderFormOpen, setCreateOrderFormOpen] = useState(false);
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "yesterday" | "last7" | "thisMonth" | "custom">("all");
   const [customDateFrom, setCustomDateFrom] = useState("");
   const [customDateTo, setCustomDateTo] = useState("");
@@ -865,12 +866,8 @@ export function SuperAdminOrdersSheetModal({
     Record<string, boolean>
   >({});
   const [localOrders, setLocalOrders] = useState<any[]>([]);
-  const [itemsOrderId, setItemsOrderId] = useState<string | null>(null);
-  const [approvalsOrderId, setApprovalsOrderId] = useState<string | null>(null);
-  const [dispatchesOrderId, setDispatchesOrderId] = useState<string | null>(null);
-  const [transportsOrderId, setTransportsOrderId] = useState<string | null>(null);
-  const [deliveriesOrderId, setDeliveriesOrderId] = useState<string | null>(null);
-  const [returnsOrderId, setReturnsOrderId] = useState<string | null>(null);
+  const [editOrderWizardId, setEditOrderWizardId] = useState<string | null>(null);
+  const [editOrderWizardStep, setEditOrderWizardStep] = useState<"details" | "approvals" | "dispatches" | "transports" | "deliveries" | "returns">("details");
   const [savingTransportIds, setSavingTransportIds] = useState<Record<string, boolean>>({});
   const [savingDeliveryId, setSavingDeliveryId] = useState(false);
   const [savingReturnId, setSavingReturnId] = useState(false);
@@ -1034,12 +1031,7 @@ export function SuperAdminOrdersSheetModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    setItemsOrderId(null);
-    setApprovalsOrderId(null);
-    setDispatchesOrderId(null);
-    setTransportsOrderId(null);
-    setDeliveriesOrderId(null);
-    setReturnsOrderId(null);
+    setEditOrderWizardId(null);
     setSettleApproval(null);
     setSettleReleaseNo("");
     setEditing(null);
@@ -1057,33 +1049,13 @@ export function SuperAdminOrdersSheetModal({
         if (!isDeletingOrder) setDeleteTarget(null);
         return;
       }
-      if (approvalsOrderId) {
-        setApprovalsOrderId(null);
+      if (editOrderWizardId) {
+        setEditOrderWizardId(null);
         return;
       }
       if (settleApproval) {
         setSettleApproval(null);
         setSettleReleaseNo("");
-        return;
-      }
-      if (dispatchesOrderId) {
-        setDispatchesOrderId(null);
-        return;
-      }
-      if (transportsOrderId) {
-        setTransportsOrderId(null);
-        return;
-      }
-      if (deliveriesOrderId) {
-        setDeliveriesOrderId(null);
-        return;
-      }
-      if (returnsOrderId) {
-        setReturnsOrderId(null);
-        return;
-      }
-      if (itemsOrderId) {
-        setItemsOrderId(null);
         return;
       }
       onClose();
@@ -1098,12 +1070,7 @@ export function SuperAdminOrdersSheetModal({
   }, [
     isOpen,
     onClose,
-    itemsOrderId,
-    approvalsOrderId,
-    dispatchesOrderId,
-    transportsOrderId,
-    deliveriesOrderId,
-    returnsOrderId,
+    editOrderWizardId,
     settleApproval,
     deleteTarget,
     isDeletingOrder,
@@ -1218,130 +1185,21 @@ export function SuperAdminOrdersSheetModal({
     approvalById,
   ]);
 
-  const itemsOrder = useMemo(
-    () =>
-      itemsOrderId
-        ? localOrders.find((o) => refId(o._id || o.id) === itemsOrderId) ||
-          rawOrders.find((o: any) => refId(o._id || o.id) === itemsOrderId)
-        : null,
-    [itemsOrderId, localOrders, rawOrders],
-  );
-
-  const approvalsOrder = useMemo(
-    () =>
-      approvalsOrderId
-        ? localOrders.find((o) => refId(o._id || o.id) === approvalsOrderId) ||
-          rawOrders.find((o: any) => refId(o._id || o.id) === approvalsOrderId)
-        : null,
-    [approvalsOrderId, localOrders, rawOrders],
-  );
-
-  const approvalsForSelectedOrder = useMemo(
-    () =>
-      approvalsOrderId
-        ? approvalsByOrderId.get(approvalsOrderId) || []
-        : [],
-    [approvalsOrderId, approvalsByOrderId],
-  );
-
   const dispatchesOrder = useMemo(
     () =>
-      dispatchesOrderId
-        ? localOrders.find((o) => refId(o._id || o.id) === dispatchesOrderId) ||
-          rawOrders.find((o: any) => refId(o._id || o.id) === dispatchesOrderId)
+      settleApproval
+        ? localOrders.find((o) => refId(o._id || o.id) === refId(settleApproval.order)) ||
+          rawOrders.find((o: any) => refId(o._id || o.id) === refId(settleApproval.order))
         : null,
-    [dispatchesOrderId, localOrders, rawOrders],
+    [settleApproval, localOrders, rawOrders],
   );
 
   const dispatchesForSelectedOrder = useMemo(
     () =>
-      dispatchesOrderId
-        ? dispatchesByOrderId.get(dispatchesOrderId) || []
+      dispatchesOrder
+        ? dispatchesByOrderId.get(refId(dispatchesOrder._id || dispatchesOrder.id)) || []
         : [],
-    [dispatchesOrderId, dispatchesByOrderId],
-  );
-
-  const transportsOrder = useMemo(
-    () =>
-      transportsOrderId
-        ? localOrders.find((o) => refId(o._id || o.id) === transportsOrderId) ||
-          rawOrders.find((o: any) => refId(o._id || o.id) === transportsOrderId)
-        : null,
-    [transportsOrderId, localOrders, rawOrders],
-  );
-
-  const transportsForSelectedOrder = useMemo(
-    () =>
-      transportsOrderId
-        ? transportsByOrderId.get(transportsOrderId) || []
-        : [],
-    [transportsOrderId, transportsByOrderId],
-  );
-
-  const dispatchesForTransportsOrder = useMemo(
-    () =>
-      transportsOrderId
-        ? dispatchesByOrderId.get(transportsOrderId) || []
-        : [],
-    [transportsOrderId, dispatchesByOrderId],
-  );
-
-  const deliveriesOrder = useMemo(
-    () =>
-      deliveriesOrderId
-        ? localOrders.find((o) => refId(o._id || o.id) === deliveriesOrderId) ||
-          rawOrders.find((o: any) => refId(o._id || o.id) === deliveriesOrderId)
-        : null,
-    [deliveriesOrderId, localOrders, rawOrders],
-  );
-
-  const deliveriesForSelectedOrder = useMemo(
-    () =>
-      deliveriesOrderId
-        ? deliveriesByOrderId.get(deliveriesOrderId) || []
-        : [],
-    [deliveriesOrderId, deliveriesByOrderId],
-  );
-
-  const transportsForDeliveriesOrder = useMemo(
-    () =>
-      deliveriesOrderId
-        ? transportsByOrderId.get(deliveriesOrderId) || []
-        : [],
-    [deliveriesOrderId, transportsByOrderId],
-  );
-
-  const dispatchesForDeliveriesOrder = useMemo(
-    () =>
-      deliveriesOrderId
-        ? dispatchesByOrderId.get(deliveriesOrderId) || []
-        : [],
-    [deliveriesOrderId, dispatchesByOrderId],
-  );
-
-  const returnsOrder = useMemo(
-    () =>
-      returnsOrderId
-        ? localOrders.find((o) => refId(o._id || o.id) === returnsOrderId) ||
-          rawOrders.find((o: any) => refId(o._id || o.id) === returnsOrderId)
-        : null,
-    [returnsOrderId, localOrders, rawOrders],
-  );
-
-  const returnsForSelectedOrder = useMemo(
-    () =>
-      returnsOrderId
-        ? returnsByOrderId.get(returnsOrderId) || []
-        : [],
-    [returnsOrderId, returnsByOrderId],
-  );
-
-  const dispatchesForReturnsOrder = useMemo(
-    () =>
-      returnsOrderId
-        ? dispatchesByOrderId.get(returnsOrderId) || []
-        : [],
-    [returnsOrderId, dispatchesByOrderId],
+    [dispatchesOrder, dispatchesByOrderId],
   );
 
   const saveOrderPatch = useCallback(
@@ -1856,6 +1714,16 @@ export function SuperAdminOrdersSheetModal({
                 Export CSV
               </button>
             ) : null}
+            {!isBin ? (
+              <button
+                type="button"
+                onClick={() => setCreateOrderFormOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create Order
+              </button>
+            ) : null}
           </div>
           <div className="relative w-64">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -1979,26 +1847,9 @@ export function SuperAdminOrdersSheetModal({
                   {isBin ? "Restore" : "Actions"}
                 </th>
                 {!isBin ? (
-                  <>
-                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
-                      Items
-                    </th>
-                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
-                      Appr
-                    </th>
-                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
-                      Disp
-                    </th>
-                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
-                      Trsp
-                    </th>
-                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
-                      Delv
-                    </th>
-                    <th className="sticky top-0 z-30 w-12 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
-                      Retn
-                    </th>
-                  </>
+                  <th className="sticky top-0 z-30 w-16 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 dark:border-slate-800 dark:bg-slate-900">
+                    Edit Order
+                  </th>
                 ) : null}
                 <th className="sticky top-0 z-20 w-10 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 text-slate-400 dark:border-slate-800 dark:bg-slate-900">
                   #
@@ -2021,7 +1872,7 @@ export function SuperAdminOrdersSheetModal({
               {filteredOrders.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={ORDER_COLUMNS.length + (isBin ? 2 : 7)}
+                    colSpan={ORDER_COLUMNS.length + (isBin ? 2 : 3)}
                     className="px-4 py-12 text-center text-sm text-slate-500"
                   >
                     {isBin
@@ -2032,19 +1883,6 @@ export function SuperAdminOrdersSheetModal({
               ) : null}
               {filteredOrders.map((order, idx) => {
                 const orderId = refId(order._id || order.id);
-                const itemCount = Array.isArray(order.order_items)
-                  ? order.order_items.length
-                  : 0;
-                const approvalCount =
-                  approvalsByOrderId.get(orderId)?.length ?? 0;
-                const dispatchCount =
-                  dispatchesByOrderId.get(orderId)?.length ?? 0;
-                const transportCount =
-                  transportsByOrderId.get(orderId)?.length ?? 0;
-                const deliveryCount =
-                  deliveriesByOrderId.get(orderId)?.length ?? 0;
-                const returnCount =
-                  returnsByOrderId.get(orderId)?.length ?? 0;
                 const orderLabel =
                   String(order.order_no || "").trim() || orderId;
                 return (
@@ -2080,86 +1918,18 @@ export function SuperAdminOrdersSheetModal({
                       )}
                     </td>
                     {!isBin ? (
-                      <>
-                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
-                          <button
-                            type="button"
-                            onClick={() => setItemsOrderId(orderId)}
-                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
-                            title="Open order items form"
-                          >
-                            <Package className="h-4 w-4" />
-                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-600 px-0.5 text-[9px] font-bold text-white">
-                              {itemCount}
-                            </span>
-                          </button>
-                        </td>
-                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
-                          <button
-                            type="button"
-                            onClick={() => setApprovalsOrderId(orderId)}
-                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900/40"
-                            title="Open order approvals form"
-                          >
-                            <ClipboardCheck className="h-4 w-4" />
-                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-600 px-0.5 text-[9px] font-bold text-white">
-                              {approvalCount}
-                            </span>
-                          </button>
-                        </td>
-                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
-                          <button
-                            type="button"
-                            onClick={() => setDispatchesOrderId(orderId)}
-                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-blue-700 hover:bg-blue-100 dark:text-blue-300 dark:hover:bg-blue-900/40"
-                            title="Open order dispatches form"
-                          >
-                            <Truck className="h-4 w-4" />
-                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-0.5 text-[9px] font-bold text-white">
-                              {dispatchCount}
-                            </span>
-                          </button>
-                        </td>
-                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
-                          <button
-                            type="button"
-                            onClick={() => setTransportsOrderId(orderId)}
-                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-violet-700 hover:bg-violet-100 dark:text-violet-300 dark:hover:bg-violet-900/40"
-                            title="Open order transport shipments"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h18v13H3z"/><path d="M3 16l2 5h14l2-5"/><path d="M9 21v-5"/><path d="M15 21v-5"/></svg>
-                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-0.5 text-[9px] font-bold text-white">
-                              {transportCount}
-                            </span>
-                          </button>
-                        </td>
-                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
-                          <button
-                            type="button"
-                            onClick={() => setDeliveriesOrderId(orderId)}
-                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
-                            title="Open order deliveries"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-600 px-0.5 text-[9px] font-bold text-white">
-                              {deliveryCount}
-                            </span>
-                          </button>
-                        </td>
-                        <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800">
-                          <button
-                            type="button"
-                            onClick={() => setReturnsOrderId(orderId)}
-                            className="relative inline-flex items-center justify-center rounded-lg p-1.5 text-rose-700 hover:bg-rose-100 dark:text-rose-300 dark:hover:bg-rose-900/40"
-                            title="Open order returns"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
-                            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-0.5 text-[9px] font-bold text-white">
-                              {returnCount}
-                            </span>
-                          </button>
-                        </td>
-                      </>
+                      <td className="border-b border-r border-slate-100 px-1 py-1 dark:border-slate-800 text-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditOrderWizardStep("details");
+                            setEditOrderWizardId(orderId);
+                          }}
+                          className="rounded border border-blue-500/20 bg-blue-500/10 text-blue-700 hover:bg-blue-500/20 dark:text-blue-400 dark:hover:bg-blue-500/30 px-2.5 py-1 transition font-semibold"
+                        >
+                          Edit
+                        </button>
+                      </td>
                     ) : null}
                     <td className="border-b border-r border-slate-100 px-2 py-1 text-center font-mono text-slate-400 dark:border-slate-800">
                       {idx + 1}
@@ -2193,7 +1963,7 @@ export function SuperAdminOrdersSheetModal({
               ? ` · ${ORDER_WORKFLOW_TABS.find((t) => t.id === workflowTab)?.label ?? workflowTab}`
               : ""}
             {!isBin
-              ? " · trash = delete · package = items · clipboard = approvals · truck = dispatches"
+              ? " · trash = delete · edit = open unified order wizard"
               : " · restore returns the order to the active sheet"}
           </span>
           <span className="font-semibold text-amber-700 dark:text-amber-400">
@@ -2203,97 +1973,14 @@ export function SuperAdminOrdersSheetModal({
           </span>
         </div>
 
-        {itemsOrder ? (
-          <OrderItemsForm
-            order={itemsOrder}
-            products={products}
-            saving={!!savingIds[refId(itemsOrder._id || itemsOrder.id)]}
-            onClose={() => setItemsOrderId(null)}
-            onSaved={() => setItemsOrderId(null)}
-            onSave={async (patch) => {
-              await saveOrderPatch(
-                refId(itemsOrder._id || itemsOrder.id),
-                patch,
-              );
-            }}
-          />
-        ) : null}
-
-        {approvalsOrder ? (
-          <OrderApprovalsForm
-            order={approvalsOrder}
-            approvals={approvalsForSelectedOrder}
-            users={userOptions}
-            products={products}
-            saving={Object.values(savingApprovalIds).some(Boolean)}
-            onClose={() => setApprovalsOrderId(null)}
-            onSave={async (approvalId, patch) => {
-              await saveApprovalPatch(approvalId, patch);
-            }}
-          />
-        ) : null}
-
-        {dispatchesOrder ? (
-          <OrderDispatchesForm
-            order={dispatchesOrder}
-            dispatches={dispatchesForSelectedOrder}
-            approvals={approvalsByOrderId.get(refId(dispatchesOrder._id || dispatchesOrder.id)) || []}
-            users={userOptions}
-            saving={Object.values(savingDispatchIds).some(Boolean)}
-            onClose={() => setDispatchesOrderId(null)}
-            onSave={async (dispatchId, patch) => {
-              await saveDispatchPatch(dispatchId, patch);
-            }}
-            onCreate={async (formData) => {
-              await handleCreateDispatch(formData);
-            }}
-            onSettleClick={(approval, releaseNo) => {
-              setSettleApproval(approval);
-              setSettleReleaseNo(releaseNo);
-            }}
-          />
-        ) : null}
-
-        {transportsOrder ? (
-          <OrderTransportsForm
-            order={transportsOrder}
-            dispatches={dispatchesForTransportsOrder}
-            transports={transportsForSelectedOrder}
-            users={userOptions}
-            saving={Object.values(savingTransportIds).some(Boolean)}
-            onClose={() => setTransportsOrderId(null)}
-            onCreate={async (payload) => {
-              await handleCreateTransport(payload);
-            }}
-            onSave={async (transportId, patch) => {
-              await handleSaveTransport(transportId, patch);
-            }}
-          />
-        ) : null}
-
-        {deliveriesOrder ? (
-          <OrderDeliveriesForm
-            order={deliveriesOrder}
-            dispatches={dispatchesForDeliveriesOrder}
-            transports={transportsForDeliveriesOrder}
-            deliveries={deliveriesForSelectedOrder}
-            saving={savingDeliveryId}
-            onClose={() => setDeliveriesOrderId(null)}
-            onLogDelivery={async (payload) => {
-              await handleLogDelivery(payload);
-            }}
-          />
-        ) : null}
-
-        {returnsOrder ? (
-          <OrderReturnsForm
-            order={returnsOrder}
-            dispatches={dispatchesForReturnsOrder}
-            returns={returnsForSelectedOrder}
-            saving={savingReturnId}
-            onClose={() => setReturnsOrderId(null)}
-            onCreateReturn={async (payload) => {
-              await handleCreateReturn(payload);
+        {editOrderWizardId ? (
+          <SuperAdminCreateOrderForm
+            isOpen={Boolean(editOrderWizardId)}
+            orderId={editOrderWizardId}
+            initialStep={editOrderWizardStep}
+            onClose={() => setEditOrderWizardId(null)}
+            onOrderCreated={async () => {
+              await refetch();
             }}
           />
         ) : null}
@@ -2372,6 +2059,15 @@ export function SuperAdminOrdersSheetModal({
           </div>
         ) : null}
       </div>
+      <SuperAdminCreateOrderForm
+        isOpen={createOrderFormOpen}
+        onClose={() => setCreateOrderFormOpen(false)}
+        onOrderCreated={() => {
+          void refetch();
+          void approvalsQ.refetch();
+          void dispatchesQ.refetch();
+        }}
+      />
     </LargeModalPortal>
   );
 }

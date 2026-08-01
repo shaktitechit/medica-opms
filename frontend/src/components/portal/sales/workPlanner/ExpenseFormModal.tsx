@@ -216,8 +216,20 @@ export function ExpenseFormModal({
   const isTravel = category === "Travel";
   const isPrivateBike = isTravel && subCategory === "Private Bike";
   const amountNum = Number(amount);
-  const receiptRequired =
-    Number.isFinite(amountNum) && amountNum > RECEIPT_REQUIRED_ABOVE;
+  const receiptRequired = false; // Document upload is optional
+
+  useEffect(() => {
+    if (isPrivateBike) {
+      const start = Number(startReading);
+      const closing = Number(closingReading);
+      if (Number.isFinite(start) && Number.isFinite(closing) && closing >= start) {
+        const calculated = (closing - start) * 3.5;
+        setAmount(calculated.toFixed(2));
+      } else {
+        setAmount("0.00");
+      }
+    }
+  }, [isPrivateBike, startReading, closingReading]);
 
   const travelSubOptions = useMemo(() => {
     const base = [...WORK_PLAN_TRAVEL_SUB_CATEGORIES] as string[];
@@ -226,19 +238,17 @@ export function ExpenseFormModal({
   }, [subCategory]);
 
   const canSubmit = useMemo(() => {
-    if (!expenseDate || !category || !paymentMode) return false;
+    if (!expenseDate || !category) return false;
+    if (!isPrivateBike && !paymentMode) return false;
     if (isTravel && !subCategory) return false;
     const n = Number(amount);
     if (!Number.isFinite(n) || n < 0) return false;
-    if (n > RECEIPT_REQUIRED_ABOVE && !(file || receiptId)) return false;
     if (isPrivateBike) {
       const start = Number(startReading);
       const closing = Number(closingReading);
       if (!Number.isFinite(start) || start < 0) return false;
       if (!Number.isFinite(closing) || closing < 0) return false;
       if (closing < start) return false;
-      if (!(startReadingFile || startReadingImageId)) return false;
-      if (!(endReadingFile || endReadingImageId)) return false;
     }
     return true;
   }, [
@@ -248,15 +258,9 @@ export function ExpenseFormModal({
     isTravel,
     subCategory,
     amount,
-    file,
-    receiptId,
     isPrivateBike,
     startReading,
     closingReading,
-    startReadingFile,
-    startReadingImageId,
-    endReadingFile,
-    endReadingImageId,
   ]);
 
   if (!open) return null;
@@ -315,11 +319,6 @@ export function ExpenseFormModal({
         }
       }
 
-      if (Number(amount) > RECEIPT_REQUIRED_ABOVE && !nextReceiptId) {
-        toast.error("Receipt (image/PDF) is required for expenses over 499");
-        return;
-      }
-
       await onConfirm({
         expense_date: expenseDate,
         category,
@@ -360,17 +359,15 @@ export function ExpenseFormModal({
               {editing ? "Edit expense" : "Add expense"}
             </h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Link to a visit or keep it at plan level.
-              {receiptRequired
-                ? " Receipt (image/PDF) is required for amounts over 499."
-                : " Receipts are optional for amounts up to 499."}
+              Link to a visit or keep it at plan level. Receipts are optional.
               {isPrivateBike
-                ? " Private Bike requires start/closing meter readings and images."
+                ? " Private Bike requires start/closing meter readings (amount is auto-calculated at ₹3.50/km)."
                 : ""}
             </p>
           </div>
 
           <div className="space-y-3 px-5 py-4">
+            {/* Row 1: Date + Category */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
@@ -384,46 +381,6 @@ export function ExpenseFormModal({
                   className={inputClass}
                 />
               </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Amount
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={amount}
-                  disabled={busy}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className={inputClass}
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                Link to visit
-              </label>
-              <select
-                value={visitId}
-                disabled={busy}
-                onChange={(e) => setVisitId(e.target.value)}
-                className={inputClass}
-              >
-                <option value="">Plan-level (no visit)</option>
-                {visits.map((v, i) => {
-                  const id = String(v._id || v.id || "");
-                  return (
-                    <option key={id} value={id}>
-                      {visitOptionLabel(v, i)}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
                   Category
@@ -447,6 +404,10 @@ export function ExpenseFormModal({
                   ))}
                 </select>
               </div>
+            </div>
+
+            {/* Row 2: Sub-category + Payment mode */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {isTravel ? (
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
@@ -466,6 +427,9 @@ export function ExpenseFormModal({
                   </select>
                 </div>
               ) : (
+                <div />
+              )}
+              {!isPrivateBike && (
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
                     Payment mode
@@ -486,26 +450,30 @@ export function ExpenseFormModal({
               )}
             </div>
 
-            {isTravel ? (
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Payment mode
-                </label>
-                <select
-                  value={paymentMode}
-                  disabled={busy}
-                  onChange={(e) => setPaymentMode(e.target.value)}
-                  className={inputClass}
-                >
-                  {WORK_PLAN_EXPENSE_PAYMENT_MODES.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
+            {/* Link to visit */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                Link to visit
+              </label>
+              <select
+                value={visitId}
+                disabled={busy}
+                onChange={(e) => setVisitId(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">Plan-level (no visit)</option>
+                {visits.map((v, i) => {
+                  const id = String(v._id || v.id || "");
+                  return (
+                    <option key={id} value={id}>
+                      {visitOptionLabel(v, i)}
                     </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
+                  );
+                })}
+              </select>
+            </div>
 
+            {/* Private Bike: readings → auto amount */}
             {isPrivateBike ? (
               <div className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-white/10">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -514,7 +482,7 @@ export function ExpenseFormModal({
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Start reading
+                      Start reading (km)
                     </label>
                     <input
                       type="number"
@@ -529,7 +497,7 @@ export function ExpenseFormModal({
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Closing reading
+                      Closing reading (km)
                     </label>
                     <input
                       type="number"
@@ -545,7 +513,122 @@ export function ExpenseFormModal({
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                    Start reading image
+                    Amount (auto-calculated)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={amount}
+                    disabled
+                    readOnly
+                    className={`${inputClass} bg-slate-100 dark:bg-slate-800 cursor-not-allowed`}
+                    placeholder="0.00"
+                  />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    ₹3.50 × (Closing − Start) km
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                    Amount
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={amount}
+                    disabled={busy}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className={inputClass}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Vendor name
+                    </label>
+                    <input
+                      value={vendorName}
+                      disabled={busy}
+                      onChange={(e) => setVendorName(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Bill number
+                    </label>
+                    <input
+                      value={billNumber}
+                      disabled={busy}
+                      onChange={(e) => setBillNumber(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                    Bill date
+                  </label>
+                  <input
+                    type="date"
+                    value={billDate}
+                    disabled={busy}
+                    onChange={(e) => setBillDate(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Description */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                Description
+              </label>
+              <textarea
+                value={description}
+                disabled={busy}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className={inputClass}
+              />
+            </div>
+
+            {/* Receipt — optional */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                Receipt (image / PDF) — Optional
+              </label>
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                disabled={busy}
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null;
+                  setFile(f);
+                  if (f) setReceiptLabel(f.name);
+                }}
+                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700 dark:text-slate-300 dark:file:bg-white/10 dark:file:text-slate-100"
+              />
+              {receiptLabel ? (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {file ? `Selected: ${receiptLabel}` : `Current: ${receiptLabel}`}
+                </p>
+              ) : null}
+            </div>
+
+            {/* Private Bike: reading images — optional, shown last */}
+            {isPrivateBike && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                    Start reading image (Optional)
                   </label>
                   <input
                     type="file"
@@ -568,7 +651,7 @@ export function ExpenseFormModal({
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                    End reading image
+                    End reading image (Optional)
                   </label>
                   <input
                     type="file"
@@ -590,80 +673,7 @@ export function ExpenseFormModal({
                   ) : null}
                 </div>
               </div>
-            ) : null}
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Vendor name
-                </label>
-                <input
-                  value={vendorName}
-                  disabled={busy}
-                  onChange={(e) => setVendorName(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Bill number
-                </label>
-                <input
-                  value={billNumber}
-                  disabled={busy}
-                  onChange={(e) => setBillNumber(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                Bill date
-              </label>
-              <input
-                type="date"
-                value={billDate}
-                disabled={busy}
-                onChange={(e) => setBillDate(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                Description
-              </label>
-              <textarea
-                value={description}
-                disabled={busy}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                className={inputClass}
-              />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                Receipt (image / PDF)
-              </label>
-              <input
-                type="file"
-                accept="image/*,application/pdf"
-                disabled={busy}
-                onChange={(e) => {
-                  const f = e.target.files?.[0] || null;
-                  setFile(f);
-                  if (f) setReceiptLabel(f.name);
-                }}
-                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700 dark:text-slate-300 dark:file:bg-white/10 dark:file:text-slate-100"
-              />
-              {receiptLabel ? (
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  {file ? `Selected: ${receiptLabel}` : `Current: ${receiptLabel}`}
-                </p>
-              ) : null}
-            </div>
+            )}
           </div>
 
           <div className="flex flex-wrap justify-end gap-2 px-5 py-4">

@@ -8,6 +8,7 @@ import {
   type WorkPlanVisitRecord,
 } from "@/store/api";
 import { useEffect, useMemo, useState } from "react";
+import { Plus, X } from "lucide-react";
 
 export type VisitFormModalProps = {
   open: boolean;
@@ -21,6 +22,7 @@ export type VisitFormModalProps = {
   /** Prefill / controlled sales user for admin-created plans. */
   salesUserId?: string;
   salesUserLabel?: string;
+  disablePartyEdit?: boolean;
 };
 
 function partyIdOf(party: WorkPlanVisitRecord["party"]): string {
@@ -74,6 +76,7 @@ export function VisitFormModal({
   allowSalesUserSelect = false,
   salesUserId: salesUserIdProp,
   salesUserLabel: salesUserLabelProp,
+  disablePartyEdit = false,
 }: VisitFormModalProps) {
   const partiesQ = useListPartiesQuery({ status: "active" }, { skip: !open });
   const usersQ = useListUsersQuery(
@@ -105,9 +108,11 @@ export function VisitFormModal({
   const [partyName, setPartyName] = useState("");
   const [salesSearch, setSalesSearch] = useState("");
   const [salesUserId, setSalesUserId] = useState("");
-  const [contactPerson, setContactPerson] = useState("");
-  const [contactNumber, setContactNumber] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
+  const [contacts, setContacts] = useState<Array<{
+    contact_person: string;
+    contact_number: string;
+    contact_email: string;
+  }>>([{ contact_person: "", contact_number: "", contact_email: "" }]);
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [purpose, setPurpose] = useState("");
@@ -125,13 +130,20 @@ export function VisitFormModal({
         (typeof initial?.party === "object" ? initial.party?.party_name || "" : "") ||
         "",
     );
-    setContactPerson(initial?.contact_person || "");
-    setContactNumber(initial?.contact_number || "");
-    setContactEmail(
-      initial?.contact_email ||
-        (typeof initial?.party === "object" ? initial.party?.email || "" : "") ||
-        "",
-    );
+    const initialContacts = initial?.contacts && initial.contacts.length > 0
+      ? initial.contacts.map((c) => ({
+          contact_person: c.contact_person || "",
+          contact_number: c.contact_number || "",
+          contact_email: c.contact_email || "",
+        }))
+      : [
+          {
+            contact_person: initial?.contact_person || "",
+            contact_number: initial?.contact_number || "",
+            contact_email: initial?.contact_email || (typeof initial?.party === "object" ? initial.party?.email || "" : "") || "",
+          },
+        ];
+    setContacts(initialContacts);
     setStartTime(
       initial?.planned_start_time
         ? new Date(initial.planned_start_time).toISOString().slice(0, 16)
@@ -198,6 +210,7 @@ export function VisitFormModal({
   }, [salesUsers, salesSearch]);
 
   const switchPartyType = (next: WorkPlanVisitPartyType) => {
+    if (disablePartyEdit) return;
     setPartyType(next);
     setPartyId("");
     setPartySearch("");
@@ -212,11 +225,9 @@ export function VisitFormModal({
 
   const requiredOk =
     Boolean(partyName.trim()) &&
-    Boolean(contactPerson.trim()) &&
-    Boolean(contactNumber.trim()) &&
-    isValidEmail(contactEmail) &&
     (partyType !== "existing" || Boolean(partyId)) &&
-    (!allowSalesUserSelect || Boolean(salesUserId));
+    (!allowSalesUserSelect || Boolean(salesUserId)) &&
+    contacts.every((c) => Boolean(c.contact_person.trim()) && Boolean(c.contact_number.trim()) && isValidEmail(c.contact_email));
 
   return (
     <LargeModalPortal>
@@ -309,6 +320,7 @@ export function VisitFormModal({
                       value={opt.value}
                       checked={partyType === opt.value}
                       onChange={() => switchPartyType(opt.value)}
+                      disabled={isSaving || disablePartyEdit}
                       className="h-3.5 w-3.5 border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
                     {opt.label}
@@ -330,6 +342,7 @@ export function VisitFormModal({
                     setPartyId("");
                     setPartyName("");
                   }}
+                  disabled={isSaving || disablePartyEdit}
                   placeholder="Search and select party…"
                   className={inputClass}
                 />
@@ -346,12 +359,16 @@ export function VisitFormModal({
                               type="button"
                               className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-white/5"
                               onClick={() => {
-                                setPartyId(id);
-                                setPartySearch(p.party_name || "");
-                                setPartyName(p.party_name || "");
-                                setContactPerson(p.contact_person || "");
-                                setContactNumber(p.mobile || "");
-                                setContactEmail(p.email || "");
+                                 setPartyId(id);
+                                 setPartySearch(p.party_name || "");
+                                 setPartyName(p.party_name || "");
+                                 setContacts([
+                                   {
+                                     contact_person: p.contact_person || "",
+                                     contact_number: p.mobile || "",
+                                     contact_email: p.email || "",
+                                   },
+                                 ]);
                               }}
                             >
                               <div className="font-medium text-slate-800 dark:text-slate-100">
@@ -385,6 +402,7 @@ export function VisitFormModal({
                 <input
                   value={partyName}
                   onChange={(e) => setPartyName(e.target.value)}
+                  disabled={isSaving || disablePartyEdit}
                   placeholder={
                     partyType === "new_lead"
                       ? "Enter lead / prospect name"
@@ -395,43 +413,83 @@ export function VisitFormModal({
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className={labelClass}>
-                  Contact person name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  value={contactPerson}
-                  onChange={(e) => setContactPerson(e.target.value)}
-                  className={inputClass}
-                />
+            <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50/50 p-3 dark:border-white/5 dark:bg-slate-900/30">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Contacts</span>
+                <button
+                  type="button"
+                  onClick={() => setContacts([...contacts, { contact_person: "", contact_number: "", contact_email: "" }])}
+                  className="inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 transition"
+                >
+                  <Plus className="h-3 w-3" /> Add Contact
+                </button>
               </div>
-              <div>
-                <label className={labelClass}>
-                  Contact number <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  value={contactNumber}
-                  onChange={(e) => setContactNumber(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-            </div>
 
-            <div>
-              <label className={labelClass}>
-                Contact email <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="email"
-                value={contactEmail}
-                onChange={(e) => setContactEmail(e.target.value)}
-                placeholder="name@example.com"
-                className={inputClass}
-              />
-              {contactEmail.trim() && !isValidEmail(contactEmail) ? (
-                <p className="mt-1 text-2xs text-rose-600">Enter a valid email address</p>
-              ) : null}
+              {contacts.map((c, idx) => (
+                <div key={idx} className="relative space-y-2 border-t border-slate-200/60 pt-2 first:border-0 first:pt-0 dark:border-white/10">
+                  {contacts.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setContacts(contacts.filter((_, i) => i !== idx))}
+                      className="absolute right-0 top-0 text-slate-400 hover:text-rose-600 transition"
+                      title="Remove contact"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div>
+                      <label className={labelClass}>
+                        Contact person name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        value={c.contact_person}
+                        onChange={(e) => {
+                          const next = [...contacts];
+                          next[idx].contact_person = e.target.value;
+                          setContacts(next);
+                        }}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>
+                        Contact number <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        value={c.contact_number}
+                        onChange={(e) => {
+                          const next = [...contacts];
+                          next[idx].contact_number = e.target.value;
+                          setContacts(next);
+                        }}
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={labelClass}>
+                      Contact email <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={c.contact_email}
+                      onChange={(e) => {
+                        const next = [...contacts];
+                        next[idx].contact_email = e.target.value;
+                        setContacts(next);
+                      }}
+                      placeholder="name@example.com"
+                      className={inputClass}
+                    />
+                    {c.contact_email.trim() && !isValidEmail(c.contact_email) ? (
+                      <p className="mt-1 text-2xs text-rose-600">Enter a valid email address</p>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -492,9 +550,14 @@ export function VisitFormModal({
                     ? { sales_user: salesUserId }
                     : {}),
                   party_name: partyName.trim(),
-                  contact_person: contactPerson.trim(),
-                  contact_number: contactNumber.trim(),
-                  contact_email: contactEmail.trim().toLowerCase(),
+                  contact_person: contacts[0]?.contact_person.trim() || "",
+                  contact_number: contacts[0]?.contact_number.trim() || "",
+                  contact_email: contacts[0]?.contact_email.trim().toLowerCase() || "",
+                  contacts: contacts.map((c) => ({
+                    contact_person: c.contact_person.trim(),
+                    contact_number: c.contact_number.trim(),
+                    contact_email: c.contact_email.trim().toLowerCase(),
+                  })),
                   planned_start_time: startTime
                     ? new Date(startTime).toISOString()
                     : undefined,

@@ -223,6 +223,10 @@ export function OrderTransportsForm({
       toast.error("Transport agent is required");
       return;
     }
+    if (!lrNumber.trim()) {
+      toast.error("LR number is required");
+      return;
+    }
 
     const payload: Record<string, any> = {
       order: orderId,
@@ -385,7 +389,7 @@ export function OrderTransportsForm({
 
               <div>
                 <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
-                  LR Number
+                  LR Number *
                 </label>
                 <input
                   type="text"

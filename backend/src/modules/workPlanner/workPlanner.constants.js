@@ -45,7 +45,7 @@ const TRAVEL_SUB_CATEGORIES = Object.freeze([
   'Cab',
   'Auto',
   'Bus',
-  'Online Bike',
+  'Bike Ride',
   'Private Bike',
   'Train',
   'Parking',

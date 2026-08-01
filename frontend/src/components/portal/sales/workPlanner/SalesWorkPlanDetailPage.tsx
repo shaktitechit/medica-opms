@@ -3,17 +3,19 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { ArrowLeft, CalendarPlus, Check, LogIn, LogOut, Pencil, Receipt, Route, X } from "lucide-react";
+import { ArrowLeft, CalendarPlus, Check, LogIn, LogOut, Pencil, Plus, Receipt, Route, X } from "lucide-react";
 
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import {
+  useAddWorkPlanVisitMutation,
   useApproveWorkPlanMutation,
   useCheckInWorkPlanVisitMutation,
   useCheckOutWorkPlanVisitMutation,
   useCompleteWorkPlanVisitMutation,
   useGetWorkPlanQuery,
+  usePatchWorkPlanVisitMutation,
   useRejectWorkPlanMutation,
   useScheduleNextWorkPlanVisitMutation,
   useSubmitWorkPlanMutation,
@@ -23,6 +25,7 @@ import { CompleteVisitModal } from "./CompleteVisitModal";
 import { ExpenseListSection } from "./ExpenseListSection";
 import { NextVisitPlanModal } from "./NextVisitPlanModal";
 import { RejectWorkPlanModal } from "./RejectWorkPlanModal";
+import { VisitFormModal } from "./VisitFormModal";
 import {
   canEditPlan,
   formatDateTime,
@@ -57,8 +60,12 @@ export default function SalesWorkPlanDetailPage({
   const [checkOut, checkOutState] = useCheckOutWorkPlanVisitMutation();
   const [completeVisit, completeState] = useCompleteWorkPlanVisitMutation();
   const [scheduleNext, scheduleNextState] = useScheduleNextWorkPlanVisitMutation();
+  const [addVisit, addVisitState] = useAddWorkPlanVisitMutation();
+  const [patchVisit, patchVisitState] = usePatchWorkPlanVisitMutation();
 
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [addVisitOpen, setAddVisitOpen] = useState(false);
+  const [editingVisit, setEditingVisit] = useState<WorkPlanVisitRecord | null>(null);
   const [completeTarget, setCompleteTarget] = useState<WorkPlanVisitRecord | null>(
     null
   );
@@ -79,7 +86,9 @@ export default function SalesWorkPlanDetailPage({
     checkInState.isLoading ||
     checkOutState.isLoading ||
     completeState.isLoading ||
-    scheduleNextState.isLoading;
+    scheduleNextState.isLoading ||
+    addVisitState.isLoading ||
+    patchVisitState.isLoading;
 
   const currentPlanDateYmd = plan?.plan_date
     ? new Date(plan.plan_date).toISOString().slice(0, 10)
@@ -135,6 +144,33 @@ export default function SalesWorkPlanDetailPage({
       toast.error(mutationRejectedMessage(rejected));
     }
   }
+
+  async function handleAddVisitSubmit(body: Record<string, unknown>) {
+    try {
+      await addVisit({ id: planId, body }).unwrap();
+      toast.success("Visit added successfully");
+      setAddVisitOpen(false);
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }
+
+  async function handleEditVisitSubmit(body: Record<string, unknown>) {
+    if (!editingVisit) return;
+    try {
+      await patchVisit({
+        id: planId,
+        visitId: planIdOf(editingVisit),
+        patch: body,
+      }).unwrap();
+      toast.success("Visit updated successfully");
+      setEditingVisit(null);
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }
+
+  const canAddVisit = plan && ["draft", "rejected", "approved"].includes(plan.status || "");
 
   return (
     <div className="relative mx-auto flex w-full max-w-5xl flex-col gap-4 p-3 sm:p-4">
@@ -323,10 +359,20 @@ export default function SalesWorkPlanDetailPage({
 
           {activeTab === "visits" ? (
           <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
-            <div className="border-b border-slate-100 px-4 py-3 dark:border-white/10">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-white/10">
               <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
                 Visits ({visits.length})
               </h2>
+              {canAddVisit ? (
+                <button
+                  type="button"
+                  onClick={() => setAddVisitOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Visit
+                </button>
+              ) : null}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-xs">
@@ -404,41 +450,63 @@ export default function SalesWorkPlanDetailPage({
                           {v.outcome ? <div>Outcome: {v.outcome}</div> : null}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          {canExecute &&
-                          (v.status === "pending" || v.status === "rescheduled") ? (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  await checkIn({ id: planId, visitId }).unwrap();
-                                  toast.success("Checked in");
-                                } catch (rejected) {
-                                  toast.error(mutationRejectedMessage(rejected));
-                                }
-                              }}
-                              className="inline-flex items-center gap-1 rounded border border-amber-200 px-2 py-1 text-[11px] font-medium text-amber-800 dark:border-amber-900/40"
-                            >
-                              <LogIn className="h-3 w-3" />
-                              Check in
-                            </button>
-                          ) : null}
-                          {canExecute && v.status === "checked_in" ? (
-                            <div className="flex justify-end gap-1">
+                          <div className="flex flex-wrap justify-end items-center gap-1">
+                            {["draft", "rejected", "approved"].includes(plan.status || "") &&
+                            ["pending", "rescheduled", "checked_in"].includes(v.status || "") ? (
+                              <button
+                                type="button"
+                                onClick={() => setEditingVisit(v)}
+                                className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700 dark:border-white/15 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
+                              >
+                                <Pencil className="h-3 w-3" />
+                                Edit
+                              </button>
+                            ) : null}
+                            {canExecute &&
+                            (v.status === "pending" || v.status === "rescheduled") ? (
                               <button
                                 type="button"
                                 onClick={async () => {
                                   try {
-                                    await checkOut({ id: planId, visitId }).unwrap();
-                                    toast.success("Checked out");
+                                    await checkIn({ id: planId, visitId }).unwrap();
+                                    toast.success("Checked in");
                                   } catch (rejected) {
                                     toast.error(mutationRejectedMessage(rejected));
                                   }
                                 }}
-                                className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-[11px] dark:border-white/15"
+                                className="inline-flex items-center gap-1 rounded border border-amber-200 px-2 py-1 text-[11px] font-medium text-amber-800 dark:border-amber-900/40"
                               >
-                                <LogOut className="h-3 w-3" />
-                                Out
+                                <LogIn className="h-3 w-3" />
+                                Check in
                               </button>
+                            ) : null}
+                            {canExecute && v.status === "checked_in" ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    try {
+                                      await checkOut({ id: planId, visitId }).unwrap();
+                                      toast.success("Checked out");
+                                    } catch (rejected) {
+                                      toast.error(mutationRejectedMessage(rejected));
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-[11px] dark:border-white/15"
+                                >
+                                  <LogOut className="h-3 w-3" />
+                                  Out
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setCompleteTarget(v)}
+                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white"
+                                >
+                                  Complete
+                                </button>
+                              </>
+                            ) : null}
+                            {canExecute && v.status === "pending" ? (
                               <button
                                 type="button"
                                 onClick={() => setCompleteTarget(v)}
@@ -446,27 +514,18 @@ export default function SalesWorkPlanDetailPage({
                               >
                                 Complete
                               </button>
-                            </div>
-                          ) : null}
-                          {canExecute && v.status === "pending" ? (
-                            <button
-                              type="button"
-                              onClick={() => setCompleteTarget(v)}
-                              className="ml-1 inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white"
-                            >
-                              Complete
-                            </button>
-                          ) : null}
-                          {v.status === "completed" ? (
-                            <button
-                              type="button"
-                              onClick={() => setNextVisitTarget(v)}
-                              className="inline-flex items-center gap-1 rounded bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700"
-                            >
-                              <CalendarPlus className="h-3 w-3" />
-                              Next Visit Plan
-                            </button>
-                          ) : null}
+                            ) : null}
+                            {v.status === "completed" ? (
+                              <button
+                                type="button"
+                                onClick={() => setNextVisitTarget(v)}
+                                className="inline-flex items-center gap-1 rounded bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700"
+                              >
+                                <CalendarPlus className="h-3 w-3" />
+                                Next Visit Plan
+                              </button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -521,6 +580,22 @@ export default function SalesWorkPlanDetailPage({
         currentPlanDate={currentPlanDateYmd}
         onClose={() => setNextVisitTarget(null)}
         onConfirm={handleScheduleNext}
+      />
+      <VisitFormModal
+        open={addVisitOpen}
+        mode="create"
+        isSaving={addVisitState.isLoading}
+        onClose={() => setAddVisitOpen(false)}
+        onSubmit={handleAddVisitSubmit}
+      />
+      <VisitFormModal
+        open={editingVisit != null}
+        mode="edit"
+        initial={editingVisit}
+        disablePartyEdit
+        isSaving={patchVisitState.isLoading}
+        onClose={() => setEditingVisit(null)}
+        onSubmit={handleEditVisitSubmit}
       />
     </div>
   );

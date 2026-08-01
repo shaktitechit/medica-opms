@@ -260,12 +260,6 @@ function assertExpenseCreate(body) {
     if (closing < start) {
       throw new ApiError(400, 'closing_reading must be greater than or equal to start_reading');
     }
-    if (!body.start_reading_image) {
-      throw new ApiError(400, 'start_reading_image is required for Private Bike expenses');
-    }
-    if (!body.end_reading_image) {
-      throw new ApiError(400, 'end_reading_image is required for Private Bike expenses');
-    }
   }
 }
 

@@ -248,10 +248,6 @@ export function OrderDispatchesForm({
         toast.error("Bill number is required");
         return;
       }
-      if (!billDocumentFile) {
-        toast.error("Bill document file is required for new dispatches");
-        return;
-      }
 
       const formData = new FormData();
       formData.append("order", orderId);
@@ -287,7 +283,9 @@ export function OrderDispatchesForm({
       if (header.dispatch_assignee_user) {
         formData.append("dispatch_assignee_user", header.dispatch_assignee_user);
       }
-      formData.append("bill_document", billDocumentFile);
+      if (billDocumentFile) {
+        formData.append("bill_document", billDocumentFile);
+      }
 
       await onCreate(formData);
     } else {
@@ -531,14 +529,13 @@ export function OrderDispatchesForm({
                   {selectedId === "new" ? (
                     <div>
                       <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
-                        Bill Document Copy *
+                        Bill Document Copy
                       </label>
                       <input
                         type="file"
                         accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
                         onChange={(e) => setBillDocumentFile(e.target.files?.[0] ?? null)}
                         className="block w-full text-[10px] text-slate-500 file:mr-2 file:rounded file:border-0 file:bg-blue-50 file:px-2 file:py-1 file:text-[10px] file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
-                        required
                       />
                     </div>
                   ) : null}

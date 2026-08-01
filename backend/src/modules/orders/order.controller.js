@@ -17,7 +17,7 @@ exports.get = asyncHandler(async (req, res) => {
 });
 
 exports.create = asyncHandler(async (req, res) => {
-  if (!['sales', 'admin', 'finance', 'account'].includes(req.user.department)) {
+  if (!['sales', 'admin', 'finance', 'account', 'super_admin'].includes(req.user.department)) {
     throw new ApiError(403, 'Only sales, admin, finance, or account can create orders');
   }
   res.status(201).json({ success: true, data: await service.create(req.body, req.user) });

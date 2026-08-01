@@ -67,6 +67,23 @@ function assertCanEditStructure(plan, user) {
   }
 }
 
+function assertCanEditVisits(plan, user) {
+  const admin = isAdminDept(user);
+  if (!isOwner(plan, user) && !admin) {
+    throw new ApiError(403, 'Only the plan owner can edit this work plan');
+  }
+  if (admin) {
+    if (plan.status === 'completed') {
+      throw new ApiError(400, `Cannot edit a work plan in status "${plan.status}"`);
+    }
+    return;
+  }
+  // Sales owners may edit visits on draft, rejected, or approved plans.
+  if (!['draft', 'rejected', 'approved'].includes(plan.status)) {
+    throw new ApiError(400, `Cannot edit visits for a work plan in status "${plan.status}"`);
+  }
+}
+
 async function logActivity(user, planId, action, message, extra = {}) {
   await activityService.create({
     actor: userId(user),
@@ -460,7 +477,7 @@ async function addVisit(planId, body, user) {
   const { WorkPlan, WorkPlanVisit, Party } = getModels();
   const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
   if (!plan) throw new ApiError(404, 'Work plan not found');
-  assertCanEditStructure(plan, user);
+  assertCanEditVisits(plan, user);
 
   const partyType = body.party_type || (body.party ? 'existing' : '');
   let partyDoc = null;
@@ -489,6 +506,7 @@ async function addVisit(planId, body, user) {
     contact_person: body.contact_person?.trim() || undefined,
     contact_number: body.contact_number?.trim() || undefined,
     contact_email: body.contact_email?.trim()?.toLowerCase() || undefined,
+    contacts: body.contacts,
     planned_start_time: body.planned_start_time ? new Date(body.planned_start_time) : undefined,
     planned_end_time: body.planned_end_time ? new Date(body.planned_end_time) : undefined,
     purpose: body.purpose?.trim() || undefined,
@@ -514,10 +532,15 @@ async function updateVisit(planId, visitId, body, user) {
   const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
   if (!plan) throw new ApiError(404, 'Work plan not found');
 
-  assertCanEditStructure(plan, user);
+  assertCanEditVisits(plan, user);
 
   const visit = await WorkPlanVisit.findOne({ _id: visitId, work_plan: planId, deletedAt: null });
   if (!visit) throw new ApiError(404, 'Visit not found');
+
+  const admin = isAdminDept(user);
+  if (!admin && !['pending', 'rescheduled', 'checked_in'].includes(visit.status)) {
+    throw new ApiError(400, `Cannot edit a visit in status "${visit.status}"`);
+  }
 
   const nextPartyType =
     body.party_type !== undefined
@@ -545,6 +568,7 @@ async function updateVisit(planId, visitId, body, user) {
   if (body.contact_email !== undefined) {
     visit.contact_email = body.contact_email?.trim()?.toLowerCase() || undefined;
   }
+  if (body.contacts !== undefined) visit.contacts = body.contacts;
   if (body.sequence !== undefined) visit.sequence = Number(body.sequence);
   if (body.planned_start_time !== undefined) {
     visit.planned_start_time = body.planned_start_time ? new Date(body.planned_start_time) : undefined;
@@ -575,10 +599,15 @@ async function removeVisit(planId, visitId, user) {
   const { WorkPlan, WorkPlanVisit } = getModels();
   const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
   if (!plan) throw new ApiError(404, 'Work plan not found');
-  assertCanEditStructure(plan, user);
+  assertCanEditVisits(plan, user);
 
   const visit = await WorkPlanVisit.findOne({ _id: visitId, work_plan: planId, deletedAt: null });
   if (!visit) throw new ApiError(404, 'Visit not found');
+
+  const admin = isAdminDept(user);
+  if (!admin && !['pending', 'rescheduled'].includes(visit.status)) {
+    throw new ApiError(400, `Cannot delete a visit in status "${visit.status}"`);
+  }
 
   visit.deletedAt = new Date();
   await visit.save();
@@ -1017,12 +1046,6 @@ function assertPrivateBikeExpense(expense) {
   if (closing < start) {
     throw new ApiError(400, 'closing_reading must be greater than or equal to start_reading');
   }
-  if (!expense.start_reading_image) {
-    throw new ApiError(400, 'start_reading_image is required for Private Bike expenses');
-  }
-  if (!expense.end_reading_image) {
-    throw new ApiError(400, 'end_reading_image is required for Private Bike expenses');
-  }
 }
 
 async function listAllExpenses(query = {}, user) {
@@ -1105,14 +1128,7 @@ async function listExpenses(planId, user) {
 }
 
 function assertSalesExpenseReceipt(expense, user) {
-  if (isAdminDept(user)) return;
-  if (!isExpenseReceiptRequired(expense.amount)) return;
-  if (!expense.receipt_attachment) {
-    throw new ApiError(
-      400,
-      'Receipt (image/PDF) is required for expenses over 499',
-    );
-  }
+  return; // Document upload is optional
 }
 
 async function addExpense(planId, body, user) {

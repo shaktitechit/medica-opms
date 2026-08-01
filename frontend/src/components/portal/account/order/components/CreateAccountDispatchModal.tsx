@@ -335,10 +335,7 @@ export function CreateAccountDispatchModal({
         return;
       }
 
-      if (!billDocumentFile && !hasExistingBillDocument) {
-        toast.error("Bill document is required.");
-        return;
-      }
+      // Bill document upload is not required.
 
       try {
         if (isEditMode && editingDispatchId) {
@@ -593,7 +590,7 @@ export function CreateAccountDispatchModal({
                   </div>
                   <div className="mt-4 space-y-1.5">
                     <label className={labelClass} htmlFor="account-bill-document">
-                      Bill document {hasExistingBillDocument && !billDocumentFile ? "(existing kept)" : "*"}
+                      Bill document {hasExistingBillDocument && !billDocumentFile ? "(existing kept)" : ""}
                     </label>
                     <input
                       id="account-bill-document"
@@ -603,7 +600,6 @@ export function CreateAccountDispatchModal({
                         setBillDocumentFile(e.target.files?.[0] ?? null);
                       }}
                       className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-blue-700 hover:file:bg-blue-100 dark:text-slate-300 dark:file:bg-blue-950/40 dark:file:text-blue-300"
-                      required={!billDocumentFile && !hasExistingBillDocument}
                       disabled={isSaving}
                     />
                     {billDocumentFile ? (

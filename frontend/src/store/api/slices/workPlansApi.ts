@@ -38,7 +38,7 @@ export type WorkPlanExpenseTravelSubCategory =
   | "Cab"
   | "Auto"
   | "Bus"
-  | "Online Bike"
+  | "Bike Ride"
   | "Private Bike"
   | "Train"
   | "Parking";
@@ -62,7 +62,7 @@ export const WORK_PLAN_EXPENSE_CATEGORIES: WorkPlanExpenseCategory[] = [
 ];
 
 export const WORK_PLAN_TRAVEL_SUB_CATEGORIES: WorkPlanExpenseTravelSubCategory[] =
-  ["Cab", "Auto", "Bus", "Online Bike", "Private Bike", "Train", "Parking"];
+  ["Cab", "Auto", "Bus", "Bike Ride", "Private Bike", "Train", "Parking"];
 
 export const WORK_PLAN_EXPENSE_PAYMENT_MODES: WorkPlanExpensePaymentMode[] = [
   "Cash",
@@ -150,6 +150,11 @@ export type WorkPlanVisitRecord = {
   contact_person?: string;
   contact_number?: string;
   contact_email?: string;
+  contacts?: Array<{
+    contact_person?: string;
+    contact_number?: string;
+    contact_email?: string;
+  }>;
   address?: string;
   planned_start_time?: string;
   planned_end_time?: string;

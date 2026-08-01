@@ -388,6 +388,18 @@ async function create(body, user) {
   const dispatchExists = await OrderDispatch.exists({ _id: body.dispatch, order: body.order });
   if (!dispatchExists) throw new ApiError(404, 'Order dispatch not found');
 
+  const lr = String(body.lr_number || '').trim();
+  if (!lr) {
+    throw new ApiError(400, 'LR number is required');
+  }
+  const existingShipment = await TransportShipment.findOne({
+    lr_number: lr,
+    deletedAt: null,
+  }).lean();
+  if (existingShipment) {
+    throw new ApiError(400, `LR number "${lr}" is already in use by transport shipment ${existingShipment.shipment_no}`);
+  }
+
   const doc = await TransportShipment.create({
     shipment_no: body.shipment_no || generateShipmentNo(),
     order: body.order,
@@ -454,6 +466,22 @@ async function patch(id, patchBody, user) {
   if (!doc) throw new ApiError(404, TR_NF);
 
   const patch = patchBody || {};
+
+  if (patch.lr_number !== undefined) {
+    const lr = String(patch.lr_number || '').trim();
+    if (!lr) {
+      throw new ApiError(400, 'LR number is required');
+    }
+    const existingShipment = await TransportShipment.findOne({
+      lr_number: lr,
+      _id: { $ne: id },
+      deletedAt: null,
+    }).lean();
+    if (existingShipment) {
+      throw new ApiError(400, `LR number "${lr}" is already in use by transport shipment ${existingShipment.shipment_no}`);
+    }
+  }
+
   const prevStatus = doc.shipment_status;
   if (patch.shipment_status || patch.status) {
     doc.shipment_status = normalizeShipmentStatus(patch.shipment_status || patch.status, doc.shipment_status);

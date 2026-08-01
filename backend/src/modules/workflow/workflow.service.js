@@ -34,270 +34,295 @@ function currentLegacyStatus(order) {
 }
 
 async function transitionOrderStatus(params) {
-  const session = await mongoose.startSession();
-  let finalOrder = null;
-  let notificationPayload = null;
+  const conn = mongoose.connection;
+  const isStandalone = conn && conn.client && conn.client.topology && conn.client.topology.description && conn.client.topology.description.type === 'Single';
 
-  try {
-    await session.withTransaction(async () => {
-      const {
-        orderId,
-        nextStatus,
-        userId,
-        remarks,
-        rejectionReason,
-        ip_address: ipAddress,
-        user_agent: userAgent,
-        _systemCall,
-      } = params;
+  const runWithOrWithoutSession = async (session) => {
+    const {
+      orderId,
+      nextStatus,
+      userId,
+      remarks,
+      rejectionReason,
+      ip_address: ipAddress,
+      user_agent: userAgent,
+      _systemCall,
+    } = params;
 
-      const {
-        User,
-        Order,
-        OrderFlag,
-        OrderStatusHistory,
-        OrderWorkflow,
-        OrderDispatch,
-        TransportShipment,
-      } = getModels();
+    const {
+      User,
+      Order,
+      OrderFlag,
+      OrderStatusHistory,
+      OrderWorkflow,
+      OrderDispatch,
+      TransportShipment,
+    } = getModels();
 
-      const actor = await User.findOne({ _id: userId, is_active: { $ne: false } }).session(session).lean();
-      const user = actor ? toPlain(actor) : null;
-      if (!user || !user.is_active) throw new ApiError(401, 'Unauthorized');
+    const actorQuery = User.findOne({ _id: userId, is_active: { $ne: false } });
+    if (session) actorQuery.session(session);
+    const actor = await actorQuery.lean();
+    const user = actor ? toPlain(actor) : null;
+    if (!user || !user.is_active) throw new ApiError(401, 'Unauthorized');
 
-      const actorDept = rules.normalizeDepartment(user.department);
-      if (!actorDept && !_systemCall) {
-        throw new ApiError(400, 'Your user record has no usable department; assign department before using workflow transitions.');
-      }
+    const actorDept = rules.normalizeDepartment(user.department);
+    if (!actorDept && !_systemCall) {
+      throw new ApiError(400, 'Your user record has no usable department; assign department before using workflow transitions.');
+    }
 
-      const doc = await Order.findById(orderId).session(session);
-      if (!doc) throw new ApiError(404, 'Order not found');
+    const docQuery = Order.findById(orderId);
+    if (session) docQuery.session(session);
+    const doc = await docQuery;
+    if (!doc) throw new ApiError(404, 'Order not found');
 
-      const requestedStatus = String(nextStatus);
-      const canonicalStatus = normalizeOrderStatus(requestedStatus);
-      const fromStatus = currentOrderStatus(doc);
-      const fromCanonical = normalizeOrderStatus(fromStatus);
+    const requestedStatus = String(nextStatus);
+    const canonicalStatus = normalizeOrderStatus(requestedStatus);
+    const fromStatus = currentOrderStatus(doc);
+    const fromCanonical = normalizeOrderStatus(fromStatus);
 
-      if (fromCanonical === canonicalStatus) {
-        const isLegacyRefinement = (
-          requestedStatus !== String(doc.status || '')
-          && ['fully_finance_approved', 'partially_finance_approved', 'fully_account_approved', 'partially_account_approved'].includes(requestedStatus)
+    if (fromCanonical === canonicalStatus) {
+      const isLegacyRefinement = (
+        requestedStatus !== String(doc.status || '')
+        && ['fully_finance_approved', 'partially_finance_approved', 'fully_account_approved', 'partially_account_approved'].includes(requestedStatus)
+      );
+      const needsSettlementClose =
+        canonicalStatus === ORDER_STATUS.CLOSED
+        && (
+          !doc.closed_at
+          || String(doc.status || '') !== ORDER_STATUS.CLOSED
+          || doc.lifecycle_status !== ORDER_LIFECYCLE_STATUS.FULFILLED
+          || doc.workflow_stage !== ORDER_WORKFLOW_STAGE.COMPLETED
         );
-        const needsSettlementClose =
-          canonicalStatus === ORDER_STATUS.CLOSED
-          && (
-            !doc.closed_at
-            || String(doc.status || '') !== ORDER_STATUS.CLOSED
-            || doc.lifecycle_status !== ORDER_LIFECYCLE_STATUS.FULFILLED
-            || doc.workflow_stage !== ORDER_WORKFLOW_STAGE.COMPLETED
-          );
-        if (!isLegacyRefinement && !( _systemCall && needsSettlementClose)) {
-          if (_systemCall) {
-            normalizeOrderWorkflowFields(doc);
-            if (doc.isModified()) {
-              await doc.save({ session });
-            }
-            finalOrder = toPlain(doc.toObject());
-            return;
+      if (!isLegacyRefinement && !( _systemCall && needsSettlementClose)) {
+        if (_systemCall) {
+          normalizeOrderWorkflowFields(doc);
+          if (doc.isModified()) {
+            await doc.save(session ? { session } : {});
           }
-          if (normalizeOrderStatus(doc.status) === canonicalStatus && requestedStatus === String(doc.status || '')) {
-            throw new ApiError(400, 'Order is already in this status');
-          }
+          return toPlain(doc.toObject());
+        }
+        if (normalizeOrderStatus(doc.status) === canonicalStatus && requestedStatus === String(doc.status || '')) {
+          throw new ApiError(400, 'Order is already in this status');
         }
       }
+    }
 
-      if (!_systemCall && !rules.isTransitionAllowed(fromCanonical, canonicalStatus)) {
-        throw new ApiError(400, `Transition from "${fromStatus}" to "${requestedStatus}" is not allowed`);
-      }
-      if (!_systemCall && !rules.departmentAllowsTransition(actorDept, fromCanonical, canonicalStatus)) {
-        throw new ApiError(403, 'Your department cannot perform this transition', {
-          department: actorDept,
-          order_status: fromStatus,
-          next_status: requestedStatus,
-        });
-      }
+    if (!_systemCall && !rules.isTransitionAllowed(fromCanonical, canonicalStatus)) {
+      throw new ApiError(400, `Transition from "${fromStatus}" to "${requestedStatus}" is not allowed`);
+    }
+    if (!_systemCall && !rules.departmentAllowsTransition(actorDept, fromCanonical, canonicalStatus)) {
+      throw new ApiError(403, 'Your department cannot perform this transition', {
+        department: actorDept,
+        order_status: fromStatus,
+        next_status: requestedStatus,
+      });
+    }
 
-      const lifecycleLockStatuses = new Set([
-        ORDER_STATUS.ON_HOLD,
-        ORDER_STATUS.CANCELLED,
-        ORDER_STATUS.FINANCE_REJECTED,
-        ORDER_STATUS.ACCOUNT_REJECTED,
-      ]);
-      if (!_systemCall && lifecycleLockStatuses.has(canonicalStatus)) {
-        const submittedDispatch = await OrderDispatch.findOne({
-          order: orderId,
-          deletedAt: null,
-          dispatch_status: { $in: ['submitted', 'transport_created'] },
-        })
-          .session(session)
-          .select('_id dispatch_status')
-          .lean();
-        if (submittedDispatch) {
-          throw new ApiError(
-            409,
-            'Cannot hold, cancel, or reject an order after a dispatch batch has been created and submitted',
-            {
-              dispatch_id: String(submittedDispatch._id),
-              dispatch_status: submittedDispatch.dispatch_status,
-            },
-          );
-        }
-      }
-
-      if (canonicalStatus === ORDER_STATUS.FINANCE_REJECTED) {
-        const reason = rejectionReason ?? remarks;
-        if (!reason || !String(reason).trim()) {
-          throw new ApiError(400, 'Finance rejection must include rejection_reason');
-        }
-      }
-
-      const blockingFlags = await OrderFlag.find({
+    const lifecycleLockStatuses = new Set([
+      ORDER_STATUS.ON_HOLD,
+      ORDER_STATUS.CANCELLED,
+      ORDER_STATUS.FINANCE_REJECTED,
+      ORDER_STATUS.ACCOUNT_REJECTED,
+    ]);
+    if (!_systemCall && lifecycleLockStatuses.has(canonicalStatus)) {
+      const submittedDispatchQuery = OrderDispatch.findOne({
         order: orderId,
-        status: 'open',
-        blocks_order: true,
-      }).session(session).lean();
-
-      for (const flag of blockingFlags) {
-        if (rules.flagBlocksTransition(flag.flag_type, canonicalStatus)) {
-          throw new ApiError(409, `Open blocking flag "${flag.flag_type}" prevents this transition`);
-        }
-      }
-
-      const spec = transitionSpec(requestedStatus);
-      const previousStage = normalizeWorkflowStageValue(doc.workflow_stage);
-      const patches = deriveOrderPatches(requestedStatus, spec.canonicalStatus);
-
-      doc.status = spec.canonicalStatus;
-      doc.lifecycle_status = spec.lifecycle_status;
-      doc.workflow_stage = spec.workflow_stage;
-      doc.current_action = patches.current_action || spec.current_action;
-      doc.current_revision = Number(doc.current_revision || 1) + 1;
-      doc.updated_by = userId;
-      if (spec.dispatch_status) doc.dispatch_status = spec.dispatch_status;
-      if (spec.delivery_status) doc.delivery_status = spec.delivery_status;
-      if (patches.dispatch_status) doc.dispatch_status = patches.dispatch_status;
-      if (patches.finance_approval_status) doc.finance_approval_status = patches.finance_approval_status;
-      if (patches.account_approval_status) doc.account_approval_status = patches.account_approval_status;
-      if (patches.pending_with_role) doc.pending_with_role = patches.pending_with_role;
-      if (patches.current_department) doc.current_department = patches.current_department;
-      if (remarks !== undefined) doc.remarks = remarks;
-
-      if (canonicalStatus === ORDER_STATUS.CLOSED) {
-        if (!doc.closed_at) doc.closed_at = new Date();
-        doc.closed_by = userId;
-        doc.is_locked = true;
-        if (remarks) {
-          doc.closure_remarks = String(remarks).trim();
-        }
-      }
-
-      await doc.save({ session });
-
-      if (canonicalStatus === ORDER_STATUS.CANCELLED) {
-        await OrderDispatch.updateMany(
-          { order: orderId, dispatch_status: { $ne: 'cancelled' }, deletedAt: null },
-          { $set: { dispatch_status: 'cancelled' } },
-          { session },
-        );
-      }
-
-      if (canonicalStatus === ORDER_STATUS.DELIVERED) {
-        await TransportShipment.updateMany(
-          { order: orderId, shipment_status: { $nin: ['delivered', 'delivery_failed', 'returned'] }, deletedAt: null },
-          { $set: { shipment_status: 'delivered', actual_delivery_date: new Date() } },
-          { session },
-        );
-      } else if (canonicalStatus === ORDER_STATUS.IN_TRANSIT) {
-        await TransportShipment.updateMany(
-          { order: orderId, shipment_status: { $nin: ['delivered', 'delivery_failed', 'returned', 'in_transit'] }, deletedAt: null },
-          { $set: { shipment_status: 'in_transit' } },
-          { session },
-        );
-      }
-
-      await OrderWorkflow.create(
-        [
+        deletedAt: null,
+        dispatch_status: { $in: ['submitted', 'transport_created'] },
+      }).select('_id dispatch_status');
+      if (session) submittedDispatchQuery.session(session);
+      const submittedDispatch = await submittedDispatchQuery.lean();
+      if (submittedDispatch) {
+        throw new ApiError(
+          409,
+          'Cannot hold, cancel, or reject an order after a dispatch batch has been created and submitted',
           {
-            order: orderId,
-            action_by: userId,
-            role: workflowRole(actorDept),
-            action: workflowActionLabel(requestedStatus, spec),
-            from_stage: previousStage,
-            to_stage: spec.workflow_stage,
-            from_status: fromStatus,
-            to_status: spec.canonicalStatus,
-            reason_code: rejectionReason ? 'rejection' : undefined,
-            remarks: remarks || '',
-            revision_number: doc.current_revision,
-            ip_address: ipAddress,
-            user_agent: userAgent,
-            metadata: {
-              requested_status: requestedStatus,
-              canonical_status: spec.canonicalStatus,
-            },
+            dispatch_id: String(submittedDispatch._id),
+            dispatch_status: submittedDispatch.dispatch_status,
           },
-        ],
-        { session },
-      );
+        );
+      }
+    }
 
-      await OrderStatusHistory.create(
-        [
-          {
-            order: orderId,
-            from_status: fromStatus,
-            to_status: spec.canonicalStatus,
-            changed_by: userId,
-            remarks: remarks || '',
-          },
-        ],
-        { session },
-      );
+    if (canonicalStatus === ORDER_STATUS.FINANCE_REJECTED) {
+      const reason = rejectionReason ?? remarks;
+      if (!reason || !String(reason).trim()) {
+        throw new ApiError(400, 'Finance rejection must include rejection_reason');
+      }
+    }
 
-      await activityService.create(
+    const blockingFlagsQuery = OrderFlag.find({
+      order: orderId,
+      status: 'open',
+      blocks_order: true,
+    });
+    if (session) blockingFlagsQuery.session(session);
+    const blockingFlags = await blockingFlagsQuery.lean();
+
+    for (const flag of blockingFlags) {
+      if (rules.flagBlocksTransition(flag.flag_type, canonicalStatus)) {
+        throw new ApiError(409, `Open blocking flag "${flag.flag_type}" prevents this transition`);
+      }
+    }
+
+    const spec = transitionSpec(requestedStatus);
+    const previousStage = normalizeWorkflowStageValue(doc.workflow_stage);
+    const patches = deriveOrderPatches(requestedStatus, spec.canonicalStatus);
+
+    doc.status = spec.canonicalStatus;
+    doc.lifecycle_status = spec.lifecycle_status;
+    doc.workflow_stage = spec.workflow_stage;
+    doc.current_action = patches.current_action || spec.current_action;
+    doc.current_revision = Number(doc.current_revision || 1) + 1;
+    doc.updated_by = userId;
+    if (spec.dispatch_status) doc.dispatch_status = spec.dispatch_status;
+    if (spec.delivery_status) doc.delivery_status = spec.delivery_status;
+    if (patches.dispatch_status) doc.dispatch_status = patches.dispatch_status;
+    if (patches.finance_approval_status) doc.finance_approval_status = patches.finance_approval_status;
+    if (patches.account_approval_status) doc.account_approval_status = patches.account_approval_status;
+    if (patches.pending_with_role) doc.pending_with_role = patches.pending_with_role;
+    if (patches.current_department) doc.current_department = patches.current_department;
+    if (remarks !== undefined) doc.remarks = remarks;
+
+    if (canonicalStatus === ORDER_STATUS.CLOSED) {
+      if (!doc.closed_at) doc.closed_at = new Date();
+      doc.closed_by = userId;
+      doc.is_locked = true;
+      if (remarks) {
+        doc.closure_remarks = String(remarks).trim();
+      }
+    }
+
+    await doc.save(session ? { session } : {});
+
+    if (canonicalStatus === ORDER_STATUS.CANCELLED) {
+      await OrderDispatch.updateMany(
+        { order: orderId, dispatch_status: { $ne: 'cancelled' }, deletedAt: null },
+        { $set: { dispatch_status: 'cancelled' } },
+        session ? { session } : {},
+      );
+    }
+
+    if (canonicalStatus === ORDER_STATUS.DELIVERED) {
+      await TransportShipment.updateMany(
+        { order: orderId, shipment_status: { $nin: ['delivered', 'delivery_failed', 'returned'] }, deletedAt: null },
+        { $set: { shipment_status: 'delivered', actual_delivery_date: new Date() } },
+        session ? { session } : {},
+      );
+    } else if (canonicalStatus === ORDER_STATUS.IN_TRANSIT) {
+      await TransportShipment.updateMany(
+        { order: orderId, shipment_status: { $nin: ['delivered', 'delivery_failed', 'returned', 'in_transit'] }, deletedAt: null },
+        { $set: { shipment_status: 'in_transit' } },
+        session ? { session } : {},
+      );
+    }
+
+    await OrderWorkflow.create(
+      [
         {
-          actor: userId,
-          entity_type: 'order',
-          entity_id: orderId,
-          action: 'status_changed',
-          message: `Order moved ${fromStatus} -> ${spec.canonicalStatus}`,
-          old_value: { status: fromStatus },
-          new_value: {
-            status: spec.canonicalStatus,
-            requested_status: requestedStatus,
-            workflow_stage: spec.workflow_stage,
-            lifecycle_status: spec.lifecycle_status,
-          },
+          order: orderId,
+          action_by: userId,
+          role: workflowRole(actorDept),
+          action: workflowActionLabel(requestedStatus, spec),
+          from_stage: previousStage,
+          to_stage: spec.workflow_stage,
+          from_status: fromStatus,
+          to_status: spec.canonicalStatus,
+          reason_code: rejectionReason ? 'rejection' : undefined,
+          remarks: remarks || '',
+          revision_number: doc.current_revision,
           ip_address: ipAddress,
           user_agent: userAgent,
+          metadata: {
+            requested_status: requestedStatus,
+            canonical_status: spec.canonicalStatus,
+          },
         },
-        { session },
-      );
+      ],
+      session ? { session } : {},
+    );
 
-      const latestOrder = await Order.findById(orderId).session(session).lean();
-      finalOrder = latestOrder ? toPlain(latestOrder) : null;
-      notificationPayload = {
+    await OrderStatusHistory.create(
+      [
+        {
+          order: orderId,
+          from_status: fromStatus,
+          to_status: spec.canonicalStatus,
+          changed_by: userId,
+          remarks: remarks || '',
+        },
+      ],
+      session ? { session } : {},
+    );
+
+    await activityService.create(
+      {
+        actor: userId,
+        entity_type: 'order',
+        entity_id: orderId,
+        action: 'status_changed',
+        message: `Order moved ${fromStatus} -> ${spec.canonicalStatus}`,
+        old_value: { status: fromStatus },
+        new_value: {
+          status: spec.canonicalStatus,
+          requested_status: requestedStatus,
+          workflow_stage: spec.workflow_stage,
+          lifecycle_status: spec.lifecycle_status,
+        },
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      },
+      session ? { session } : {},
+    );
+
+    const latestOrderQuery = Order.findById(orderId).lean();
+    if (session) latestOrderQuery.session(session);
+    const latestOrder = await latestOrderQuery;
+    const finalOrder = latestOrder ? toPlain(latestOrder) : null;
+
+    return {
+      finalOrder,
+      notificationPayload: {
         order: finalOrder,
         fromStatus,
         nextStatus: spec.canonicalStatus,
         actorId: userId,
-      };
-    });
+      },
+    };
+  };
 
-    if (notificationPayload) {
-      await notificationService.notifyOrderTransition(notificationPayload);
+  let finalOrder = null;
+  let notificationPayload = null;
+
+  if (isStandalone) {
+    const res = await runWithOrWithoutSession(null);
+    finalOrder = res.finalOrder;
+    notificationPayload = res.notificationPayload;
+  } else {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const res = await runWithOrWithoutSession(session);
+        finalOrder = res.finalOrder;
+        notificationPayload = res.notificationPayload;
+      });
+    } finally {
+      session.endSession();
     }
-
-    await workflowQueue.enqueuePostTransition({
-      orderId: params.orderId,
-      fromStatus: notificationPayload?.fromStatus,
-      nextStatus: notificationPayload?.nextStatus,
-      actorId: params.userId,
-    });
-
-    return finalOrder;
-  } finally {
-    session.endSession();
   }
+
+  if (notificationPayload) {
+    await notificationService.notifyOrderTransition(notificationPayload);
+  }
+
+  await workflowQueue.enqueuePostTransition({
+    orderId: params.orderId,
+    fromStatus: notificationPayload?.fromStatus,
+    nextStatus: notificationPayload?.nextStatus,
+    actorId: params.userId,
+  });
+
+  return finalOrder;
 }
 
 async function processWorkflowJob({ type, payload = {} }) {

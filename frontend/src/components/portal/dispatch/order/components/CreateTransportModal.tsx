@@ -262,6 +262,10 @@ export function CreateTransportModal({
         toast.error("Please select a transport agent.");
         return;
       }
+      if (!lrNumber.trim()) {
+        toast.error("LR number is required.");
+        return;
+      }
 
       try {
         const payload: Record<string, any> = {
@@ -655,7 +659,7 @@ export function CreateTransportModal({
             <div className="grid gap-4 sm:grid-cols-3 font-sans">
               <div className="space-y-1.5">
                 <label htmlFor="lr-number-input" className={labelClass}>
-                  LR Number
+                  LR Number *
                 </label>
                 <input
                   id="lr-number-input"
