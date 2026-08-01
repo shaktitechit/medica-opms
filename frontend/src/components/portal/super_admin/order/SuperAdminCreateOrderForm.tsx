@@ -897,7 +897,9 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
                   <ShoppingCart className="h-4 w-4 text-white" />
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-slate-900 dark:text-slate-50">Create Order</p>
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-50">
+                    {createdOrderId ? "Edit Order" : "Create Order"}
+                  </p>
                   <p className="text-2xs text-slate-400">Super Admin • Full Workflow</p>
                 </div>
               </div>
@@ -1281,13 +1283,15 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
                       </div>
                       <button
                         type="submit"
-                        disabled={isCreating || !allItemsNegotiated || !assignedSales || !partyId}
+                        disabled={isCreating || isPatchingOrder || !allItemsNegotiated || !assignedSales || !partyId}
                         className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/30 transition hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {isCreating ? (
-                          <><RefreshCw className="h-4 w-4 animate-spin" /> Creating Order...</>
+                        {(isCreating || isPatchingOrder) ? (
+                          <><RefreshCw className="h-4 w-4 animate-spin" />{createdOrderId ? "Saving Changes..." : "Creating Order..."}</>
+                        ) : createdOrderId ? (
+                          <><Save className="h-4 w-4" /> Update Order <ArrowRight className="h-4 w-4" /></>
                         ) : (
-                          <><Save className="h-4 w-4" /> Create Order & Continue <ArrowRight className="h-4 w-4" /></>
+                          <><Save className="h-4 w-4" /> Create Order &amp; Continue <ArrowRight className="h-4 w-4" /></>
                         )}
                       </button>
                     </section>
@@ -1394,7 +1398,7 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
             </div>
 
             {/* ── Footer nav ────────────────────────────────────────────── */}
-            {createdOrderId && activeStep !== "details" && (
+            {createdOrderId && (
               <div className="shrink-0 border-t border-slate-100 bg-slate-50 px-6 py-3 dark:border-slate-800 dark:bg-slate-950/50">
                 <div className="flex items-center justify-between">
                   <button

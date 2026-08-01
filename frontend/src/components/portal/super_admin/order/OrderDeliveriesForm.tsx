@@ -428,22 +428,26 @@ export function OrderDeliveriesForm({
           >
             Close
           </button>
-          {selectedId === "new" && transports.length > 0 && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void handleSave()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-amber-700 disabled:opacity-60"
-              >
-                {saving ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="h-3.5 w-3.5" />
-                )}
-                Log delivery
-              </button>
-            </div>
+          {selectedId === "new" ? (
+            transports.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void handleSave()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {saving ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Save className="h-3.5 w-3.5" />
+                  )}
+                  Log delivery
+                </button>
+              </div>
+            )
+          ) : (
+            <span className="text-xs text-slate-500 italic">View Only (Logged)</span>
           )}
         </div>
       </div>
