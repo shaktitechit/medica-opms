@@ -452,7 +452,7 @@ export default function AccountOverviewWidgets({
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           Quick Access
         </h3>
-        <div className="grid grid-cols-3 lg:grid-cols-11 gap-4 w-full">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 gap-4 w-full">
           {ACCOUNT_ORDER_TABS.map((tab) => {
             const meta = WIDGET_META[tab.id];
             const { Icon } = meta;

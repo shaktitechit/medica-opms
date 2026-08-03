@@ -20,48 +20,14 @@ interface PartyLeaderboardProps {
   forceMetric?: Metric;
 }
 
-type Metric = "quantity" | "volume";
-type QtyBasis = "net" | "approved";
-type RateBucket = { total: number; sr: number; sra: number; cr: number };
-
-function normalizeRateType(raw: unknown): "SR" | "SRA" | "CR" | null {
-  const rateType = !raw || raw === "MANUAL" ? "SR" : String(raw).toUpperCase();
-  if (rateType === "SR" || rateType === "SRA" || rateType === "CR") return rateType;
-  return null;
-}
-
-function itemNetQty(item: any): number {
-  const del = Number(item.delivered_quantity) || 0;
-  const ret = Number(item.returned_quantity) || 0;
-  return del - ret;
-}
-
-function itemApprovedQty(item: any): number {
-  return Number(item.approved_quantity) || 0;
-}
-
-function itemQty(item: any, basis: QtyBasis): number {
-  return basis === "approved" ? itemApprovedQty(item) : itemNetQty(item);
-}
-
-function itemUnitPrice(item: any): number {
-  return Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
-}
-
-function itemMetricValue(item: any, metric: Metric, basis: QtyBasis): number {
-  const qty = itemQty(item, basis);
-  return metric === "quantity" ? qty : qty * itemUnitPrice(item);
-}
-
-function formatMetricValue(v: number, metric: Metric): string {
-  if (metric === "volume") {
-    return `₹${v.toLocaleString("en-IN", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    })}`;
-  }
-  return v.toLocaleString();
-}
+import {
+  Metric,
+  QtyBasis,
+  RateBucket,
+  normalizeRateType,
+  itemMetricValue,
+  formatMetricValue,
+} from "./leaderboardUtils";
 
 export default function PartyLeaderboard({
   orders,
@@ -259,12 +225,12 @@ export default function PartyLeaderboard({
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="text-slate-400 dark:text-slate-500 border-b border-slate-100/50 dark:border-white/5">
-                  <th className="py-2 font-semibold">Party Name</th>
-                  <th className="py-2 text-right font-semibold">{valueLabel}</th>
-                  <th className="py-2 text-right font-semibold">SR</th>
-                  <th className="py-2 text-right font-semibold">SRA</th>
-                  <th className="py-2 text-right font-semibold">CR</th>
+                <tr className="text-slate-400 dark:text-slate-500 border-b border-slate-100/50 dark:border-white/5 divide-x divide-slate-100/70 dark:divide-white/5">
+                  <th className="py-2 pr-2 font-semibold">Party Name</th>
+                  <th className="py-2 px-2 text-right font-semibold">{valueLabel}</th>
+                  <th className="py-2 px-2 text-right font-semibold">SR</th>
+                  <th className="py-2 px-2 text-right font-semibold">SRA</th>
+                  <th className="py-2 pl-2 text-right font-semibold">CR</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
@@ -276,20 +242,20 @@ export default function PartyLeaderboard({
                   </tr>
                 ) : partyRows.length > 0 ? (
                   partyRows.slice(0, 5).map((p, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/30 dark:hover:bg-white/5 transition-colors">
-                      <td className="py-2.5 font-medium text-slate-800 dark:text-slate-250 pr-4 break-words">
+                    <tr key={idx} className="hover:bg-slate-50/30 dark:hover:bg-white/5 transition-colors divide-x divide-slate-100/70 dark:divide-white/5">
+                      <td className="py-2.5 font-medium text-slate-800 dark:text-slate-250 pr-2 break-words">
                         {p.name}
                       </td>
-                      <td className="py-2.5 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
+                      <td className="py-2.5 px-2 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
                         {formatMetricValue(p.total, metric)}
                       </td>
-                      <td className="py-2.5 text-right text-slate-700 dark:text-slate-300 tabular-nums">
+                      <td className="py-2.5 px-2 text-right text-slate-600 dark:text-slate-400 tabular-nums">
                         {formatMetricValue(p.sr, metric)}
                       </td>
-                      <td className="py-2.5 text-right text-slate-700 dark:text-slate-300 tabular-nums">
+                      <td className="py-2.5 px-2 text-right text-slate-600 dark:text-slate-400 tabular-nums">
                         {formatMetricValue(p.sra, metric)}
                       </td>
-                      <td className="py-2.5 text-right text-slate-700 dark:text-slate-300 tabular-nums">
+                      <td className="py-2.5 pl-2 text-right text-slate-600 dark:text-slate-400 tabular-nums">
                         {formatMetricValue(p.cr, metric)}
                       </td>
                     </tr>
@@ -348,30 +314,30 @@ export default function PartyLeaderboard({
             <div className="flex-1 min-h-0 overflow-y-auto p-5">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="text-slate-455 dark:text-slate-505 border-b border-slate-100 dark:border-white/5">
-                    <th className="py-2 font-semibold">Party Name</th>
-                    <th className="py-2 text-right font-semibold">{valueLabel}</th>
-                    <th className="py-2 text-right font-semibold">SR</th>
-                    <th className="py-2 text-right font-semibold">SRA</th>
-                    <th className="py-2 text-right font-semibold">CR</th>
+                  <tr className="text-slate-455 dark:text-slate-505 border-b border-slate-100 dark:border-white/5 divide-x divide-slate-100/70 dark:divide-white/5">
+                    <th className="py-2 pr-2 font-semibold">Party Name</th>
+                    <th className="py-2 px-2 text-right font-semibold">{valueLabel}</th>
+                    <th className="py-2 px-2 text-right font-semibold">SR</th>
+                    <th className="py-2 px-2 text-right font-semibold">SRA</th>
+                    <th className="py-2 pl-2 text-right font-semibold">CR</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                   {partyRows.map((p, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/30 dark:hover:bg-white/5 transition-colors">
-                      <td className="py-2.5 font-medium text-slate-800 dark:text-slate-250 pr-4 break-words">
+                    <tr key={idx} className="hover:bg-slate-50/30 dark:hover:bg-white/5 transition-colors divide-x divide-slate-100/70 dark:divide-white/5">
+                      <td className="py-2.5 font-medium text-slate-800 dark:text-slate-250 pr-2 break-words">
                         {p.name}
                       </td>
-                      <td className="py-2.5 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
+                      <td className="py-2.5 px-2 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
                         {formatMetricValue(p.total, metric)}
                       </td>
-                      <td className="py-2.5 text-right text-slate-700 dark:text-slate-300 tabular-nums">
+                      <td className="py-2.5 px-2 text-right text-slate-700 dark:text-slate-300 tabular-nums">
                         {formatMetricValue(p.sr, metric)}
                       </td>
-                      <td className="py-2.5 text-right text-slate-700 dark:text-slate-300 tabular-nums">
+                      <td className="py-2.5 px-2 text-right text-slate-700 dark:text-slate-300 tabular-nums">
                         {formatMetricValue(p.sra, metric)}
                       </td>
-                      <td className="py-2.5 text-right text-slate-700 dark:text-slate-300 tabular-nums">
+                      <td className="py-2.5 pl-2 text-right text-slate-700 dark:text-slate-300 tabular-nums">
                         {formatMetricValue(p.cr, metric)}
                       </td>
                     </tr>
@@ -379,20 +345,20 @@ export default function PartyLeaderboard({
                 </tbody>
                 {partyRows.length > 0 && (
                   <tfoot>
-                    <tr className="border-t-2 border-slate-200 bg-slate-50/80 dark:border-white/10 dark:bg-slate-800/50">
-                      <td className="py-3 font-bold text-slate-900 dark:text-slate-100 pr-4">
+                    <tr className="border-t-2 border-slate-200 bg-slate-50/80 dark:border-white/10 dark:bg-slate-800/50 divide-x divide-slate-100/70 dark:divide-white/5">
+                      <td className="py-3 font-bold text-slate-900 dark:text-slate-100 pr-2">
                         Total
                       </td>
-                      <td className="py-3 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
+                      <td className="py-3 px-2 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
                         {formatMetricValue(totals.total, metric)}
                       </td>
-                      <td className="py-3 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
+                      <td className="py-3 px-2 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
                         {formatMetricValue(totals.sr, metric)}
                       </td>
-                      <td className="py-3 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
+                      <td className="py-3 px-2 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
                         {formatMetricValue(totals.sra, metric)}
                       </td>
-                      <td className="py-3 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
+                      <td className="py-3 pl-2 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
                         {formatMetricValue(totals.cr, metric)}
                       </td>
                     </tr>
