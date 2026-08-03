@@ -8,6 +8,7 @@ import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderbo
 import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
 import SalesLeaderboard from "@/components/portal/shared/dashboard/SalesLeaderboard";
 import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashboard/FeaturedProductGroupSalesUserTable";
+import FeaturedProductGroupZoneTable from "@/components/portal/shared/dashboard/FeaturedProductGroupZoneTable";
 import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/shared/dashboard/FeaturedProductGroupFeaturedPartyTable";
 import {
   buildPendingReturnOrderIds,
@@ -463,6 +464,10 @@ export default function FinanceOverview() {
 
       <div className="space-y-6">
         <FeaturedProductGroupSalesUserTable
+          orders={orders}
+          isOrdersFetching={isOrdersFetching}
+        />
+        <FeaturedProductGroupZoneTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />

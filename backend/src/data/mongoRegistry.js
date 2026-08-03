@@ -337,6 +337,23 @@ function registerModels() {
   productGroupSchema.plugin(softDeletePlugin);
   mongoose.model("ProductGroup", productGroupSchema);
 
+  // --- Schemas from Zone.js ---
+  const zoneSchema = new mongoose.Schema(
+    {
+      name: { type: String, required: true, unique: true, trim: true, index: true },
+      description: { type: String, trim: true },
+      parties: [{ type: mongoose.Schema.Types.ObjectId, ref: "Party" }],
+      sales_persons: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      is_active: { type: Boolean, default: true, index: true },
+      deletedAt: { type: Date, default: null, index: true },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    },
+    { timestamps: true }
+  );
+  zoneSchema.plugin(softDeletePlugin);
+  mongoose.model("Zone", zoneSchema);
+
   // --- Schemas from ProductSubgroup.js ---
   const productSubgroupSchema = new mongoose.Schema(
     {
@@ -2219,6 +2236,7 @@ function registerModels() {
       mongoose.models.PartyProductLastRate || mongoose.model('PartyProductLastRate', partyProductLastRateSchema),
     Product: mongoose.models.Product || mongoose.model('Product', productSchema),
     ProductGroup: mongoose.models.ProductGroup || mongoose.model('ProductGroup', productGroupSchema),
+    Zone: mongoose.models.Zone || mongoose.model('Zone', zoneSchema),
     ProductSubgroup: mongoose.models.ProductSubgroup || mongoose.model('ProductSubgroup', productSubgroupSchema),
     ProductBrand: mongoose.models.ProductBrand || mongoose.model('ProductBrand', productBrandSchema),
     ProductManufacturer:

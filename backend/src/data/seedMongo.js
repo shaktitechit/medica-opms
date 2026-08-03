@@ -369,13 +369,54 @@ async function bootstrap() {
   );
 
   if (missingProducts.length > 0) {
-    const products = await Product.insertMany(
-      missingProducts.map((product) => ({
-        ...product,
+    const { ProductGroup, ProductSubgroup, ProductBrand, ProductManufacturer } = getModels();
+
+    const preparedProducts = [];
+    for (const p of missingProducts) {
+      let pg = null;
+      if (p.product_group) {
+        pg = await ProductGroup.findOne({ name: p.product_group, deletedAt: null });
+        if (!pg) {
+          pg = await ProductGroup.create({ name: p.product_group, created_by: admin._id });
+        }
+      }
+
+      let psg = null;
+      if (p.product_subgroup && pg) {
+        psg = await ProductSubgroup.findOne({ name: p.product_subgroup, group: pg._id, deletedAt: null });
+        if (!psg) {
+          psg = await ProductSubgroup.create({ name: p.product_subgroup, group: pg._id, created_by: admin._id });
+        }
+      }
+
+      let pb = null;
+      if (p.brand) {
+        pb = await ProductBrand.findOne({ name: p.brand, deletedAt: null });
+        if (!pb) {
+          pb = await ProductBrand.create({ name: p.brand, created_by: admin._id });
+        }
+      }
+
+      let pm = null;
+      if (p.manufacturer) {
+        pm = await ProductManufacturer.findOne({ name: p.manufacturer, deletedAt: null });
+        if (!pm) {
+          pm = await ProductManufacturer.create({ name: p.manufacturer, created_by: admin._id });
+        }
+      }
+
+      preparedProducts.push({
+        ...p,
+        product_group: pg ? pg._id : undefined,
+        product_subgroup: psg ? psg._id : undefined,
+        brand: pb ? pb._id : undefined,
+        manufacturer: pm ? pm._id : undefined,
         is_active: true,
         created_by: admin._id,
-      })),
-    );
+      });
+    }
+
+    const products = await Product.insertMany(preparedProducts);
     catalog.seeded = true;
     catalog.products = products.length;
   }

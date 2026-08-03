@@ -53,7 +53,15 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
         { label: "Sales Expenses", query: "view=expenses", icon: "Wallet" },
       ],
     },
-    { segments: ["parties"], label: "Party Master", icon: "Users" },
+    {
+      segments: ["parties"],
+      label: "Party Master",
+      icon: "Users",
+      children: [
+        { label: "Master Party List", query: "view=parties", icon: "Users" },
+        { label: "Zone Management List", query: "view=zones", icon: "Map" },
+      ],
+    },
     {
       segments: ["products"],
       label: "Product Master",
@@ -102,7 +110,15 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
       ],
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
-    { segments: ["parties"], label: "Party Master", icon: "Users" },
+    {
+      segments: ["parties"],
+      label: "Party Master",
+      icon: "Users",
+      children: [
+        { label: "Master Party List", query: "view=parties", icon: "Users" },
+        { label: "Zone Management List", query: "view=zones", icon: "Map" },
+      ],
+    },
     {
       segments: ["products"],
       label: "Product Master",
@@ -129,7 +145,15 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
       ],
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
-    { segments: ["parties"], label: "Party Master", icon: "Users" },
+    {
+      segments: ["parties"],
+      label: "Party Master",
+      icon: "Users",
+      children: [
+        { label: "Master Party List", query: "view=parties", icon: "Users" },
+        { label: "Zone Management List", query: "view=zones", icon: "Map" },
+      ],
+    },
     {
       segments: ["products"],
       label: "Product Master",
@@ -181,7 +205,15 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
       ],
     },
     { segments: ["users"], label: "Users", icon: "Users" },
-    { segments: ["parties"], label: "Party Master", icon: "Building2" },
+    {
+      segments: ["parties"],
+      label: "Party Master",
+      icon: "Building2",
+      children: [
+        { label: "Master Party List", query: "view=parties", icon: "Users" },
+        { label: "Zone Management List", query: "view=zones", icon: "Map" },
+      ],
+    },
     {
       segments: ["products"],
       label: "Product Master",

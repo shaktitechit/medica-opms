@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ListZonePartiesPage from "./ListZonePartiesPage";
+import ZonePartiesPage from "./ZonePartiesPage";
 import {
   Building2,
   User,
@@ -167,7 +170,12 @@ export type ListPartiesPageProps = {
   portalHome: string;
 };
 
+
+
 export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
+  const searchParams = useSearchParams();
+  const view = searchParams.get("view") || "";
+
   const user = useAppSelector((s) => s.auth.user);
   const mayBulkUpload = canBulkUploadParties(user);
   const [search, setSearch] = useState("");
@@ -384,6 +392,13 @@ export default function ListPartiesPage({ portalHome }: ListPartiesPageProps) {
 
   const startEntry = totalMatching > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
   const endEntry = Math.min(currentPage * itemsPerPage, totalMatching);
+
+  if (view === "zones") {
+    return <ListZonePartiesPage portalHome={portalHome} />;
+  }
+  if (view === "zone-parties") {
+    return <ZonePartiesPage portalHome={portalHome} />;
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
