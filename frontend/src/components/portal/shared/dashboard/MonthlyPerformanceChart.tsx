@@ -2,14 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Check, ChevronDown, Info } from "lucide-react";
-import PeriodHeadingCaption from "@/components/portal/admin/components/PeriodHeadingCaption";
-import ReportDownloadButton from "@/components/portal/admin/components/ReportDownloadButton";
-import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
-import { downloadCsvFile, reportFilename } from "@/components/portal/admin/components/reportDownloadUtils";
+import PeriodHeadingCaption from "./PeriodHeadingCaption";
+import ReportDownloadButton from "./ReportDownloadButton";
+import { formatPeriodLabel } from "./periodFilterUtils";
+import { downloadCsvFile, reportFilename } from "./reportDownloadUtils";
+import { shouldIncludeOrder } from "./featuredMatrixUtils";
 
-interface FinanceMonthlyPerformanceChartProps {
+interface MonthlyPerformanceChartProps {
   orders: any[];
   isOrdersFetching: boolean;
+  forceMetric?: Metric;
 }
 
 type Metric = "quantity" | "volume";
@@ -31,8 +33,8 @@ const MONTH_LABELS = [
 ] as const;
 
 const YEAR_COLORS = [
-  { fill: "fill-emerald-500", hover: "fill-emerald-400", swatch: "bg-emerald-500" },
   { fill: "fill-blue-500", hover: "fill-blue-400", swatch: "bg-blue-500" },
+  { fill: "fill-emerald-500", hover: "fill-emerald-400", swatch: "bg-emerald-500" },
   { fill: "fill-amber-500", hover: "fill-amber-400", swatch: "bg-amber-500" },
   { fill: "fill-violet-500", hover: "fill-violet-400", swatch: "bg-violet-500" },
   { fill: "fill-rose-500", hover: "fill-rose-400", swatch: "bg-rose-500" },
@@ -58,6 +60,7 @@ function itemUnitPrice(item: any): number {
 }
 
 function orderMetricValue(order: any, metric: Metric, basis: QtyBasis): number {
+  if (!shouldIncludeOrder(order, basis)) return 0;
   const items = Array.isArray(order?.order_items) ? order.order_items : [];
   let total = 0;
   for (const item of items) {
@@ -97,12 +100,14 @@ function formatTooltipValue(v: number, metric: Metric): string {
   return v.toLocaleString();
 }
 
-export default function FinanceMonthlyPerformanceChart({
+export default function MonthlyPerformanceChart({
   orders,
   isOrdersFetching,
-}: FinanceMonthlyPerformanceChartProps) {
-  const [metric, setMetric] = useState<Metric>("quantity");
-  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("net");
+  forceMetric,
+}: MonthlyPerformanceChartProps) {
+  const [metricState, setMetric] = useState<Metric>("quantity");
+  const metric = forceMetric ?? metricState;
+  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("approved");
   const [selectedYears, setSelectedYears] = useState<number[]>([
     new Date().getFullYear(),
   ]);
@@ -210,7 +215,7 @@ export default function FinanceMonthlyPerformanceChart({
       ...activeYears.map((year) => monthlyByYear.get(year)?.[monthIdx] ?? 0),
     ]);
     downloadCsvFile(
-      reportFilename("financemonthlyperformancechart", selectedYears),
+      reportFilename("monthly_performance", selectedYears),
       headers,
       rows,
       [
@@ -222,17 +227,16 @@ export default function FinanceMonthlyPerformanceChart({
     );
   };
 
-
   const chartEmpty = !isOrdersFetching && orders.length === 0;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-900 relative z-10">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b border-slate-100 pb-4 dark:border-white/5">
         <div className="flex items-start gap-2.5">
-          <BarChart3 className="mt-0.5 h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+          <BarChart3 className="mt-0.5 h-5 w-5 text-blue-600 dark:text-blue-400" />
           <div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              Finance Monthly Performance
+              Monthly Performance
             </h2>
             <PeriodHeadingCaption selectedYears={selectedYears} />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -247,62 +251,39 @@ export default function FinanceMonthlyPerformanceChart({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
+         <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
           <ReportDownloadButton
             onDownload={handleDownload}
             disabled={isOrdersFetching || activeYears.length === 0}
             size="sm"
           />
 
-          <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
-            <button
-              type="button"
-              onClick={() => setQtyBasis("net")}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
-                qtyBasis === "net"
-                  ? "bg-white text-emerald-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
-                  : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              Net
-            </button>
-            <button
-              type="button"
-              onClick={() => setQtyBasis("approved")}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
-                qtyBasis === "approved"
-                  ? "bg-white text-emerald-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
-                  : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              Approved
-            </button>
-          </div>
-
-          <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
-            <button
-              type="button"
-              onClick={() => setMetric("quantity")}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
-                metric === "quantity"
-                  ? "bg-white text-emerald-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
-                  : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              Quantity
-            </button>
-            <button
-              type="button"
-              onClick={() => setMetric("volume")}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
-                metric === "volume"
-                  ? "bg-white text-emerald-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
-                  : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              Volume
-            </button>
-          </div>
+          {!forceMetric && (
+            <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+              <button
+                type="button"
+                onClick={() => setMetric("quantity")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                  metric === "quantity"
+                    ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                    : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
+                }`}
+              >
+                Quantity
+              </button>
+              <button
+                type="button"
+                onClick={() => setMetric("volume")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                  metric === "volume"
+                    ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                    : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
+                }`}
+              >
+                Volume
+              </button>
+            </div>
+          )}
 
           <div className="relative" ref={yearMenuRef}>
             <button
@@ -334,7 +315,7 @@ export default function FinanceMonthlyPerformanceChart({
                         >
                           <span>{year}</span>
                           {checked ? (
-                            <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                            <Check className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
                           ) : (
                             <span className="h-3.5 w-3.5 rounded border border-slate-300 dark:border-slate-600" />
                           )}
@@ -366,7 +347,7 @@ export default function FinanceMonthlyPerformanceChart({
       <div className="mt-6 relative z-20 h-[280px] w-full flex items-center justify-center">
         {isOrdersFetching ? (
           <div className="flex flex-col items-center justify-center space-y-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
               Loading performance…
             </p>

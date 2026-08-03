@@ -8,7 +8,7 @@ import {
   formatMultiSelectLabel,
 } from "./periodFilterUtils";
 
-interface AdminPeriodFilterProps {
+interface PeriodFilterProps {
   availableYears: number[];
   selectedYears: number[];
   selectedMonths: number[];
@@ -71,7 +71,7 @@ function MultiSelectMenu({
               return (
                 <li key={opt.value}>
                   <button
-                    type="button"
+                     type="button"
                     onClick={() => onToggle(opt.value)}
                     className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer"
                   >
@@ -92,14 +92,14 @@ function MultiSelectMenu({
   );
 }
 
-export default function AdminPeriodFilter({
+export default function PeriodFilter({
   availableYears,
   selectedYears,
   selectedMonths,
   onYearsChange,
   onMonthsChange,
   size = "md",
-}: AdminPeriodFilterProps) {
+}: PeriodFilterProps) {
   const toggleYear = (year: number) => {
     if (selectedYears.includes(year)) {
       if (selectedYears.length === 1) return;

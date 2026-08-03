@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Fragment, useCallback, useMemo, useState } from "react";
 import { Download, Receipt, Search, X } from "lucide-react";
 
-import { downloadCsvFile } from "@/components/portal/admin/components/reportDownloadUtils";
+import { downloadCsvFile } from "@/components/portal/shared/dashboard/reportDownloadUtils";
 import { ModalOverlay } from "@/components/portal/shared/ModalOverlay";
 import {
   buildSubmittedDispatchQtyByOrderId,

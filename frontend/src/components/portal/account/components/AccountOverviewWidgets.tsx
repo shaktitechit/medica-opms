@@ -28,12 +28,12 @@ import {
   type AccountOrderTabCategory,
 } from "../accountOrderUtils";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
-import AdminPeriodFilter from "@/components/portal/admin/components/AdminPeriodFilter";
-import { useAdminPeriodFilter } from "@/components/portal/admin/components/useAdminPeriodFilter";
-import PeriodHeadingCaption from "@/components/portal/admin/components/PeriodHeadingCaption";
-import ReportDownloadButton from "@/components/portal/admin/components/ReportDownloadButton";
-import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
-import { downloadCsvFile, reportFilename } from "@/components/portal/admin/components/reportDownloadUtils";
+import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
+import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
+import PeriodHeadingCaption from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
+import ReportDownloadButton from "@/components/portal/shared/dashboard/ReportDownloadButton";
+import { formatPeriodLabel } from "@/components/portal/shared/dashboard/periodFilterUtils";
+import { downloadCsvFile, reportFilename } from "@/components/portal/shared/dashboard/reportDownloadUtils";
 
 interface AccountOverviewWidgetsProps {
   orders: unknown[];
@@ -149,7 +149,7 @@ export default function AccountOverviewWidgets({
     selectedMonths,
     setSelectedMonths,
     filteredOrders,
-  } = useAdminPeriodFilter(orders);
+  } = usePeriodFilter(orders);
 
   const orderStats = useMemo(
     () => computeAccountOrderStats(orders, categoryOptions),
@@ -192,6 +192,11 @@ export default function AccountOverviewWidgets({
     for (const o of filteredOrders) {
       if (!o || typeof o !== "object") continue;
       const status = deriveOrderWorkflowStatus(o);
+      const isDeleted = (o as any).is_deleted === true || (o as any).isDeleted === true || (o as any).deletedAt != null;
+      if (status === "draft" || status === "deleted" || isDeleted) {
+        continue;
+      }
+
       const isCancelled = status === "cancelled";
       const isRejected = status === "finance_rejected" || status === "rejected";
       const isOnHold = status === "on_hold";
@@ -208,12 +213,19 @@ export default function AccountOverviewWidgets({
         const statusQty = app > 0 ? app : ordered;
         const netSales = del - ret;
 
-        orderSum += ordered;
-        orderVal += ordered * price;
+        const isApprovedOrder = status !== "draft" && status !== "submitted" && status !== "cancelled" && status !== "finance_rejected" && status !== "rejected" && status !== "on_hold";
+        const qtyToUseForOrderValue = isApprovedOrder ? app : ordered;
+
+        orderSum += qtyToUseForOrderValue;
+        orderVal += qtyToUseForOrderValue * price;
         salesSum += netSales;
         salesVal += netSales * price;
-        approvedSum += app;
-        approvedVal += app * price;
+
+        if (!isCancelled && !isRejected && !isOnHold) {
+          approvedSum += app;
+          approvedVal += app * price;
+        }
+
         returnedSum += ret;
         returnedVal += ret * price;
 
@@ -302,7 +314,7 @@ export default function AccountOverviewWidgets({
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <AdminPeriodFilter
+            <PeriodFilter
               availableYears={availableYears}
               selectedYears={selectedYears}
               selectedMonths={selectedMonths}

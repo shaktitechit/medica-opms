@@ -1,19 +1,23 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Package, X } from "lucide-react";
+import { Users, X } from "lucide-react";
 import { LargeModalBackdrop } from "@/components/portal/shared/LargeModalBackdrop";
 import { largeModalPanelClass } from "@/components/portal/shared/modalLayout";
-import AdminPeriodFilter from "@/components/portal/admin/components/AdminPeriodFilter";
-import { useAdminPeriodFilter } from "@/components/portal/admin/components/useAdminPeriodFilter";
-import PeriodHeadingCaption from "@/components/portal/admin/components/PeriodHeadingCaption";
-import ReportDownloadButton from "@/components/portal/admin/components/ReportDownloadButton";
-import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
-import { downloadCsvFile, reportFilename } from "@/components/portal/admin/components/reportDownloadUtils";
+import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
+import PeriodFilter from "./PeriodFilter";
+import { usePeriodFilter } from "./usePeriodFilter";
+import PeriodHeadingCaption from "./PeriodHeadingCaption";
+import ReportDownloadButton from "./ReportDownloadButton";
+import { formatPeriodLabel } from "./periodFilterUtils";
+import { downloadCsvFile, reportFilename } from "./reportDownloadUtils";
+import { shouldIncludeOrder } from "./featuredMatrixUtils";
 
-interface FinanceProductLeaderboardProps {
+interface PartyLeaderboardProps {
   orders: any[];
   isOrdersFetching: boolean;
+  partyNameById: Map<string, string>;
+  forceMetric?: Metric;
 }
 
 type Metric = "quantity" | "volume";
@@ -40,11 +44,13 @@ function itemQty(item: any, basis: QtyBasis): number {
   return basis === "approved" ? itemApprovedQty(item) : itemNetQty(item);
 }
 
+function itemUnitPrice(item: any): number {
+  return Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
+}
+
 function itemMetricValue(item: any, metric: Metric, basis: QtyBasis): number {
   const qty = itemQty(item, basis);
-  if (metric === "quantity") return qty;
-  const unitPrice = Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
-  return qty * unitPrice;
+  return metric === "quantity" ? qty : qty * itemUnitPrice(item);
 }
 
 function formatMetricValue(v: number, metric: Metric): string {
@@ -57,22 +63,16 @@ function formatMetricValue(v: number, metric: Metric): string {
   return v.toLocaleString();
 }
 
-function resolveProductName(item: any): string {
-  return (
-    item.product?.name ??
-    item.product_name ??
-    (typeof item.product === "object" ? item.product?.name : String(item.product ?? "")) ??
-    "Unknown Product"
-  );
-}
-
-export default function FinanceProductLeaderboard({
+export default function PartyLeaderboard({
   orders,
   isOrdersFetching,
-}: FinanceProductLeaderboardProps) {
+  partyNameById,
+  forceMetric,
+}: PartyLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
-  const [metric, setMetric] = useState<Metric>("quantity");
-  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("net");
+  const [metricState, setMetric] = useState<Metric>("quantity");
+  const metric = forceMetric ?? metricState;
+  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("approved");
   const {
     availableYears,
     selectedYears,
@@ -80,33 +80,33 @@ export default function FinanceProductLeaderboard({
     selectedMonths,
     setSelectedMonths,
     filteredOrders,
-  } = useAdminPeriodFilter(orders);
+  } = usePeriodFilter(orders);
 
-  const productRows = useMemo(() => {
+  const partyRows = useMemo(() => {
     const map = new Map<string, RateBucket>();
     for (const o of filteredOrders) {
+      if (!shouldIncludeOrder(o, qtyBasis)) continue;
+      const partyLabel = resolveOrderCounterparty(o, partyNameById) || "Unknown Party";
       const items = Array.isArray(o.order_items) ? o.order_items : [];
+      const bucket = map.get(partyLabel) ?? { total: 0, sr: 0, sra: 0, cr: 0 };
       for (const item of items) {
-        const prodName = resolveProductName(item);
-        if (!prodName) continue;
         const value = itemMetricValue(item, metric, qtyBasis);
-        const bucket = map.get(prodName) ?? { total: 0, sr: 0, sra: 0, cr: 0 };
         bucket.total += value;
         const rateType = normalizeRateType(item.applied_rate_type);
         if (rateType === "SR") bucket.sr += value;
         else if (rateType === "SRA") bucket.sra += value;
         else if (rateType === "CR") bucket.cr += value;
-        map.set(prodName, bucket);
       }
+      map.set(partyLabel, bucket);
     }
     return Array.from(map.entries())
       .map(([name, stats]) => ({ name, ...stats }))
       .sort((a, b) => b.total - a.total);
-  }, [filteredOrders, metric, qtyBasis]);
+  }, [filteredOrders, partyNameById, metric, qtyBasis]);
 
   const totals = useMemo(
     () =>
-      productRows.reduce(
+      partyRows.reduce(
         (acc, p) => ({
           total: acc.total + p.total,
           sr: acc.sr + p.sr,
@@ -115,7 +115,7 @@ export default function FinanceProductLeaderboard({
         }),
         { total: 0, sr: 0, sra: 0, cr: 0 }
       ),
-    [productRows]
+    [partyRows]
   );
 
   const valueLabel =
@@ -129,11 +129,11 @@ export default function FinanceProductLeaderboard({
   const breakdownTitle =
     qtyBasis === "net"
       ? metric === "quantity"
-        ? "Product Sales breakdown (Net Quantity)"
-        : "Product Sales breakdown (Net Volume)"
+        ? "Party Sales breakdown (Net Quantity)"
+        : "Party Sales breakdown (Net Volume)"
       : metric === "quantity"
-        ? "Product Sales breakdown (Approved Quantity)"
-        : "Product Sales breakdown (Approved Volume)";
+        ? "Party Sales breakdown (Approved Quantity)"
+        : "Party Sales breakdown (Approved Volume)";
 
   const basisToggle = (
     <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
@@ -142,7 +142,7 @@ export default function FinanceProductLeaderboard({
         onClick={() => setQtyBasis("net")}
         className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
           qtyBasis === "net"
-            ? "bg-white text-emerald-600 shadow-sm dark:bg-slate-700 dark:text-emerald-300"
+            ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-300"
             : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
         }`}
       >
@@ -153,7 +153,7 @@ export default function FinanceProductLeaderboard({
         onClick={() => setQtyBasis("approved")}
         className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
           qtyBasis === "approved"
-            ? "bg-white text-emerald-600 shadow-sm dark:bg-slate-700 dark:text-emerald-300"
+            ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-300"
             : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
         }`}
       >
@@ -169,7 +169,7 @@ export default function FinanceProductLeaderboard({
         onClick={() => setMetric("quantity")}
         className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
           metric === "quantity"
-            ? "bg-white text-emerald-600 shadow-sm dark:bg-slate-700 dark:text-emerald-300"
+            ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-300"
             : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
         }`}
       >
@@ -180,7 +180,7 @@ export default function FinanceProductLeaderboard({
         onClick={() => setMetric("volume")}
         className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
           metric === "volume"
-            ? "bg-white text-emerald-600 shadow-sm dark:bg-slate-700 dark:text-emerald-300"
+            ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-300"
             : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
         }`}
       >
@@ -189,17 +189,16 @@ export default function FinanceProductLeaderboard({
     </div>
   );
 
-
   const handleDownload = () => {
-    if (productRows.length === 0) return;
-    const headers = ["Product", valueLabel, "SR", "SRA", "CR"];
-    const rows = productRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
+    if (partyRows.length === 0) return;
+    const headers = ["Party", valueLabel, "SR", "SRA", "CR"];
+    const rows = partyRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
     downloadCsvFile(
-      reportFilename("financeproductleaderboard", selectedYears, selectedMonths),
+      reportFilename("party_leaderboard", selectedYears, selectedMonths),
       headers,
       rows,
       [
-        `Report: FinanceProductLeaderboard`,
+        `Report: PartyLeaderboard`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${metric}`,
         `Basis: ${qtyBasis}`,
@@ -208,7 +207,7 @@ export default function FinanceProductLeaderboard({
   };
 
   const periodFilter = (
-    <AdminPeriodFilter
+    <PeriodFilter
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}
@@ -225,10 +224,10 @@ export default function FinanceProductLeaderboard({
           <div className="flex flex-col gap-3 pb-4 border-b border-slate-100 dark:border-white/5">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
-                <Package className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <Users className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <div className="min-w-0">
                   <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
-                    Top 5 Products
+                    Top 5 Parties
                   </h3>
                   <PeriodHeadingCaption
                     selectedYears={selectedYears}
@@ -237,12 +236,11 @@ export default function FinanceProductLeaderboard({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {basisToggle}
-                {metricToggle}
+                {!forceMetric && metricToggle}
                 <button
                   type="button"
                   onClick={() => setShowAll(true)}
-                  className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:underline cursor-pointer"
+                  className="text-xs font-semibold text-emerald-650 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:underline cursor-pointer"
                 >
                   View All
                 </button>
@@ -252,7 +250,7 @@ export default function FinanceProductLeaderboard({
               {periodFilter}
               <ReportDownloadButton
                 onDownload={handleDownload}
-                disabled={isOrdersFetching || productRows.length === 0}
+                disabled={isOrdersFetching || partyRows.length === 0}
                 size="sm"
               />
             </div>
@@ -262,7 +260,7 @@ export default function FinanceProductLeaderboard({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="text-slate-400 dark:text-slate-500 border-b border-slate-100/50 dark:border-white/5">
-                  <th className="py-2 font-semibold">Product Name</th>
+                  <th className="py-2 font-semibold">Party Name</th>
                   <th className="py-2 text-right font-semibold">{valueLabel}</th>
                   <th className="py-2 text-right font-semibold">SR</th>
                   <th className="py-2 text-right font-semibold">SRA</th>
@@ -276,8 +274,8 @@ export default function FinanceProductLeaderboard({
                       <span className="inline-block h-4 w-full animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
                     </td>
                   </tr>
-                ) : productRows.length > 0 ? (
-                  productRows.slice(0, 5).map((p, idx) => (
+                ) : partyRows.length > 0 ? (
+                  partyRows.slice(0, 5).map((p, idx) => (
                     <tr key={idx} className="hover:bg-slate-50/30 dark:hover:bg-white/5 transition-colors">
                       <td className="py-2.5 font-medium text-slate-800 dark:text-slate-250 pr-4 break-words">
                         {p.name}
@@ -299,7 +297,7 @@ export default function FinanceProductLeaderboard({
                 ) : (
                   <tr>
                     <td colSpan={5} className="py-4 text-center text-slate-400">
-                      No product data found.
+                      No party data found.
                     </td>
                   </tr>
                 )}
@@ -315,7 +313,7 @@ export default function FinanceProductLeaderboard({
             <div className="flex flex-col gap-3 p-5 border-b border-slate-100 dark:border-white/5">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
-                  <Package className="h-5 w-5 shrink-0 text-emerald-600" />
+                  <Users className="h-5 w-5 shrink-0 text-emerald-600" />
                   <div className="min-w-0">
                     <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
                       {breakdownTitle}
@@ -327,32 +325,31 @@ export default function FinanceProductLeaderboard({
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {basisToggle}
-                  {metricToggle}
+                  {!forceMetric && metricToggle}
                   <button
                     type="button"
                     onClick={() => setShowAll(false)}
-                    className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-250 cursor-pointer"
+                    className="rounded-lg p-1 text-slate-455 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-250 cursor-pointer"
                   >
                     <X className="h-5 w-5" />
                   </button>
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-              {periodFilter}
-              <ReportDownloadButton
-                onDownload={handleDownload}
-                disabled={isOrdersFetching || productRows.length === 0}
-                size="sm"
-              />
-            </div>
+                {periodFilter}
+                <ReportDownloadButton
+                  onDownload={handleDownload}
+                  disabled={isOrdersFetching || partyRows.length === 0}
+                  size="sm"
+                />
+              </div>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-5">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="text-slate-450 dark:text-slate-505 border-b border-slate-100 dark:border-white/5">
-                    <th className="py-2 font-semibold">Product Name</th>
+                  <tr className="text-slate-455 dark:text-slate-505 border-b border-slate-100 dark:border-white/5">
+                    <th className="py-2 font-semibold">Party Name</th>
                     <th className="py-2 text-right font-semibold">{valueLabel}</th>
                     <th className="py-2 text-right font-semibold">SR</th>
                     <th className="py-2 text-right font-semibold">SRA</th>
@@ -360,7 +357,7 @@ export default function FinanceProductLeaderboard({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                  {productRows.map((p, idx) => (
+                  {partyRows.map((p, idx) => (
                     <tr key={idx} className="hover:bg-slate-50/30 dark:hover:bg-white/5 transition-colors">
                       <td className="py-2.5 font-medium text-slate-800 dark:text-slate-250 pr-4 break-words">
                         {p.name}
@@ -380,7 +377,7 @@ export default function FinanceProductLeaderboard({
                     </tr>
                   ))}
                 </tbody>
-                {productRows.length > 0 && (
+                {partyRows.length > 0 && (
                   <tfoot>
                     <tr className="border-t-2 border-slate-200 bg-slate-50/80 dark:border-white/10 dark:bg-slate-800/50">
                       <td className="py-3 font-bold text-slate-900 dark:text-slate-100 pr-4">

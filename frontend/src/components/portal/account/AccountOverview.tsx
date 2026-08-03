@@ -4,12 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccountTabAlertOverride } from "./AccountTabAlert";
 import AccountOverviewWidgets from "./components/AccountOverviewWidgets";
 import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
-import AccountMonthlyPerformanceChart from "./components/AccountMonthlyPerformanceChart";
-import AccountPartyLeaderboard from "./components/AccountPartyLeaderboard";
-import AccountProductLeaderboard from "./components/AccountProductLeaderboard";
-import AccountSalesLeaderboard from "./components/AccountSalesLeaderboard";
-import AccountFeaturedProductGroupSalesUserTable from "./components/AccountFeaturedProductGroupSalesUserTable";
-import AccountFeaturedProductGroupFeaturedPartyTable from "./components/AccountFeaturedProductGroupFeaturedPartyTable";
+import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
+import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
+import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
+import SalesLeaderboard from "@/components/portal/shared/dashboard/SalesLeaderboard";
+import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashboard/FeaturedProductGroupSalesUserTable";
+import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/shared/dashboard/FeaturedProductGroupFeaturedPartyTable";
 import {
   buildPendingReturnOrderIds,
   computeAccountOrderStats,
@@ -681,22 +681,22 @@ export default function AccountOverview() {
 
       <TransportPlannerStatsWidgets portalHome="/account" />
 
-      <AccountMonthlyPerformanceChart
+      <MonthlyPerformanceChart
         orders={orders}
         isOrdersFetching={isOrdersFetching}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        <AccountProductLeaderboard
+        <ProductLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />
-        <AccountPartyLeaderboard
+        <PartyLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
         />
-        <AccountSalesLeaderboard
+        <SalesLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
           userNameById={userNameById}
@@ -704,11 +704,11 @@ export default function AccountOverview() {
       </div>
 
       <div className="space-y-6">
-        <AccountFeaturedProductGroupSalesUserTable
+        <FeaturedProductGroupSalesUserTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />
-        <AccountFeaturedProductGroupFeaturedPartyTable
+        <FeaturedProductGroupFeaturedPartyTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />

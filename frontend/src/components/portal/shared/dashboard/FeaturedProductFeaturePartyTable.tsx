@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LayoutGrid } from "lucide-react";
-import { useListProductsQuery, useListUsersQuery } from "@/store/api";
-import { buildUserNameById, pickUsersList } from "@/components/portal/shared/userDisplay";
+import { Table2 } from "lucide-react";
+import { useListPartiesQuery, useListProductsQuery } from "@/store/api";
+import { partyRecordName } from "@/components/portal/sales/partyDisplay";
 import FeaturedMatrixTableFrame from "./FeaturedMatrixTableFrame";
-import { useAdminPeriodFilter } from "./useAdminPeriodFilter";
+import { usePeriodFilter } from "./usePeriodFilter";
 import {
   emptyMatrix,
   formatMatrixValue,
@@ -14,8 +14,9 @@ import {
   matrixGrandTotal,
   matrixRowTotal,
   pickEntities,
-  resolveOrderSalesUserId,
+  resolveOrderPartyId,
   resolveProductId,
+  shouldIncludeOrder,
   type MatrixEntity,
   type MatrixMetric,
 } from "./featuredMatrixUtils";
@@ -26,15 +27,15 @@ import {
   reportFilename,
 } from "./reportDownloadUtils";
 
-interface FeaturedProductSalesUserTableProps {
+interface FeaturedProductFeaturePartyTableProps {
   orders: any[];
   isOrdersFetching: boolean;
 }
 
-export default function FeaturedProductSalesUserTable({
+export default function FeaturedProductFeaturePartyTable({
   orders,
   isOrdersFetching,
-}: FeaturedProductSalesUserTableProps) {
+}: FeaturedProductFeaturePartyTableProps) {
   const [metric, setMetric] = useState<MatrixMetric>("quantity");
   const {
     availableYears,
@@ -43,14 +44,15 @@ export default function FeaturedProductSalesUserTable({
     selectedMonths,
     setSelectedMonths,
     filteredOrders,
-  } = useAdminPeriodFilter(orders);
+  } = usePeriodFilter(orders);
 
   const { data: productsData, isFetching: isProductsFetching } = useListProductsQuery({
     is_featured: "true",
     status: "active",
   });
-  const { data: usersData, isFetching: isUsersFetching } = useListUsersQuery({
-    department: "sales",
+  const { data: partiesData, isFetching: isPartiesFetching } = useListPartiesQuery({
+    is_featured: "true",
+    status: "active",
   });
 
   const featuredProducts = useMemo<MatrixEntity[]>(() => {
@@ -63,84 +65,68 @@ export default function FeaturedProductSalesUserTable({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [productsData]);
 
-  const salesUsers = useMemo<MatrixEntity[]>(() => {
-    const nameById = buildUserNameById(usersData);
-    const fromList = pickUsersList(usersData)
-      .map((u) => {
-        if (!u || typeof u !== "object") return null;
-        const o = u as Record<string, unknown>;
-        const id = o._id != null ? String(o._id) : o.id != null ? String(o.id) : "";
-        if (!id) return null;
-        return {
-          id,
-          name: nameById[id] || String(o.name ?? o.username ?? id),
-        };
+  const featuredParties = useMemo<MatrixEntity[]>(() => {
+    return pickEntities(partiesData)
+      .map((p) => {
+        const id = String(p._id ?? p.id ?? "");
+        const name = partyRecordName(p) || String(p.party_name ?? "Untitled Party");
+        return { id, name };
       })
-      .filter((u): u is MatrixEntity => Boolean(u));
-
-    // Keep any sales users present on filtered orders even if not in the sales list.
-    const seen = new Set(fromList.map((u) => u.id));
-    for (const order of filteredOrders) {
-      const id = resolveOrderSalesUserId(order);
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      fromList.push({ id, name: nameById[id] || id });
-    }
-
-    return fromList.sort((a, b) => a.name.localeCompare(b.name));
-  }, [usersData, filteredOrders]);
+      .filter((p) => p.id)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [partiesData]);
 
   const productIds = useMemo(() => featuredProducts.map((p) => p.id), [featuredProducts]);
-  const salesIds = useMemo(() => salesUsers.map((u) => u.id), [salesUsers]);
+  const partyIds = useMemo(() => featuredParties.map((p) => p.id), [featuredParties]);
   const productIdSet = useMemo(() => new Set(productIds), [productIds]);
+  const partyIdSet = useMemo(() => new Set(partyIds), [partyIds]);
 
   const matrix = useMemo(() => {
-    const map = emptyMatrix(productIds, salesIds);
+    const map = emptyMatrix(productIds, partyIds);
     for (const order of filteredOrders) {
-      const salesId = resolveOrderSalesUserId(order);
-      if (!salesId || !map.size) continue;
-      if (!salesIds.includes(salesId)) continue;
+      if (!shouldIncludeOrder(order, "approved")) continue;
+      const partyId = resolveOrderPartyId(order);
+      if (!partyId || !partyIdSet.has(partyId)) continue;
       const items = Array.isArray(order.order_items) ? order.order_items : [];
       for (const item of items) {
         const productId = resolveProductId(item);
         if (!productId || !productIdSet.has(productId)) continue;
         const row = map.get(productId);
         if (!row) continue;
-        row.set(salesId, (row.get(salesId) ?? 0) + itemMetricValue(item, metric));
+        row.set(partyId, (row.get(partyId) ?? 0) + itemMetricValue(item, metric, "approved"));
       }
     }
     return map;
-  }, [filteredOrders, productIds, salesIds, productIdSet, metric]);
+  }, [filteredOrders, productIds, partyIds, productIdSet, partyIdSet, metric]);
 
-  const isLoading = isOrdersFetching || isProductsFetching || isUsersFetching;
+  const isLoading = isOrdersFetching || isProductsFetching || isPartiesFetching;
 
   const handleDownload = () => {
-    if (featuredProducts.length === 0 || salesUsers.length === 0) return;
+    if (featuredProducts.length === 0 || featuredParties.length === 0) return;
     const { headers, rows } = buildMatrixCsvPayload({
       rowLabel: "Featured Product",
       rows: featuredProducts,
-      cols: salesUsers,
+      cols: featuredParties,
       matrix,
     });
     downloadCsvFile(
-      reportFilename("product_sales_user", selectedYears, selectedMonths),
+      reportFilename("product_feature_party", selectedYears, selectedMonths),
       headers,
       rows,
       [
-        `Report: Featured Products × Sales Persons`,
+        `Report: Featured Products × Featured Parties`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${metric}`,
       ],
     );
   };
 
-
   return (
     <FeaturedMatrixTableFrame
-      title="Featured Products × Sales Persons"
-      subtitle="Net sales by featured product across each sales person"
-      icon={<LayoutGrid className="h-5 w-5" />}
-      accentClass="text-violet-600 dark:text-violet-400"
+      title="Featured Products × Featured Parties"
+      subtitle="Net sales by featured product across each featured party"
+      icon={<Table2 className="h-5 w-5" />}
+      accentClass="text-emerald-600 dark:text-emerald-400"
       metric={metric}
       onMetricChange={setMetric}
       availableYears={availableYears}
@@ -161,9 +147,9 @@ export default function FeaturedProductSalesUserTable({
         <p className="py-8 text-center text-xs text-slate-400">
           No featured products found. Mark products as featured to populate this matrix.
         </p>
-      ) : salesUsers.length === 0 ? (
+      ) : featuredParties.length === 0 ? (
         <p className="py-8 text-center text-xs text-slate-400">
-          No sales persons found.
+          No featured parties found. Mark parties as featured to populate this matrix.
         </p>
       ) : (
         <table className="min-w-full border-collapse text-xs">
@@ -172,13 +158,13 @@ export default function FeaturedProductSalesUserTable({
               <th className="sticky left-0 z-10 bg-white py-2.5 pr-4 text-left font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400 min-w-[160px]">
                 Featured Product
               </th>
-              {salesUsers.map((user) => (
+              {featuredParties.map((party) => (
                 <th
-                  key={user.id}
+                  key={party.id}
                   className="px-2 py-2.5 text-right font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-[96px]"
-                  title={user.name}
+                  title={party.name}
                 >
-                  {user.name}
+                  {party.name}
                 </th>
               ))}
               <th className="px-2 py-2.5 text-right font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap min-w-[88px]">
@@ -192,11 +178,11 @@ export default function FeaturedProductSalesUserTable({
                 <td className="sticky left-0 z-10 bg-white py-2.5 pr-4 font-medium text-slate-800 dark:bg-slate-900 dark:text-slate-200">
                   {product.name}
                 </td>
-                {salesUsers.map((user) => {
-                  const value = matrix.get(product.id)?.get(user.id) ?? 0;
+                {featuredParties.map((party) => {
+                  const value = matrix.get(product.id)?.get(party.id) ?? 0;
                   return (
                     <td
-                      key={user.id}
+                      key={party.id}
                       className="px-2 py-2.5 text-right tabular-nums text-slate-700 dark:text-slate-300"
                     >
                       {formatMatrixValue(value, metric)}
@@ -214,12 +200,12 @@ export default function FeaturedProductSalesUserTable({
               <td className="sticky left-0 z-10 bg-slate-50/80 py-3 pr-4 font-bold text-slate-900 dark:bg-slate-800/50 dark:text-slate-100">
                 Total
               </td>
-              {salesUsers.map((user) => (
+              {featuredParties.map((party) => (
                 <td
-                  key={user.id}
+                  key={party.id}
                   className="px-2 py-3 text-right font-bold tabular-nums text-slate-900 dark:text-slate-50"
                 >
-                  {formatMatrixValue(matrixColTotal(matrix, user.id), metric)}
+                  {formatMatrixValue(matrixColTotal(matrix, party.id), metric)}
                 </td>
               ))}
               <td className="px-2 py-3 text-right font-bold tabular-nums text-slate-900 dark:text-slate-50">

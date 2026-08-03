@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFinanceTabAlertOverride } from "./FinanceTabAlert";
 import FinanceOverviewWidgets from "./components/FinanceOverviewWidgets";
-import FinanceMonthlyPerformanceChart from "./components/FinanceMonthlyPerformanceChart";
-import FinancePartyLeaderboard from "./components/FinancePartyLeaderboard";
-import FinanceProductLeaderboard from "./components/FinanceProductLeaderboard";
-import FinanceSalesLeaderboard from "./components/FinanceSalesLeaderboard";
-import FinanceFeaturedProductGroupSalesUserTable from "./components/FinanceFeaturedProductGroupSalesUserTable";
-import FinanceFeaturedProductGroupFeaturedPartyTable from "./components/FinanceFeaturedProductGroupFeaturedPartyTable";
+import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
+import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
+import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
+import SalesLeaderboard from "@/components/portal/shared/dashboard/SalesLeaderboard";
+import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashboard/FeaturedProductGroupSalesUserTable";
+import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/shared/dashboard/FeaturedProductGroupFeaturedPartyTable";
 import {
   buildPendingReturnOrderIds,
   computeFinanceOrderStats,
@@ -439,22 +439,22 @@ export default function FinanceOverview() {
         categoryOptions={categoryOptions}
       />
 
-      <FinanceMonthlyPerformanceChart
+      <MonthlyPerformanceChart
         orders={orders}
         isOrdersFetching={isOrdersFetching}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        <FinanceProductLeaderboard
+        <ProductLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />
-        <FinancePartyLeaderboard
+        <PartyLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
         />
-        <FinanceSalesLeaderboard
+        <SalesLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
           userNameById={userNameById}
@@ -462,11 +462,11 @@ export default function FinanceOverview() {
       </div>
 
       <div className="space-y-6">
-        <FinanceFeaturedProductGroupSalesUserTable
+        <FeaturedProductGroupSalesUserTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />
-        <FinanceFeaturedProductGroupFeaturedPartyTable
+        <FeaturedProductGroupFeaturedPartyTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />

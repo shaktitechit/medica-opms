@@ -4,16 +4,18 @@ import { useMemo, useState } from "react";
 import { Package, X } from "lucide-react";
 import { LargeModalBackdrop } from "@/components/portal/shared/LargeModalBackdrop";
 import { largeModalPanelClass } from "@/components/portal/shared/modalLayout";
-import AdminPeriodFilter from "./AdminPeriodFilter";
-import { useAdminPeriodFilter } from "./useAdminPeriodFilter";
+import PeriodFilter from "./PeriodFilter";
+import { usePeriodFilter } from "./usePeriodFilter";
 import PeriodHeadingCaption from "./PeriodHeadingCaption";
 import ReportDownloadButton from "./ReportDownloadButton";
 import { formatPeriodLabel } from "./periodFilterUtils";
 import { downloadCsvFile, reportFilename } from "./reportDownloadUtils";
+import { shouldIncludeOrder } from "./featuredMatrixUtils";
 
-interface AdminProductLeaderboardProps {
+interface ProductLeaderboardProps {
   orders: any[];
   isOrdersFetching: boolean;
+  forceMetric?: Metric;
 }
 
 type Metric = "quantity" | "volume";
@@ -40,11 +42,13 @@ function itemQty(item: any, basis: QtyBasis): number {
   return basis === "approved" ? itemApprovedQty(item) : itemNetQty(item);
 }
 
+function itemUnitPrice(item: any): number {
+  return Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
+}
+
 function itemMetricValue(item: any, metric: Metric, basis: QtyBasis): number {
   const qty = itemQty(item, basis);
-  if (metric === "quantity") return qty;
-  const unitPrice = Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
-  return qty * unitPrice;
+  return metric === "quantity" ? qty : qty * itemUnitPrice(item);
 }
 
 function formatMetricValue(v: number, metric: Metric): string {
@@ -66,13 +70,15 @@ function resolveProductName(item: any): string {
   );
 }
 
-export default function AdminProductLeaderboard({
+export default function ProductLeaderboard({
   orders,
   isOrdersFetching,
-}: AdminProductLeaderboardProps) {
+  forceMetric,
+}: ProductLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
-  const [metric, setMetric] = useState<Metric>("quantity");
-  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("net");
+  const [metricState, setMetric] = useState<Metric>("quantity");
+  const metric = forceMetric ?? metricState;
+  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("approved");
   const {
     availableYears,
     selectedYears,
@@ -80,11 +86,12 @@ export default function AdminProductLeaderboard({
     selectedMonths,
     setSelectedMonths,
     filteredOrders,
-  } = useAdminPeriodFilter(orders);
+  } = usePeriodFilter(orders);
 
   const productRows = useMemo(() => {
     const map = new Map<string, RateBucket>();
     for (const o of filteredOrders) {
+      if (!shouldIncludeOrder(o, qtyBasis)) continue;
       const items = Array.isArray(o.order_items) ? o.order_items : [];
       for (const item of items) {
         const prodName = resolveProductName(item);
@@ -189,17 +196,16 @@ export default function AdminProductLeaderboard({
     </div>
   );
 
-
   const handleDownload = () => {
     if (productRows.length === 0) return;
     const headers = ["Product", valueLabel, "SR", "SRA", "CR"];
     const rows = productRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
     downloadCsvFile(
-      reportFilename("adminproductleaderboard", selectedYears, selectedMonths),
+      reportFilename("product_leaderboard", selectedYears, selectedMonths),
       headers,
       rows,
       [
-        `Report: AdminProductLeaderboard`,
+        `Report: ProductLeaderboard`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${metric}`,
         `Basis: ${qtyBasis}`,
@@ -208,7 +214,7 @@ export default function AdminProductLeaderboard({
   };
 
   const periodFilter = (
-    <AdminPeriodFilter
+    <PeriodFilter
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}
@@ -237,8 +243,7 @@ export default function AdminProductLeaderboard({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {basisToggle}
-                {metricToggle}
+                {!forceMetric && metricToggle}
                 <button
                   type="button"
                   onClick={() => setShowAll(true)}
@@ -327,8 +332,7 @@ export default function AdminProductLeaderboard({
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {basisToggle}
-                  {metricToggle}
+                  {!forceMetric && metricToggle}
                   <button
                     type="button"
                     onClick={() => setShowAll(false)}
@@ -339,19 +343,19 @@ export default function AdminProductLeaderboard({
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-              {periodFilter}
-              <ReportDownloadButton
-                onDownload={handleDownload}
-                disabled={isOrdersFetching || productRows.length === 0}
-                size="sm"
-              />
-            </div>
+                {periodFilter}
+                <ReportDownloadButton
+                  onDownload={handleDownload}
+                  disabled={isOrdersFetching || productRows.length === 0}
+                  size="sm"
+                />
+              </div>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-5">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="text-slate-450 dark:text-slate-505 border-b border-slate-100 dark:border-white/5">
+                  <tr className="text-slate-450 dark:text-slate-55 border-b border-slate-100 dark:border-white/5">
                     <th className="py-2 font-semibold">Product Name</th>
                     <th className="py-2 text-right font-semibold">{valueLabel}</th>
                     <th className="py-2 text-right font-semibold">SR</th>

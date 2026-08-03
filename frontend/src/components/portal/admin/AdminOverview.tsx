@@ -5,12 +5,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminTabAlertOverride } from "./AdminTabAlert";
 import AdminOverviewWidgets from "./AdminOverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/admin/workPlanner/WorkPlannerStatsWidgets";
-import AdminMonthlyPerformanceChart from "./components/AdminMonthlyPerformanceChart";
-import AdminPartyLeaderboard from "./components/AdminPartyLeaderboard";
-import AdminProductLeaderboard from "./components/AdminProductLeaderboard";
-import AdminSalesLeaderboard from "./components/AdminSalesLeaderboard";
-import FeaturedProductGroupSalesUserTable from "./components/FeaturedProductGroupSalesUserTable";
-import FeaturedProductGroupFeaturedPartyTable from "./components/FeaturedProductGroupFeaturedPartyTable";
+import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
+import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
+import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
+import SalesLeaderboard from "@/components/portal/shared/dashboard/SalesLeaderboard";
+import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashboard/FeaturedProductGroupSalesUserTable";
+import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/shared/dashboard/FeaturedProductGroupFeaturedPartyTable";
 import {
   buildPendingReturnOrderIds,
   computeAdminOrderStats,
@@ -467,22 +467,22 @@ export default function AdminOverview() {
 
       <WorkPlannerStatsWidgets portalHome="/admin" />
 
-      <AdminMonthlyPerformanceChart
+      <MonthlyPerformanceChart
         orders={orders}
         isOrdersFetching={isOrdersFetching}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        <AdminProductLeaderboard
+        <ProductLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
         />
-        <AdminPartyLeaderboard
+        <PartyLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
         />
-        <AdminSalesLeaderboard
+        <SalesLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
           userNameById={userNameById}

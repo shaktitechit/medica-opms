@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
 
-import { downloadCsvFile } from "@/components/portal/admin/components/reportDownloadUtils";
+import { downloadCsvFile } from "@/components/portal/shared/dashboard/reportDownloadUtils";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";

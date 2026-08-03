@@ -1,40 +1,53 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { LayoutGrid, ChevronRight, ChevronDown } from "lucide-react";
-import { useListProductsQuery, useListUsersQuery, useListProductGroupsQuery } from "@/store/api";
-import { buildUserNameById, pickUsersList } from "@/components/portal/shared/userDisplay";
-import FeaturedMatrixTableFrame from "@/components/portal/admin/components/FeaturedMatrixTableFrame";
-import { useAdminPeriodFilter } from "@/components/portal/admin/components/useAdminPeriodFilter";
+import { Table2, ChevronRight, ChevronDown } from "lucide-react";
+import { useListPartiesQuery, useListProductsQuery, useListProductGroupsQuery } from "@/store/api";
+import { partyRecordName } from "@/components/portal/sales/partyDisplay";
+import FeaturedMatrixTableFrame from "./FeaturedMatrixTableFrame";
+import { usePeriodFilter } from "./usePeriodFilter";
 import {
   buildFeaturedGroupProductMaps,
   formatMatrixValue,
   itemMetricValue,
   pickEntities,
-  resolveOrderSalesUserId,
+  resolveOrderPartyId,
   resolveProductId,
+  shouldIncludeOrder,
   type MatrixEntity,
   type MatrixMetric,
   type MatrixQtyBasis,
-} from "@/components/portal/admin/components/featuredMatrixUtils";
-import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
+} from "./featuredMatrixUtils";
+import { formatPeriodLabel } from "./periodFilterUtils";
 import {
   buildMatrixCsvPayload,
   downloadCsvFile,
   reportFilename,
-} from "@/components/portal/admin/components/reportDownloadUtils";
+} from "./reportDownloadUtils";
 
-interface AccountFeaturedProductGroupSalesUserTableProps {
+interface FeaturedProductGroupFeaturedPartyTableProps {
   orders: any[];
   isOrdersFetching: boolean;
+  /** Use parent-filtered orders as-is (skip internal year/month filter). */
+  syncWithExternalFilter?: boolean;
+  /** Caption shown when syncWithExternalFilter is on. */
+  externalFilterCaption?: string;
+  /** Initial Net/Approved basis (default: net). */
+  initialQtyBasis?: MatrixQtyBasis;
+  forceMetric?: MatrixMetric;
 }
 
-export default function AccountFeaturedProductGroupSalesUserTable({
+export default function FeaturedProductGroupFeaturedPartyTable({
   orders,
   isOrdersFetching,
-}: AccountFeaturedProductGroupSalesUserTableProps) {
-  const [metric, setMetric] = useState<MatrixMetric>("quantity");
-  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>("net");
+  syncWithExternalFilter = false,
+  externalFilterCaption,
+  initialQtyBasis = "approved",
+  forceMetric,
+}: FeaturedProductGroupFeaturedPartyTableProps) {
+  const [metricState, setMetric] = useState<MatrixMetric>("quantity");
+  const metric = forceMetric ?? metricState;
+  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>(initialQtyBasis);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const {
@@ -43,8 +56,10 @@ export default function AccountFeaturedProductGroupSalesUserTable({
     setSelectedYears,
     selectedMonths,
     setSelectedMonths,
-    filteredOrders,
-  } = useAdminPeriodFilter(orders);
+    filteredOrders: periodFilteredOrders,
+  } = usePeriodFilter(orders);
+
+  const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
   const { data: groupsData, isFetching: isGroupsFetching } = useListProductGroupsQuery({
     is_featured: "true",
@@ -52,13 +67,13 @@ export default function AccountFeaturedProductGroupSalesUserTable({
     limit: 1000,
   });
 
-  // Non-paginated list returns all matching products (limit is ignored server-side).
   const { data: productsData, isFetching: isProductsFetching } = useListProductsQuery({
     status: "active",
   });
 
-  const { data: usersData, isFetching: isUsersFetching } = useListUsersQuery({
-    department: "sales",
+  const { data: partiesData, isFetching: isPartiesFetching } = useListPartiesQuery({
+    is_featured: "true",
+    status: "active",
   });
 
   const featuredGroups = useMemo<MatrixEntity[]>(() => {
@@ -72,31 +87,16 @@ export default function AccountFeaturedProductGroupSalesUserTable({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [groupsData]);
 
-  const salesUsers = useMemo<MatrixEntity[]>(() => {
-    const nameById = buildUserNameById(usersData);
-    const fromList = pickUsersList(usersData)
-      .map((u) => {
-        if (!u || typeof u !== "object") return null;
-        const o = u as Record<string, unknown>;
-        const id = o._id != null ? String(o._id) : o.id != null ? String(o.id) : "";
-        if (!id) return null;
-        return {
-          id,
-          name: nameById[id] || String(o.name ?? o.username ?? id),
-        };
+  const featuredParties = useMemo<MatrixEntity[]>(() => {
+    return pickEntities(partiesData)
+      .map((p) => {
+        const id = String(p._id ?? p.id ?? "");
+        const name = partyRecordName(p) || String(p.party_name ?? "Untitled Party");
+        return { id, name };
       })
-      .filter((u): u is MatrixEntity => Boolean(u));
-
-    const seen = new Set(fromList.map((u) => u.id));
-    for (const order of filteredOrders) {
-      const id = resolveOrderSalesUserId(order);
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      fromList.push({ id, name: nameById[id] || id });
-    }
-
-    return fromList.sort((a, b) => a.name.localeCompare(b.name));
-  }, [usersData, filteredOrders]);
+      .filter((p) => p.id)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [partiesData]);
 
   const { productToGroupMap, productsByGroup } = useMemo(
     () => buildFeaturedGroupProductMaps(productsData, featuredGroups),
@@ -104,28 +104,29 @@ export default function AccountFeaturedProductGroupSalesUserTable({
   );
 
   const groupIds = useMemo(() => featuredGroups.map((g) => g.id), [featuredGroups]);
-  const salesIds = useMemo(() => salesUsers.map((u) => u.id), [salesUsers]);
+  const partyIds = useMemo(() => featuredParties.map((p) => p.id), [featuredParties]);
   const groupIdSet = useMemo(() => new Set(groupIds), [groupIds]);
-  const salesIdSet = useMemo(() => new Set(salesIds), [salesIds]);
+  const partyIdSet = useMemo(() => new Set(partyIds), [partyIds]);
 
   const matrix = useMemo(() => {
     const map = new Map<string, Map<string, number>>();
 
     for (const gId of groupIds) {
       const gMap = new Map<string, number>();
-      for (const sId of salesIds) gMap.set(sId, 0);
+      for (const pId of partyIds) gMap.set(pId, 0);
       map.set(gId, gMap);
 
       for (const p of productsByGroup.get(gId) ?? []) {
         const pMap = new Map<string, number>();
-        for (const sId of salesIds) pMap.set(sId, 0);
+        for (const pId of partyIds) pMap.set(pId, 0);
         map.set(p.id, pMap);
       }
     }
 
     for (const order of filteredOrders) {
-      const salesId = resolveOrderSalesUserId(order);
-      if (!salesId || !salesIdSet.has(salesId)) continue;
+      if (!shouldIncludeOrder(order, qtyBasis)) continue;
+      const partyId = resolveOrderPartyId(order);
+      if (!partyId || !partyIdSet.has(partyId)) continue;
 
       const items = Array.isArray(order.order_items) ? order.order_items : [];
       for (const item of items) {
@@ -138,11 +139,11 @@ export default function AccountFeaturedProductGroupSalesUserTable({
 
         const pMap = map.get(productId);
         if (pMap) {
-          pMap.set(salesId, (pMap.get(salesId) ?? 0) + val);
+          pMap.set(partyId, (pMap.get(partyId) ?? 0) + val);
         }
         const gMap = map.get(gId);
         if (gMap) {
-          gMap.set(salesId, (gMap.get(salesId) ?? 0) + val);
+          gMap.set(partyId, (gMap.get(partyId) ?? 0) + val);
         }
       }
     }
@@ -150,9 +151,9 @@ export default function AccountFeaturedProductGroupSalesUserTable({
   }, [
     filteredOrders,
     groupIds,
-    salesIds,
+    partyIds,
     groupIdSet,
-    salesIdSet,
+    partyIdSet,
     productToGroupMap,
     productsByGroup,
     metric,
@@ -192,23 +193,24 @@ export default function AccountFeaturedProductGroupSalesUserTable({
     return sum;
   };
 
-  const isLoading = isOrdersFetching || isGroupsFetching || isProductsFetching || isUsersFetching;
+  const isLoading =
+    isOrdersFetching || isGroupsFetching || isProductsFetching || isPartiesFetching;
 
   const handleDownload = () => {
-    if (featuredGroups.length === 0 || salesUsers.length === 0) return;
+    if (featuredGroups.length === 0 || featuredParties.length === 0) return;
     const { headers, rows } = buildMatrixCsvPayload({
       rowLabel: "Product Group / Product",
       rows: featuredGroups,
-      cols: salesUsers,
+      cols: featuredParties,
       matrix,
       childrenByRow: productsByGroup,
     });
     downloadCsvFile(
-      reportFilename("account_product_group_sales_user", selectedYears, selectedMonths),
+      reportFilename("product_group_party", selectedYears, selectedMonths),
       headers,
       rows,
       [
-        `Report: Featured Groups × Sales Persons`,
+        `Report: Featured Groups × Featured Parties`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${metric}`,
         `Basis: ${qtyBasis}`,
@@ -216,22 +218,20 @@ export default function AccountFeaturedProductGroupSalesUserTable({
     );
   };
 
-
   return (
     <FeaturedMatrixTableFrame
-      title="Featured Groups × Sales Persons"
+      title="Featured Groups × Featured Parties"
       subtitle={
         qtyBasis === "net"
-          ? "Net sales by product group (expandable to products) across sales persons"
-          : "Approved sales by product group (expandable to products) across sales persons"
+          ? "Net sales by product group (expandable to products) across featured parties"
+          : "Approved sales by product group (expandable to products) across featured parties"
       }
-      icon={<LayoutGrid className="h-5 w-5" />}
-      accentClass="text-violet-600 dark:text-violet-400"
+      icon={<Table2 className="h-5 w-5" />}
+      accentClass="text-emerald-600 dark:text-emerald-400"
       metric={metric}
       onMetricChange={setMetric}
+      showMetricToggle={!forceMetric}
       qtyBasis={qtyBasis}
-      onQtyBasisChange={setQtyBasis}
-      showQtyBasisToggle
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}
@@ -239,6 +239,8 @@ export default function AccountFeaturedProductGroupSalesUserTable({
       onMonthsChange={setSelectedMonths}
       onDownload={handleDownload}
       downloadDisabled={isLoading}
+      hidePeriodFilter={syncWithExternalFilter}
+      externalFilterCaption={externalFilterCaption}
     >
       {isLoading ? (
         <div className="space-y-2 py-4">
@@ -250,8 +252,10 @@ export default function AccountFeaturedProductGroupSalesUserTable({
         <p className="py-8 text-center text-xs text-slate-400">
           No featured product groups found. Mark groups as featured to populate this matrix.
         </p>
-      ) : salesUsers.length === 0 ? (
-        <p className="py-8 text-center text-xs text-slate-400">No sales persons found.</p>
+      ) : featuredParties.length === 0 ? (
+        <p className="py-8 text-center text-xs text-slate-400">
+          No featured parties found. Mark parties as featured to populate this matrix.
+        </p>
       ) : (
         <div className="overflow-x-auto min-w-0">
           <table className="min-w-full border-collapse text-xs">
@@ -260,13 +264,13 @@ export default function AccountFeaturedProductGroupSalesUserTable({
                 <th className="sticky left-0 z-10 bg-white py-2.5 pr-4 text-left font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400 min-w-[200px]">
                   Product Group / Product
                 </th>
-                {salesUsers.map((user) => (
+                {featuredParties.map((party) => (
                   <th
-                    key={user.id}
+                    key={party.id}
                     className="px-2 py-2.5 text-right font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-[96px]"
-                    title={user.name}
+                    title={party.name}
                   >
-                    {user.name}
+                    {party.name}
                   </th>
                 ))}
                 <th className="px-2 py-2.5 text-right font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap min-w-[88px]">
@@ -303,11 +307,11 @@ export default function AccountFeaturedProductGroupSalesUserTable({
                           </span>
                         </div>
                       </td>
-                      {salesUsers.map((user) => {
-                        const val = matrix.get(group.id)?.get(user.id) ?? 0;
+                      {featuredParties.map((party) => {
+                        const val = matrix.get(group.id)?.get(party.id) ?? 0;
                         return (
                           <td
-                            key={user.id}
+                            key={party.id}
                             className="px-2 py-2.5 text-right tabular-nums text-slate-900 dark:text-slate-100 font-semibold"
                           >
                             {formatMatrixValue(val, metric)}
@@ -323,7 +327,7 @@ export default function AccountFeaturedProductGroupSalesUserTable({
                       (subProducts.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={salesUsers.length + 2}
+                            colSpan={featuredParties.length + 2}
                             className="py-2 pl-10 pr-4 text-xs italic text-slate-400"
                           >
                             No active products mapped to this group.
@@ -341,11 +345,11 @@ export default function AccountFeaturedProductGroupSalesUserTable({
                             >
                               {prod.name}
                             </td>
-                            {salesUsers.map((user) => {
-                              const val = matrix.get(prod.id)?.get(user.id) ?? 0;
+                            {featuredParties.map((party) => {
+                              const val = matrix.get(prod.id)?.get(party.id) ?? 0;
                               return (
                                 <td
-                                  key={user.id}
+                                  key={party.id}
                                   className="px-2 py-2 text-right tabular-nums text-slate-500 dark:text-slate-400"
                                 >
                                   {formatMatrixValue(val, metric)}
@@ -367,12 +371,12 @@ export default function AccountFeaturedProductGroupSalesUserTable({
                 <td className="sticky left-0 z-10 bg-slate-50/80 py-3 pr-4 font-bold text-slate-900 dark:bg-slate-800/50 dark:text-slate-100">
                   Total
                 </td>
-                {salesUsers.map((user) => (
+                {featuredParties.map((party) => (
                   <td
-                    key={user.id}
+                    key={party.id}
                     className="px-2 py-3 text-right font-bold tabular-nums text-slate-900 dark:text-slate-50"
                   >
-                    {formatMatrixValue(getColTotal(user.id), metric)}
+                    {formatMatrixValue(getColTotal(party.id), metric)}
                   </td>
                 ))}
                 <td className="px-2 py-3 text-right font-bold tabular-nums text-slate-900 dark:text-slate-50">

@@ -28,8 +28,8 @@ import {
   type DispatchOrderTabCategory,
 } from "../dispatchOrderUtils";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
-import AdminPeriodFilter from "@/components/portal/admin/components/AdminPeriodFilter";
-import { useAdminPeriodFilter } from "@/components/portal/admin/components/useAdminPeriodFilter";
+import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
+import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
 
 interface DispatchOverviewWidgetsProps {
   orders: unknown[];
@@ -145,7 +145,7 @@ export default function DispatchOverviewWidgets({
     selectedMonths,
     setSelectedMonths,
     filteredOrders,
-  } = useAdminPeriodFilter(orders);
+  } = usePeriodFilter(orders);
 
   const orderStats = useMemo(
     () => computeDispatchOrderStats(orders, categoryOptions),
@@ -188,6 +188,11 @@ export default function DispatchOverviewWidgets({
     for (const o of filteredOrders) {
       if (!o || typeof o !== "object") continue;
       const status = deriveOrderWorkflowStatus(o);
+      const isDeleted = (o as any).is_deleted === true || (o as any).isDeleted === true || (o as any).deletedAt != null;
+      if (status === "draft" || status === "deleted" || isDeleted) {
+        continue;
+      }
+
       const isCancelled = status === "cancelled";
       const isRejected = status === "finance_rejected" || status === "rejected";
       const isOnHold = status === "on_hold";
@@ -204,12 +209,19 @@ export default function DispatchOverviewWidgets({
         const statusQty = app > 0 ? app : ordered;
         const netSales = del - ret;
 
-        orderSum += ordered;
-        orderVal += ordered * price;
+        const isApprovedOrder = status !== "draft" && status !== "submitted" && status !== "cancelled" && status !== "finance_rejected" && status !== "rejected" && status !== "on_hold";
+        const qtyToUseForOrderValue = isApprovedOrder ? app : ordered;
+
+        orderSum += qtyToUseForOrderValue;
+        orderVal += qtyToUseForOrderValue * price;
         salesSum += netSales;
         salesVal += netSales * price;
-        approvedSum += app;
-        approvedVal += app * price;
+
+        if (!isCancelled && !isRejected && !isOnHold) {
+          approvedSum += app;
+          approvedVal += app * price;
+        }
+
         returnedSum += ret;
         returnedVal += ret * price;
 
@@ -267,7 +279,7 @@ export default function DispatchOverviewWidgets({
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             KPI
           </h3>
-          <AdminPeriodFilter
+          <PeriodFilter
             availableYears={availableYears}
             selectedYears={selectedYears}
             selectedMonths={selectedMonths}

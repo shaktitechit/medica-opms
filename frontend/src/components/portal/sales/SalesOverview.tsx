@@ -4,13 +4,10 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import SalesOverviewWidgets from "./SalesOverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/sales/workPlanner/WorkPlannerStatsWidgets";
-import SalesProductLeaderboard from "./components/SalesProductLeaderboard";
-import SalesPartyLeaderboard from "./components/SalesPartyLeaderboard";
-import SalesMonthlyPerformanceChart from "./components/SalesMonthlyPerformanceChart";
-import SalesFeaturedProductSalesUserTable from "./components/SalesFeaturedProductSalesUserTable";
-import SalesFeaturedProductFeaturePartyTable from "./components/SalesFeaturedProductFeaturePartyTable";
-import SalesFeaturedProductGroupSalesUserTable from "./components/SalesFeaturedProductGroupSalesUserTable";
-import SalesFeaturedProductGroupFeaturedPartyTable from "./components/SalesFeaturedProductGroupFeaturedPartyTable";
+import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
+import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
+import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
+import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashboard/FeaturedProductGroupSalesUserTable";
 import {
   useGetDashboardSalesQuery,
   useGetWorkPlanStatsQuery,
@@ -150,40 +147,34 @@ export default function SalesOverview() {
 
       <WorkPlannerStatsWidgets />
 
-      <SalesMonthlyPerformanceChart
+      <MonthlyPerformanceChart
         orders={orders}
         isOrdersFetching={isOrdersFetching}
+        forceMetric="quantity"
       />
 
       {/* TWO COLUMN GRID: TOP PRODUCTS & TOP PARTIES */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <SalesProductLeaderboard
+        <ProductLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
+          forceMetric="quantity"
         />
-        <SalesPartyLeaderboard
+        <PartyLeaderboard
           orders={orders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
+          forceMetric="quantity"
         />
       </div>
 
       <div className="space-y-6">
-        {/* <SalesFeaturedProductSalesUserTable
+        <FeaturedProductGroupSalesUserTable
           orders={orders}
           isOrdersFetching={isOrdersFetching}
-        />
-        <SalesFeaturedProductFeaturePartyTable
-          orders={orders}
-          isOrdersFetching={isOrdersFetching}
-        /> */}
-        <SalesFeaturedProductGroupSalesUserTable
-          orders={orders}
-          isOrdersFetching={isOrdersFetching}
-        />
-        <SalesFeaturedProductGroupFeaturedPartyTable
-          orders={orders}
-          isOrdersFetching={isOrdersFetching}
+          forceMetric="quantity"
+          forceSalesUserId={user?._id || user?.id ? String(user?._id || user?.id) : undefined}
+          forceSalesUserName={userName}
         />
       </div>
     </div>

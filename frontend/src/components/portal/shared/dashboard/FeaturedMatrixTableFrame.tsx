@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import type { MatrixMetric, MatrixQtyBasis } from "./featuredMatrixUtils";
-import AdminPeriodFilter from "./AdminPeriodFilter";
+import PeriodFilter from "./PeriodFilter";
 import PeriodHeadingCaption from "./PeriodHeadingCaption";
 import ReportDownloadButton from "./ReportDownloadButton";
 
@@ -139,7 +139,7 @@ export default function FeaturedMatrixTableFrame({
               </div>
             )}
             {!hidePeriodFilter ? (
-              <AdminPeriodFilter
+              <PeriodFilter
                 availableYears={availableYears}
                 selectedYears={selectedYears}
                 selectedMonths={selectedMonths}

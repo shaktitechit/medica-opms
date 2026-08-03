@@ -184,9 +184,19 @@ export function createEmptyAdminOrderStats(): AdminOrderStats {
 export function orderLineQuantity(order: unknown): number {
   const row = order as { order_items?: unknown[] };
   const items = Array.isArray(row.order_items) ? row.order_items : [];
+  const status = deriveOrderWorkflowStatus(row);
+  const isApproved =
+    status !== "draft" &&
+    status !== "submitted" &&
+    status !== "cancelled" &&
+    status !== "finance_rejected" &&
+    status !== "rejected" &&
+    status !== "on_hold";
+
   return items.reduce((sum: number, item) => {
-    const line = item as { ordered_quantity?: unknown; quantity?: unknown };
-    return sum + Number(line.ordered_quantity ?? line.quantity ?? 0);
+    const line = item as { ordered_quantity?: unknown; quantity?: unknown; approved_quantity?: unknown };
+    const q = isApproved ? Number(line.approved_quantity ?? 0) : Number(line.ordered_quantity ?? line.quantity ?? 0);
+    return sum + q;
   }, 0);
 }
 

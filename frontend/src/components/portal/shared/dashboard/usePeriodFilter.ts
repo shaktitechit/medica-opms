@@ -14,7 +14,7 @@ function getCurrentPeriodDefaults() {
   };
 }
 
-export function useAdminPeriodFilter<T = unknown>(orders: T[]) {
+export function usePeriodFilter<T = unknown>(orders: T[]) {
   const availableYears = useMemo(
     () => collectAvailableYears(orders as unknown[]),
     [orders],

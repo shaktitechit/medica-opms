@@ -4,8 +4,8 @@ import { Fragment, useMemo, useState } from "react";
 import { LayoutGrid, ChevronRight, ChevronDown } from "lucide-react";
 import { useListProductsQuery, useListUsersQuery, useListProductGroupsQuery } from "@/store/api";
 import { buildUserNameById, pickUsersList } from "@/components/portal/shared/userDisplay";
-import FeaturedMatrixTableFrame from "@/components/portal/admin/components/FeaturedMatrixTableFrame";
-import { useAdminPeriodFilter } from "@/components/portal/admin/components/useAdminPeriodFilter";
+import FeaturedMatrixTableFrame from "./FeaturedMatrixTableFrame";
+import { usePeriodFilter } from "./usePeriodFilter";
 import {
   buildFeaturedGroupProductMaps,
   formatMatrixValue,
@@ -13,28 +13,45 @@ import {
   pickEntities,
   resolveOrderSalesUserId,
   resolveProductId,
+  shouldIncludeOrder,
   type MatrixEntity,
   type MatrixMetric,
   type MatrixQtyBasis,
-} from "@/components/portal/admin/components/featuredMatrixUtils";
-import { formatPeriodLabel } from "@/components/portal/admin/components/periodFilterUtils";
+} from "./featuredMatrixUtils";
+import { formatPeriodLabel } from "./periodFilterUtils";
 import {
   buildMatrixCsvPayload,
   downloadCsvFile,
   reportFilename,
-} from "@/components/portal/admin/components/reportDownloadUtils";
+} from "./reportDownloadUtils";
 
-interface FinanceFeaturedProductGroupSalesUserTableProps {
+interface FeaturedProductGroupSalesUserTableProps {
   orders: any[];
   isOrdersFetching: boolean;
+  /** Use parent-filtered orders as-is (skip internal year/month filter). */
+  syncWithExternalFilter?: boolean;
+  /** Caption shown when syncWithExternalFilter is on. */
+  externalFilterCaption?: string;
+  /** Initial Net/Approved basis (default: net). */
+  initialQtyBasis?: MatrixQtyBasis;
+  forceMetric?: MatrixMetric;
+  forceSalesUserId?: string;
+  forceSalesUserName?: string;
 }
 
-export default function FinanceFeaturedProductGroupSalesUserTable({
+export default function FeaturedProductGroupSalesUserTable({
   orders,
   isOrdersFetching,
-}: FinanceFeaturedProductGroupSalesUserTableProps) {
-  const [metric, setMetric] = useState<MatrixMetric>("quantity");
-  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>("net");
+  syncWithExternalFilter = false,
+  externalFilterCaption,
+  initialQtyBasis = "approved",
+  forceMetric,
+  forceSalesUserId,
+  forceSalesUserName,
+}: FeaturedProductGroupSalesUserTableProps) {
+  const [metricState, setMetric] = useState<MatrixMetric>("quantity");
+  const metric = forceMetric ?? metricState;
+  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>(initialQtyBasis);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const {
@@ -43,8 +60,10 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
     setSelectedYears,
     selectedMonths,
     setSelectedMonths,
-    filteredOrders,
-  } = useAdminPeriodFilter(orders);
+    filteredOrders: periodFilteredOrders,
+  } = usePeriodFilter(orders);
+
+  const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
   const { data: groupsData, isFetching: isGroupsFetching } = useListProductGroupsQuery({
     is_featured: "true",
@@ -52,7 +71,6 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
     limit: 1000,
   });
 
-  // Non-paginated list returns all matching products (limit is ignored server-side).
   const { data: productsData, isFetching: isProductsFetching } = useListProductsQuery({
     status: "active",
   });
@@ -74,6 +92,11 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
 
   const salesUsers = useMemo<MatrixEntity[]>(() => {
     const nameById = buildUserNameById(usersData);
+    if (forceSalesUserId) {
+      const name = forceSalesUserName || nameById[forceSalesUserId] || forceSalesUserId;
+      return [{ id: forceSalesUserId, name }];
+    }
+
     const fromList = pickUsersList(usersData)
       .map((u) => {
         if (!u || typeof u !== "object") return null;
@@ -96,7 +119,7 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
     }
 
     return fromList.sort((a, b) => a.name.localeCompare(b.name));
-  }, [usersData, filteredOrders]);
+  }, [usersData, filteredOrders, forceSalesUserId, forceSalesUserName]);
 
   const { productToGroupMap, productsByGroup } = useMemo(
     () => buildFeaturedGroupProductMaps(productsData, featuredGroups),
@@ -124,6 +147,7 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
     }
 
     for (const order of filteredOrders) {
+      if (!shouldIncludeOrder(order, qtyBasis)) continue;
       const salesId = resolveOrderSalesUserId(order);
       if (!salesId || !salesIdSet.has(salesId)) continue;
 
@@ -204,7 +228,7 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
       childrenByRow: productsByGroup,
     });
     downloadCsvFile(
-      reportFilename("finance_product_group_sales_user", selectedYears, selectedMonths),
+      reportFilename("product_group_sales_user", selectedYears, selectedMonths),
       headers,
       rows,
       [
@@ -215,7 +239,6 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
       ],
     );
   };
-
 
   return (
     <FeaturedMatrixTableFrame
@@ -229,9 +252,8 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
       accentClass="text-violet-600 dark:text-violet-400"
       metric={metric}
       onMetricChange={setMetric}
+      showMetricToggle={!forceMetric}
       qtyBasis={qtyBasis}
-      onQtyBasisChange={setQtyBasis}
-      showQtyBasisToggle
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}
@@ -239,6 +261,8 @@ export default function FinanceFeaturedProductGroupSalesUserTable({
       onMonthsChange={setSelectedMonths}
       onDownload={handleDownload}
       downloadDisabled={isLoading}
+      hidePeriodFilter={syncWithExternalFilter}
+      externalFilterCaption={externalFilterCaption}
     >
       {isLoading ? (
         <div className="space-y-2 py-4">

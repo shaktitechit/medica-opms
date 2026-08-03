@@ -1,5 +1,37 @@
+import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+
 export type MatrixMetric = "quantity" | "volume";
 export type MatrixQtyBasis = "net" | "approved";
+
+export function shouldIncludeOrder(order: any, basis: MatrixQtyBasis): boolean {
+  if (!order) return false;
+  const status = deriveOrderWorkflowStatus(order);
+
+  // order volume shall not count draft and deleted orders
+  if (
+    status === "draft" ||
+    status === "deleted" ||
+    order.is_deleted === true ||
+    order.isDeleted === true ||
+    order.deletedAt != null
+  ) {
+    return false;
+  }
+
+  // approved volume shall not include canceled, rejected and on hold orders
+  if (basis === "approved") {
+    if (
+      status === "cancelled" ||
+      status === "finance_rejected" ||
+      status === "rejected" ||
+      status === "on_hold"
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 export type MatrixEntity = {
   id: string;

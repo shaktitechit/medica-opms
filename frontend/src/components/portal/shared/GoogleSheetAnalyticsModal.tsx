@@ -33,9 +33,9 @@ import {
   useListUsersQuery,
 } from "@/store/api";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import FeaturedProductGroupSalesUserTable from "@/components/portal/admin/components/FeaturedProductGroupSalesUserTable";
-import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/admin/components/FeaturedProductGroupFeaturedPartyTable";
-import { itemNetQty } from "@/components/portal/admin/components/featuredMatrixUtils";
+import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashboard/FeaturedProductGroupSalesUserTable";
+import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/shared/dashboard/FeaturedProductGroupFeaturedPartyTable";
+import { itemNetQty } from "@/components/portal/shared/dashboard/featuredMatrixUtils";
 
 export type GoogleSheetAnalyticsModalProps = {
   isOpen: boolean;
@@ -93,7 +93,11 @@ function lineUnitPrice(item: Record<string, unknown>): number {
   return Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
 }
 
-function lineQtyForBasis(item: Record<string, unknown>, basis: VolumeBasis): number {
+function lineQtyForBasis(
+  item: Record<string, unknown>,
+  basis: VolumeBasis,
+  orderStatus?: string,
+): number {
   const ordered = Number(item.ordered_quantity ?? item.quantity ?? 0) || 0;
   const approved = Number(item.approved_quantity) || 0;
   const dispatched = Number(item.dispatched_quantity) || 0;
@@ -102,8 +106,17 @@ function lineQtyForBasis(item: Record<string, unknown>, basis: VolumeBasis): num
   switch (basis) {
     case "net_sales":
       return itemNetQty(item);
-    case "order_value":
-      return ordered;
+    case "order_value": {
+      const isApproved =
+        orderStatus &&
+        orderStatus !== "draft" &&
+        orderStatus !== "submitted" &&
+        orderStatus !== "cancelled" &&
+        orderStatus !== "finance_rejected" &&
+        orderStatus !== "rejected" &&
+        orderStatus !== "on_hold";
+      return isApproved ? approved : ordered;
+    }
     case "approved":
       return approved;
     case "dispatched":
@@ -117,17 +130,33 @@ function lineQtyForBasis(item: Record<string, unknown>, basis: VolumeBasis): num
   }
 }
 
+function shouldIncludeOrderAnalytics(status: string, order: any, basis: VolumeBasis): boolean {
+  const isDeleted = order?.is_deleted === true || order?.isDeleted === true || order?.deletedAt != null || order?.raw?.deletedAt != null;
+  // order volume shall not count draft and deleted orders
+  if (status === "draft" || status === "deleted" || isDeleted) {
+    return false;
+  }
+  // approved volume shall not include canceled, rejected and on hold orders
+  if (basis === "approved") {
+    if (status === "cancelled" || status === "finance_rejected" || status === "rejected" || status === "on_hold") {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Qty + ₹ for one order under the selected volume basis (line-level, like admin widgets). */
 function orderMetricsForBasis(
   items: unknown[],
   basis: VolumeBasis,
+  orderStatus?: string,
 ): { qty: number; volume: number } {
   let qty = 0;
   let volume = 0;
   for (const raw of items) {
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Record<string, unknown>;
-    const q = lineQtyForBasis(item, basis);
+    const q = lineQtyForBasis(item, basis, orderStatus);
     const price = lineUnitPrice(item);
     qty += q;
     volume += q * price;
@@ -527,7 +556,11 @@ export function GoogleSheetAnalyticsModal({
   const orderBasisMetrics = useMemo(() => {
     const map = new Map<string, { qty: number; volume: number }>();
     for (const o of filteredOrders) {
-      map.set(o._id, orderMetricsForBasis(o.order_items, filterVolumeBasis));
+      if (!shouldIncludeOrderAnalytics(o.status, o, filterVolumeBasis)) {
+        map.set(o._id, { qty: 0, volume: 0 });
+        continue;
+      }
+      map.set(o._id, orderMetricsForBasis(o.order_items, filterVolumeBasis, o.status));
     }
     return map;
   }, [filteredOrders, filterVolumeBasis]);
@@ -550,25 +583,32 @@ export function GoogleSheetAnalyticsModal({
   const kpis = useMemo(() => {
     let totalVolume = 0;
     let totalQty = 0;
+    let includedCount = 0;
+    const activePartiesSet = new Set<string>();
+    const productQtyMap = new Map<string, number>();
+
     for (const o of filteredOrders) {
+      if (!shouldIncludeOrderAnalytics(o.status, o, filterVolumeBasis)) continue;
+
       const m = orderBasisMetrics.get(o._id) || { qty: 0, volume: 0 };
       totalVolume += m.volume;
       totalQty += m.qty;
-    }
-    const activeParties = new Set(filteredOrders.map((o) => o.party_id).filter(Boolean)).size;
-    const aov = filteredOrders.length > 0 ? totalVolume / filteredOrders.length : 0;
+      includedCount++;
+      if (o.party_id) activePartiesSet.add(o.party_id);
 
-    const productQtyMap = new Map<string, number>();
-    filteredOrders.forEach((o) => {
       o.order_items.forEach((item) => {
         const name =
           item.product_name ||
           (item.product && item.product.product_name) ||
           "Unknown Item";
-        const qty = lineQtyForBasis(item, filterVolumeBasis);
+        const qty = lineQtyForBasis(item, filterVolumeBasis, o.status);
         productQtyMap.set(name, (productQtyMap.get(name) || 0) + qty);
       });
-    });
+    }
+
+    const activeParties = activePartiesSet.size;
+    const aov = includedCount > 0 ? totalVolume / includedCount : 0;
+    const ordersCount = includedCount;
 
     let topProduct = "—";
     let topProductQty = 0;
@@ -586,7 +626,7 @@ export function GoogleSheetAnalyticsModal({
       aov,
       topProduct,
       topProductQty,
-      ordersCount: filteredOrders.length,
+      ordersCount,
     };
   }, [filteredOrders, orderBasisMetrics, filterVolumeBasis]);
 
@@ -596,6 +636,8 @@ export function GoogleSheetAnalyticsModal({
 
     filteredOrders.forEach((o) => {
       if (!o.raw_order_date) return;
+      if (!shouldIncludeOrderAnalytics(o.status, o, filterVolumeBasis)) return;
+
       const dateKey = `${o.raw_order_date.getFullYear()}-${String(o.raw_order_date.getMonth() + 1).padStart(2, "0")}-${String(o.raw_order_date.getDate()).padStart(2, "0")}`;
       const existing = dayMap.get(dateKey) || { count: 0, qty: 0, volume: 0, completed: 0, rawDate: o.raw_order_date };
       const m = orderBasisMetrics.get(o._id) || { qty: 0, volume: 0 };
@@ -630,6 +672,8 @@ export function GoogleSheetAnalyticsModal({
     const repMap = new Map<string, { volume: number; qty: number; count: number }>();
 
     filteredOrders.forEach((o) => {
+      if (!shouldIncludeOrderAnalytics(o.status, o, filterVolumeBasis)) return;
+
       const orderM = orderBasisMetrics.get(o._id) || { qty: 0, volume: 0 };
 
       // Parties
@@ -654,7 +698,7 @@ export function GoogleSheetAnalyticsModal({
           item.product_name ||
           (item.product && item.product.product_name) ||
           "Unknown Item";
-        const qty = lineQtyForBasis(item, filterVolumeBasis);
+        const qty = lineQtyForBasis(item, filterVolumeBasis, o.status);
         const rate = lineUnitPrice(item);
         const vol = qty * rate;
 

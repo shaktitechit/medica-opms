@@ -5,14 +5,15 @@ import { Briefcase, X } from "lucide-react";
 import { LargeModalBackdrop } from "@/components/portal/shared/LargeModalBackdrop";
 import { largeModalPanelClass } from "@/components/portal/shared/modalLayout";
 import { resolveUserDisplay } from "@/components/portal/shared/userDisplay";
-import AdminPeriodFilter from "./AdminPeriodFilter";
-import { useAdminPeriodFilter } from "./useAdminPeriodFilter";
+import PeriodFilter from "./PeriodFilter";
+import { usePeriodFilter } from "./usePeriodFilter";
 import PeriodHeadingCaption from "./PeriodHeadingCaption";
 import ReportDownloadButton from "./ReportDownloadButton";
 import { formatPeriodLabel } from "./periodFilterUtils";
 import { downloadCsvFile, reportFilename } from "./reportDownloadUtils";
+import { shouldIncludeOrder } from "./featuredMatrixUtils";
 
-interface AdminSalesLeaderboardProps {
+interface SalesLeaderboardProps {
   orders: any[];
   isOrdersFetching: boolean;
   userNameById: Record<string, string>;
@@ -67,14 +68,14 @@ function resolveSalesPersonName(
   return !label || label === "—" ? "Unassigned" : label;
 }
 
-export default function AdminSalesLeaderboard({
+export default function SalesLeaderboard({
   orders,
   isOrdersFetching,
   userNameById,
-}: AdminSalesLeaderboardProps) {
+}: SalesLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
   const [metric, setMetric] = useState<Metric>("quantity");
-  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("net");
+  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("approved");
   const {
     availableYears,
     selectedYears,
@@ -82,11 +83,12 @@ export default function AdminSalesLeaderboard({
     selectedMonths,
     setSelectedMonths,
     filteredOrders,
-  } = useAdminPeriodFilter(orders);
+  } = usePeriodFilter(orders);
 
   const salesRows = useMemo(() => {
     const map = new Map<string, RateBucket>();
     for (const o of filteredOrders) {
+      if (!shouldIncludeOrder(o, qtyBasis)) continue;
       const salesLabel = resolveSalesPersonName(o, userNameById);
       const items = Array.isArray(o.order_items) ? o.order_items : [];
       const bucket = map.get(salesLabel) ?? { total: 0, sr: 0, sra: 0, cr: 0 };
@@ -190,17 +192,16 @@ export default function AdminSalesLeaderboard({
     </div>
   );
 
-
   const handleDownload = () => {
     if (salesRows.length === 0) return;
     const headers = ["Sales Person", valueLabel, "SR", "SRA", "CR"];
     const rows = salesRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
     downloadCsvFile(
-      reportFilename("adminsalesleaderboard", selectedYears, selectedMonths),
+      reportFilename("sales_leaderboard", selectedYears, selectedMonths),
       headers,
       rows,
       [
-        `Report: AdminSalesLeaderboard`,
+        `Report: SalesLeaderboard`,
         `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
         `Metric: ${metric}`,
         `Basis: ${qtyBasis}`,
@@ -209,7 +210,7 @@ export default function AdminSalesLeaderboard({
   };
 
   const periodFilter = (
-    <AdminPeriodFilter
+    <PeriodFilter
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}
@@ -238,7 +239,6 @@ export default function AdminSalesLeaderboard({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {basisToggle}
                 {metricToggle}
                 <button
                   type="button"
@@ -262,7 +262,7 @@ export default function AdminSalesLeaderboard({
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="text-slate-400 dark:text-slate-500 border-b border-slate-100/50 dark:border-white/5">
+                <tr className="text-slate-400 dark:text-slate-505 border-b border-slate-100/50 dark:border-white/5">
                   <th className="py-2 font-semibold">Sales Person</th>
                   <th className="py-2 text-right font-semibold">{valueLabel}</th>
                   <th className="py-2 text-right font-semibold">SR</th>
@@ -328,7 +328,6 @@ export default function AdminSalesLeaderboard({
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {basisToggle}
                   {metricToggle}
                   <button
                     type="button"
@@ -340,13 +339,13 @@ export default function AdminSalesLeaderboard({
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-              {periodFilter}
-              <ReportDownloadButton
-                onDownload={handleDownload}
-                disabled={isOrdersFetching || salesRows.length === 0}
-                size="sm"
-              />
-            </div>
+                {periodFilter}
+                <ReportDownloadButton
+                  onDownload={handleDownload}
+                  disabled={isOrdersFetching || salesRows.length === 0}
+                  size="sm"
+                />
+              </div>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-5">
