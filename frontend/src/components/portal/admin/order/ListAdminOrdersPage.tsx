@@ -281,6 +281,7 @@ export default function ListAdminOrdersPage({
   const [customDateFrom, setCustomDateFrom] = useState("");
   const [customDateTo, setCustomDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -364,8 +365,6 @@ export default function ListAdminOrdersPage({
     () => ({ pendingReturnOrderIds }),
     [pendingReturnOrderIds],
   );
-
-  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const orders = useMemo(
     () => pickOrders(data) as OrderRow[],
