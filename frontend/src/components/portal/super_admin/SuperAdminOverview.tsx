@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import AdminOverviewWidgets from "@/components/portal/admin/AdminOverviewWidgets";
+import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/admin/workPlanner/WorkPlannerStatsWidgets";
 import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
@@ -28,6 +28,8 @@ import {
 } from "@/components/portal/sales/partyDisplay";
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
 import { FilePlus, RefreshCw } from "lucide-react";
+import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
+import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
 
 const PORTAL_HOME = "/super_admin" as const;
 
@@ -52,6 +54,21 @@ export default function SuperAdminOverview() {
   const { data: returnsData } = useListOrderReturnsQuery({});
 
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
+
+  const {
+    availableYears,
+    selectedYears,
+    setSelectedYears,
+    selectedMonths,
+    setSelectedMonths,
+    dateFilter,
+    setDateFilter,
+    customDateFrom,
+    setCustomDateFrom,
+    customDateTo,
+    setCustomDateTo,
+    filteredOrders,
+  } = usePeriodFilter(orders);
 
   const pendingReturnOrderIds = useMemo(
     () => buildPendingReturnOrderIds(pickList(returnsData)),
@@ -133,11 +150,33 @@ export default function SuperAdminOverview() {
         </div>
       </div>
 
-      <AdminOverviewWidgets
-        orders={orders}
+      <div className="flex justify-end bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-100 dark:border-white/5">
+        <PeriodFilter
+          availableYears={availableYears}
+          selectedYears={selectedYears}
+          selectedMonths={selectedMonths}
+          onYearsChange={setSelectedYears}
+          onMonthsChange={setSelectedMonths}
+          dateFilter={dateFilter}
+          onDateFilterChange={setDateFilter}
+          customDateFrom={customDateFrom}
+          onCustomDateFromChange={setCustomDateFrom}
+          customDateTo={customDateTo}
+          onCustomDateToChange={setCustomDateTo}
+        />
+      </div>
+
+      <OverviewWidgets
+        orders={filteredOrders}
         isOrdersFetching={isOrdersFetching}
         categoryOptions={categoryOptions}
+        role="super_admin"
         portalHome={PORTAL_HOME}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
       />
 
       <WorkPlannerStatsWidgets portalHome={PORTAL_HOME} />
@@ -149,16 +188,16 @@ export default function SuperAdminOverview() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <ProductLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
         <PartyLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
         />
         <SalesLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           userNameById={userNameById}
         />
@@ -166,15 +205,15 @@ export default function SuperAdminOverview() {
 
       <div className="space-y-6">
         <FeaturedProductGroupSalesUserTable
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
         <FeaturedProductGroupZoneTable
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
         <FeaturedProductGroupFeaturedPartyTable
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
       </div>

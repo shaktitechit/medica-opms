@@ -42,7 +42,7 @@ interface FeaturedProductGroupSalesUserTableProps {
 export default function FeaturedProductGroupSalesUserTable({
   orders,
   isOrdersFetching,
-  syncWithExternalFilter = false,
+  syncWithExternalFilter = true,
   externalFilterCaption,
   initialQtyBasis = "approved",
   forceMetric,
@@ -244,8 +244,8 @@ export default function FeaturedProductGroupSalesUserTable({
     <FeaturedMatrixTableFrame
       title="Featured Groups × Sales Persons"
       subtitle={
-        qtyBasis === "net"
-          ? "Net sales by product group (expandable to products) across sales persons"
+        qtyBasis === "dispatched"
+          ? "Dispatched sales by product group (expandable to products) across sales persons"
           : "Approved sales by product group (expandable to products) across sales persons"
       }
       icon={<LayoutGrid className="h-5 w-5" />}
@@ -254,6 +254,7 @@ export default function FeaturedProductGroupSalesUserTable({
       onMetricChange={setMetric}
       showMetricToggle={!forceMetric}
       qtyBasis={qtyBasis}
+      onQtyBasisChange={setQtyBasis}
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}

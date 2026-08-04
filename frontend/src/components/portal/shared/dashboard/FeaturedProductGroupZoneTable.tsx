@@ -39,7 +39,7 @@ interface FeaturedProductGroupZoneTableProps {
 export default function FeaturedProductGroupZoneTable({
   orders,
   isOrdersFetching,
-  syncWithExternalFilter = false,
+  syncWithExternalFilter = true,
   externalFilterCaption,
   initialQtyBasis = "approved",
   forceMetric,
@@ -295,8 +295,8 @@ export default function FeaturedProductGroupZoneTable({
     <FeaturedMatrixTableFrame
       title="Featured Groups × Zones"
       subtitle={
-        qtyBasis === "net"
-          ? "Net sales by product group (expandable to products) across operational zones"
+        qtyBasis === "dispatched"
+          ? "Dispatched sales by product group (expandable to products) across operational zones"
           : "Approved sales by product group (expandable to products) across operational zones"
       }
       icon={<MapPin className="h-5 w-5" />}
@@ -305,6 +305,7 @@ export default function FeaturedProductGroupZoneTable({
       onMetricChange={setMetric}
       showMetricToggle={!forceMetric}
       qtyBasis={qtyBasis}
+      onQtyBasisChange={setQtyBasis}
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}

@@ -30,11 +30,15 @@ import {
 interface FeaturedProductSalesUserTableProps {
   orders: any[];
   isOrdersFetching: boolean;
+  syncWithExternalFilter?: boolean;
+  externalFilterCaption?: string;
 }
 
 export default function FeaturedProductSalesUserTable({
   orders,
   isOrdersFetching,
+  syncWithExternalFilter = true,
+  externalFilterCaption,
 }: FeaturedProductSalesUserTableProps) {
   const [metric, setMetric] = useState<MatrixMetric>("quantity");
   const {
@@ -43,8 +47,10 @@ export default function FeaturedProductSalesUserTable({
     setSelectedYears,
     selectedMonths,
     setSelectedMonths,
-    filteredOrders,
+    filteredOrders: periodFilteredOrders,
   } = usePeriodFilter(orders);
+
+  const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
   const { data: productsData, isFetching: isProductsFetching } = useListProductsQuery({
     is_featured: "true",
@@ -152,6 +158,8 @@ export default function FeaturedProductSalesUserTable({
       onMonthsChange={setSelectedMonths}
       onDownload={handleDownload}
       downloadDisabled={isLoading}
+      hidePeriodFilter={syncWithExternalFilter}
+      externalFilterCaption={externalFilterCaption}
     >
       {isLoading ? (
         <div className="space-y-2 py-4">

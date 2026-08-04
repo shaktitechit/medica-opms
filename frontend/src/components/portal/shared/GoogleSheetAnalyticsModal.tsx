@@ -136,8 +136,8 @@ function shouldIncludeOrderAnalytics(status: string, order: any, basis: VolumeBa
   if (status === "draft" || status === "deleted" || isDeleted) {
     return false;
   }
-  // approved volume shall not include canceled, rejected and on hold orders
-  if (basis === "approved") {
+  // approved & dispatched volume shall not include canceled, rejected and on hold orders
+  if (basis === "approved" || basis === "dispatched") {
     if (status === "cancelled" || status === "finance_rejected" || status === "rejected" || status === "on_hold") {
       return false;
     }

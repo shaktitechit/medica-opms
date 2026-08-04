@@ -1,7 +1,7 @@
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 
 export type MatrixMetric = "quantity" | "volume";
-export type MatrixQtyBasis = "net" | "approved";
+export type MatrixQtyBasis = "net" | "approved" | "dispatched";
 
 export function shouldIncludeOrder(order: any, basis: MatrixQtyBasis): boolean {
   if (!order) return false;
@@ -18,8 +18,8 @@ export function shouldIncludeOrder(order: any, basis: MatrixQtyBasis): boolean {
     return false;
   }
 
-  // approved volume shall not include canceled, rejected and on hold orders
-  if (basis === "approved") {
+  // approved & dispatched volume shall not include canceled, rejected and on hold orders
+  if (basis === "approved" || basis === "dispatched") {
     if (
       status === "cancelled" ||
       status === "finance_rejected" ||
@@ -68,14 +68,20 @@ export function itemApprovedQty(item: any): number {
   return Number(item.approved_quantity) || 0;
 }
 
-export function itemQty(item: any, basis: MatrixQtyBasis = "net"): number {
-  return basis === "approved" ? itemApprovedQty(item) : itemNetQty(item);
+export function itemDispatchedQty(item: any): number {
+  return Number(item.dispatched_quantity) || 0;
+}
+
+export function itemQty(item: any, basis: MatrixQtyBasis = "approved"): number {
+  if (basis === "dispatched") return itemDispatchedQty(item);
+  if (basis === "approved") return itemApprovedQty(item);
+  return itemNetQty(item);
 }
 
 export function itemMetricValue(
   item: any,
   metric: MatrixMetric,
-  basis: MatrixQtyBasis = "net",
+  basis: MatrixQtyBasis = "approved",
 ): number {
   const qty = itemQty(item, basis);
   if (metric === "quantity") return qty;

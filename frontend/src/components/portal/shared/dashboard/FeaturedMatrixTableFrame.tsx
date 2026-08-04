@@ -43,7 +43,7 @@ export default function FeaturedMatrixTableFrame({
   showMetricToggle = true,
   qtyBasis,
   onQtyBasisChange,
-  showQtyBasisToggle = false,
+  showQtyBasisToggle = true,
   availableYears,
   selectedYears,
   selectedMonths,
@@ -51,7 +51,7 @@ export default function FeaturedMatrixTableFrame({
   onMonthsChange,
   onDownload,
   downloadDisabled = false,
-  hidePeriodFilter = false,
+  hidePeriodFilter = true,
   externalFilterCaption,
   children,
 }: FeaturedMatrixTableFrameProps) {
@@ -90,17 +90,6 @@ export default function FeaturedMatrixTableFrame({
               <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
                 <button
                   type="button"
-                  onClick={() => onQtyBasisChange("net")}
-                  className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
-                    qtyBasis === "net"
-                      ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
-                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-                  }`}
-                >
-                  Net
-                </button>
-                <button
-                  type="button"
                   onClick={() => onQtyBasisChange("approved")}
                   className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
                     qtyBasis === "approved"
@@ -109,6 +98,17 @@ export default function FeaturedMatrixTableFrame({
                   }`}
                 >
                   Approved
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onQtyBasisChange("dispatched")}
+                  className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
+                    qtyBasis === "dispatched"
+                      ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
+                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                >
+                  Dispatched
                 </button>
               </div>
             )}

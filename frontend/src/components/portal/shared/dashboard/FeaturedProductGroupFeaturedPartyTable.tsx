@@ -40,7 +40,7 @@ interface FeaturedProductGroupFeaturedPartyTableProps {
 export default function FeaturedProductGroupFeaturedPartyTable({
   orders,
   isOrdersFetching,
-  syncWithExternalFilter = false,
+  syncWithExternalFilter = true,
   externalFilterCaption,
   initialQtyBasis = "approved",
   forceMetric,
@@ -222,8 +222,8 @@ export default function FeaturedProductGroupFeaturedPartyTable({
     <FeaturedMatrixTableFrame
       title="Featured Groups × Featured Parties"
       subtitle={
-        qtyBasis === "net"
-          ? "Net sales by product group (expandable to products) across featured parties"
+        qtyBasis === "dispatched"
+          ? "Dispatched sales by product group (expandable to products) across featured parties"
           : "Approved sales by product group (expandable to products) across featured parties"
       }
       icon={<Table2 className="h-5 w-5" />}
@@ -232,6 +232,7 @@ export default function FeaturedProductGroupFeaturedPartyTable({
       onMetricChange={setMetric}
       showMetricToggle={!forceMetric}
       qtyBasis={qtyBasis}
+      onQtyBasisChange={setQtyBasis}
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatchTabAlertOverride } from "./DispatchTabAlert";
-import DispatchOverviewWidgets from "./components/DispatchOverviewWidgets";
+import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
 import {
   buildPendingReturnOrderIds,
@@ -33,6 +33,8 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
+import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
+import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
 
 const TRANSPORT_PENDING_PUSH_INTERVAL_MS = 300_000;
 const TRANSPORT_PENDING_ALERT_URL =
@@ -96,6 +98,21 @@ export default function DispatchOverview() {
     () => pickOrders(ordersData) as Record<string, unknown>[],
     [ordersData],
   );
+
+  const {
+    availableYears,
+    selectedYears,
+    setSelectedYears,
+    selectedMonths,
+    setSelectedMonths,
+    dateFilter,
+    setDateFilter,
+    customDateFrom,
+    setCustomDateFrom,
+    customDateTo,
+    setCustomDateTo,
+    filteredOrders,
+  } = usePeriodFilter(orders);
 
   const orderStats = useMemo(
     () => computeDispatchOrderStats(orders, categoryOptions),
@@ -420,10 +437,32 @@ export default function DispatchOverview() {
         </div>
       </div>
 
-      <DispatchOverviewWidgets
-        orders={orders}
+      <div className="flex justify-end bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-100 dark:border-white/5">
+        <PeriodFilter
+          availableYears={availableYears}
+          selectedYears={selectedYears}
+          selectedMonths={selectedMonths}
+          onYearsChange={setSelectedYears}
+          onMonthsChange={setSelectedMonths}
+          dateFilter={dateFilter}
+          onDateFilterChange={setDateFilter}
+          customDateFrom={customDateFrom}
+          onCustomDateFromChange={setCustomDateFrom}
+          customDateTo={customDateTo}
+          onCustomDateToChange={setCustomDateTo}
+        />
+      </div>
+
+      <OverviewWidgets
+        orders={filteredOrders}
         isOrdersFetching={isOrdersFetching}
         categoryOptions={categoryOptions}
+        role="dispatch"
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
       />
 
       <TransportPlannerStatsWidgets portalHome="/dispatch" />

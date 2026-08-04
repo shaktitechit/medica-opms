@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminTabAlertOverride } from "./AdminTabAlert";
-import AdminOverviewWidgets from "./AdminOverviewWidgets";
+import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/admin/workPlanner/WorkPlannerStatsWidgets";
 import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
@@ -49,6 +49,8 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
+import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
+import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
 
 const ADMIN_PENDING_PUSH_INTERVAL_MS = 300_000;
 const ADMIN_PENDING_ALERT_URL = "/admin/orders?tab=pending_admin_approval";
@@ -103,6 +105,21 @@ export default function AdminOverview() {
   }, []);
 
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
+
+  const {
+    availableYears,
+    selectedYears,
+    setSelectedYears,
+    selectedMonths,
+    setSelectedMonths,
+    dateFilter,
+    setDateFilter,
+    customDateFrom,
+    setCustomDateFrom,
+    customDateTo,
+    setCustomDateTo,
+    filteredOrders,
+  } = usePeriodFilter(orders);
 
   const pendingReturnOrderIds = useMemo(
     () => buildPendingReturnOrderIds(pickList(returnsData)),
@@ -459,11 +476,33 @@ export default function AdminOverview() {
         </div>
       </div>
 
+      <div className="flex justify-end bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-100 dark:border-white/5">
+        <PeriodFilter
+          availableYears={availableYears}
+          selectedYears={selectedYears}
+          selectedMonths={selectedMonths}
+          onYearsChange={setSelectedYears}
+          onMonthsChange={setSelectedMonths}
+          dateFilter={dateFilter}
+          onDateFilterChange={setDateFilter}
+          customDateFrom={customDateFrom}
+          onCustomDateFromChange={setCustomDateFrom}
+          customDateTo={customDateTo}
+          onCustomDateToChange={setCustomDateTo}
+        />
+      </div>
+
       {/* KPI METRICS WIDGETS */}
-      <AdminOverviewWidgets
-        orders={orders}
+      <OverviewWidgets
+        orders={filteredOrders}
         isOrdersFetching={isOrdersFetching}
         categoryOptions={categoryOptions}
+        role="admin"
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
       />
 
       <WorkPlannerStatsWidgets portalHome="/admin" />
@@ -475,16 +514,16 @@ export default function AdminOverview() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <ProductLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
         <PartyLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
         />
         <SalesLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           userNameById={userNameById}
         />
@@ -492,15 +531,15 @@ export default function AdminOverview() {
 
       <div className="space-y-6">
         <FeaturedProductGroupSalesUserTable
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
         <FeaturedProductGroupZoneTable
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
         <FeaturedProductGroupFeaturedPartyTable
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
       </div>

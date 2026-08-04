@@ -9,7 +9,7 @@ const {
   WHATSAPP_TEMPLATES,
   WHATSAPP_TEMPLATE_LANGUAGE,
   isValidTemplate,
-} = require('../whatsappTemplates.registry');
+} = require('../templates/whatsapp/whatsappTemplates.registry');
 
 /**
  * Sends a raw payload to WhatsApp Cloud API.

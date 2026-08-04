@@ -3,7 +3,11 @@
  * @module modules/messages/helpers/email.helper
  */
 const nodemailer = require('nodemailer');
+const fs = require('fs').promises;
+const path = require('path');
+const axios = require('axios');
 const smtpConfig = require('../../../config/smtp');
+const microsoftGraph = require('../../../config/microsoftGraph');
 const { logger } = require('../../../config/logger');
 
 let transporterInstance = null;
@@ -26,15 +30,69 @@ function getTransporter() {
   return transporterInstance;
 }
 
+async function sendEmailViaGraph(recipient, subject, textBody, htmlBody) {
+  logger.info(`[Email Helper] Sending email to ${recipient} via Microsoft Graph API...`);
+  
+  const tokenUrl = `https://login.microsoftonline.com/${microsoftGraph.tenantId}/oauth2/v2.0/token`;
+  const params = new URLSearchParams();
+  params.append('client_id', microsoftGraph.clientId);
+  params.append('scope', 'https://graph.microsoft.com/.default');
+  params.append('client_secret', microsoftGraph.clientSecret);
+  params.append('grant_type', 'client_credentials');
+
+  const tokenRes = await axios.post(tokenUrl, params.toString(), {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
+
+  const accessToken = tokenRes.data.access_token;
+
+  const sendMailUrl = `https://graph.microsoft.com/v1.0/users/${microsoftGraph.senderEmail}/sendMail`;
+  const mailBody = {
+    message: {
+      subject: subject,
+      body: {
+        contentType: htmlBody ? 'HTML' : 'Text',
+        content: htmlBody || textBody
+      },
+      toRecipients: [
+        {
+          emailAddress: {
+            address: recipient
+          }
+        }
+      ]
+    },
+    saveToSentItems: 'true'
+  };
+
+  const response = await axios.post(sendMailUrl, mailBody, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  logger.info(`[Email Helper] Email sent successfully via Microsoft Graph API.`);
+  return response.data || { success: true };
+}
+
 /**
  * Core send email function.
  * @param {string} recipient - Recipient email.
  * @param {string} subject - Subject line.
  * @param {string} textBody - Plain text body.
  * @param {string} htmlBody - HTML body.
- * @returns {Promise<object>} Nodemailer send status.
+ * @returns {Promise<object>} Nodemailer or Microsoft Graph send status.
  */
 async function sendEmail(recipient, subject, textBody, htmlBody) {
+  if (microsoftGraph.isConfigured()) {
+    try {
+      return await sendEmailViaGraph(recipient, subject, textBody, htmlBody);
+    } catch (graphError) {
+      logger.error(`[Email Helper] Microsoft Graph send failed: ${graphError.message}. Falling back to SMTP.`);
+    }
+  }
+
   const transporter = getTransporter();
   const from = smtpConfig.transportOptions().auth?.user || 'no-reply@medica-opms.com';
 
@@ -46,14 +104,14 @@ async function sendEmail(recipient, subject, textBody, htmlBody) {
     html: htmlBody,
   };
 
-  logger.info(`[Email Helper] Sending email to ${recipient}...`);
+  logger.info(`[Email Helper] Sending email to ${recipient} via SMTP...`);
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    logger.info(`[Email Helper] Email sent successfully. Message ID: ${info.messageId}`);
+    logger.info(`[Email Helper] Email sent successfully via SMTP. Message ID: ${info.messageId}`);
     return info;
   } catch (error) {
-    logger.error(`[Email Helper] Error sending email to ${recipient}: ${error.message}`);
+    logger.error(`[Email Helper] Error sending email to ${recipient} via SMTP: ${error.message}`);
     throw error;
   }
 }
@@ -71,41 +129,43 @@ function compileTemplate(template, data) {
   });
 }
 
-// Predefined templates
-const TEMPLATES = {
-  welcome: {
-    subject: 'Welcome to Medica OPMS, {{name}}!',
-    text: 'Hello {{name}},\n\nWelcome to Medica Order Processing & Management System.\nYour account has been successfully created.\n\nBest regards,\nMedica Team',
-    html: '<h3>Hello {{name}},</h3><p>Welcome to <strong>Medica Order Processing & Management System</strong>.</p><p>Your account has been successfully created.</p><br><p>Best regards,<br>Medica Team</p>',
-  },
-  order_update: {
-    subject: 'Update on Order #{{order_no}}',
-    text: 'Hello,\n\nThe status of your order #{{order_no}} has been updated.\nPrevious Status: {{from_status}}\nNew Status: {{next_status}}\nUpdated By: {{actor_name}}\n\nCheck OPMS dashboard for details.\n\nBest regards,\nMedica Team',
-    html: '<h3>Hello,</h3><p>The status of your order <strong>#{{order_no}}</strong> has been updated.</p><p>Previous Status: <span style="color: #d32f2f;">{{from_status}}</span> → New Status: <span style="color: #388e3c; font-weight: bold;">{{next_status}}</span></p><p>Updated By: {{actor_name}}</p><br><p>Check OPMS dashboard for details.</p><br><p>Best regards,<br>Medica Team</p>',
-  },
-  password_reset: {
-    subject: 'Reset Password Request',
-    text: 'Hello {{name}},\n\nYou requested to reset your password. Use the link below to complete the process:\n{{reset_link}}\n\nThis link will expire in 1 hour. If you did not request this, please ignore this email.\n\nBest regards,\nMedica Team',
-    html: '<h3>Hello {{name}},</h3><p>You requested to reset your password. Use the link below to complete the process:</p><p><a href="{{reset_link}}" style="padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; display: inline-block;">Reset Password</a></p><p>Or copy this link: {{reset_link}}</p><p>This link will expire in 1 hour. If you did not request this, please ignore this email.</p><br><p>Best regards,<br>Medica Team</p>',
-  },
-};
-
 /**
  * Sends a template-based email.
  * @param {string} recipient - Recipient email.
- * @param {string} templateName - One of: 'welcome', 'order_update', 'password_reset'
+ * @param {string} templateName - The name of the HTML template file (without extension).
  * @param {object} templateData - Object containing replacements.
  * @returns {Promise<object>} Nodemailer send status.
  */
 async function sendTemplateEmail(recipient, templateName, templateData) {
-  const tmpl = TEMPLATES[templateName];
-  if (!tmpl) {
-    throw new Error(`Email template "${templateName}" not found.`);
-  }
+  const templatesDir = path.join(__dirname, '..', 'templates', 'emails');
+  const templatePath = path.join(templatesDir, `${templateName}.html`);
+  const defaultTemplatePath = path.join(templatesDir, 'default.html');
 
-  const subject = compileTemplate(tmpl.subject, templateData);
-  const textBody = compileTemplate(tmpl.text, templateData);
-  const htmlBody = compileTemplate(tmpl.html, templateData);
+  let htmlBody;
+  const subject = templateData.subject || 'Notification';
+  const textBody = templateData.body || templateData.text || '';
+
+  try {
+    // Try to load requested template
+    const templateContent = await fs.readFile(templatePath, 'utf-8');
+    htmlBody = compileTemplate(templateContent, templateData);
+  } catch (err) {
+    logger.warn(`[Email Helper] Template "${templateName}" not found on disk. Falling back to default.html.`);
+    try {
+      // Fallback to default.html
+      const defaultContent = await fs.readFile(defaultTemplatePath, 'utf-8');
+      const compiledData = {
+        subject,
+        body: templateData.body || templateData.text || '',
+        year: new Date().getFullYear(),
+        ...templateData,
+      };
+      htmlBody = compileTemplate(defaultContent, compiledData);
+    } catch (fallbackErr) {
+      logger.error(`[Email Helper] Failed to read default.html template. Sending plain text fallback.`);
+      htmlBody = textBody;
+    }
+  }
 
   return sendEmail(recipient, subject, textBody, htmlBody);
 }

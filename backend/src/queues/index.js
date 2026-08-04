@@ -11,8 +11,9 @@ const order = require('./order.queue');
 const workflow = require('./workflow.queue');
 const dispatch = require('./dispatch.queue');
 const orderApproval = require('./orderApproval.queue');
+const autoEmail = require('./autoEmail.queue');
 
-const all = Object.freeze([notification, report, message, order, workflow, dispatch, orderApproval]);
+const all = Object.freeze([notification, report, message, order, workflow, dispatch, orderApproval, autoEmail]);
 
 /**
  * Fail fast when REDIS_URL points at a replica (BullMQ Lua writes need a primary).
@@ -59,7 +60,7 @@ async function registerQueues(logger = console) {
   const names = all.map((q) => q.queueName).join(', ');
   logger.info?.(`[queues] registered: ${names}`);
   await order.ensurePrioritySyncScheduler(logger);
-  return { notification, report, message, order, workflow, dispatch, orderApproval };
+  return { notification, report, message, order, workflow, dispatch, orderApproval, autoEmail };
 }
 
-module.exports = { registerQueues, notification, report, message, order, workflow, dispatch, orderApproval, all };
+module.exports = { registerQueues, notification, report, message, order, workflow, dispatch, orderApproval, autoEmail, all };

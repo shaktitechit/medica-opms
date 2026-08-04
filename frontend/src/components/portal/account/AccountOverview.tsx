@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccountTabAlertOverride } from "./AccountTabAlert";
-import AccountOverviewWidgets from "./components/AccountOverviewWidgets";
+import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
 import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
@@ -46,6 +46,8 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
+import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
+import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
 
 const ACCOUNT_PENDING_PUSH_INTERVAL_MS = 300_000;
 const DUE_SHEET_PENDING_ALERT_URL = "/account/orders?tab=due_sheet_pending";
@@ -119,6 +121,21 @@ export default function AccountOverview() {
     () => pickOrders(ordersData) as Record<string, unknown>[],
     [ordersData],
   );
+
+  const {
+    availableYears,
+    selectedYears,
+    setSelectedYears,
+    selectedMonths,
+    setSelectedMonths,
+    dateFilter,
+    setDateFilter,
+    customDateFrom,
+    setCustomDateFrom,
+    customDateTo,
+    setCustomDateTo,
+    filteredOrders,
+  } = usePeriodFilter(orders);
 
   const pendingReturnOrderIds = useMemo(
     () => buildPendingReturnOrderIds(pickList(returnsData)),
@@ -674,10 +691,32 @@ export default function AccountOverview() {
         </div>
       </div>
 
-      <AccountOverviewWidgets
-        orders={orders}
+      <div className="flex justify-end bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-100 dark:border-white/5">
+        <PeriodFilter
+          availableYears={availableYears}
+          selectedYears={selectedYears}
+          selectedMonths={selectedMonths}
+          onYearsChange={setSelectedYears}
+          onMonthsChange={setSelectedMonths}
+          dateFilter={dateFilter}
+          onDateFilterChange={setDateFilter}
+          customDateFrom={customDateFrom}
+          onCustomDateFromChange={setCustomDateFrom}
+          customDateTo={customDateTo}
+          onCustomDateToChange={setCustomDateTo}
+        />
+      </div>
+
+      <OverviewWidgets
+        orders={filteredOrders}
         isOrdersFetching={isOrdersFetching}
         categoryOptions={categoryOptions}
+        role="account"
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
       />
 
       <TransportPlannerStatsWidgets portalHome="/account" />
@@ -689,16 +728,16 @@ export default function AccountOverview() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <ProductLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
         <PartyLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
         />
         <SalesLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           userNameById={userNameById}
         />
@@ -706,15 +745,15 @@ export default function AccountOverview() {
 
       <div className="space-y-6">
         <FeaturedProductGroupSalesUserTable
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
         <FeaturedProductGroupZoneTable
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
         <FeaturedProductGroupFeaturedPartyTable
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
         />
       </div>

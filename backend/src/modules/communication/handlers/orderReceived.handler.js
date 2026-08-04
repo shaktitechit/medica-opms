@@ -19,7 +19,7 @@ const messageService = require('../../messages/message.service');
 const {
   WHATSAPP_TEMPLATES,
   WHATSAPP_TEMPLATE_LANGUAGE,
-} = require('../../messages/whatsappTemplates.registry');
+} = require('../../messages/templates/whatsapp/whatsappTemplates.registry');
 const { normalizeRecipients, resolveContactName } = require('../communication.utils');
 
 /** Format items for template {{3}} — one line per product, e.g. "Paracetamol 650 mg × 10" */

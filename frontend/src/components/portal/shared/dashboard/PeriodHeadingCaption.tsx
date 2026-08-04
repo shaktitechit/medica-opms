@@ -1,11 +1,13 @@
-"use client";
-
 import { formatPeriodLabel } from "./periodFilterUtils";
+import { DATE_FILTER_OPTIONS } from "../orderList/orderListDateFilter";
 
 interface PeriodHeadingCaptionProps {
   selectedYears: number[];
   /** Omit for year-only charts (e.g. monthly performance). */
   selectedMonths?: number[];
+  dateFilter?: string;
+  customDateFrom?: string;
+  customDateTo?: string;
   className?: string;
 }
 
@@ -13,9 +15,24 @@ interface PeriodHeadingCaptionProps {
 export default function PeriodHeadingCaption({
   selectedYears,
   selectedMonths,
+  dateFilter,
+  customDateFrom = "",
+  customDateTo = "",
   className = "",
 }: PeriodHeadingCaptionProps) {
-  const label = formatPeriodLabel(selectedYears, selectedMonths);
+  let label = "";
+  if (dateFilter !== "all") {
+    if (dateFilter === "custom") {
+      const fromStr = customDateFrom || "Start";
+      const toStr = customDateTo || "End";
+      label = `${fromStr} to ${toStr}`;
+    } else {
+      label = DATE_FILTER_OPTIONS.find((opt) => opt.id === dateFilter)?.label ?? dateFilter ?? "";
+    }
+  } else {
+    label = formatPeriodLabel(selectedYears, selectedMonths);
+  }
+
   if (!label) return null;
 
   return (

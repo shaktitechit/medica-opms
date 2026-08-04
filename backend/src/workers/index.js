@@ -9,6 +9,7 @@ const orderWorker = require('./order.worker');
 const workflowWorker = require('./workflow.worker');
 const dispatchWorker = require('./dispatch.worker');
 const orderApprovalWorker = require('./orderApproval.worker');
+const autoEmailWorker = require('./autoEmail.worker');
 
 let activeWorkers = {};
 
@@ -25,6 +26,7 @@ function startAll(logger = console) {
   activeWorkers.workflow = workflowWorker.start();
   activeWorkers.dispatch = dispatchWorker.start();
   activeWorkers.orderApproval = orderApprovalWorker.start();
+  activeWorkers.autoEmail = autoEmailWorker.start();
 
   logger.info('[workers] Background workers started.');
 }
@@ -67,6 +69,12 @@ function stopAll(logger = console) {
   if (activeWorkers.orderApproval) {
     activeWorkers.orderApproval.close().catch((err) => {
       logger.error(`[workers] Error closing orderApproval worker: ${err.message}`);
+    });
+  }
+
+  if (activeWorkers.autoEmail) {
+    activeWorkers.autoEmail.close().catch((err) => {
+      logger.error(`[workers] Error closing autoEmail worker: ${err.message}`);
     });
   }
 

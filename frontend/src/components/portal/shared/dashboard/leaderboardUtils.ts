@@ -1,7 +1,7 @@
 "use client";
 
 export type Metric = "quantity" | "volume";
-export type QtyBasis = "net" | "approved";
+export type QtyBasis = "approved" | "dispatched";
 export type RateBucket = { total: number; sr: number; sra: number; cr: number };
 
 export function normalizeRateType(raw: unknown): "SR" | "SRA" | "CR" | null {
@@ -20,8 +20,12 @@ export function itemApprovedQty(item: any): number {
   return Number(item.approved_quantity) || 0;
 }
 
+export function itemDispatchedQty(item: any): number {
+  return Number(item.dispatched_quantity) || 0;
+}
+
 export function itemQty(item: any, basis: QtyBasis): number {
-  return basis === "approved" ? itemApprovedQty(item) : itemNetQty(item);
+  return basis === "dispatched" ? itemDispatchedQty(item) : itemApprovedQty(item);
 }
 
 export function itemUnitPrice(item: any): number {

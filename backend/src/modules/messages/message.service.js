@@ -8,7 +8,7 @@ const { toPlain } = require('../../utils/mongoJson');
 const messageQueue = require('../../queues/message.queue');
 const whatsappHelper = require('./helpers/whatsapp.helper');
 const emailHelper = require('./helpers/email.helper');
-const { WHATSAPP_TEMPLATE_LANGUAGE } = require('./whatsappTemplates.registry');
+const { WHATSAPP_TEMPLATE_LANGUAGE } = require('./templates/whatsapp/whatsappTemplates.registry');
 const { logger } = require('../../config/logger');
 
 /**

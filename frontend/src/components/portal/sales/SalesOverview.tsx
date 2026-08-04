@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import SalesOverviewWidgets from "./SalesOverviewWidgets";
+import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/sales/workPlanner/WorkPlannerStatsWidgets";
 import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
@@ -30,6 +30,9 @@ import {
   FilePlus,
   RefreshCw,
 } from "lucide-react";
+
+import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
+import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
 
 export default function SalesOverview() {
   const user = useAppSelector((state) => state.auth.user);
@@ -62,6 +65,21 @@ export default function SalesOverview() {
     () => filterOrdersForSalesUser(pickOrders(ordersData), user) as any[],
     [ordersData, user],
   );
+
+  const {
+    availableYears,
+    selectedYears,
+    setSelectedYears,
+    selectedMonths,
+    setSelectedMonths,
+    dateFilter,
+    setDateFilter,
+    customDateFrom,
+    setCustomDateFrom,
+    customDateTo,
+    setCustomDateTo,
+    filteredOrders,
+  } = usePeriodFilter(orders);
 
   const pendingReturnOrderIds = useMemo(
     () => buildPendingReturnOrderIds(pickList(returnsData)),
@@ -138,11 +156,33 @@ export default function SalesOverview() {
         </div>
       </div>
 
+      <div className="flex justify-end bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-100 dark:border-white/5">
+        <PeriodFilter
+          availableYears={availableYears}
+          selectedYears={selectedYears}
+          selectedMonths={selectedMonths}
+          onYearsChange={setSelectedYears}
+          onMonthsChange={setSelectedMonths}
+          dateFilter={dateFilter}
+          onDateFilterChange={setDateFilter}
+          customDateFrom={customDateFrom}
+          onCustomDateFromChange={setCustomDateFrom}
+          customDateTo={customDateTo}
+          onCustomDateToChange={setCustomDateTo}
+        />
+      </div>
+
       {/* KPI METRICS CARDS & QUICK ACCESS */}
-      <SalesOverviewWidgets
-        orders={orders}
+      <OverviewWidgets
+        orders={filteredOrders}
         isOrdersFetching={isOrdersFetching}
         categoryOptions={categoryOptions}
+        role="sales"
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
       />
 
       <WorkPlannerStatsWidgets />
@@ -156,12 +196,12 @@ export default function SalesOverview() {
       {/* TWO COLUMN GRID: TOP PRODUCTS & TOP PARTIES */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <ProductLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           forceMetric="quantity"
         />
         <PartyLeaderboard
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
           forceMetric="quantity"
@@ -170,7 +210,7 @@ export default function SalesOverview() {
 
       <div className="space-y-6">
         <FeaturedProductGroupSalesUserTable
-          orders={orders}
+          orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           forceMetric="quantity"
           forceSalesUserId={user?._id || user?.id ? String(user?._id || user?.id) : undefined}

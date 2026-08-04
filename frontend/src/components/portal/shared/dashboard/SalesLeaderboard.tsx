@@ -17,6 +17,7 @@ interface SalesLeaderboardProps {
   orders: any[];
   isOrdersFetching: boolean;
   userNameById: Record<string, string>;
+  disableInternalFilter?: boolean;
 }
 
 import {
@@ -40,6 +41,7 @@ export default function SalesLeaderboard({
   orders,
   isOrdersFetching,
   userNameById,
+  disableInternalFilter = true,
 }: SalesLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
   const [metric, setMetric] = useState<Metric>("quantity");
@@ -53,9 +55,11 @@ export default function SalesLeaderboard({
     filteredOrders,
   } = usePeriodFilter(orders);
 
+  const displayOrders = disableInternalFilter ? orders : filteredOrders;
+
   const salesRows = useMemo(() => {
     const map = new Map<string, RateBucket>();
-    for (const o of filteredOrders) {
+    for (const o of displayOrders) {
       if (!shouldIncludeOrder(o, qtyBasis)) continue;
       const salesLabel = resolveSalesPersonName(o, userNameById);
       const items = Array.isArray(o.order_items) ? o.order_items : [];
@@ -90,35 +94,24 @@ export default function SalesLeaderboard({
   );
 
   const valueLabel =
-    qtyBasis === "net"
+    qtyBasis === "dispatched"
       ? metric === "quantity"
-        ? "Net Qty"
-        : "Net Vol"
+        ? "Dispatched Qty"
+        : "Dispatched Vol"
       : metric === "quantity"
         ? "Approved Qty"
         : "Approved Vol";
   const breakdownTitle =
-    qtyBasis === "net"
+    qtyBasis === "dispatched"
       ? metric === "quantity"
-        ? "Sales Person breakdown (Net Quantity)"
-        : "Sales Person breakdown (Net Volume)"
+        ? "Sales Person breakdown (Dispatched Quantity)"
+        : "Sales Person breakdown (Dispatched Volume)"
       : metric === "quantity"
         ? "Sales Person breakdown (Approved Quantity)"
         : "Sales Person breakdown (Approved Volume)";
 
   const basisToggle = (
     <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
-      <button
-        type="button"
-        onClick={() => setQtyBasis("net")}
-        className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
-          qtyBasis === "net"
-            ? "bg-white text-violet-700 shadow-sm dark:bg-slate-700 dark:text-violet-300"
-            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-        }`}
-      >
-        Net
-      </button>
       <button
         type="button"
         onClick={() => setQtyBasis("approved")}
@@ -129,6 +122,17 @@ export default function SalesLeaderboard({
         }`}
       >
         Approved
+      </button>
+      <button
+        type="button"
+        onClick={() => setQtyBasis("dispatched")}
+        className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
+          qtyBasis === "dispatched"
+            ? "bg-white text-violet-700 shadow-sm dark:bg-slate-700 dark:text-violet-300"
+            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+        }`}
+      >
+        Dispatched
       </button>
     </div>
   );
@@ -193,7 +197,7 @@ export default function SalesLeaderboard({
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900 flex flex-col justify-between">
         <div>
           <div className="flex flex-col gap-3 pb-4 border-b border-slate-100 dark:border-white/5">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2 min-w-0">
                 <Briefcase className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
                 <div className="min-w-0">
@@ -206,7 +210,8 @@ export default function SalesLeaderboard({
                   />
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
+                {basisToggle}
                 {metricToggle}
                 <button
                   type="button"
@@ -218,7 +223,6 @@ export default function SalesLeaderboard({
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {periodFilter}
               <ReportDownloadButton
                 onDownload={handleDownload}
                 disabled={isOrdersFetching || salesRows.length === 0}
@@ -282,7 +286,7 @@ export default function SalesLeaderboard({
         <LargeModalBackdrop>
           <div className={`${largeModalPanelClass} max-w-5xl h-[min(90vh,750px)]`}>
             <div className="flex flex-col gap-3 p-5 border-b border-slate-100 dark:border-white/5">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2 min-w-0">
                   <Briefcase className="h-5 w-5 shrink-0 text-violet-600" />
                   <div className="min-w-0">
@@ -295,7 +299,8 @@ export default function SalesLeaderboard({
                     />
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  {basisToggle}
                   {metricToggle}
                   <button
                     type="button"
@@ -307,7 +312,6 @@ export default function SalesLeaderboard({
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {periodFilter}
                 <ReportDownloadButton
                   onDownload={handleDownload}
                   disabled={isOrdersFetching || salesRows.length === 0}
