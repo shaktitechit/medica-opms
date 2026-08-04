@@ -97,4 +97,6 @@ const orderApprovalSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+orderApprovalSchema.index({ order: 1, deletedAt: 1, is_admin_approved: 1, is_finance_approved: 1, is_account_approved: 1 });
+
 export default mongoose.model("OrderApproval", orderApprovalSchema);

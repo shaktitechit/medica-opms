@@ -44,6 +44,14 @@ export const ordersApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       providesTags: [{ type: "Orders", id: "LIST" }],
     }),
+    getOrdersStats: build.query<unknown, Record<string, string | undefined> | void>({
+      query: (params) => ({
+        url: "orders/stats",
+        params: params ?? {},
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      providesTags: [{ type: "Orders", id: "STATS" }],
+    }),
     listOrdersDeleted: build.query<
       unknown,
       Record<string, string | undefined> | void
@@ -218,6 +226,8 @@ export const ordersApi = medicaApi.injectEndpoints({
 export const {
   useListOrdersQuery,
   useLazyListOrdersQuery,
+  useGetOrdersStatsQuery,
+  useLazyGetOrdersStatsQuery,
   useListOrdersDeletedQuery,
   useLazyListOrdersDeletedQuery,
   useGetOrderQuery,

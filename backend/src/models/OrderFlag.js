@@ -58,4 +58,6 @@ const orderFlagSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+orderFlagSchema.index({ order: 1, status: 1 });
+
 export default mongoose.model("OrderFlag", orderFlagSchema);

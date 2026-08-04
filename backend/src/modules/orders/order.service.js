@@ -779,12 +779,64 @@ function applyAccessFilter(q, user) {
   applyOrderAccessFilter(q, user);
 }
 
-/** Active orders only (no trash filter here). Optional filters: status, exclude_status ($nin), customer, or party ObjectId. */
-async function list(query = {}, user) {
+async function buildBaseQuery(query = {}, user) {
   const q = {};
-  const { status, customer, party, exclude_status, search, priority } = query;
+  const { status, customer, party, exclude_status, search, priority, tab, dateFrom, dateTo } = query;
 
-  if (status) {
+  if (tab) {
+    const s = String(tab).toLowerCase();
+    if (s === 'pending_admin_approval') {
+      const pendingOrderIds = await findOrderIdsWithPendingApproval('admin', getModels());
+      q._id = { $in: pendingOrderIds };
+    } else if (s === 'due_sheet_pending') {
+      const dueSheetOrderIds = await getModels().OrderDueSheet.distinct('order', { is_current: true, status: 'active', deletedAt: null });
+      const approvalDueSheetOrderIds = await getModels().OrderApproval.distinct('order', { is_due_sheet_uploaded: true, deletedAt: null });
+      const allUploaded = [...new Set([...dueSheetOrderIds.map(String), ...approvalDueSheetOrderIds.map(String)])];
+      const adminPendingIds = await findOrderIdsWithPendingApproval('admin', getModels());
+
+      q.status = { $nin: ['draft', 'submitted', 'pending_review', 'on_hold', 'cancelled', 'finance_rejected', 'account_rejected', 'delivered', 'closed'] };
+      q._id = { $nin: [...allUploaded, ...adminPendingIds] };
+    } else if (s === 'pending_finance_approval') {
+      const dueSheetOrderIds = await getModels().OrderDueSheet.distinct('order', { is_current: true, status: 'active', deletedAt: null });
+      const approvalDueSheetOrderIds = await getModels().OrderApproval.distinct('order', { is_due_sheet_uploaded: true, deletedAt: null });
+      const allUploaded = [...new Set([...dueSheetOrderIds.map(String), ...approvalDueSheetOrderIds.map(String)])];
+
+      const financePendingIds = await findOrderIdsWithPendingApproval('finance', getModels());
+      q._id = { $in: financePendingIds.filter(id => allUploaded.includes(id)) };
+    } else if (s === 'pending_account_approval') {
+      const accountPendingIds = await findOrderIdsWithPendingApproval('account', getModels());
+      q._id = { $in: accountPendingIds };
+    } else if (s === 'open_dispatched') {
+      const adminPending = await findOrderIdsWithPendingApproval('admin', getModels());
+      const financePending = await findOrderIdsWithPendingApproval('finance', getModels());
+      const accountPending = await findOrderIdsWithPendingApproval('account', getModels());
+      const nonDispatchPendingIds = new Set([...adminPending, ...financePending, ...accountPending]);
+
+      q.status = { $nin: ['draft', 'submitted', 'pending_review', 'on_hold', 'cancelled', 'finance_rejected', 'account_rejected', 'delivered', 'closed'] };
+      q._id = { $nin: [...nonDispatchPendingIds] };
+      q.dispatch_status = { $ne: 'completed' };
+    } else if (s === 'transport_pending') {
+      q.status = { $in: ['partial_dispatch_created', 'full_dispatch_created', 'transport_pending', 'transport_assigned', 'partially_transported', 'fully_transported', 'in_transit'] };
+      q.delivery_status = { $ne: 'completed' };
+      q.lifecycle_status = { $ne: 'fulfilled' };
+    } else if (s === 'return_pending') {
+      const activeReturns = await getModels().OrderReturn.find({ return_status: 'pending', deletedAt: null }).select('order').lean();
+      q._id = { $in: activeReturns.map(r => r.order) };
+    } else if (s === 'closed_delivered') {
+      q.$or = [
+        { status: { $in: ['delivered', 'closed'] } },
+        { closed_at: { $exists: true, $ne: null } },
+        { delivery_status: 'completed' },
+        { lifecycle_status: 'fulfilled' }
+      ];
+    } else if (s === 'on_hold') {
+      q.status = 'on_hold';
+    } else if (s === 'cancelled') {
+      q.status = 'cancelled';
+    } else if (s === 'rejected') {
+      q.$or = [{ finance_approval_status: 'rejected' }, { status: 'finance_rejected' }];
+    }
+  } else if (status) {
     const s = String(status).toLowerCase();
     const pendingStage = normalizePendingStage(s);
     if (isAnyPendingApprovalStatus(s)) {
@@ -862,6 +914,12 @@ async function list(query = {}, user) {
     q.priority = String(priority).toLowerCase();
   }
 
+  if (dateFrom || dateTo) {
+    q.order_date = {};
+    if (dateFrom) q.order_date.$gte = new Date(dateFrom);
+    if (dateTo) q.order_date.$lte = new Date(dateTo);
+  }
+
   const andConditions = [];
   appendOrderVisibilityAnd(andConditions, user);
 
@@ -885,6 +943,14 @@ async function list(query = {}, user) {
   if (andConditions.length > 0) {
     q.$and = andConditions;
   }
+
+  q.deletedAt = null;
+  return q;
+}
+
+/** Active orders only (no trash filter here). Optional filters: status, exclude_status ($nin), customer, or party ObjectId. */
+async function list(query = {}, user) {
+  const q = await buildBaseQuery(query, user);
 
   const paginate = query.paginate === 'true';
   const page = Math.max(Number(query.page) || 1, 1);
@@ -919,6 +985,65 @@ async function list(query = {}, user) {
 
   const rows = await getModels().Order.find(q).sort({ createdAt: -1 }).lean();
   return mapListedOrders(rows);
+}
+
+async function getWorkflowStats(query = {}, user) {
+  const tabs = [
+    'all',
+    'pending_admin_approval',
+    'due_sheet_pending',
+    'pending_finance_approval',
+    'pending_account_approval',
+    'open_dispatched',
+    'transport_pending',
+    'return_pending',
+    'closed_delivered',
+    'on_hold',
+    'cancelled',
+    'rejected'
+  ];
+
+  const results = {};
+
+  const promises = tabs.map(async (tabName) => {
+    const q_tab = await buildBaseQuery({ ...query, tab: tabName }, user);
+    const aggResult = await getModels().Order.aggregate([
+      { $match: q_tab },
+      {
+        $project: {
+          grand_total: { $ifNull: ['$grand_total', 0] },
+          items_qty: {
+            $sum: {
+              $map: {
+                input: '$order_items',
+                as: 'item',
+                in: {
+                  $cond: [
+                    { $in: ['$status', ['draft', 'submitted', 'cancelled', 'finance_rejected', 'rejected', 'on_hold']] },
+                    { $ifNull: ['$$item.ordered_quantity', { $ifNull: ['$$item.quantity', 0] }] },
+                    { $ifNull: ['$$item.approved_quantity', 0] }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          count: { $sum: 1 },
+          quantity: { $sum: '$items_qty' },
+          amount: { $sum: '$grand_total' }
+        }
+      }
+    ]);
+
+    results[tabName] = aggResult[0] || { count: 0, quantity: 0, amount: 0 };
+  });
+
+  await Promise.all(promises);
+  return results;
 }
 
 async function getById(id, user) {
@@ -1766,6 +1891,7 @@ async function superSheetUpdate(id, body, user) {
 
 module.exports = {
   list,
+  getWorkflowStats,
   getById,
   create,
   update,

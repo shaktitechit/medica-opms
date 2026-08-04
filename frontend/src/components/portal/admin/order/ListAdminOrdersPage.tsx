@@ -295,17 +295,61 @@ export default function ListAdminOrdersPage({
   }, [qFromUrl]);
 
   const queryParams = useMemo(() => {
-    const base: Record<string, string | undefined> = {};
-
-    if (!searchQuery.trim()) {
-      Object.assign(base, adminTabQueryParams(activeTab));
-    }
+    const base: Record<string, string | undefined> = {
+      paginate: "true",
+      page: String(currentPage),
+      limit: String(itemsPerPage),
+    };
 
     if (searchQuery.trim()) {
       base.search = searchQuery.trim();
+    } else {
+      base.tab = activeTab;
     }
+
+    if (priorityFilter !== "all") {
+      base.priority = priorityFilter;
+    }
+
+    // Resolve dateFilter to date range
+    const toDay = (v: unknown): Date | null => {
+      if (!v) return null;
+      const d = v instanceof Date ? v : new Date(String(v));
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const now = new Date();
+    const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const endOfDay   = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+
+    let dateFrom: Date | null = null;
+    let dateTo:   Date | null = null;
+
+    if (dateFilter === "today") {
+      dateFrom = startOfDay(now);
+      dateTo   = endOfDay(now);
+    } else if (dateFilter === "yesterday") {
+      const y = new Date(now); y.setDate(y.getDate() - 1);
+      dateFrom = startOfDay(y);
+      dateTo   = endOfDay(y);
+    } else if (dateFilter === "last_week") {
+      const w = new Date(now); w.setDate(w.getDate() - 7);
+      dateFrom = startOfDay(w);
+      dateTo   = endOfDay(now);
+    } else if (dateFilter === "last_month") {
+      const m = new Date(now); m.setMonth(m.getMonth() - 1);
+      dateFrom = startOfDay(m);
+      dateTo   = endOfDay(now);
+    } else if (dateFilter === "custom") {
+      if (customDateFrom) dateFrom = startOfDay(new Date(customDateFrom));
+      if (customDateTo)   dateTo   = endOfDay(new Date(customDateTo));
+    }
+
+    if (dateFrom) base.dateFrom = dateFrom.toISOString();
+    if (dateTo) base.dateTo = dateTo.toISOString();
+
     return base;
-  }, [activeTab, searchQuery]);
+  }, [activeTab, searchQuery, priorityFilter, dateFilter, customDateFrom, customDateTo, currentPage, itemsPerPage]);
 
   const { data, isLoading, isFetching, isError, refetch } = useListOrdersQuery(queryParams);
   const { data: returnsData } = useListOrderReturnsQuery({});
@@ -367,77 +411,30 @@ export default function ListAdminOrdersPage({
 
   // Filtered Orders memo
   const filteredOrders = useMemo(() => {
-    // ── date range helpers ──────────────────────────────────────
-    const toDay = (v: unknown): Date | null => {
-      if (!v) return null;
-      const d = v instanceof Date ? v : new Date(String(v));
-      return Number.isNaN(d.getTime()) ? null : d;
-    };
-
-    const now = new Date();
-    const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const endOfDay   = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-
-    let dateFrom: Date | null = null;
-    let dateTo:   Date | null = null;
-
-    if (dateFilter === "today") {
-      dateFrom = startOfDay(now);
-      dateTo   = endOfDay(now);
-    } else if (dateFilter === "yesterday") {
-      const y = new Date(now); y.setDate(y.getDate() - 1);
-      dateFrom = startOfDay(y);
-      dateTo   = endOfDay(y);
-    } else if (dateFilter === "last_week") {
-      const w = new Date(now); w.setDate(w.getDate() - 7);
-      dateFrom = startOfDay(w);
-      dateTo   = endOfDay(now);
-    } else if (dateFilter === "last_month") {
-      const m = new Date(now); m.setMonth(m.getMonth() - 1);
-      dateFrom = startOfDay(m);
-      dateTo   = endOfDay(now);
-    } else if (dateFilter === "custom") {
-      if (customDateFrom) dateFrom = startOfDay(new Date(customDateFrom));
-      if (customDateTo)   dateTo   = endOfDay(new Date(customDateTo));
-    }
-    // ────────────────────────────────────────────────────────────
-
-    return orders.filter((o) => {
-      if (!searchQuery.trim()) {
-        if (!orderMatchesAdminTab(o, activeTab, categoryOptions)) {
-          return false;
-        }
-      }
-
-      if (priorityFilter !== "all") {
-        if ((o.priority || "").toLowerCase() !== priorityFilter.toLowerCase()) {
-          return false;
-        }
-      }
-
-      if (dateFrom || dateTo) {
-        const raw = (o as any).order_date;
-        const d = toDay(raw);
-        if (!d) return false;
-        if (dateFrom && d < dateFrom) return false;
-        if (dateTo   && d > dateTo)   return false;
-      }
-
-      return true;
-    });
-  }, [orders, activeTab, categoryOptions, priorityFilter, searchQuery, dateFilter, customDateFrom, customDateTo]);
+    return orders;
+  }, [orders]);
 
   // Paginated Orders slice
   const paginatedOrders = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    const end = start + itemsPerPage;
-    return filteredOrders.slice(start, end);
-  }, [filteredOrders, currentPage, itemsPerPage]);
+    return orders;
+  }, [orders]);
 
-  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
+  const totalEntries = useMemo(() => {
+    if (data && typeof data === "object" && "total" in data) {
+      return (data as { total: number }).total;
+    }
+    return orders.length;
+  }, [data, orders.length]);
 
-  const startEntry = filteredOrders.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
-  const endEntry = Math.min(currentPage * itemsPerPage, filteredOrders.length);
+  const totalPages = useMemo(() => {
+    if (data && typeof data === "object" && "pages" in data) {
+      return (data as { pages: number }).pages;
+    }
+    return Math.ceil(orders.length / itemsPerPage);
+  }, [data, orders.length, itemsPerPage]);
+
+  const startEntry = totalEntries > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
+  const endEntry = Math.min(currentPage * itemsPerPage, totalEntries);
 
   const showReset =
     !!searchQuery ||
@@ -899,7 +896,7 @@ export default function ListAdminOrdersPage({
             setPriorityFilter(tabId);
             setCurrentPage(1);
           }}
-          filteredCount={filteredOrders.length}
+          filteredCount={totalEntries}
           isFetching={isFetching}
           searchQuery={searchQuery}
           onClearSearch={() => handleSearchChange("")}
@@ -925,7 +922,7 @@ export default function ListAdminOrdersPage({
             setActiveTab(tabId as AdminOrderTabCategory);
             setCurrentPage(1);
           }}
-          filteredCount={filteredOrders.length}
+          filteredCount={totalEntries}
           isFetching={isFetching}
           searchQuery={searchQuery}
           onClearSearch={() => handleSearchChange("")}

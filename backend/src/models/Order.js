@@ -529,5 +529,10 @@ orderSchema.index({ customer: 1, order_date: -1 });
 orderSchema.index({ workflow_stage: 1, lifecycle_status: 1 });
 orderSchema.index({ current_assignee: 1, workflow_stage: 1 });
 orderSchema.index({ status: 1, closed_at: -1 });
+orderSchema.index({ status: 1, workflow_stage: 1, createdAt: -1 });
+orderSchema.index({ party: 1, createdAt: -1 });
+orderSchema.index({ order_date: -1 });
+orderSchema.index({ order_no: 1 });
+orderSchema.index({ order_number: 1 });
 
 export default mongoose.model("Order", orderSchema);
