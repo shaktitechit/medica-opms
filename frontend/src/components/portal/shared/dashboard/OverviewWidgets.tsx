@@ -341,7 +341,7 @@ export default function OverviewWidgets({
       inTransitQty: inTransitSum,
       inTransitAmt: inTransitVal,
     };
-  }, [orders]);
+  }, [filteredOrders]);
 
   const cards = useMemo(() => {
     const isSales = role === "sales";

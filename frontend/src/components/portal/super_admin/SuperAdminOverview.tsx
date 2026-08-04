@@ -161,7 +161,7 @@ export default function SuperAdminOverview() {
         </div>
       </div>
 
-      <div className="flex justify-end bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-100 dark:border-white/5">
+      <div className="sticky top-[-20px] md:top-[-32px] z-35 flex justify-end bg-white/90 dark:bg-slate-900/90 backdrop-blur-md p-4 rounded-xl border border-slate-200/80 dark:border-white/10 shadow-sm transition-all">
         <PeriodFilter
           availableYears={availableYears}
           selectedYears={selectedYears}
