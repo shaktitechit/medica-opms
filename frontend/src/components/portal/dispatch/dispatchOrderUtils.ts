@@ -7,6 +7,13 @@ import {
   ORDER_WORKFLOW_TAB_LABELS,
   resolveApprovalPending,
   type OrderWorkflowTabCategory,
+  isTransportPending,
+  isReturnPendingOrder,
+  type OrderWorkflowCategoryOptions,
+  getOrderWorkflowTabCategory,
+  orderMatchesWorkflowTab,
+  workflowTabQueryParams,
+  ORDER_WORKFLOW_TABS,
 } from "@/components/portal/shared/orderList/orderWorkflowTabs";
 import {
   type ApprovalPendingStage,
@@ -14,39 +21,14 @@ import {
 import {
   buildPendingReturnOrderIds,
   groupReturnsByOrderId,
-  isReturnPendingOrder,
   isTransportOrReturnPending,
-  isTransportPending,
 } from "@/components/portal/account/accountOrderUtils";
 
-export type DispatchOrderTabCategory =
-  | OrderWorkflowTabCategory
-  | "transport_pending"
-  | "return_pending";
+export type DispatchOrderTabCategory = OrderWorkflowTabCategory;
 
-export const DISPATCH_ORDER_TABS: ReadonlyArray<{
-  id: DispatchOrderTabCategory;
-  label: string;
-}> = [
-  { id: "all", label: "All Orders" },
-  { id: "pending_admin_approval", label: "Admin Pending" },
-  { id: "due_sheet_pending", label: "Due Sheet Pending" },
-  { id: "pending_finance_approval", label: "Finance Pending" },
-  { id: "pending_account_approval", label: "Account Pending" },
-  { id: "open_dispatched", label: "Dispatch Pending" },
-  { id: "transport_pending", label: "Transport Pending" },
-  { id: "return_pending", label: "Return Pending" },
-  { id: "closed_delivered", label: "Closed/Delivered" },
-  { id: "on_hold", label: "On Hold" },
-  { id: "cancelled", label: "Cancelled" },
-  { id: "rejected", label: "Rejected" },
-];
+export const DISPATCH_ORDER_TABS = ORDER_WORKFLOW_TABS;
 
-export const DISPATCH_ORDER_TAB_LABELS: Record<DispatchOrderTabCategory, string> = {
-  ...ORDER_WORKFLOW_TAB_LABELS,
-  transport_pending: "Transport Pending",
-  return_pending: "Return Pending",
-};
+export const DISPATCH_ORDER_TAB_LABELS = ORDER_WORKFLOW_TAB_LABELS;
 
 export {
   isDueSheetPending,
@@ -57,10 +39,7 @@ export {
 export { buildPendingReturnOrderIds, groupReturnsByOrderId };
 export { isTransportOrReturnPending, isTransportPending, isReturnPendingOrder };
 
-export type DispatchOrderCategoryOptions = {
-  pendingReturnOrderIds?: Set<string>;
-  returnsByOrderId?: Map<string, Record<string, unknown>[]>;
-};
+export type DispatchOrderCategoryOptions = OrderWorkflowCategoryOptions;
 
 /**
  * Dispatch list tab bucket. Draft orders are excluded (return null).
@@ -72,28 +51,7 @@ export function getDispatchOrderTabCategory(
   order: unknown,
   options?: DispatchOrderCategoryOptions,
 ): DispatchOrderTabCategory | null {
-  if (!order || typeof order !== "object") return null;
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-
-  if (status === "draft") return null;
-
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-  if (status === "finance_rejected") return "rejected";
-
-  if (isReturnPendingOrder(order, options)) return "return_pending";
-  if (isTransportPending(order, options)) return "transport_pending";
-  if (isOrderClosedOrDelivered(row)) return "closed_delivered";
-
-  // Exclusive sequential pipeline: admin → due sheet → finance → account → dispatch.
-  const pending = resolveApprovalPending(row);
-  if (pending.admin) return "pending_admin_approval";
-  if (isDueSheetPending(row)) return "due_sheet_pending";
-  if (pending.finance) return "pending_finance_approval";
-  if (pending.account) return "pending_account_approval";
-
-  return "open_dispatched";
+  return getOrderWorkflowTabCategory(order, options);
 }
 
 export function orderMatchesDispatchTab(
@@ -101,46 +59,13 @@ export function orderMatchesDispatchTab(
   tab: DispatchOrderTabCategory,
   options?: DispatchOrderCategoryOptions,
 ): boolean {
-  if (!order || typeof order !== "object") return false;
-
-  if (tab === "all") {
-    return deriveOrderWorkflowStatus(order as Record<string, unknown>) !== "draft";
-  }
-
-  return getDispatchOrderTabCategory(order, options) === tab;
+  return orderMatchesWorkflowTab(order, tab, options);
 }
 
 export function dispatchTabQueryParams(
   tab: DispatchOrderTabCategory,
 ): Record<string, string | undefined> {
-  if (tab === "transport_pending" || tab === "return_pending") {
-    return { exclude_status: "draft,on_hold,cancelled,finance_rejected" };
-  }
-
-  switch (tab) {
-    case "all":
-      return { exclude_status: "draft" };
-    case "pending_admin_approval":
-      return { status: "pending_review" };
-    case "due_sheet_pending":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    case "pending_finance_approval":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    case "pending_account_approval":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    case "on_hold":
-      return { status: "on_hold" };
-    case "cancelled":
-      return { status: "cancelled" };
-    case "rejected":
-      return { status: "finance_rejected" };
-    case "open_dispatched":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected,delivered,closed" };
-    case "closed_delivered":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    default:
-      return {};
-  }
+  return workflowTabQueryParams(tab);
 }
 
 export function pendingApprovalStageLabel(stage: ApprovalPendingStage): string {
@@ -157,7 +82,7 @@ export function pendingApprovalStageLabel(stage: ApprovalPendingStage): string {
 }
 
 export function isDispatchOrderTabCategory(value: string): value is DispatchOrderTabCategory {
-  return DISPATCH_ORDER_TABS.some((tab) => tab.id === value);
+  return ORDER_WORKFLOW_TABS.some((tab) => tab.id === value);
 }
 
 export function normalizeDispatchTabFromUrl(value: string | null): DispatchOrderTabCategory {
@@ -171,6 +96,7 @@ export function normalizeDispatchTabFromUrl(value: string | null): DispatchOrder
   const normalized = normalizeWorkflowTabFromUrl(value, "all");
   return isDispatchOrderTabCategory(normalized) ? normalized : "transport_pending";
 }
+
 
 export type DispatchOrderStats = Record<
   DispatchOrderTabCategory,

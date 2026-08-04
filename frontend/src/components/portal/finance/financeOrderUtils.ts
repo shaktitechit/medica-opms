@@ -6,29 +6,24 @@ import {
   isOrderDelivered,
   pendingApprovalStageLabel,
   resolveApprovalPending,
+  normalizeWorkflowTabFromUrl,
+  ORDER_WORKFLOW_TAB_LABELS,
+  type OrderWorkflowTabCategory,
+  isTransportPending,
+  isReturnPendingOrder,
+  type OrderWorkflowCategoryOptions,
+  getOrderWorkflowTabCategory,
+  orderMatchesWorkflowTab,
+  workflowTabQueryParams,
+  ORDER_WORKFLOW_TABS,
 } from "@/components/portal/shared/orderList/orderWorkflowTabs";
 import {
   buildPendingReturnOrderIds,
-  isReturnPendingOrder,
-  isTransportPending,
-  type AccountOrderCategoryOptions,
 } from "@/components/portal/account/accountOrderUtils";
 
-export type FinanceOrderTabCategory =
-  | "all"
-  | "pending_admin_approval"
-  | "due_sheet_pending"
-  | "pending_finance_approval"
-  | "pending_account_approval"
-  | "open_dispatched"
-  | "transport_pending"
-  | "return_pending"
-  | "closed_delivered"
-  | "on_hold"
-  | "cancelled"
-  | "rejected";
+export type FinanceOrderTabCategory = OrderWorkflowTabCategory;
 
-export type FinanceOrderCategoryOptions = AccountOrderCategoryOptions;
+export type FinanceOrderCategoryOptions = OrderWorkflowCategoryOptions;
 
 export { buildPendingReturnOrderIds };
 export {
@@ -39,38 +34,9 @@ export {
   pendingApprovalStageLabel,
 };
 
-export const FINANCE_ORDER_TABS: ReadonlyArray<{
-  id: FinanceOrderTabCategory;
-  label: string;
-}> = [
-  { id: "all", label: "All Orders" },
-  { id: "pending_admin_approval", label: "Admin Pending" },
-  { id: "due_sheet_pending", label: "Due Sheet Pending" },
-  { id: "pending_finance_approval", label: "Finance Pending" },
-  { id: "pending_account_approval", label: "Account Pending" },
-  { id: "open_dispatched", label: "Dispatch Pending" },
-  { id: "transport_pending", label: "Transport Pending" },
-  { id: "return_pending", label: "Return Pending" },
-  { id: "closed_delivered", label: "Closed/Delivered" },
-  { id: "on_hold", label: "On Hold" },
-  { id: "cancelled", label: "Cancelled" },
-  { id: "rejected", label: "Rejected" },
-];
+export const FINANCE_ORDER_TABS = ORDER_WORKFLOW_TABS;
 
-export const FINANCE_ORDER_TAB_LABELS: Record<FinanceOrderTabCategory, string> = {
-  all: "All Orders",
-  pending_admin_approval: "Admin Pending",
-  due_sheet_pending: "Due Sheet Pending",
-  pending_finance_approval: "Finance Pending",
-  pending_account_approval: "Account Pending",
-  open_dispatched: "Dispatch Pending",
-  transport_pending: "Transport Pending",
-  return_pending: "Return Pending",
-  closed_delivered: "Closed/Delivered",
-  on_hold: "On Hold",
-  cancelled: "Cancelled",
-  rejected: "Rejected",
-};
+export const FINANCE_ORDER_TAB_LABELS = ORDER_WORKFLOW_TAB_LABELS;
 
 /**
  * Finance list tab bucket. Draft orders are excluded (return null).
@@ -81,28 +47,7 @@ export function getFinanceOrderTabCategory(
   order: unknown,
   options?: FinanceOrderCategoryOptions,
 ): FinanceOrderTabCategory | null {
-  if (!order || typeof order !== "object") return null;
-  const row = order as Record<string, unknown>;
-  const status = deriveOrderWorkflowStatus(row);
-
-  if (status === "draft") return null;
-
-  if (status === "on_hold") return "on_hold";
-  if (status === "cancelled") return "cancelled";
-  if (status === "finance_rejected") return "rejected";
-
-  if (isReturnPendingOrder(order, options)) return "return_pending";
-  if (isTransportPending(order, options)) return "transport_pending";
-  if (isOrderClosedOrDelivered(row)) return "closed_delivered";
-
-  // Exclusive sequential pipeline: admin → due sheet → finance → account → dispatch.
-  const pending = resolveApprovalPending(row);
-  if (pending.admin) return "pending_admin_approval";
-  if (isDueSheetPending(row)) return "due_sheet_pending";
-  if (pending.finance) return "pending_finance_approval";
-  if (pending.account) return "pending_account_approval";
-
-  return "open_dispatched";
+  return getOrderWorkflowTabCategory(order, options);
 }
 
 /** Whether an order belongs on the given finance list tab. */
@@ -111,51 +56,18 @@ export function orderMatchesFinanceTab(
   tab: FinanceOrderTabCategory,
   options?: FinanceOrderCategoryOptions,
 ): boolean {
-  if (!order || typeof order !== "object") return false;
-
-  if (tab === "all") {
-    return deriveOrderWorkflowStatus(order as Record<string, unknown>) !== "draft";
-  }
-
-  return getFinanceOrderTabCategory(order, options) === tab;
+  return orderMatchesWorkflowTab(order, tab, options);
 }
 
 export function isFinanceOrderTabCategory(value: string): value is FinanceOrderTabCategory {
-  return FINANCE_ORDER_TABS.some((tab) => tab.id === value);
+  return ORDER_WORKFLOW_TABS.some((tab) => tab.id === value);
 }
 
 /** API query for a finance list tab. Client exclusive filter decides membership. */
 export function financeTabQueryParams(
   tab: FinanceOrderTabCategory,
 ): Record<string, string | undefined> {
-  if (tab === "transport_pending" || tab === "return_pending") {
-    return { exclude_status: "draft,on_hold,cancelled,finance_rejected" };
-  }
-
-  switch (tab) {
-    case "all":
-      return { exclude_status: "draft" };
-    case "pending_admin_approval":
-      return { status: "pending_review" };
-    case "due_sheet_pending":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    case "pending_finance_approval":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    case "pending_account_approval":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    case "on_hold":
-      return { status: "on_hold" };
-    case "cancelled":
-      return { status: "cancelled" };
-    case "rejected":
-      return { status: "finance_rejected" };
-    case "open_dispatched":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected,delivered,closed" };
-    case "closed_delivered":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    default:
-      return {};
-  }
+  return workflowTabQueryParams(tab);
 }
 
 /** Map legacy URL tab ids to the current finance tab set. Defaults to Finance Pending. */
@@ -174,6 +86,7 @@ export function normalizeFinanceTabFromUrl(value: string | null): FinanceOrderTa
   if (isFinanceOrderTabCategory(value)) return value;
   return "pending_finance_approval";
 }
+
 
 export type FinanceOrderStats = Record<
   FinanceOrderTabCategory,

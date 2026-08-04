@@ -21,10 +21,97 @@
  * - approval_pending: { admin, finance, account, stage }
  * - due_sheet_uploaded / is_due_sheet_uploaded (sheet OR approval flag)
  */
-
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { hasPendingReturns } from "@/components/portal/shared/returnSettlement";
+import { isReturnPending } from "@/constants/orderReturnStatus";
 
 export type ApprovalPendingStage = "admin" | "finance" | "account" | null;
+
+export type OrderWorkflowCategoryOptions = {
+  pendingReturnOrderIds?: Set<string>;
+  returnsByOrderId?: Map<string, Record<string, unknown>[]>;
+  /** Order ids with ≥1 dispatch batch submitted for transport. */
+  submittedDispatchOrderIds?: Set<string>;
+};
+
+const TRANSPORT_ACTIVE_STATUSES = new Set([
+  "partial_dispatch_created",
+  "full_dispatch_created",
+  "transport_pending",
+  "transport_assigned",
+  "partially_transported",
+  "fully_transported",
+  "in_transit",
+]);
+
+function refId(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    return String(o._id ?? o.id ?? "");
+  }
+  return String(value);
+}
+
+function orderHasPendingReturns(
+  order: Record<string, unknown>,
+  options?: OrderWorkflowCategoryOptions,
+): boolean {
+  const orderId = refId(order._id ?? order.id);
+  if (options?.pendingReturnOrderIds?.has(orderId)) return true;
+  if (options?.returnsByOrderId && orderId) {
+    const rows = options.returnsByOrderId.get(orderId) ?? [];
+    return hasPendingReturns(rows);
+  }
+  return false;
+}
+
+export function isReturnPendingOrder(
+  order: unknown,
+  options?: OrderWorkflowCategoryOptions,
+): boolean {
+  if (!order || typeof order !== "object") return false;
+  const row = order as Record<string, unknown>;
+  const status = deriveOrderWorkflowStatus(row);
+
+  if (status === "draft") return false;
+  if (status === "on_hold") return false;
+  if (status === "cancelled" || status === "finance_rejected") return false;
+
+  return orderHasPendingReturns(row, options);
+}
+
+export function isTransportPending(
+  order: unknown,
+  options?: OrderWorkflowCategoryOptions,
+): boolean {
+  if (!order || typeof order !== "object") return false;
+  const row = order as Record<string, unknown>;
+  const status = deriveOrderWorkflowStatus(row);
+
+  if (status === "on_hold" || status === "cancelled" || status === "finance_rejected") {
+    return false;
+  }
+  if (isOrderClosedOrDelivered(row)) return false;
+
+  const orderId = refId(row._id ?? row.id);
+  if (orderId && options?.submittedDispatchOrderIds?.has(orderId)) {
+    return true;
+  }
+
+  // Status transitions to partial/full_dispatch_created only on submit.
+  if (TRANSPORT_ACTIVE_STATUSES.has(status)) return true;
+
+  // Order-level fulfillment flags after submitted qty left the warehouse bucket.
+  // Require account clearance so approval-stage rows never land here early.
+  if (!isAccountCleared(row)) return false;
+
+  const dispatchStatus = String(row.dispatch_status || "").toLowerCase();
+  if (dispatchStatus === "partial" || dispatchStatus === "completed") return true;
+
+  return false;
+}
+
 
 export type ApprovalPendingSummary = {
   admin: boolean;
@@ -359,6 +446,8 @@ export type OrderWorkflowTabCategory =
   | "pending_finance_approval"
   | "pending_account_approval"
   | "open_dispatched"
+  | "transport_pending"
+  | "return_pending"
   | "closed_delivered"
   | "on_hold"
   | "cancelled"
@@ -374,6 +463,8 @@ export const ORDER_WORKFLOW_TABS: ReadonlyArray<{
   { id: "pending_finance_approval", label: "Finance Pending" },
   { id: "pending_account_approval", label: "Account Pending" },
   { id: "open_dispatched", label: "Dispatch Pending" },
+  { id: "transport_pending", label: "Transport Pending" },
+  { id: "return_pending", label: "Return Pending" },
   { id: "closed_delivered", label: "Closed/Delivered" },
   { id: "on_hold", label: "On Hold" },
   { id: "cancelled", label: "Cancelled" },
@@ -387,6 +478,8 @@ export const ORDER_WORKFLOW_TAB_LABELS: Record<OrderWorkflowTabCategory, string>
   pending_finance_approval: "Finance Pending",
   pending_account_approval: "Account Pending",
   open_dispatched: "Dispatch Pending",
+  transport_pending: "Transport Pending",
+  return_pending: "Return Pending",
   closed_delivered: "Closed/Delivered",
   on_hold: "On Hold",
   cancelled: "Cancelled",
@@ -438,10 +531,13 @@ export function isDueSheetPending(order: unknown): boolean {
 }
 
 /**
- * Exclusive tab bucket (before transport/return overlays in portal utils):
- * admin → due sheet → finance → account → dispatch
+ * Exclusive tab bucket:
+ * terminal → return → transport → closed → approvals → dispatch pending.
  */
-export function getOrderWorkflowTabCategory(order: unknown): OrderWorkflowTabCategory | null {
+export function getOrderWorkflowTabCategory(
+  order: unknown,
+  options?: OrderWorkflowCategoryOptions,
+): OrderWorkflowTabCategory | null {
   const row = asRow(order);
   if (!row) return null;
   const status = deriveOrderWorkflowStatus(row);
@@ -450,6 +546,9 @@ export function getOrderWorkflowTabCategory(order: unknown): OrderWorkflowTabCat
   if (status === "on_hold") return "on_hold";
   if (status === "cancelled") return "cancelled";
   if (status === "finance_rejected" || status === "account_rejected") return "rejected";
+
+  if (isReturnPendingOrder(order, options)) return "return_pending";
+  if (isTransportPending(order, options)) return "transport_pending";
   if (isOrderClosedOrDelivered(row)) return "closed_delivered";
 
   const pending = resolveApprovalPending(row);
@@ -464,6 +563,7 @@ export function getOrderWorkflowTabCategory(order: unknown): OrderWorkflowTabCat
 export function orderMatchesWorkflowTab(
   order: unknown,
   tab: OrderWorkflowTabCategory,
+  options?: OrderWorkflowCategoryOptions,
 ): boolean {
   const row = asRow(order);
   if (!row) return false;
@@ -472,7 +572,7 @@ export function orderMatchesWorkflowTab(
     return deriveOrderWorkflowStatus(row) !== "draft";
   }
 
-  return getOrderWorkflowTabCategory(order) === tab;
+  return getOrderWorkflowTabCategory(order, options) === tab;
 }
 
 export function isOrderWorkflowTabCategory(value: string): value is OrderWorkflowTabCategory {
@@ -492,6 +592,10 @@ export function normalizeWorkflowTabFromUrl(
   if (value === "closed") return "closed_delivered";
   if (value === "pending_approvals") return "all";
   if (value === "pending_approval") return "pending_finance_approval";
+  if (value === "transport_return_pending" || value === "pending_transport" || value === "pending_delivery") {
+    return "transport_pending";
+  }
+  if (value === "returns_pending") return "return_pending";
   if (isOrderWorkflowTabCategory(value)) return value;
   return defaultTab;
 }
@@ -500,6 +604,10 @@ export function normalizeWorkflowTabFromUrl(
 export function workflowTabQueryParams(
   tab: OrderWorkflowTabCategory,
 ): Record<string, string | undefined> {
+  if (tab === "transport_pending" || tab === "return_pending") {
+    return { exclude_status: "draft,on_hold,cancelled,finance_rejected" };
+  }
+
   switch (tab) {
     case "all":
       return { exclude_status: "draft" };

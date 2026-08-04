@@ -58,7 +58,7 @@ module.exports = {
   /** Microsoft Graph API Configuration */
   MICROSOFT_GRAPH_TENANT_ID: process.env.MICROSOFT_GRAPH_TENANT_ID || 'ac9e9d17-f0fa-460d-884c-b224bdf5dd2b',
   MICROSOFT_GRAPH_CLIENT_ID: process.env.MICROSOFT_GRAPH_CLIENT_ID || 'cbfd8576-263d-4b3f-9e9d-4f2a6ba0c703',
-  MICROSOFT_GRAPH_CLIENT_SECRET: process.env.MICROSOFT_GRAPH_CLIENT_SECRET || '',
+  MICROSOFT_GRAPH_CLIENT_SECRET: process.env.MICROSOFT_GRAPH_CLIENT_SECRET,
   MICROSOFT_GRAPH_SENDER_EMAIL: process.env.MICROSOFT_GRAPH_SENDER_EMAIL || 'it@spspl.com',
 
   /** WhatsApp Cloud API Configuration */
