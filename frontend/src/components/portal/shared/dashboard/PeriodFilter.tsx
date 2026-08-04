@@ -66,7 +66,7 @@ function MultiSelectMenu({
       </button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-1.5 w-40 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-slate-900">
+        <div className="absolute right-0 z-50 mt-1.5 w-40 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-slate-900">
           <div className="border-b border-slate-100 px-3 py-2 text-2xs font-semibold uppercase tracking-wide text-slate-400 dark:border-white/5">
             Select {label.toLowerCase()}
           </div>
