@@ -503,9 +503,9 @@ export default function AdminOverview() {
         />
       </div>
 
-      {/* KPI METRICS WIDGETS */}
       <OverviewWidgets
-        orders={filteredOrders}
+        orders={orders}
+        filteredOrders={filteredOrders}
         isOrdersFetching={isOrdersFetching}
         categoryOptions={categoryOptions}
         role="admin"

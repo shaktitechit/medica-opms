@@ -719,7 +719,8 @@ export default function AccountOverview() {
       </div>
 
       <OverviewWidgets
-        orders={filteredOrders}
+        orders={orders}
+        filteredOrders={filteredOrders}
         isOrdersFetching={isOrdersFetching}
         categoryOptions={categoryOptions}
         role="account"

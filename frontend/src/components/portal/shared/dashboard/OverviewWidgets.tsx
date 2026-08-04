@@ -58,6 +58,7 @@ import {
 
 interface OverviewWidgetsProps {
   orders: any[];
+  filteredOrders: any[];
   isOrdersFetching: boolean;
   categoryOptions?: any;
   role: "sales" | "admin" | "super_admin" | "finance" | "dispatch" | "account";
@@ -205,7 +206,7 @@ const WIDGET_META: Record<
   },
   rejected: {
     accent: "bg-red-500",
-    labelTone: "text-red-500 dark:text-red-400",
+    labelTone: "text-red-550 dark:text-red-400",
     iconWrap: "bg-red-50 dark:bg-red-950/30",
     iconTone: "text-red-600 dark:text-red-400",
     Icon: XCircle,
@@ -228,6 +229,7 @@ function formatMoney(v: number): string {
 
 export default function OverviewWidgets({
   orders,
+  filteredOrders,
   isOrdersFetching,
   categoryOptions,
   role,
@@ -264,7 +266,7 @@ export default function OverviewWidgets({
     let inTransitSum = 0;
     let inTransitVal = 0;
 
-    for (const o of orders) {
+    for (const o of filteredOrders) {
       if (!o || typeof o !== "object") continue;
       const status = deriveOrderWorkflowStatus(o);
       const isDeleted = (o as any).is_deleted === true || (o as any).isDeleted === true || (o as any).deletedAt != null;
