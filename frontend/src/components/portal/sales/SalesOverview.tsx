@@ -22,6 +22,7 @@ import {
   buildPendingReturnOrderIds,
   filterOrdersForSalesUser,
 } from "@/components/portal/sales/orderUtils";
+import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
 import {
   buildPartyNameById,
   pickList,
@@ -80,6 +81,16 @@ export default function SalesOverview() {
     setCustomDateTo,
     filteredOrders,
   } = usePeriodFilter(orders);
+
+  const filterCaption = useMemo(() => {
+    return formatPeriodCaption(
+      dateFilter,
+      customDateFrom,
+      customDateTo,
+      selectedYears,
+      selectedMonths
+    );
+  }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
 
   const pendingReturnOrderIds = useMemo(
     () => buildPendingReturnOrderIds(pickList(returnsData)),
@@ -199,12 +210,14 @@ export default function SalesOverview() {
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           forceMetric="quantity"
+          externalFilterCaption={filterCaption}
         />
         <PartyLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
           forceMetric="quantity"
+          externalFilterCaption={filterCaption}
         />
       </div>
 
@@ -215,6 +228,7 @@ export default function SalesOverview() {
           forceMetric="quantity"
           forceSalesUserId={user?._id || user?.id ? String(user?._id || user?.id) : undefined}
           forceSalesUserName={userName}
+          externalFilterCaption={filterCaption}
         />
       </div>
     </div>

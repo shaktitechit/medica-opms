@@ -12,6 +12,7 @@ import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashb
 import FeaturedProductGroupZoneTable from "@/components/portal/shared/dashboard/FeaturedProductGroupZoneTable";
 import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/shared/dashboard/FeaturedProductGroupFeaturedPartyTable";
 import { buildPendingReturnOrderIds } from "@/components/portal/admin/adminOrderUtils";
+import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
 import {
   useGetDashboardSuperQuery,
   useListOrderReturnsQuery,
@@ -69,6 +70,16 @@ export default function SuperAdminOverview() {
     setCustomDateTo,
     filteredOrders,
   } = usePeriodFilter(orders);
+
+  const filterCaption = useMemo(() => {
+    return formatPeriodCaption(
+      dateFilter,
+      customDateFrom,
+      customDateTo,
+      selectedYears,
+      selectedMonths
+    );
+  }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
 
   const pendingReturnOrderIds = useMemo(
     () => buildPendingReturnOrderIds(pickList(returnsData)),
@@ -190,16 +201,19 @@ export default function SuperAdminOverview() {
         <ProductLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
+          externalFilterCaption={filterCaption}
         />
         <PartyLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
+          externalFilterCaption={filterCaption}
         />
         <SalesLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           userNameById={userNameById}
+          externalFilterCaption={filterCaption}
         />
       </div>
 
@@ -207,14 +221,17 @@ export default function SuperAdminOverview() {
         <FeaturedProductGroupSalesUserTable
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
+          externalFilterCaption={filterCaption}
         />
         <FeaturedProductGroupZoneTable
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
+          externalFilterCaption={filterCaption}
         />
         <FeaturedProductGroupFeaturedPartyTable
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
+          externalFilterCaption={filterCaption}
         />
       </div>
     </div>

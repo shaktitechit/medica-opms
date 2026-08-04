@@ -16,6 +16,7 @@ import {
   buildPendingReturnOrderIds,
   computeAdminOrderStats,
 } from "./adminOrderUtils";
+import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
 import {
   useGetDashboardAdminQuery,
   useGetWorkPlanStatsQuery,
@@ -120,6 +121,16 @@ export default function AdminOverview() {
     setCustomDateTo,
     filteredOrders,
   } = usePeriodFilter(orders);
+
+  const filterCaption = useMemo(() => {
+    return formatPeriodCaption(
+      dateFilter,
+      customDateFrom,
+      customDateTo,
+      selectedYears,
+      selectedMonths
+    );
+  }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
 
   const pendingReturnOrderIds = useMemo(
     () => buildPendingReturnOrderIds(pickList(returnsData)),
@@ -516,16 +527,19 @@ export default function AdminOverview() {
         <ProductLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
+          externalFilterCaption={filterCaption}
         />
         <PartyLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
+          externalFilterCaption={filterCaption}
         />
         <SalesLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           userNameById={userNameById}
+          externalFilterCaption={filterCaption}
         />
       </div>
 
@@ -533,14 +547,17 @@ export default function AdminOverview() {
         <FeaturedProductGroupSalesUserTable
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
+          externalFilterCaption={filterCaption}
         />
         <FeaturedProductGroupZoneTable
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
+          externalFilterCaption={filterCaption}
         />
         <FeaturedProductGroupFeaturedPartyTable
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
+          externalFilterCaption={filterCaption}
         />
       </div>
     </div>

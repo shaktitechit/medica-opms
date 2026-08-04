@@ -232,7 +232,7 @@ export function UnbilledOrdersModal({
                   Un Billed Orders
                 </h2>
                 <p className="mt-0.5 text-2xs text-slate-500 dark:text-slate-400">
-                  Fully approved with dispatch created &amp; submitted — qty still below approved
+                  Fully approved — dispatch quantity still below approved
                   {!busy && filtered.length > 0
                     ? ` · ${filtered.length} order${filtered.length === 1 ? "" : "s"} · ${lineCount} item${lineCount === 1 ? "" : "s"}`
                     : ""}
@@ -298,7 +298,7 @@ export function UnbilledOrdersModal({
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 {unbilledOrders.length === 0
-                  ? "No fully approved orders have a created & submitted dispatch with qty still below approved."
+                  ? "No fully approved orders have a dispatch quantity still below approved."
                   : "No orders match your search."}
               </p>
             </div>

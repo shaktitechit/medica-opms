@@ -11,6 +11,26 @@ interface PeriodHeadingCaptionProps {
   className?: string;
 }
 
+export function formatPeriodCaption(
+  dateFilter?: string,
+  customDateFrom: string = "",
+  customDateTo: string = "",
+  selectedYears: number[] = [],
+  selectedMonths?: number[],
+): string {
+  if (dateFilter && dateFilter !== "all") {
+    if (dateFilter === "custom") {
+      const fromStr = customDateFrom || "Start";
+      const toStr = customDateTo || "End";
+      return `${fromStr} to ${toStr}`;
+    } else {
+      return DATE_FILTER_OPTIONS.find((opt) => opt.id === dateFilter)?.label ?? dateFilter;
+    }
+  } else {
+    return formatPeriodLabel(selectedYears, selectedMonths);
+  }
+}
+
 /** Shows the active year/month filter under a report title. */
 export default function PeriodHeadingCaption({
   selectedYears,
@@ -20,18 +40,7 @@ export default function PeriodHeadingCaption({
   customDateTo = "",
   className = "",
 }: PeriodHeadingCaptionProps) {
-  let label = "";
-  if (dateFilter !== "all") {
-    if (dateFilter === "custom") {
-      const fromStr = customDateFrom || "Start";
-      const toStr = customDateTo || "End";
-      label = `${fromStr} to ${toStr}`;
-    } else {
-      label = DATE_FILTER_OPTIONS.find((opt) => opt.id === dateFilter)?.label ?? dateFilter ?? "";
-    }
-  } else {
-    label = formatPeriodLabel(selectedYears, selectedMonths);
-  }
+  const label = formatPeriodCaption(dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths);
 
   if (!label) return null;
 

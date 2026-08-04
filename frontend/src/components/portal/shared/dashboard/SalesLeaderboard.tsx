@@ -18,6 +18,7 @@ interface SalesLeaderboardProps {
   isOrdersFetching: boolean;
   userNameById: Record<string, string>;
   disableInternalFilter?: boolean;
+  externalFilterCaption?: string;
 }
 
 import {
@@ -42,6 +43,7 @@ export default function SalesLeaderboard({
   isOrdersFetching,
   userNameById,
   disableInternalFilter = true,
+  externalFilterCaption,
 }: SalesLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
   const [metric, setMetric] = useState<Metric>("quantity");
@@ -204,10 +206,20 @@ export default function SalesLeaderboard({
                   <h3 className="font-bold text-slate-900 dark:text-slate-100 font-sans">
                     Top 5 Sales Persons
                   </h3>
-                  <PeriodHeadingCaption
-                    selectedYears={selectedYears}
-                    selectedMonths={selectedMonths}
-                  />
+                  {disableInternalFilter && externalFilterCaption ? (
+                    <p className="mt-0.5 text-xs font-medium leading-snug text-slate-500 dark:text-slate-400">
+                      <span className="font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-505">
+                        Period
+                      </span>
+                      <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
+                      <span>{externalFilterCaption}</span>
+                    </p>
+                  ) : (
+                    <PeriodHeadingCaption
+                      selectedYears={selectedYears}
+                      selectedMonths={selectedMonths}
+                    />
+                  )}
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -293,10 +305,20 @@ export default function SalesLeaderboard({
                     <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
                       {breakdownTitle}
                     </h3>
-                    <PeriodHeadingCaption
-                      selectedYears={selectedYears}
-                      selectedMonths={selectedMonths}
-                    />
+                    {disableInternalFilter && externalFilterCaption ? (
+                      <p className="mt-0.5 text-xs font-medium leading-snug text-slate-500 dark:text-slate-400">
+                        <span className="font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-505">
+                          Period
+                        </span>
+                        <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
+                        <span>{externalFilterCaption}</span>
+                      </p>
+                    ) : (
+                      <PeriodHeadingCaption
+                        selectedYears={selectedYears}
+                        selectedMonths={selectedMonths}
+                      />
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

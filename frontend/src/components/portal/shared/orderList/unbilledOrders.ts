@@ -265,8 +265,6 @@ export function isUnbilledOrder(
 
   const { approved, submittedDispatch } = orderUnbilledQuantityTotals(row, options);
   if (approved <= 0) return false;
-  // Must have OrderDispatch created and submitted (not merely draft).
-  if (submittedDispatch <= 0) return false;
   return submittedDispatch < approved;
 }
 
