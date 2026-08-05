@@ -6,6 +6,7 @@ import {
 } from "@/components/portal/shared/orderLineQuantities";
 import {
   isDueSheetPending,
+  isOrderClosedOrDelivered,
   resolveApprovalPending,
 } from "@/components/portal/shared/orderList/orderWorkflowTabs";
 
@@ -71,13 +72,17 @@ function resolveProductLabel(line: Record<string, unknown>): {
 }
 
 /**
- * Sum dispatched qty on a single OrderDispatch document's items.
+ * Sum dispatched qty on a single OrderDispatch document's items if it is billed.
  */
 export function dispatchSubmittedQuantity(dispatch: unknown): number {
   if (!dispatch || typeof dispatch !== "object") return 0;
   const row = dispatch as Record<string, unknown>;
   const status = String(row.dispatch_status ?? row.status ?? "").toLowerCase();
   if (!SUBMITTED_DISPATCH_STATUSES.has(status)) return 0;
+  
+  // If the dispatch does not have a bill number, it is not billed.
+  if (!row.bill_number || String(row.bill_number).trim() === "") return 0;
+
   const items = Array.isArray(row.dispatch_items)
     ? row.dispatch_items
     : Array.isArray(row.items)
@@ -92,7 +97,7 @@ export function dispatchSubmittedQuantity(dispatch: unknown): number {
   return total;
 }
 
-/** Build orderId → qty map from OrderDispatch list (submitted / transport_created only). */
+/** Build orderId → qty map from OrderDispatch list (submitted / transport_created and billed only). */
 export function buildSubmittedDispatchQtyByOrderId(
   dispatches: unknown[],
 ): Map<string, number> {
@@ -110,7 +115,7 @@ export function buildSubmittedDispatchQtyByOrderId(
 }
 
 /**
- * Build `${orderId}:${orderItemId}` → submitted dispatch qty from created+submitted batches.
+ * Build `${orderId}:${orderItemId}` → submitted dispatch qty from created+submitted and billed batches.
  */
 export function buildSubmittedDispatchQtyByOrderLineId(
   dispatches: unknown[],
@@ -121,6 +126,10 @@ export function buildSubmittedDispatchQtyByOrderLineId(
     const row = raw as Record<string, unknown>;
     const status = String(row.dispatch_status ?? row.status ?? "").toLowerCase();
     if (!SUBMITTED_DISPATCH_STATUSES.has(status)) continue;
+    
+    // If the dispatch does not have a bill number, it is not billed.
+    if (!row.bill_number || String(row.bill_number).trim() === "") continue;
+
     const orderId = refId(row.order);
     if (!orderId) continue;
     const items = Array.isArray(row.dispatch_items)
@@ -142,14 +151,6 @@ export function buildSubmittedDispatchQtyByOrderLineId(
   return map;
 }
 
-/**
- * Unbilled orders sit outside workflow tabs.
- *
- * Criteria:
- * 1. Cleared Admin → Due Sheet → Finance → Account
- * 2. At least one OrderDispatch created and submitted
- * 3. That submitted dispatch qty is still less than approved qty
- */
 export function orderApprovedQuantity(order: unknown): number {
   if (!order || typeof order !== "object") return 0;
   const row = order as Record<string, unknown>;
@@ -161,7 +162,8 @@ export function orderApprovedQuantity(order: unknown): number {
     const q = lineApprovalQuantities(raw as Record<string, unknown>, {
       accountApprovalStatus: accountStatus,
     });
-    approved += q.accountCleared > 0 ? q.accountCleared : q.financeApproved;
+    const qty = q.accountCleared > 0 ? q.accountCleared : (q.financeApproved > 0 ? q.financeApproved : (q.salesApproved > 0 ? q.salesApproved : q.ordered));
+    approved += qty;
   }
   return approved;
 }
@@ -171,7 +173,7 @@ export function orderUnbilledQuantityTotals(
   options?: UnbilledOrderOptions,
 ): {
   approved: number;
-  /** Qty from created+submitted OrderDispatch batches (not drafts). */
+  /** Qty from billed OrderDispatch batches with status submitted / transport_created. */
   submittedDispatch: number;
 } {
   const approved = orderApprovedQuantity(order);
@@ -208,14 +210,15 @@ export function listUnbilledOrderLines(
     if (!orderItemId) continue;
 
     const q = lineApprovalQuantities(line, { accountApprovalStatus: accountStatus });
-    const approved = q.accountCleared > 0 ? q.accountCleared : q.financeApproved;
+    const approved = q.accountCleared > 0 ? q.accountCleared : (q.financeApproved > 0 ? q.financeApproved : (q.salesApproved > 0 ? q.salesApproved : q.ordered));
     if (approved <= 0) continue;
 
     const lineKey = orderLineKey(orderId, orderItemId);
     const submittedDispatch =
       options?.submittedDispatchQtyByOrderLineId?.get(lineKey) ?? 0;
+    
+    // Remaining unbilled qty is approved - billed dispatch quantity
     const remaining = Math.max(0, approved - submittedDispatch);
-    // Only lines that still need dispatch (unbilled / pending qty).
     if (remaining <= 0) continue;
 
     const { id: productId, name, sku } = resolveProductLabel(line);
@@ -239,7 +242,7 @@ function hasClearedDepartmentApproval(statusValue: unknown): boolean {
   return s === "full" || s === "approved" || s === "partial";
 }
 
-/** True when fully approved, has submitted OrderDispatch, and that qty &lt; approved. */
+/** True when fully approved or pending approval, and has unbilled quantity (billed quantity < approved quantity). */
 export function isUnbilledOrder(
   order: unknown,
   options?: UnbilledOrderOptions,
@@ -252,19 +255,26 @@ export function isUnbilledOrder(
     status === "draft" ||
     status === "cancelled" ||
     status === "finance_rejected" ||
-    status === "on_hold"
+    status === "on_hold" ||
+    status === "transport_pending" ||
+    status === "transport_assigned" ||
+    status === "partially_transported" ||
+    status === "fully_transported" ||
+    status === "in_transit" ||
+    status === "partial_dispatch_created" ||
+    status === "full_dispatch_created"
   ) {
     return false;
   }
 
-  const pending = resolveApprovalPending(row);
-  if (pending.admin) return false;
-  if (isDueSheetPending(row)) return false;
-  if (!hasClearedDepartmentApproval(row.finance_approval_status)) return false;
-  if (!hasClearedDepartmentApproval(row.account_approval_status)) return false;
+  if (isOrderClosedOrDelivered(row)) {
+    return false;
+  }
 
   const { approved, submittedDispatch } = orderUnbilledQuantityTotals(row, options);
   if (approved <= 0) return false;
+  
+  // The order is unbilled if the billed dispatch quantity is less than the approved quantity
   return submittedDispatch < approved;
 }
 

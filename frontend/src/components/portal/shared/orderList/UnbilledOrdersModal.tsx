@@ -14,6 +14,12 @@ import {
   orderUnbilledQuantityTotals,
   type UnbilledOrderLine,
 } from "@/components/portal/shared/orderList/unbilledOrders";
+import {
+  resolveApprovalPending,
+  isDueSheetPending,
+  getOrderWorkflowTabCategory,
+  ORDER_WORKFLOW_TAB_LABELS,
+} from "@/components/portal/shared/orderList/orderWorkflowTabs";
 import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import { useListDispatchesQuery, useListOrdersQuery } from "@/store/api";
@@ -30,8 +36,7 @@ export type UnbilledOrdersModalProps = {
   /** Portal prefix for order detail links, e.g. "/account" */
   portalBasePath: string;
   /**
-   * @deprecated Modal loads its own post-approval order pool when open.
-   * Kept for call-site compatibility; ignored.
+   * @deprecated Modal loads its own pool when open.
    */
   orders?: unknown[];
 };
@@ -47,6 +52,7 @@ type UnbilledOrderView = {
   created: string;
   href: string;
   lines: UnbilledOrderLine[];
+  statusLabel: string;
 };
 
 function pickList(raw: unknown): unknown[] {
@@ -116,6 +122,22 @@ export function UnbilledOrdersModal({
       const orderId = orderKey(o);
       const orderNo = String(o.order_no ?? o.order_number ?? orderId ?? "—");
       const { approved, submittedDispatch } = orderUnbilledQuantityTotals(o, categoryOptions);
+      
+      const pending = resolveApprovalPending(o);
+      let statusLabel = "Approved";
+      if (pending.admin) {
+        statusLabel = "Admin Pending";
+      } else if (isDueSheetPending(o)) {
+        statusLabel = "Due Sheet Pending";
+      } else if (pending.finance) {
+        statusLabel = "Finance Pending";
+      } else if (pending.account) {
+        statusLabel = "Account Pending";
+      } else {
+        const cat = getOrderWorkflowTabCategory(o);
+        statusLabel = cat ? (ORDER_WORKFLOW_TAB_LABELS[cat] ?? "Approved") : "Approved";
+      }
+
       return {
         orderId,
         orderNo,
@@ -127,6 +149,7 @@ export function UnbilledOrdersModal({
         created: formatDateShort(o.order_date ?? o.created_at ?? o.createdAt),
         href: orderId ? `${portalBasePath}/order/${orderId}` : portalBasePath,
         lines: listUnbilledOrderLines(o, categoryOptions),
+        statusLabel,
       };
     });
   }, [unbilledOrders, partyNameById, categoryOptions, portalBasePath]);
@@ -313,6 +336,9 @@ export function UnbilledOrdersModal({
                     Party
                   </th>
                   <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
+                    Status
+                  </th>
+                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
                     Qty (approved / dispatch submitted)
                   </th>
                   <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
@@ -341,6 +367,15 @@ export function UnbilledOrdersModal({
                       </td>
                       <td className="px-4 py-2.5 font-medium text-slate-700 dark:text-slate-300">
                         {view.party}
+                      </td>
+                      <td className="px-4 py-2.5 font-medium text-slate-700 dark:text-slate-300">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-bold uppercase tracking-wider ring-1 ring-inset ${
+                          view.statusLabel.includes("Pending")
+                            ? "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400"
+                            : "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-955/30 dark:text-emerald-400"
+                        }`}>
+                          {view.statusLabel}
+                        </span>
                       </td>
                       <td className="px-4 py-2.5 tabular-nums font-semibold text-slate-700 dark:text-slate-300">
                         {view.approved} / {view.submittedDispatch}
@@ -373,6 +408,7 @@ export function UnbilledOrdersModal({
                             <div className="text-2xs text-slate-400">SKU {line.sku}</div>
                           ) : null}
                         </td>
+                        <td className="px-4 py-2 text-slate-400">—</td>
                         <td className="px-4 py-2 text-slate-400">—</td>
                         <td className="px-4 py-2 tabular-nums text-slate-600 dark:text-slate-400">
                           {line.approved} / {line.submittedDispatch}
