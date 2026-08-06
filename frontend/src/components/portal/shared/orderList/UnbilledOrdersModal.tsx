@@ -26,7 +26,7 @@ import { useListDispatchesQuery, useListOrdersQuery } from "@/store/api";
 
 /** Broad pool for unbilled candidates — not scoped to the current workflow tab. */
 const UNBILLED_LIST_PARAMS: Record<string, string> = {
-  exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected",
+  exclude_status: "draft,on_hold,cancelled,finance_rejected",
 };
 
 export type UnbilledOrdersModalProps = {

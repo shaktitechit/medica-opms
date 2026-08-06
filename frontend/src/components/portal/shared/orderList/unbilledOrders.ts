@@ -255,14 +255,7 @@ export function isUnbilledOrder(
     status === "draft" ||
     status === "cancelled" ||
     status === "finance_rejected" ||
-    status === "on_hold" ||
-    status === "transport_pending" ||
-    status === "transport_assigned" ||
-    status === "partially_transported" ||
-    status === "fully_transported" ||
-    status === "in_transit" ||
-    status === "partial_dispatch_created" ||
-    status === "full_dispatch_created"
+    status === "on_hold"
   ) {
     return false;
   }
