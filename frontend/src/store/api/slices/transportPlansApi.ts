@@ -439,9 +439,11 @@ export const transportPlansApi = medicaApi.injectEndpoints({
 
 export const {
   useListTransportPlansQuery,
+  useLazyListTransportPlansQuery,
   useGetTransportPlanStatsQuery,
   useListEligibleTransportOrdersQuery,
   useGetTransportPlanQuery,
+  useLazyGetTransportPlanQuery,
   useCreateTransportPlanMutation,
   usePatchTransportPlanMutation,
   useDeleteTransportPlanMutation,

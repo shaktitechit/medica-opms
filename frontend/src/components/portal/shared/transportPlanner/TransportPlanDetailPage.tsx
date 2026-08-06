@@ -114,9 +114,16 @@ export default function TransportPlanDetailPage({
         ? params.portal[0]
         : "account";
   const base = portalHome || `/${rawPortal}`;
-  const dept = user?.department || rawPortal;
-  const isPlanner = ["account", "admin", "super_admin"].includes(String(dept));
-  const isExecutor = ["dispatch", "admin", "super_admin"].includes(String(dept));
+  const userDept = String(user?.department || "").toLowerCase();
+  const portalName = String(rawPortal || "").toLowerCase();
+
+  const isPlanner =
+    ["account", "admin", "super_admin"].includes(userDept) ||
+    (["account", "admin", "super_admin"].includes(portalName) && userDept !== "dispatch");
+
+  const isExecutor =
+    ["dispatch", "super_admin"].includes(userDept) ||
+    (["dispatch", "super_admin"].includes(portalName) && !["account", "admin"].includes(userDept));
 
   const { data, isLoading, isFetching, isError, refetch } =
     useGetTransportPlanQuery(planId);
@@ -284,30 +291,34 @@ export default function TransportPlanDetailPage({
 
         <div className="flex flex-wrap items-center gap-2">
           {isPlanner && canEditPlan(data?.status) ? (
-            <>
-              <Link
-                href={`${base}/transport-planner/${planId}/edit`}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/5"
-              >
-                Edit
-              </Link>
-              <button
-                type="button"
-                onClick={() =>
-                  void runAction(
-                    () => submitPlan(planId).unwrap(),
-                    "Plan submitted to Dispatch"
-                  )
-                }
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
-              >
-                <Send className="h-3.5 w-3.5" />
-                Submit
-              </button>
-            </>
+            <Link
+              href={`${base}/transport-planner/${planId}/edit`}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/5"
+            >
+              Edit
+            </Link>
           ) : null}
 
-          {isPlanner && data?.status !== "completed" && data?.status !== "cancelled" ? (
+          {isPlanner && (data?.status === "planned" || data?.status === "draft") ? (
+            <button
+              type="button"
+              onClick={() =>
+                void runAction(
+                  () => submitPlan(planId).unwrap(),
+                  "Plan submitted to Dispatch"
+                )
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+            >
+              <Send className="h-3.5 w-3.5" />
+              Submit
+            </button>
+          ) : null}
+
+          {isPlanner &&
+          data?.status !== "completed" &&
+          data?.status !== "cancelled" &&
+          !orders.some((line) => hasActiveTransport(line)) ? (
             <button
               type="button"
               onClick={() => setCancelOpen(true)}

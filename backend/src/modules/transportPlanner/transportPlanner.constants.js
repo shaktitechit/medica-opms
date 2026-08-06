@@ -26,7 +26,7 @@ const ACTIVE_PLAN_STATUSES = Object.freeze(['draft', 'planned', 'submitted', 'in
 /** Line statuses that block the same order from another plan. */
 const ACTIVE_PLAN_ORDER_STATUSES = Object.freeze(['pending', 'packed', 'dispatched']);
 
-const EDITABLE_PLAN_STATUSES = Object.freeze(['draft', 'planned']);
+const EDITABLE_PLAN_STATUSES = Object.freeze(['draft', 'planned', 'submitted']);
 
 const TERMINAL_PLAN_STATUSES = Object.freeze(['completed', 'cancelled']);
 

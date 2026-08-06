@@ -15,7 +15,7 @@ import { useGetTransportPlanStatsQuery } from "@/store/api";
 import { formatMoney } from "./transportPlanUtils";
 
 type TransportPlannerStatsWidgetsProps = {
-  portalHome: "/account" | "/dispatch" | "/admin";
+  portalHome: "/account" | "/dispatch" | "/admin" | "/super_admin" | string;
 };
 
 type StatCard = {

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminTabAlertOverride } from "./AdminTabAlert";
 import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/admin/workPlanner/WorkPlannerStatsWidgets";
+import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
 import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
 import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
@@ -19,6 +20,7 @@ import {
 import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
 import {
   useGetDashboardAdminQuery,
+  useGetTransportPlanStatsQuery,
   useGetWorkPlanStatsQuery,
   useListOrderReturnsQuery,
   useListOrdersQuery,
@@ -74,6 +76,11 @@ export default function AdminOverview() {
     isFetching: isWorkPlanStatsFetching,
     refetch: refetchWorkPlanStats,
   } = useGetWorkPlanStatsQuery({});
+
+  const {
+    isFetching: isTransportPlanStatsFetching,
+    refetch: refetchTransportPlanStats,
+  } = useGetTransportPlanStatsQuery({});
 
   const {
     data: ordersData,
@@ -351,6 +358,7 @@ export default function AdminOverview() {
         refetchKpi().unwrap(),
         refetchOrders().unwrap(),
         refetchWorkPlanStats().unwrap(),
+        refetchTransportPlanStats().unwrap(),
       ]);
     } catch (e) {
       // Ignore errors
@@ -363,6 +371,7 @@ export default function AdminOverview() {
     isKpiFetching ||
     isOrdersFetching ||
     isWorkPlanStatsFetching ||
+    isTransportPlanStatsFetching ||
     isRefreshing;
 
   const showEnableBanner =
@@ -517,6 +526,8 @@ export default function AdminOverview() {
       />
 
       <WorkPlannerStatsWidgets portalHome="/admin" />
+
+      <TransportPlannerStatsWidgets portalHome="/admin" />
 
       <MonthlyPerformanceChart
         orders={orders}

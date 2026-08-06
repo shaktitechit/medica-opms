@@ -626,7 +626,7 @@ async function cancel(id, body, user) {
   if (!isAdminDept(user) && !canPlan(user)) {
     throw new ApiError(403, 'Only Accounts or Admin can cancel transport plans');
   }
-  const { TransportPlan, TransportPlanOrder } = getModels();
+  const { TransportPlan, TransportPlanOrder, TransportShipment } = getModels();
   const plan = await TransportPlan.findOne({ _id: id, deletedAt: null });
   if (!plan) throw new ApiError(404, 'Transport plan not found');
   if (plan.status === 'completed') {
@@ -634,6 +634,22 @@ async function cancel(id, body, user) {
   }
   if (plan.status === 'cancelled') {
     throw new ApiError(400, 'Transport plan is already cancelled');
+  }
+
+  const planOrders = await TransportPlanOrder.find({ transport_plan: id, deletedAt: null }).lean();
+  const dispatchIds = planOrders.map((o) => o.dispatch).filter(Boolean);
+  if (dispatchIds.length > 0) {
+    const activeShipments = await TransportShipment.countDocuments({
+      dispatch: { $in: dispatchIds },
+      deletedAt: null,
+      shipment_status: { $ne: 'returned' },
+    });
+    if (activeShipments > 0) {
+      throw new ApiError(
+        400,
+        'Cannot cancel a transport plan after transport has been created for one or more orders'
+      );
+    }
   }
 
   plan.status = 'cancelled';

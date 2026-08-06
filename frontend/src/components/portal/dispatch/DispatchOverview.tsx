@@ -10,6 +10,7 @@ import {
 } from "./dispatchOrderUtils";
 import {
   useGetDashboardDispatchQuery,
+  useGetTransportPlanStatsQuery,
   useListOrdersQuery,
   useListOrderReturnsQuery,
   useNotifyPushMutation,
@@ -53,6 +54,11 @@ export default function DispatchOverview() {
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardDispatchQuery();
+
+  const {
+    isFetching: isTransportPlanStatsFetching,
+    refetch: refetchTransportPlanStats,
+  } = useGetTransportPlanStatsQuery({});
 
   const {
     data: ordersData,
@@ -313,6 +319,7 @@ export default function DispatchOverview() {
         refetchKpi().unwrap(),
         refetchOrders().unwrap(),
         refetchReturns().unwrap(),
+        refetchTransportPlanStats().unwrap(),
       ]);
     } catch {
       // Ignore errors
@@ -322,7 +329,7 @@ export default function DispatchOverview() {
   };
 
   const isAnyLoading =
-    isKpiFetching || isOrdersFetching || isRefreshing;
+    isKpiFetching || isOrdersFetching || isTransportPlanStatsFetching || isRefreshing;
 
   const showEnableBanner =
     hasPendingTransport &&

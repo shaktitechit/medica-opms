@@ -116,6 +116,26 @@ export default function PortalCatchAllPage() {
   if (portal === "admin" && restArr.length === 1 && restArr[0] === "transport-agents") {
     return <ListTransportAgentsPage portalHome="/admin" />;
   }
+  if (portal === "admin" && restArr.length === 1 && restArr[0] === "transport-planner") {
+    return <ListTransportPlansPage portalHome="/admin" />;
+  }
+  if (portal === "admin" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "calendar") {
+    return <TransportPlanCalendarPage portalHome="/admin" />;
+  }
+  if (portal === "admin" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "new") {
+    return <TransportPlanFormPage mode="create" portalHome="/admin" />;
+  }
+  if (
+    portal === "admin" &&
+    restArr.length === 3 &&
+    restArr[0] === "transport-planner" &&
+    restArr[2] === "edit"
+  ) {
+    return <TransportPlanFormPage mode="edit" planId={restArr[1]} portalHome="/admin" />;
+  }
+  if (portal === "admin" && restArr.length === 2 && restArr[0] === "transport-planner") {
+    return <TransportPlanDetailPage planId={restArr[1]} portalHome="/admin" />;
+  }
 
   // ── SALES ────────────────────────────────────────────────────────────────
   if (portal === "sales" && restArr.length === 1 && restArr[0] === "create-order") {
@@ -286,6 +306,26 @@ export default function PortalCatchAllPage() {
   }
   if (portal === "super_admin" && restArr.length === 1 && restArr[0] === "transport-agents") {
     return <ListTransportAgentsPage portalHome="/super_admin" />;
+  }
+  if (portal === "super_admin" && restArr.length === 1 && restArr[0] === "transport-planner") {
+    return <ListTransportPlansPage portalHome="/super_admin" />;
+  }
+  if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "calendar") {
+    return <TransportPlanCalendarPage portalHome="/super_admin" />;
+  }
+  if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "new") {
+    return <TransportPlanFormPage mode="create" portalHome="/super_admin" />;
+  }
+  if (
+    portal === "super_admin" &&
+    restArr.length === 3 &&
+    restArr[0] === "transport-planner" &&
+    restArr[2] === "edit"
+  ) {
+    return <TransportPlanFormPage mode="edit" planId={restArr[1]} portalHome="/super_admin" />;
+  }
+  if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "transport-planner") {
+    return <TransportPlanDetailPage planId={restArr[1]} portalHome="/super_admin" />;
   }
   if (portal === "super_admin" && restArr.length === 2 && restArr[0] === "parties") {
     return <PartyDetailPage id={restArr[1]} portalHome="/super_admin" />;

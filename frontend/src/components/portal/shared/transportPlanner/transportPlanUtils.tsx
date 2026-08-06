@@ -70,11 +70,13 @@ export function orderNoOf(
 }
 
 export function canEditPlan(status: string | undefined): boolean {
-  return status === "planned" || status === "draft";
+  const s = String(status || "").toLowerCase();
+  return s === "planned" || s === "draft" || s === "submitted";
 }
 
 export function canExecutePlan(status: string | undefined): boolean {
-  return status === "submitted" || status === "in_transit";
+  const s = String(status || "").toLowerCase();
+  return s === "submitted" || s === "in_transit";
 }
 
 export function renderPlanStatusBadge(status: string | undefined) {

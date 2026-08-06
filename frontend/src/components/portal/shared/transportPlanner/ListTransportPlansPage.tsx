@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-import { CalendarDays, ExternalLink, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { CalendarDays, Download, ExternalLink, Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { ListEntitySearchPanel } from "@/components/portal/shared/orderList/ListEntitySearchPanel";
@@ -16,6 +16,7 @@ import {
   useListTransportPlansQuery,
 } from "@/store/api";
 import { ConfirmDeleteTransportPlanModal } from "./ConfirmDeleteTransportPlanModal";
+import { DownloadTransportPlansModal } from "./DownloadTransportPlansModal";
 import {
   TRANSPORT_PLAN_STATUS_TABS,
   agentLabel,
@@ -51,6 +52,7 @@ export default function ListTransportPlansPage({
   const [dateTo, setDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
     label: string;
@@ -108,6 +110,14 @@ export default function ListTransportPlansPage({
             <CalendarDays className="h-3.5 w-3.5" />
             Calendar
           </Link>
+          <button
+            type="button"
+            onClick={() => setDownloadOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/5 cursor-pointer"
+          >
+            <Download className="h-3.5 w-3.5 text-slate-500" />
+            Download Plans
+          </button>
           <button
             type="button"
             onClick={() => void refetch()}
@@ -286,6 +296,11 @@ export default function ListTransportPlansPage({
         isDeleting={isDeleting}
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
+      />
+
+      <DownloadTransportPlansModal
+        open={downloadOpen}
+        onClose={() => setDownloadOpen(false)}
       />
     </div>
   );

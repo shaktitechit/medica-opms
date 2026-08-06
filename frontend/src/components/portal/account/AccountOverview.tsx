@@ -18,6 +18,7 @@ import {
 import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
 import {
   useGetDashboardAccountQuery,
+  useGetTransportPlanStatsQuery,
   useListOrderReturnsQuery,
   useListOrdersQuery,
   useListPartiesQuery,
@@ -85,6 +86,11 @@ export default function AccountOverview() {
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardAccountQuery();
+
+  const {
+    isFetching: isTransportPlanStatsFetching,
+    refetch: refetchTransportPlanStats,
+  } = useGetTransportPlanStatsQuery({});
 
   const {
     data: ordersData,
@@ -578,6 +584,7 @@ export default function AccountOverview() {
       await Promise.all([
         refetchKpi().unwrap(),
         refetchOrders().unwrap(),
+        refetchTransportPlanStats().unwrap(),
       ]);
     } catch {
       // Ignore errors
@@ -587,7 +594,7 @@ export default function AccountOverview() {
   };
 
   const isAnyLoading =
-    isKpiFetching || isOrdersFetching || isRefreshing;
+    isKpiFetching || isOrdersFetching || isTransportPlanStatsFetching || isRefreshing;
 
   const showEnableBanner =
     hasAnyPending &&

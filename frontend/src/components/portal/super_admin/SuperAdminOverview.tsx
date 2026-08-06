@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/admin/workPlanner/WorkPlannerStatsWidgets";
+import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
 import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
 import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
@@ -15,6 +16,7 @@ import { buildPendingReturnOrderIds } from "@/components/portal/admin/adminOrder
 import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
 import {
   useGetDashboardSuperQuery,
+  useGetTransportPlanStatsQuery,
   useListOrderReturnsQuery,
   useListOrdersQuery,
   useListPartiesQuery,
@@ -43,6 +45,11 @@ export default function SuperAdminOverview() {
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardSuperQuery();
+
+  const {
+    isFetching: isTransportPlanStatsFetching,
+    refetch: refetchTransportPlanStats,
+  } = useGetTransportPlanStatsQuery({});
 
   const {
     data: ordersData,
@@ -108,6 +115,7 @@ export default function SuperAdminOverview() {
       await Promise.all([
         refetchKpi().unwrap(),
         refetchOrders().unwrap(),
+        refetchTransportPlanStats().unwrap(),
       ]);
     } catch {
       // Ignore errors
@@ -116,7 +124,11 @@ export default function SuperAdminOverview() {
     }
   };
 
-  const isAnyLoading = isKpiFetching || isOrdersFetching || isRefreshing;
+  const isAnyLoading =
+    isKpiFetching ||
+    isOrdersFetching ||
+    isTransportPlanStatsFetching ||
+    isRefreshing;
 
   return (
     <div className="space-y-8 pb-10">
@@ -192,6 +204,8 @@ export default function SuperAdminOverview() {
       />
 
       <WorkPlannerStatsWidgets portalHome={PORTAL_HOME} />
+
+      <TransportPlannerStatsWidgets portalHome={PORTAL_HOME} />
 
       <MonthlyPerformanceChart
         orders={orders}
