@@ -10,14 +10,12 @@ import SalesLeaderboard from "@/components/portal/shared/dashboard/SalesLeaderbo
 import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashboard/FeaturedProductGroupSalesUserTable";
 import FeaturedProductGroupZoneTable from "@/components/portal/shared/dashboard/FeaturedProductGroupZoneTable";
 import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/shared/dashboard/FeaturedProductGroupFeaturedPartyTable";
-import {
-  buildPendingReturnOrderIds,
-  computeFinanceOrderStats,
-} from "./financeOrderUtils";
+import { computeFinanceOrderStats } from "./financeOrderUtils";
 import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
+import { ORDER_WORKFLOW_LIST_QUERY } from "@/components/portal/shared/orderList/orderWorkflowTabs";
+import { useOrderWorkflowCategoryOptions } from "@/components/portal/shared/orderList/useOrderWorkflowCategoryOptions";
 import {
   useGetDashboardFinanceQuery,
-  useListOrderReturnsQuery,
   useListOrdersQuery,
   useListPartiesQuery,
   useListUsersQuery,
@@ -35,10 +33,7 @@ import { toast } from "@/lib/toast";
 import { useAppSelector } from "@/store/hooks";
 import { OverviewFlagsWidget } from "@/components/portal/shared/OverviewFlagsWidget";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import {
-  buildPartyNameById,
-  pickList,
-} from "@/components/portal/sales/partyDisplay";
+import { buildPartyNameById } from "@/components/portal/sales/partyDisplay";
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
 import {
   Bell,
@@ -70,11 +65,11 @@ export default function FinanceOverview() {
     data: ordersData,
     isFetching: isOrdersFetching,
     refetch: refetchOrders,
-  } = useListOrdersQuery({});
+  } = useListOrdersQuery(ORDER_WORKFLOW_LIST_QUERY);
 
-  const { data: returnsData } = useListOrderReturnsQuery({});
   const { data: partiesData } = useListPartiesQuery({});
   const { data: usersData } = useListUsersQuery({ department: "sales" });
+  const categoryOptions = useOrderWorkflowCategoryOptions();
   const [notifyPush] = useNotifyPushMutation();
   const [subscribePush] = useSubscribePushMutation();
 
@@ -124,16 +119,6 @@ export default function FinanceOverview() {
       selectedMonths
     );
   }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
-
-  const pendingReturnOrderIds = useMemo(
-    () => buildPendingReturnOrderIds(pickList(returnsData)),
-    [returnsData],
-  );
-
-  const categoryOptions = useMemo(
-    () => ({ pendingReturnOrderIds }),
-    [pendingReturnOrderIds],
-  );
 
   const orderStats = useMemo(
     () => computeFinanceOrderStats(orders, categoryOptions),

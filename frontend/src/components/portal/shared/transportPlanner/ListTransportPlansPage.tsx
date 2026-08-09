@@ -42,10 +42,10 @@ export default function ListTransportPlansPage({
         ? params.portal[0]
         : "account";
   const base = portalHome || `/${rawPortal}`;
-  const canCreate = rawPortal === "account" || rawPortal === "admin" || rawPortal === "super_admin";
+  const canCreate = rawPortal === "account" || rawPortal === "admin" || rawPortal === "finance" || rawPortal === "super_admin";
   const isDispatch = rawPortal === "dispatch";
 
-  const initialStatus = searchParams.get("status") || "all";
+  const initialStatus = searchParams.get("status") || (isDispatch ? "submitted" : "all");
   const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -266,7 +266,13 @@ export default function ListTransportPlansPage({
       />
 
       <OrderListBottomTabStrip
-        tabs={TRANSPORT_PLAN_STATUS_TABS}
+        tabs={useMemo(
+          () =>
+            isDispatch
+              ? TRANSPORT_PLAN_STATUS_TABS.filter((t) => t.id !== "planned" && (t.id as string) !== "draft")
+              : TRANSPORT_PLAN_STATUS_TABS,
+          [isDispatch]
+        )}
         activeTab={statusFilter}
         onTabChange={(id) => {
           setStatusFilter(id);
@@ -280,12 +286,12 @@ export default function ListTransportPlansPage({
         onPriorityFilterChange={() => {}}
         filterLabel="Status"
         filterOptions={[{ value: "all", label: "All" }]}
-        showReset={Boolean(searchQuery || dateFrom || dateTo || statusFilter !== "all")}
+        showReset={Boolean(searchQuery || dateFrom || dateTo || statusFilter !== (isDispatch ? "submitted" : "all"))}
         onReset={() => {
           setSearchQuery("");
           setDateFrom("");
           setDateTo("");
-          setStatusFilter("all");
+          setStatusFilter(isDispatch ? "submitted" : "all");
           setCurrentPage(1);
         }}
       />

@@ -34,6 +34,16 @@ const DISPATCH_ELIGIBLE_WORKFLOW_STAGES = Object.freeze([
   'dispatch',
 ]);
 
+/** Order-list workflow tabs eligible for transport planning. */
+const ELIGIBLE_ORDER_WORKFLOW_TABS = Object.freeze([
+  'pending_admin_approval',
+  'due_sheet_pending',
+  'pending_finance_approval',
+  'pending_account_approval',
+  'open_dispatched',
+  'transport_pending',
+]);
+
 function startOfDay(dateInput) {
   const d = new Date(dateInput);
   d.setUTCHours(0, 0, 0, 0);
@@ -58,8 +68,12 @@ function isDispatchDept(user) {
   return user && user.department === 'dispatch';
 }
 
+function isFinanceDept(user) {
+  return user && user.department === 'finance';
+}
+
 function canPlan(user) {
-  return isAdminDept(user) || isAccountDept(user);
+  return isAdminDept(user) || isAccountDept(user) || isFinanceDept(user);
 }
 
 function canExecute(user) {
@@ -74,6 +88,7 @@ module.exports = {
   EDITABLE_PLAN_STATUSES,
   TERMINAL_PLAN_STATUSES,
   DISPATCH_ELIGIBLE_WORKFLOW_STAGES,
+  ELIGIBLE_ORDER_WORKFLOW_TABS,
   startOfDay,
   endOfDay,
   isAdminDept,

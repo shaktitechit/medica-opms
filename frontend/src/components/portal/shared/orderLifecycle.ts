@@ -43,8 +43,8 @@ const CURRENT_ACTION_TO_STATUS: Record<string, string> = {
   fully_account_approved: "fully_account_approved",
   rejected: "finance_rejected",
   sent_to_dispatch: "dispatch_pending",
-  partial_dispatch: "partial_dispatch_created",
-  full_dispatch: "full_dispatch_created",
+  partial_dispatch: "dispatch_created",
+  full_dispatch: "dispatch_created",
   partially_transported: "partially_transported",
   fully_transported: "fully_transported",
   transporter_assigned: "transport_assigned",
@@ -53,7 +53,7 @@ const CURRENT_ACTION_TO_STATUS: Record<string, string> = {
   in_transit: "in_transit",
   out_for_delivery: "in_transit",
   delivered: "delivered",
-  return_logged: "partial_dispatch_created",
+  return_logged: "dispatch_created",
   delivery_failed: "partially_transported",
   returned: "partially_transported",
   cancelled: "cancelled",
@@ -88,6 +88,20 @@ export function deriveOrderWorkflowStatus(order: unknown): string {
   if (String(row.status || "") === "closed" || row.closed_at) return "closed";
   if (deliveryStatus === "completed" || lifecycle === "fulfilled") return "delivered";
 
+  // Prefer canonical logistics statuses — do not let workflow_stage=dispatch
+  // collapse in-transit / delivered rows back to finance/account labels.
+  if (
+    legacyStatus === "in_transit" ||
+    legacyStatus === "delivered" ||
+    legacyStatus === "closed" ||
+    legacyStatus === "partially_transported" ||
+    legacyStatus === "fully_transported" ||
+    legacyStatus === "transport_assigned" ||
+    legacyStatus === "transport_pending"
+  ) {
+    return legacyStatus;
+  }
+
   if (action && CURRENT_ACTION_TO_STATUS[action]) {
     return CURRENT_ACTION_TO_STATUS[action];
   }
@@ -111,6 +125,18 @@ export function deriveOrderWorkflowStatus(order: unknown): string {
   if (stage === "account_review") return "account_review";
   // Backend stores stage as `dispatch` after finance; legacy alias is `dispatch_review`.
   if (stage === "dispatch" || stage === "dispatch_review") {
+    if (
+      legacyStatus === "dispatch" ||
+      legacyStatus === "dispatch_pending" ||
+      legacyStatus === "dispatch_created"
+    ) {
+      if (action === "partial_dispatch" || action === "full_dispatch") return "dispatch_created";
+      if (action === "dispatch_created") return "dispatch_created";
+      if (action === "sent_to_dispatch") return "dispatch_pending";
+      if (dispatchStatus === "completed" || dispatchStatus === "partial") return "dispatch_created";
+      if (legacyStatus === "dispatch_created") return "dispatch_created";
+      return legacyStatus === "dispatch" ? "dispatch_pending" : legacyStatus || "dispatch_pending";
+    }
     if (action === "sent_to_dispatch") return "dispatch_pending";
     if (action === "partially_account_approved") return "partially_account_approved";
     if (action === "fully_account_approved") return "fully_account_approved";
@@ -130,8 +156,7 @@ export function deriveOrderWorkflowStatus(order: unknown): string {
     return "fully_finance_approved";
   }
   if (stage === "dispatch_execution") {
-    if (dispatchStatus === "completed") return "full_dispatch_created";
-    if (dispatchStatus === "partial") return "partial_dispatch_created";
+    if (dispatchStatus === "completed" || dispatchStatus === "partial") return "dispatch_created";
     return "partially_transported";
   }
   if (stage === "completed") return "delivered";
@@ -159,7 +184,7 @@ function activeStepIndex(status: string): number | null {
     case "fully_finance_approved":
     case "dispatch_pending":
       return 4;
-    case "partial_dispatch_created":
+    case "dispatch_created":
       return 5;
     case "full_dispatch_created":
     case "transport_pending":

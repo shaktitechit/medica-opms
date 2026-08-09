@@ -10,12 +10,15 @@ import {
   type ApprovalPendingStage,
   type OrderWorkflowTabCategory,
   isTransportPending,
+  isInTransitOrder,
   isReturnPendingOrder,
   type OrderWorkflowCategoryOptions,
   getOrderWorkflowTabCategory,
   orderMatchesWorkflowTab,
   workflowTabQueryParams,
   ORDER_WORKFLOW_TABS,
+  computeOrderWorkflowTabStats,
+  createEmptyOrderWorkflowTabStats,
 } from "@/components/portal/shared/orderList/orderWorkflowTabs";
 import { isReturnPending } from "@/constants/orderReturnStatus";
 
@@ -44,14 +47,18 @@ export { isDueSheetPending };
 
 export type AccountOrderCategoryOptions = OrderWorkflowCategoryOptions;
 
-export { isTransportPending, isReturnPendingOrder };
+export { isTransportPending, isInTransitOrder, isReturnPendingOrder };
 
-/** @deprecated Prefer isTransportPending / isReturnPendingOrder. */
+/** @deprecated Prefer isTransportPending / isInTransitOrder / isReturnPendingOrder. */
 export function isTransportOrReturnPending(
   order: unknown,
   options?: AccountOrderCategoryOptions,
 ): boolean {
-  return isReturnPendingOrder(order, options) || isTransportPending(order, options);
+  return (
+    isReturnPendingOrder(order, options) ||
+    isInTransitOrder(order, options) ||
+    isTransportPending(order, options)
+  );
 }
 
 /**
@@ -118,7 +125,7 @@ export function normalizeAccountTabFromUrl(value: string | null): AccountOrderTa
   if (value === "transport_return_pending" || value === "pending_transport" || value === "pending_delivery") {
     return "transport_pending";
   }
-  if (value === "returns_pending") return "return_pending";
+  if (value === "returns_pending" || value === "return_pending") return "all";
   if (value === "dispatch_pending") return "open_dispatched";
   if (isAccountOrderTabCategory(value)) return value;
   const normalized = normalizeWorkflowTabFromUrl(value, "all");
@@ -131,12 +138,7 @@ export type AccountOrderStats = Record<
 >;
 
 export function createEmptyAccountOrderStats(): AccountOrderStats {
-  return Object.fromEntries(
-    Object.keys(ACCOUNT_ORDER_TAB_LABELS).map((id) => [
-      id,
-      { count: 0, quantity: 0, amount: 0 },
-    ]),
-  ) as AccountOrderStats;
+  return createEmptyOrderWorkflowTabStats();
 }
 
 export function orderLineQuantity(order: unknown): number {
@@ -158,39 +160,11 @@ export function orderLineQuantity(order: unknown): number {
   }, 0);
 }
 
-function orderAmount(order: unknown): number {
-  const row = order as { grand_total?: unknown; total?: unknown };
-  return Number(row.grand_total ?? row.total ?? 0);
-}
-
 export function computeAccountOrderStats(
   orders: unknown[],
   options?: AccountOrderCategoryOptions,
 ): AccountOrderStats {
-  const stats = createEmptyAccountOrderStats();
-
-  for (const order of orders) {
-    if (!order || typeof order !== "object") continue;
-    const row = order as Record<string, unknown>;
-    const status = deriveOrderWorkflowStatus(row);
-    if (status === "draft") continue;
-
-    const qty = orderLineQuantity(order);
-    const amount = orderAmount(order);
-
-    stats.all.count += 1;
-    stats.all.quantity += qty;
-    stats.all.amount += amount;
-
-    const cat = getAccountOrderTabCategory(order, options);
-    if (!cat || cat === "all") continue;
-
-    stats[cat].count += 1;
-    stats[cat].quantity += qty;
-    stats[cat].amount += amount;
-  }
-
-  return stats;
+  return computeOrderWorkflowTabStats(orders, options);
 }
 
 export const ACCOUNT_STATUS_COLORS: Record<
@@ -239,11 +213,11 @@ export const ACCOUNT_STATUS_COLORS: Record<
     dot: "bg-amber-500 dark:bg-amber-400",
     label: "Transport Pending",
   },
-  return_pending: {
-    fill: "fill-rose-500/85 dark:fill-rose-500/60",
-    hover: "fill-rose-600 dark:fill-rose-400",
-    dot: "bg-rose-500 dark:bg-rose-400",
-    label: "Return Pending",
+  in_transit: {
+    fill: "fill-sky-500/85 dark:fill-sky-500/60",
+    hover: "fill-sky-600 dark:fill-sky-400",
+    dot: "bg-sky-500 dark:bg-sky-400",
+    label: "In Transit",
   },
   closed_delivered: {
     fill: "fill-emerald-500/85 dark:fill-emerald-550/60",

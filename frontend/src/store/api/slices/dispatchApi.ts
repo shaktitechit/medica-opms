@@ -90,7 +90,7 @@ export const dispatchApi = medicaApi.injectEndpoints({
         };
       },
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: ["Dispatch", "Order", "Orders", "Attachments"],
+      invalidatesTags: ["Dispatch", "Order", "Orders", "Attachments", "UnbilledOrders"],
     }),
     patchDispatch: build.mutation<
       unknown,
@@ -106,6 +106,7 @@ export const dispatchApi = medicaApi.injectEndpoints({
         "Dispatch",
         "Order",
         "Orders",
+        "UnbilledOrders",
         { type: "Dispatch", id: arg.id },
       ],
     }),
@@ -116,6 +117,7 @@ export const dispatchApi = medicaApi.injectEndpoints({
         "Dispatch",
         "Order",
         "Orders",
+        "UnbilledOrders",
         { type: "Dispatch", id },
         { type: "Dispatch", id: "LIST" },
         { type: "Dispatch", id: "DELETED" },
@@ -128,6 +130,7 @@ export const dispatchApi = medicaApi.injectEndpoints({
         "Dispatch",
         "Order",
         "Orders",
+        "UnbilledOrders",
         { type: "Dispatch", id },
         { type: "Dispatch", id: "LIST" },
         { type: "Dispatch", id: "DELETED" },

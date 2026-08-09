@@ -4,15 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatchTabAlertOverride } from "./DispatchTabAlert";
 import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
-import {
-  buildPendingReturnOrderIds,
-  computeDispatchOrderStats,
-} from "./dispatchOrderUtils";
+import { computeDispatchOrderStats } from "./dispatchOrderUtils";
 import {
   useGetDashboardDispatchQuery,
   useGetTransportPlanStatsQuery,
+  useListDispatchesQuery,
   useListOrdersQuery,
-  useListOrderReturnsQuery,
+  useListTransportsQuery,
   useNotifyPushMutation,
   useSubscribePushMutation,
 } from "@/store/api";
@@ -27,7 +25,8 @@ import { toast } from "@/lib/toast";
 import { useAppSelector } from "@/store/hooks";
 import { OverviewFlagsWidget } from "@/components/portal/shared/OverviewFlagsWidget";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { pickList } from "@/components/portal/sales/partyDisplay";
+import { ORDER_WORKFLOW_LIST_QUERY } from "@/components/portal/shared/orderList/orderWorkflowTabs";
+import { useOrderWorkflowCategoryOptions } from "@/components/portal/shared/orderList/useOrderWorkflowCategoryOptions";
 import {
   Bell,
   BellOff,
@@ -64,9 +63,11 @@ export default function DispatchOverview() {
     data: ordersData,
     isFetching: isOrdersFetching,
     refetch: refetchOrders,
-  } = useListOrdersQuery({});
+  } = useListOrdersQuery(ORDER_WORKFLOW_LIST_QUERY);
 
-  const { data: returnsData, refetch: refetchReturns } = useListOrderReturnsQuery({});
+  const { refetch: refetchTransports } = useListTransportsQuery({});
+  const { refetch: refetchDispatches } = useListDispatchesQuery({});
+  const categoryOptions = useOrderWorkflowCategoryOptions();
   const [notifyPush] = useNotifyPushMutation();
   const [subscribePush] = useSubscribePushMutation();
 
@@ -89,16 +90,6 @@ export default function DispatchOverview() {
     }
     setNotifPermission(Notification.permission);
   }, []);
-
-  const pendingReturnOrderIds = useMemo(
-    () => buildPendingReturnOrderIds(pickList(returnsData)),
-    [returnsData],
-  );
-
-  const categoryOptions = useMemo(
-    () => ({ pendingReturnOrderIds }),
-    [pendingReturnOrderIds],
-  );
 
   const orders = useMemo(
     () => pickOrders(ordersData) as Record<string, unknown>[],
@@ -181,8 +172,10 @@ export default function DispatchOverview() {
   sendPendingReminderRef.current = sendPendingReminder;
   const refetchOrdersRef = useRef(refetchOrders);
   refetchOrdersRef.current = refetchOrders;
-  const refetchReturnsRef = useRef(refetchReturns);
-  refetchReturnsRef.current = refetchReturns;
+  const refetchTransportsRef = useRef(refetchTransports);
+  refetchTransportsRef.current = refetchTransports;
+  const refetchDispatchesRef = useRef(refetchDispatches);
+  refetchDispatchesRef.current = refetchDispatches;
 
   // Alert immediately when pending exists, then every 5 minutes while overview stays open.
   useEffect(() => {
@@ -199,7 +192,8 @@ export default function DispatchOverview() {
       if (cancelled) return;
       void sendPendingReminderRef.current();
       void refetchOrdersRef.current();
-      void refetchReturnsRef.current();
+      void refetchTransportsRef.current();
+      void refetchDispatchesRef.current();
     };
 
     const first = window.setTimeout(tick, 1_000);
@@ -318,7 +312,8 @@ export default function DispatchOverview() {
       await Promise.all([
         refetchKpi().unwrap(),
         refetchOrders().unwrap(),
-        refetchReturns().unwrap(),
+        refetchTransports().unwrap(),
+        refetchDispatches().unwrap(),
         refetchTransportPlanStats().unwrap(),
       ]);
     } catch {

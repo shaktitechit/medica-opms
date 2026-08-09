@@ -184,6 +184,26 @@ export default function PortalCatchAllPage() {
   if (portal === "finance" && restArr.length === 1 && restArr[0] === "transport-agents") {
     return <ListTransportAgentsPage portalHome="/finance" />;
   }
+  if (portal === "finance" && restArr.length === 1 && restArr[0] === "transport-planner") {
+    return <ListTransportPlansPage portalHome="/finance" />;
+  }
+  if (portal === "finance" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "calendar") {
+    return <TransportPlanCalendarPage portalHome="/finance" />;
+  }
+  if (portal === "finance" && restArr.length === 2 && restArr[0] === "transport-planner" && restArr[1] === "new") {
+    return <TransportPlanFormPage mode="create" portalHome="/finance" />;
+  }
+  if (
+    portal === "finance" &&
+    restArr.length === 3 &&
+    restArr[0] === "transport-planner" &&
+    restArr[2] === "edit"
+  ) {
+    return <TransportPlanFormPage mode="edit" planId={restArr[1]} portalHome="/finance" />;
+  }
+  if (portal === "finance" && restArr.length === 2 && restArr[0] === "transport-planner") {
+    return <TransportPlanDetailPage planId={restArr[1]} portalHome="/finance" />;
+  }
 
   // ── ACCOUNT ──────────────────────────────────────────────────────────────
   if (portal === "account" && restArr.length === 1 && restArr[0] === "orders") {

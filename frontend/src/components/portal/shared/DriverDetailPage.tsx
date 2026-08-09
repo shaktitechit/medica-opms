@@ -281,7 +281,7 @@ export default function DriverDetailPage({ id }: DriverDetailPageProps) {
   const statusStr = stringField(detail.status) || "available";
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="space-y-6 max-w-none w-full pb-12">
       {editOpen ? (
         <DriverDetailModal
           driverId={id}

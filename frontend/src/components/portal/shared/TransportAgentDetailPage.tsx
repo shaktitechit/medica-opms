@@ -48,10 +48,16 @@ import {
   DATE_FILTER_OPTIONS,
   orderMatchesDateFilter,
 } from "@/components/portal/shared/orderList/orderListDateFilter";
+import { useRef } from "react";
+import { usePathname } from "next/navigation";
+import { useAppSelector } from "@/store/hooks";
 import {
-  downloadTablePdf,
-  downloadTableXlsx,
-} from "@/components/portal/shared/exportTableDownloads";
+  companyLetterheadLogoUrl,
+  companyLetterheadName,
+  resolvePublicAssetUrl,
+} from "@/lib/env";
+import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
+import TransportAgentPdfTemplate from "./TransportAgentPdfTemplate";
 
 // Modals for Drivers & Vehicles
 import { DriverDetailModal } from "./modals/DriverDetailModal";
@@ -111,6 +117,15 @@ function belongsToTransportAgent(row: Record<string, unknown>, agentId: string):
   return refId === agentId;
 }
 
+function formatMoney(v: number): string {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(v) ? v : 0);
+}
+
 function orderNoFromTransport(tr: Record<string, unknown>): string {
   const order = tr.order;
   if (order && typeof order === "object") {
@@ -151,7 +166,7 @@ function shipmentStatusFromTransport(tr: Record<string, unknown>): string {
 }
 
 const SHIPMENT_STATUS_FILTER_OPTIONS = [
-  { value: "all", label: "All Statuses" },
+  { value: "all", label: "All Shipment Statuses" },
   { value: "created", label: "Created" },
   { value: "transporter_assigned", label: "Transporter Assigned" },
   { value: "vehicle_assigned", label: "Vehicle Assigned" },
@@ -265,6 +280,10 @@ export default function TransportAgentDetailPage({
   portalHome = "/dispatch",
 }: TransportAgentDetailPageProps) {
   const router = useRouter();
+  const pdfTemplateRef = useRef<HTMLDivElement>(null);
+  const [pdfGeneratedAt, setPdfGeneratedAt] = useState("");
+  const authUser = useAppSelector((s) => s.auth.user);
+  const pathname = usePathname() || "";
   
   // Modals visibility states
   const [editOpen, setEditOpen] = useState(false);
@@ -546,6 +565,31 @@ export default function TransportAgentDetailPage({
     filteredTransports.length,
   );
 
+  const agentName = detail ? (stringField(detail.agent_name) || "Transport Agent") : "Transport Agent";
+  const agentCode = detail ? stringField(detail.agent_code) : "";
+
+  const downloadedBy = useMemo(() => {
+    if (!authUser || typeof authUser !== "object") return "—";
+    const u = authUser as Record<string, unknown>;
+    return (
+      String(u.name ?? u.full_name ?? u.username ?? u.email ?? "").trim() || "—"
+    );
+  }, [authUser]);
+
+  const portalLabel = useMemo(() => {
+    if (pathname.includes("/distributor")) return "Distributor";
+    if (pathname.includes("/sales")) return "Sales / Employee";
+    if (pathname.includes("/finance")) return "Finance";
+    if (pathname.includes("/account")) return "Account";
+    if (pathname.includes("/dispatch")) return "Dispatch";
+    return "Admin";
+  }, [pathname]);
+
+  const companyName = companyLetterheadName();
+  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
+
+
+
   const handleDelete = useCallback(async () => {
     try {
       await deleteTransportAgent(id).unwrap();
@@ -594,38 +638,10 @@ export default function TransportAgentDetailPage({
     return <PortalBusyOverlay active message="Loading transport agent…" />;
   }
 
-  const agentName = stringField(detail.agent_name) || "Transport Agent";
-  const agentCode = stringField(detail.agent_code);
 
-  const transportExportColumns = [
-    { key: "shipment_no", label: "Shipment", width: 1.2 },
-    { key: "order_no", label: "Order No", width: 1.1 },
-    { key: "party", label: "Party", width: 1.6 },
-    { key: "status", label: "Status", width: 1.2 },
-    { key: "vehicle", label: "Vehicle", width: 1.1 },
-    { key: "driver", label: "Driver", width: 1.2 },
-    { key: "weight", label: "Weight", width: 0.9 },
-    { key: "dispatch_date", label: "Dispatch Date", width: 1.1 },
-  ] as const;
-
-  const buildTransportExportRows = () =>
-    filteredTransports.map((tr) => {
-      const weight =
-        tr.weight != null ? `${tr.weight} ${tr.weight_unit || "Kg"}` : "";
-      return {
-        shipment_no: String(tr.shipment_no ?? ""),
-        order_no: orderNoFromTransport(tr),
-        party: partyNameFromTransport(tr),
-        status: shipmentStatusFromTransport(tr).replace(/_/g, " "),
-        vehicle: vehicleNoFromTransport(tr),
-        driver: driverNameFromTransport(tr),
-        weight,
-        dispatch_date: formatDateReadOnly(tr.dispatch_date),
-      };
-    });
 
   const transportExportFilenameBase = () => {
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
     const slug = (agentCode || agentName || "agent")
       .replace(/[^\w.-]+/g, "_")
       .replace(/^_+|_+$/g, "")
@@ -633,49 +649,43 @@ export default function TransportAgentDetailPage({
     return `transport-shipments_${slug}_${stamp}`;
   };
 
-  const handleDownloadTransportsXlsx = () => {
-    if (filteredTransports.length === 0) {
-      toast.error("No shipments to export.");
-      return;
-    }
-    try {
-      downloadTableXlsx({
-        filename: transportExportFilenameBase(),
-        sheetName: "Shipments",
-        title: `Transport Shipments — ${agentName}`,
-        columns: [...transportExportColumns],
-        rows: buildTransportExportRows(),
-      });
-      toast.success("XLSX downloaded.");
-    } catch {
-      toast.error("Failed to download XLSX.");
-    }
-  };
-
   const handleDownloadTransportsPdf = async () => {
     if (filteredTransports.length === 0) {
       toast.error("No shipments to export.");
       return;
     }
+    const stamp = new Date().toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+    setPdfGeneratedAt(stamp);
     setIsExportingTransports(true);
+    await new Promise((r) => setTimeout(r, 100));
     try {
-      await downloadTablePdf({
-        filename: transportExportFilenameBase(),
-        title: `Transport Shipments — ${agentName}`,
-        subtitle: `${agentCode ? `${agentCode} · ` : ""}${filteredTransports.length} shipment${filteredTransports.length === 1 ? "" : "s"} · Exported ${new Date().toLocaleString()}`,
-        columns: [...transportExportColumns],
-        rows: buildTransportExportRows(),
-      });
+      if (!pdfTemplateRef.current) {
+        throw new Error("PDF template is not ready.");
+      }
+      await downloadOrderItemsPdf(
+        pdfTemplateRef.current,
+        `${transportExportFilenameBase()}.pdf`,
+        { orientation: "landscape" },
+      );
       toast.success("PDF downloaded.");
-    } catch {
-      toast.error("Failed to download PDF.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to download PDF.");
     } finally {
       setIsExportingTransports(false);
     }
   };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 pb-12">
+    <div className="max-w-none w-full space-y-6 pb-12">
       {editOpen ? (
         <TransportAgentDetailModal
           transportAgentId={id}
@@ -1424,15 +1434,6 @@ export default function TransportAgentDetailPage({
                     <Download className="h-3.5 w-3.5" />
                     {isExportingTransports ? "Generating PDF…" : "Download PDF"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleDownloadTransportsXlsx}
-                    disabled={filteredTransports.length === 0 || isExportingTransports}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                  >
-                    <FileSpreadsheet className="h-3.5 w-3.5" />
-                    Download XLSX
-                  </button>
                 </div>
               </div>
 
@@ -1491,7 +1492,7 @@ export default function TransportAgentDetailPage({
                       setTransportCurrentPage(1);
                     }}
                     className={`${transportFilterSelectClass} min-w-[9rem]`}
-                    aria-label="Filter by status"
+                    aria-label="Filter by shipment status"
                   >
                     {SHIPMENT_STATUS_FILTER_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -1621,18 +1622,25 @@ export default function TransportAgentDetailPage({
                     onPageChange={setTransportCurrentPage}
                   />
                   <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px] text-left text-xs">
+                  <table className="w-full min-w-[1200px] text-left text-xs">
                     <thead className="bg-slate-50 dark:bg-slate-950 text-2xs font-bold uppercase tracking-wider text-slate-500">
                       <tr>
-                        <th className="px-3 py-2.5">Shipment</th>
-                        <th className="px-3 py-2.5">Order No</th>
+                        <th className="px-3 py-2.5">Order #</th>
                         <th className="px-3 py-2.5">Party</th>
-                        <th className="px-3 py-2.5">Status</th>
+                        <th className="px-3 py-2.5">Party City</th>
+                        <th className="px-3 py-2.5">Dispatch #</th>
+                        <th className="px-3 py-2.5">Invoice / Bill #</th>
+                        <th className="px-3 py-2.5">LR #</th>
+                        <th className="px-3 py-2.5">Shipment Date</th>
+                        <th className="px-3 py-2.5">Pkg / Wt</th>
+                        <th className="px-3 py-2.5">Items</th>
+                        <th className="px-3 py-2.5 text-right">Qty</th>
+                        <th className="px-3 py-2.5 text-right">Total</th>
                         <th className="px-3 py-2.5">Vehicle</th>
                         <th className="px-3 py-2.5">Driver</th>
-                        <th className="px-3 py-2.5">Weight</th>
-                        <th className="px-3 py-2.5">Dispatch date</th>
-                        <th className="px-3 py-2.5 text-right">Order</th>
+                        <th className="px-3 py-2.5">Shipment</th>
+                        <th className="px-3 py-2.5">Delivered At</th>
+                        <th className="px-3 py-2.5">Received</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-white/5">
@@ -1640,17 +1648,75 @@ export default function TransportAgentDetailPage({
                         const trId = idFromRef(tr._id ?? tr.id);
                         const shipmentNo = tr.shipment_no ?? "—";
                         const shipmentStatus = tr.shipment_status ?? tr.status ?? "created";
-                        const vehicleNumber = tr.vehicle_number ?? tr.vehicle_no ?? "—";
-                        const dName = tr.driver_name ?? "—";
                         const orderId = idFromRef(tr.order);
                         const orderNo = orderNoFromTransport(tr);
                         const partyName = partyNameFromTransport(tr);
 
+                        const ord = tr.order && typeof tr.order === "object" ? (tr.order as Record<string, unknown>) : null;
+                        const party = ord ? ord.party && typeof ord.party === "object" ? (ord.party as Record<string, unknown>) : null : null;
+                        const dispatchObj = tr.dispatch && typeof tr.dispatch === "object" ? (tr.dispatch as Record<string, unknown>) : null;
+                        
+                        const partyCity = (() => {
+                          if (!party) return "—";
+                          const billAddr = party.billing_address && typeof party.billing_address === "object" ? (party.billing_address as Record<string, unknown>) : null;
+                          const shipAddr = party.shipping_address && typeof party.shipping_address === "object" ? (party.shipping_address as Record<string, unknown>) : null;
+                          return String(billAddr?.city || shipAddr?.city || "—");
+                        })();
+
+                        const dispatchNo = String(dispatchObj?.dispatch_no || dispatchObj?.dispatch_number || tr.dispatch_no || tr.dispatch_number || "—");
+                        const invoice = String(dispatchObj?.bill_number || dispatchObj?.invoice_no || dispatchObj?.invoice_number || dispatchObj?.bill_no || tr.bill_number || tr.invoice_no || tr.invoice_number || tr.bill_no || "—");
+                        const lr = String(tr.lr_number || tr.lr_no || "—");
+                        
+                        const pkgs = tr.packed_boxes != null || tr.open_boxes != null
+                          ? Number(tr.packed_boxes || 0) + Number(tr.open_boxes || 0)
+                          : tr.plan_packages != null
+                          ? tr.plan_packages
+                          : "—";
+                        const wt = tr.weight != null
+                          ? `${tr.weight} ${tr.weight_unit || "Kg"}`
+                          : tr.plan_weight != null
+                          ? `${tr.plan_weight} Kg`
+                          : "—";
+
+                        const itemsStr = (() => {
+                          const dispatchObj = tr.dispatch && typeof tr.dispatch === "object" ? (tr.dispatch as Record<string, unknown>) : null;
+                          const rawItems = Array.isArray(tr.dispatch_items)
+                            ? tr.dispatch_items
+                            : dispatchObj && Array.isArray(dispatchObj.dispatch_items)
+                            ? dispatchObj.dispatch_items
+                            : [];
+                          if (rawItems.length === 0) return "—";
+                          return rawItems
+                            .map((item: any) => {
+                              if (!item || typeof item !== "object") return "";
+                              const prod = item.product && typeof item.product === "object" ? item.product : null;
+                              const name = prod?.product_name || prod?.sku || "Unknown Product";
+                              const qtyVal = item.dispatched_quantity ?? item.allocated_quantity ?? item.quantity ?? item.qty ?? 0;
+                              return `${name} (${qtyVal})`;
+                            })
+                            .filter(Boolean)
+                            .join(", ");
+                        })();
+
+                        const totalQty = (() => {
+                          const dispatchObj = tr.dispatch && typeof tr.dispatch === "object" ? (tr.dispatch as Record<string, unknown>) : null;
+                          const rawItems = Array.isArray(tr.dispatch_items)
+                            ? tr.dispatch_items
+                            : dispatchObj && Array.isArray(dispatchObj.dispatch_items)
+                            ? dispatchObj.dispatch_items
+                            : [];
+                          if (rawItems.length === 0) return "—";
+                          return rawItems.reduce((sum: number, item: any) => sum + Number((item.dispatched_quantity ?? item.allocated_quantity ?? item.quantity ?? item.qty ?? 0)), 0);
+                        })();
+
+                        const totalAmount = ord?.grand_total != null ? formatMoney(Number(ord.grand_total)) : "—";
+                        
+                        const deliveredAt = tr.delivered_at ? formatDateReadOnly(tr.delivered_at) : "—";
+                        const receivedBy = String(tr.received_by || "—");
+
                         return (
                           <tr key={trId || shipmentNo} className="bg-white dark:bg-slate-900">
-                            <td className="px-3 py-3 font-semibold text-slate-900 dark:text-slate-100">
-                              {shipmentNo}
-                            </td>
+                            {/* Order # */}
                             <td className="px-3 py-3 whitespace-nowrap font-mono font-bold text-slate-800 dark:text-slate-200">
                               {orderId && orderNo ? (
                                 <Link
@@ -1663,36 +1729,65 @@ export default function TransportAgentDetailPage({
                                 orderNo || "—"
                               )}
                             </td>
+                            {/* Party */}
                             <td className="px-3 py-3 font-semibold text-slate-800 dark:text-slate-200 max-w-[14rem]">
                               <span className="line-clamp-2 break-words">{partyName || "—"}</span>
                             </td>
+                            {/* Party City */}
+                            <td className="px-3 py-3 text-slate-700 dark:text-slate-300">
+                              {partyCity}
+                            </td>
+                            {/* Dispatch # */}
+                            <td className="px-3 py-3 font-mono text-slate-700 dark:text-slate-300">
+                              {dispatchNo}
+                            </td>
+                            {/* Invoice / Bill # */}
+                            <td className="px-3 py-3 font-mono text-slate-700 dark:text-slate-300">
+                              {invoice}
+                            </td>
+                            {/* LR # */}
+                            <td className="px-3 py-3 font-mono text-slate-700 dark:text-slate-300">
+                              {lr}
+                            </td>
+                            {/* Shipment Date */}
+                            <td className="px-3 py-3 font-mono text-slate-500">
+                              {tr.dispatch_date ? new Date(tr.dispatch_date as string).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }) : tr.createdAt ? new Date(tr.createdAt as string).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }) : "—"}
+                            </td>
+                            {/* Pkg / Wt */}
+                            <td className="px-3 py-3 text-slate-700 dark:text-slate-300">
+                              {pkgs !== "—" ? `${pkgs} pkg / ` : ""}{wt}
+                            </td>
+                            {/* Items */}
+                            <td className="px-3 py-3 text-slate-700 dark:text-slate-300 max-w-[18rem] whitespace-normal break-words">
+                              {itemsStr}
+                            </td>
+                            {/* Qty */}
+                            <td className="px-3 py-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                              {totalQty}
+                            </td>
+                            {/* Total */}
+                            <td className="px-3 py-3 text-right font-semibold text-slate-900 dark:text-slate-100">
+                              {totalAmount}
+                            </td>
+                            {/* Vehicle */}
+                            <td className="px-3 py-3 text-slate-700 dark:text-slate-300">
+                              {tr.vehicle_number || "—"}
+                            </td>
+                            {/* Driver */}
+                            <td className="px-3 py-3 text-slate-700 dark:text-slate-300">
+                              {tr.driver_name || "—"}
+                            </td>
+                            {/* Shipment */}
                             <td className="px-3 py-3">
                               {shipmentStatusBadge(shipmentStatus)}
                             </td>
-                            <td className="px-3 py-3 font-mono uppercase text-slate-700 dark:text-slate-300">
-                              {vehicleNumber}
+                            {/* Delivered At */}
+                            <td className="px-3 py-3 font-mono text-slate-500">
+                              {deliveredAt}
                             </td>
+                            {/* Received */}
                             <td className="px-3 py-3 text-slate-700 dark:text-slate-300">
-                              {dName}
-                            </td>
-                            <td className="px-3 py-3 text-slate-700 dark:text-slate-300 font-mono">
-                              {tr.weight != null ? `${tr.weight} ${tr.weight_unit || "Kg"}` : "—"}
-                            </td>
-                            <td className="px-3 py-3 tabular-nums text-slate-500 font-mono">
-                              {formatDateReadOnly(tr.dispatch_date)}
-                            </td>
-                            <td className="px-3 py-3 text-right">
-                              {orderId ? (
-                                <Link
-                                  href={`${portalHome}/order/${orderId}`}
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
-                                >
-                                  View order
-                                  <ExternalLink className="h-3 w-3" />
-                                </Link>
-                              ) : (
-                                <span className="text-slate-400">—</span>
-                              )}
+                              {receivedBy}
                             </td>
                           </tr>
                         );
@@ -1704,6 +1799,26 @@ export default function TransportAgentDetailPage({
               )}
             </div>
           ) : null}
+
+      {/* Hidden PDF Template */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
+      >
+        <div ref={pdfTemplateRef}>
+          <TransportAgentPdfTemplate
+            companyName={companyName}
+            logoUrl={logoUrl}
+            portalLabel={portalLabel}
+            downloadedBy={downloadedBy}
+            generatedAt={pdfGeneratedAt}
+            agentName={agentName}
+            agentCode={agentCode || ""}
+            shipments={filteredTransports}
+            statusLabelSelected={transportStatusFilter === "all" ? "All Shipment Statuses" : transportStatusFilter.replace(/_/g, " ").toUpperCase()}
+          />
+        </div>
+      </div>
 
         </div>
       </div>

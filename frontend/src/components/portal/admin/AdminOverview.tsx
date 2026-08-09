@@ -13,16 +13,14 @@ import SalesLeaderboard from "@/components/portal/shared/dashboard/SalesLeaderbo
 import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashboard/FeaturedProductGroupSalesUserTable";
 import FeaturedProductGroupZoneTable from "@/components/portal/shared/dashboard/FeaturedProductGroupZoneTable";
 import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/shared/dashboard/FeaturedProductGroupFeaturedPartyTable";
-import {
-  buildPendingReturnOrderIds,
-  computeAdminOrderStats,
-} from "./adminOrderUtils";
+import { computeAdminOrderStats } from "./adminOrderUtils";
 import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
+import { ORDER_WORKFLOW_LIST_QUERY } from "@/components/portal/shared/orderList/orderWorkflowTabs";
+import { useOrderWorkflowCategoryOptions } from "@/components/portal/shared/orderList/useOrderWorkflowCategoryOptions";
 import {
   useGetDashboardAdminQuery,
   useGetTransportPlanStatsQuery,
   useGetWorkPlanStatsQuery,
-  useListOrderReturnsQuery,
   useListOrdersQuery,
   useListPartiesQuery,
   useListUsersQuery,
@@ -40,10 +38,7 @@ import { toast } from "@/lib/toast";
 import { OverviewFlagsWidget } from "@/components/portal/shared/OverviewFlagsWidget";
 import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import {
-  buildPartyNameById,
-  pickList,
-} from "@/components/portal/sales/partyDisplay";
+import { buildPartyNameById } from "@/components/portal/sales/partyDisplay";
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
 import {
   Bell,
@@ -86,11 +81,11 @@ export default function AdminOverview() {
     data: ordersData,
     isFetching: isOrdersFetching,
     refetch: refetchOrders,
-  } = useListOrdersQuery({});
+  } = useListOrdersQuery(ORDER_WORKFLOW_LIST_QUERY);
 
   const { data: partiesData } = useListPartiesQuery({});
   const { data: usersData } = useListUsersQuery({ department: "sales" });
-  const { data: returnsData } = useListOrderReturnsQuery({});
+  const categoryOptions = useOrderWorkflowCategoryOptions();
   const [notifyPush] = useNotifyPushMutation();
   const [subscribePush] = useSubscribePushMutation();
 
@@ -138,16 +133,6 @@ export default function AdminOverview() {
       selectedMonths
     );
   }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
-
-  const pendingReturnOrderIds = useMemo(
-    () => buildPendingReturnOrderIds(pickList(returnsData)),
-    [returnsData],
-  );
-
-  const categoryOptions = useMemo(
-    () => ({ pendingReturnOrderIds }),
-    [pendingReturnOrderIds],
-  );
 
   const orderStats = useMemo(
     () => computeAdminOrderStats(orders, categoryOptions),

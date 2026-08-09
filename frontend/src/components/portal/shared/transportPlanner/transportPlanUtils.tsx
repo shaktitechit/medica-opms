@@ -7,7 +7,6 @@ export const TRANSPORT_PLAN_STATUS_TABS = [
   { id: "all", label: "All" },
   { id: "planned", label: "Planned" },
   { id: "submitted", label: "Submitted" },
-  { id: "in_transit", label: "In Transit" },
   { id: "completed", label: "Completed" },
   { id: "cancelled", label: "Cancelled" },
 ] as const;

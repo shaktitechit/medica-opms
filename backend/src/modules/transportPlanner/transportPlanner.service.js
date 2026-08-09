@@ -12,12 +12,18 @@ const {
   ACTIVE_PLAN_ORDER_STATUSES,
   EDITABLE_PLAN_STATUSES,
   TERMINAL_PLAN_STATUSES,
+  ELIGIBLE_ORDER_WORKFLOW_TABS,
   startOfDay,
   endOfDay,
   isAdminDept,
+  isDispatchDept,
   canPlan,
   canExecute,
 } = require('./transportPlanner.constants');
+const {
+  enrichOrdersWithApprovalPending,
+  enrichOrdersWithDueSheetStatus,
+} = require('../orders/orderApprovalPending.util');
 
 function userId(user) {
   return user?._id || user?.id;
@@ -68,7 +74,7 @@ async function loadPlanOrThrow(id) {
 }
 
 async function loadPlanOrders(planId) {
-  const { TransportPlanOrder, TransportShipment } = getModels();
+  const { TransportPlanOrder, TransportShipment, OrderDelivery, OrderDispatch } = getModels();
   const rows = await TransportPlanOrder.find({ transport_plan: planId, deletedAt: null })
     .populate({
       path: 'order',
@@ -92,20 +98,67 @@ async function loadPlanOrders(planId) {
   const dispatchIds = rows
     .map((r) => r.dispatch?._id || r.dispatch)
     .filter(Boolean);
+  const orderIds = rows.map((r) => r.order?._id || r.order).filter(Boolean);
 
-  const shipments =
-    dispatchIds.length === 0
+  const shipmentOr = [];
+  if (dispatchIds.length) shipmentOr.push({ dispatch: { $in: dispatchIds } });
+  if (orderIds.length) shipmentOr.push({ order: { $in: orderIds } });
+
+  const [shipments, deliveries, orderDispatches] = await Promise.all([
+    shipmentOr.length === 0
       ? []
-      : await TransportShipment.find({
-          dispatch: { $in: dispatchIds },
+      : TransportShipment.find({
           deletedAt: null,
+          $or: shipmentOr,
         })
           .populate('transport_agent', 'agent_code agent_name agent_type mobile email status')
           .sort({ createdAt: -1 })
-          .lean();
+          .lean(),
+    shipmentOr.length === 0
+      ? []
+      : OrderDelivery.find({
+          deletedAt: null,
+          delivery_status: 'delivered',
+          $or: shipmentOr,
+        })
+          .sort({ delivered_at: -1 })
+          .lean(),
+    orderIds.length === 0
+      ? []
+      : OrderDispatch.find({
+          order: { $in: orderIds },
+          dispatch_status: { $ne: 'cancelled' },
+        })
+          .populate({ path: 'dispatch_items.product', select: 'product_name sku hsn_code' })
+          .lean(),
+  ]);
+
+  const dispatchesByOrder = new Map();
+  for (const d of orderDispatches) {
+    const oId = String(d.order);
+    if (!dispatchesByOrder.has(oId)) {
+      dispatchesByOrder.set(oId, []);
+    }
+    dispatchesByOrder.get(oId).push(d);
+  }
 
   const transportByDispatch = new Map();
+  const transportByOrder = new Map();
   for (const shipment of shipments) {
+    if (shipment.order) {
+      const orderKey = String(shipment.order);
+      const existingByOrder = transportByOrder.get(orderKey);
+      if (!existingByOrder) {
+        transportByOrder.set(orderKey, shipment);
+      } else {
+        const existingStatus = String(existingByOrder.shipment_status || '');
+        const status = String(shipment.shipment_status || '');
+        if (existingStatus === 'returned' && status !== 'returned') {
+          transportByOrder.set(orderKey, shipment);
+        }
+      }
+    }
+    if (!shipment.dispatch) continue;
     const key = String(shipment.dispatch);
     const status = String(shipment.shipment_status || '');
     const existing = transportByDispatch.get(key);
@@ -119,13 +172,47 @@ async function loadPlanOrders(planId) {
     }
   }
 
+  const deliveryByDispatch = new Map();
+  const deliveryByOrder = new Map();
+  for (const del of deliveries) {
+    if (del.dispatch && !deliveryByDispatch.has(String(del.dispatch))) {
+      deliveryByDispatch.set(String(del.dispatch), del);
+    }
+    if (del.order && !deliveryByOrder.has(String(del.order))) {
+      deliveryByOrder.set(String(del.order), del);
+    }
+  }
+
   return rows.map((r) => {
     const plain = toPlain(r);
     const dispatchKey = String(r.dispatch?._id || r.dispatch || '');
-    const transport = transportByDispatch.get(dispatchKey);
+    const orderKey = String(r.order?._id || r.order || '');
+    const transport =
+      (dispatchKey && transportByDispatch.get(dispatchKey)) ||
+      (orderKey && transportByOrder.get(orderKey)) ||
+      null;
+    const deliveryRecord =
+      (dispatchKey && deliveryByDispatch.get(dispatchKey)) ||
+      (orderKey && deliveryByOrder.get(orderKey)) ||
+      null;
+
+    const deliveredAt =
+      deliveryRecord?.delivered_at ||
+      deliveryRecord?.actual_delivery_date ||
+      transport?.actual_delivery_date ||
+      null;
+    const receivedBy = deliveryRecord?.received_by || null;
+
+    if (plain.order && typeof plain.order === 'object') {
+      const oId = String(plain.order._id);
+      plain.order.dispatches = (dispatchesByOrder.get(oId) || []).map(toPlain);
+    }
+
     return {
       ...plain,
       transport: transport ? toPlain(transport) : null,
+      delivered_at: deliveredAt,
+      received_by: receivedBy,
     };
   });
 }
@@ -219,15 +306,17 @@ async function getAssignedDispatchIds({ excludePlanId } = {}) {
 async function assertDispatchItemsEligible(items, { excludePlanId } = {}) {
   const { Order, OrderDispatch, TransportPlanOrder, TransportPlan } = getModels();
 
-  const dispatchIds = items.map((i) => i.dispatch_id);
+  const dispatchIds = items.map((i) => i.dispatch_id).filter(Boolean);
   if (new Set(dispatchIds).size !== dispatchIds.length) {
     throw new ApiError(400, 'Duplicate dispatches are not allowed in one plan');
   }
 
-  const dispatches = await OrderDispatch.find({
-    _id: { $in: dispatchIds },
-    deletedAt: null,
-  }).lean();
+  const dispatches = dispatchIds.length
+    ? await OrderDispatch.find({
+        _id: { $in: dispatchIds },
+        deletedAt: null,
+      }).lean()
+    : [];
   if (dispatches.length !== dispatchIds.length) {
     throw new ApiError(404, 'One or more order dispatches were not found');
   }
@@ -242,36 +331,41 @@ async function assertDispatchItemsEligible(items, { excludePlanId } = {}) {
 
   for (const item of items) {
     const order = orderMap.get(String(item.order_id));
-    const dispatch = dispatchMap.get(String(item.dispatch_id));
-    if (!order || !dispatch) {
-      throw new ApiError(404, 'Order or dispatch not found');
+    if (!order) {
+      throw new ApiError(404, 'Order not found');
     }
-    if (!sameId(dispatch.order, order._id)) {
-      throw new ApiError(
-        400,
-        `Dispatch ${dispatch.dispatch_no} does not belong to order ${order.order_no}`
-      );
-    }
-    if (dispatch.dispatch_status === 'cancelled') {
-      throw new ApiError(400, `Dispatch ${dispatch.dispatch_no} is cancelled`);
-    }
-    if (dispatch.dispatch_status === 'draft') {
-      throw new ApiError(
-        400,
-        `Dispatch ${dispatch.dispatch_no} is still a draft — submit it before transport planning`
-      );
-    }
-    if (dispatch.dispatch_status === 'transport_created') {
-      throw new ApiError(
-        400,
-        `Dispatch ${dispatch.dispatch_no} already has transport created`
-      );
-    }
-    if (dispatch.dispatch_status !== 'submitted') {
-      throw new ApiError(
-        400,
-        `Dispatch ${dispatch.dispatch_no} must be submitted before adding to a transport plan (status: ${dispatch.dispatch_status})`
-      );
+    if (item.dispatch_id) {
+      const dispatch = dispatchMap.get(String(item.dispatch_id));
+      if (!dispatch) {
+        throw new ApiError(404, 'Dispatch not found');
+      }
+      if (!sameId(dispatch.order, order._id)) {
+        throw new ApiError(
+          400,
+          `Dispatch ${dispatch.dispatch_no} does not belong to order ${order.order_no}`
+        );
+      }
+      if (dispatch.dispatch_status === 'cancelled') {
+        throw new ApiError(400, `Dispatch ${dispatch.dispatch_no} is cancelled`);
+      }
+      if (dispatch.dispatch_status === 'draft') {
+        throw new ApiError(
+          400,
+          `Dispatch ${dispatch.dispatch_no} is still a draft — submit it before transport planning`
+        );
+      }
+      if (dispatch.dispatch_status === 'transport_created') {
+        throw new ApiError(
+          400,
+          `Dispatch ${dispatch.dispatch_no} already has transport created`
+        );
+      }
+      if (dispatch.dispatch_status !== 'submitted') {
+        throw new ApiError(
+          400,
+          `Dispatch ${dispatch.dispatch_no} must be submitted before adding to a transport plan (status: ${dispatch.dispatch_status})`
+        );
+      }
     }
     if (
       order.lifecycle_status === 'cancelled' ||
@@ -281,15 +375,21 @@ async function assertDispatchItemsEligible(items, { excludePlanId } = {}) {
     ) {
       throw new ApiError(400, `Order ${order.order_no} is cancelled and cannot be added`);
     }
-    if (order.status === 'closed' || order.closed_at || order.lifecycle_status === 'fulfilled') {
-      throw new ApiError(400, `Order ${order.order_no} is closed/completed`);
+    const billingStatus = String(order.billing_status ?? '').toLowerCase();
+    if (billingStatus !== 'unbilled' && billingStatus !== 'partially_billed') {
+      if (order.status === 'closed' || order.closed_at || order.lifecycle_status === 'fulfilled') {
+        throw new ApiError(400, `Order ${order.order_no} is closed/completed`);
+      }
     }
   }
 
   const activeLines = await TransportPlanOrder.find({
-    dispatch: { $in: dispatchIds },
     deletedAt: null,
     status: { $in: ACTIVE_PLAN_ORDER_STATUSES },
+    $or: [
+      ...(dispatchIds.length ? [{ dispatch: { $in: dispatchIds } }] : []),
+      { order: { $in: orderIds }, dispatch: null }
+    ]
   }).lean();
 
   for (const line of activeLines) {
@@ -300,11 +400,18 @@ async function assertDispatchItemsEligible(items, { excludePlanId } = {}) {
       status: { $in: ACTIVE_PLAN_STATUSES },
     }).lean();
     if (parent) {
-      const dispatch = dispatchMap.get(String(line.dispatch));
-      throw new ApiError(
-        400,
-        `Dispatch ${dispatch?.dispatch_no || line.dispatch} is already on another active transport plan`
-      );
+      if (line.dispatch) {
+        const dispatch = dispatchMap.get(String(line.dispatch));
+        throw new ApiError(
+          400,
+          `Dispatch ${dispatch?.dispatch_no || line.dispatch} is already on another active transport plan`
+        );
+      } else {
+        throw new ApiError(
+          400,
+          `Order ${orderMap.get(String(line.order))?.order_no || line.order} is already on another active transport plan`
+        );
+      }
     }
   }
 
@@ -340,8 +447,11 @@ async function maybeAdvancePlanStatus(planId, user) {
   }).lean();
   if (lines.length === 0) return;
 
-  const allDelivered = lines.every((l) => l.status === 'delivered');
-  const anyDispatched = lines.some((l) => ['dispatched', 'delivered'].includes(l.status));
+  const linesWithDispatch = lines.filter((l) => l.dispatch != null);
+  // All plan lines must have a dispatch and be delivered (or cancelled) for plan completion
+  const allLinesDispatched = lines.length > 0 && lines.length === linesWithDispatch.length;
+  const allDelivered = allLinesDispatched && linesWithDispatch.every((l) => l.status === 'delivered');
+  const anyDispatched = linesWithDispatch.some((l) => ['dispatched', 'delivered'].includes(l.status));
 
   if (allDelivered) {
     plan.status = 'completed';
@@ -360,20 +470,31 @@ async function maybeAdvancePlanStatus(planId, user) {
     return;
   }
 
-  if (anyDispatched && plan.status === 'submitted') {
-    plan.status = 'in_transit';
-    plan.updated_by = userId(user);
-    await plan.save();
-    await logActivity(user, planId, 'status_changed', 'Transport plan moved to in transit');
-  }
+
 }
 
 async function list(query = {}, user) {
   const { TransportPlan, TransportPlanOrder } = getModels();
   const filter = { deletedAt: null };
 
-  if (query.status) filter.status = query.status;
-  if (query.transport_agent) filter.transport_agent = query.transport_agent;
+  if (query.status) {
+    const statuses = String(query.status).split(',').map((s) => s.trim()).filter(Boolean);
+    if (statuses.length > 1) {
+      filter.status = { $in: statuses };
+    } else if (statuses.length === 1) {
+      filter.status = statuses[0];
+    }
+  } else if (isDispatchDept(user)) {
+    filter.status = { $nin: ['draft', 'planned'] };
+  }
+  if (query.transport_agent) {
+    const agents = String(query.transport_agent).split(',').map((a) => a.trim()).filter(Boolean);
+    if (agents.length > 1) {
+      filter.transport_agent = { $in: agents };
+    } else if (agents.length === 1) {
+      filter.transport_agent = agents[0];
+    }
+  }
 
   if (query.date) {
     filter.plan_date = {
@@ -476,14 +597,14 @@ async function create(body, user) {
     await TransportPlanOrder.insertMany(
       body.items.map((item) => {
         const order = orderMap.get(String(item.order_id));
-        const dispatch = dispatchMap.get(String(item.dispatch_id));
+        const dispatch = item.dispatch_id ? dispatchMap.get(String(item.dispatch_id)) : null;
         return {
           transport_plan: doc._id,
           order: order._id,
           party: order.party || undefined,
           customer: order.customer || undefined,
-          dispatch: dispatch._id,
-          invoice_number: dispatch.bill_number || undefined,
+          dispatch: dispatch ? dispatch._id : undefined,
+          invoice_number: dispatch ? (dispatch.bill_number || undefined) : undefined,
           status: 'pending',
         };
       })
@@ -599,6 +720,7 @@ async function complete(id, user) {
     transport_plan: id,
     deletedAt: null,
     status: { $nin: ['delivered', 'cancelled'] },
+    dispatch: { $ne: null },
   });
   if (openCount > 0) {
     throw new ApiError(400, 'All plan orders must be delivered (or cancelled) before completing');
@@ -691,27 +813,32 @@ async function addOrders(planId, body, user) {
     excludePlanId: planId,
   });
 
-  const dispatchIds = body.items.map((i) => i.dispatch_id);
+  const dispatchIds = body.items.map((i) => i.dispatch_id).filter(Boolean);
+  const orderIdsWithNoDispatch = body.items.filter((i) => !i.dispatch_id).map((i) => i.order_id);
+
   const existing = await TransportPlanOrder.find({
     transport_plan: planId,
-    dispatch: { $in: dispatchIds },
     deletedAt: null,
+    $or: [
+      ...(dispatchIds.length ? [{ dispatch: { $in: dispatchIds } }] : []),
+      ...(orderIdsWithNoDispatch.length ? [{ order: { $in: orderIdsWithNoDispatch }, dispatch: null }] : [])
+    ]
   }).lean();
   if (existing.length > 0) {
-    throw new ApiError(400, 'One or more dispatches are already on this plan');
+    throw new ApiError(400, 'One or more items are already on this plan');
   }
 
   await TransportPlanOrder.insertMany(
     body.items.map((item) => {
       const order = orderMap.get(String(item.order_id));
-      const dispatch = dispatchMap.get(String(item.dispatch_id));
+      const dispatch = item.dispatch_id ? dispatchMap.get(String(item.dispatch_id)) : null;
       return {
         transport_plan: planId,
         order: order._id,
         party: order.party || undefined,
         customer: order.customer || undefined,
-        dispatch: dispatch._id,
-        invoice_number: dispatch.bill_number || undefined,
+        dispatch: dispatch ? dispatch._id : undefined,
+        invoice_number: dispatch ? (dispatch.bill_number || undefined) : undefined,
         status: 'pending',
       };
     })
@@ -735,12 +862,21 @@ async function addOrders(planId, body, user) {
   return getWithOrders(planId);
 }
 
+/**
+ * Remove an order from a transport plan (soft-delete the plan line).
+ * Only allowed before transport/shipment is created for that order.
+ */
 async function removeOrder(planId, planOrderId, user) {
-  assertCanPlan(user);
-  const { TransportPlan, TransportPlanOrder } = getModels();
+  if (!canPlan(user) && !canExecute(user)) {
+    throw new ApiError(403, 'Not allowed to remove orders from a transport plan');
+  }
+
+  const { TransportPlan, TransportPlanOrder, TransportShipment } = getModels();
   const plan = await TransportPlan.findOne({ _id: planId, deletedAt: null });
   if (!plan) throw new ApiError(404, 'Transport plan not found');
-  assertEditable(plan);
+  if (TERMINAL_PLAN_STATUSES.includes(plan.status)) {
+    throw new ApiError(400, `Cannot remove orders from a ${plan.status} plan`);
+  }
 
   const line = await TransportPlanOrder.findOne({
     _id: planOrderId,
@@ -748,6 +884,23 @@ async function removeOrder(planId, planOrderId, user) {
     deletedAt: null,
   });
   if (!line) throw new ApiError(404, 'Plan order not found');
+  if (line.status === 'cancelled') {
+    return getWithOrders(planId);
+  }
+  if (line.status === 'delivered' || line.status === 'dispatched') {
+    throw new ApiError(400, 'Cannot remove an order after it has been dispatched/delivered on the plan');
+  }
+
+  const transportOr = [{ order: line.order }];
+  if (line.dispatch) transportOr.push({ dispatch: line.dispatch });
+  const hasTransport = await TransportShipment.exists({
+    deletedAt: null,
+    shipment_status: { $ne: 'returned' },
+    $or: transportOr,
+  });
+  if (hasTransport) {
+    throw new ApiError(400, 'Cannot remove an order after transport is created');
+  }
 
   line.deletedAt = new Date();
   line.status = 'cancelled';
@@ -944,13 +1097,15 @@ async function markDelivered(planId, planOrderId, user) {
 }
 
 /**
- * Orders that have at least one OrderDispatch in `submitted` status
- * (created + submitted, transport not created yet) and not already on an active plan.
+ * Orders in Admin / Due sheet / Finance / Account / Dispatch / Transport pending,
+ * along with any available submitted OrderDispatch batches.
  */
-async function listEligibleOrders(query = {}, _user) {
+async function listEligibleOrders(query = {}, user) {
   const { Order, OrderDispatch, TransportShipment } = getModels();
+  const orderService = require('../orders/order.service');
 
-  const assignedDispatchIds = await getAssignedDispatchIds();
+  const excludePlanId = query.excludePlanId || query.exclude_plan_id || query.plan_id;
+  const assignedDispatchIds = await getAssignedDispatchIds({ excludePlanId });
 
   // Dispatches that already have a TransportShipment record
   const shippedDispatchIds = await TransportShipment.distinct('dispatch', {
@@ -963,88 +1118,33 @@ async function listEligibleOrders(query = {}, _user) {
   ];
   const excludeObjectIds = [...new Set(excludeDispatchIds)].filter(Boolean);
 
-  const availableDispatchFilter = {
-    deletedAt: null,
-    dispatch_status: 'submitted',
-    ...(excludeObjectIds.length ? { _id: { $nin: excludeObjectIds } } : {}),
+  const sharedFilters = {
+    party: query.party,
+    customer: query.customer,
+    priority: query.priority,
+    dateFrom: query.from,
+    dateTo: query.to,
+    search: query.search,
   };
 
-  if (query.search) {
-    const q = String(query.search).trim();
-    if (q) {
-      availableDispatchFilter.$or = [
-        { bill_number: { $regex: q, $options: 'i' } },
-        { dispatch_no: { $regex: q, $options: 'i' } },
-      ];
-    }
-  }
+  // Union the same exclusive workflow tabs used on the orders list.
+  const tabIdSets = await Promise.all(
+    ELIGIBLE_ORDER_WORKFLOW_TABS.map(async (tab) => {
+      const tabQuery = await orderService.buildBaseQuery({ ...sharedFilters, tab }, user);
+      const ids = await Order.distinct('_id', tabQuery);
+      return ids.map(String);
+    })
+  );
+  const eligibleIds = [...new Set(tabIdSets.flat())];
 
-  const availableDispatches = await OrderDispatch.find(availableDispatchFilter)
-    .select(
-      'order dispatch_no dispatch_status bill_number billing_date dispatch_items packed_at dispatched_at createdAt'
-    )
-    .sort({ createdAt: -1 })
-    .lean();
-
-  const orderIdsFromDispatches = [
-    ...new Set(availableDispatches.map((d) => String(d.order))),
-  ];
-
-  if (orderIdsFromDispatches.length === 0) {
+  if (eligibleIds.length === 0) {
     return { total: 0, page: 1, limit: 50, pages: 0, data: [] };
   }
 
   const filter = {
+    _id: { $in: eligibleIds },
     deletedAt: null,
-    _id: { $in: orderIdsFromDispatches },
-    lifecycle_status: { $ne: 'cancelled' },
-    status: { $nin: ['cancelled', 'closed'] },
   };
-
-  if (query.party) filter.party = query.party;
-  if (query.customer) filter.customer = query.customer;
-  if (query.priority && query.priority !== 'all') {
-    filter.priority = String(query.priority).toLowerCase();
-  }
-  if (query.from || query.to) {
-    filter.order_date = {};
-    if (query.from) filter.order_date.$gte = startOfDay(query.from);
-    if (query.to) filter.order_date.$lte = endOfDay(query.to);
-  }
-
-  if (query.search) {
-    const q = String(query.search).trim();
-    if (q) {
-      const { Party, User } = getModels();
-      const [parties, salesUsers] = await Promise.all([
-        Party.find({
-          deletedAt: null,
-          $or: [
-            { party_name: { $regex: q, $options: 'i' } },
-            { 'billing_address.city': { $regex: q, $options: 'i' } },
-            { 'shipping_address.city': { $regex: q, $options: 'i' } },
-          ],
-        })
-          .select('_id')
-          .lean(),
-        User.find({
-          department: 'sales',
-          is_active: { $ne: false },
-          $or: [{ name: { $regex: q, $options: 'i' } }, { email: { $regex: q, $options: 'i' } }],
-        })
-          .select('_id')
-          .lean(),
-      ]);
-
-      filter.$or = [
-        { order_no: { $regex: q, $options: 'i' } },
-        { party: { $in: parties.map((p) => p._id) } },
-        { assigned_sales_user: { $in: salesUsers.map((u) => u._id) } },
-        // Keep orders whose dispatch_no / bill matched above
-        { _id: { $in: orderIdsFromDispatches } },
-      ];
-    }
-  }
 
   if (query.area) {
     const area = String(query.area).trim();
@@ -1063,57 +1163,123 @@ async function listEligibleOrders(query = {}, _user) {
     filter.party = { $in: parties.map((p) => p._id) };
   }
 
-  const limit = Math.min(parseInt(query.limit, 10) || 50, 200);
-  const page = Math.max(parseInt(query.page, 10) || 1, 1);
-  const skip = (page - 1) * limit;
+  const allOrders = await Order.find(filter)
+    .populate('party', 'party_name mobile billing_address shipping_address')
+    .populate('assigned_sales_user', 'name email')
+    .sort({ priority: -1, order_date: -1 })
+    .lean();
 
-  const [total, rows] = await Promise.all([
-    Order.countDocuments(filter),
-    Order.find(filter)
-      .populate('party', 'party_name mobile billing_address shipping_address')
-      .populate('assigned_sales_user', 'name email')
-      .sort({ priority: -1, order_date: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-  ]);
+  if (allOrders.length === 0) {
+    return { total: 0, page: 1, limit: 50, pages: 0, data: [] };
+  }
+
+  const plainOrders = allOrders.map((o) => toPlain(o));
+  const enrichedOrders = await enrichOrdersWithDueSheetStatus(
+    await enrichOrdersWithApprovalPending(plainOrders, getModels()),
+    getModels()
+  );
+
+  const orderIds = enrichedOrders.map((o) => o._id);
+
+  const dispatches = await OrderDispatch.find({
+    order: { $in: orderIds },
+    deletedAt: null,
+  }).lean();
 
   const dispatchesByOrder = new Map();
-  for (const d of availableDispatches) {
+  for (const d of dispatches) {
     const key = String(d.order);
     if (!dispatchesByOrder.has(key)) dispatchesByOrder.set(key, []);
-    const qty = Array.isArray(d.dispatch_items)
-      ? d.dispatch_items.reduce((s, it) => s + (Number(it.dispatched_quantity) || 0), 0)
-      : 0;
-    dispatchesByOrder.get(key).push({
-      ...toPlain(d),
-      dispatched_quantity_total: qty,
-    });
+    dispatchesByOrder.get(key).push(d);
   }
+
+  const eligibleData = [];
+  const { TransportPlanOrder } = getModels();
+
+  const activePlanOrders = await TransportPlanOrder.find({
+    order: { $in: orderIds },
+    deletedAt: null,
+    status: { $in: ['pending', 'packed', 'dispatched'] },
+  })
+    .populate({
+      path: 'transport_plan',
+      select: 'plan_date transport_agent status',
+      populate: { path: 'transport_agent', select: 'agent_name agent_code' },
+    })
+    .lean();
+
+  const planOrdersByOrder = new Map();
+  for (const apo of activePlanOrders) {
+    const key = String(apo.order);
+    planOrdersByOrder.set(key, apo);
+  }
+
+  const activeShipments = await TransportShipment.find({
+    order: { $in: orderIds },
+    deletedAt: null,
+  })
+    .populate('transport_agent', 'agent_name agent_code')
+    .lean();
+
+  const shipmentsByOrder = new Map();
+  for (const s of activeShipments) {
+    const key = String(s.order);
+    shipmentsByOrder.set(key, s);
+  }
+
+  for (const order of enrichedOrders) {
+    const orderId = String(order._id);
+    const orderDispatches = dispatchesByOrder.get(orderId) || [];
+    const apo = planOrdersByOrder.get(orderId) || null;
+    const shipment = shipmentsByOrder.get(orderId) || null;
+
+    const party = order.party && typeof order.party === 'object' ? order.party : null;
+    const city = party?.shipping_address?.city || party?.billing_address?.city || null;
+
+    const orderItem = {
+      ...order,
+      city,
+      invoice_value: order.grand_total || 0,
+      transport_plan: apo ? apo.transport_plan : null,
+      transport: shipment,
+    };
+
+    if (orderDispatches.length > 0) {
+      const available = orderDispatches
+        .filter((d) => {
+          const status = String(d.dispatch_status ?? d.status ?? '').toLowerCase();
+          return status === 'submitted' && !excludeObjectIds.includes(String(d._id));
+        })
+        .map((d) => {
+          const qty = (d.dispatch_items || []).reduce((s, it) => s + (Number(it.dispatched_quantity) || 0), 0);
+          return {
+            ...toPlain(d),
+            dispatched_quantity_total: qty,
+          };
+        });
+
+      orderItem.available_dispatches = available;
+      orderItem.available_dispatch_count = available.length;
+    } else {
+      orderItem.available_dispatches = [];
+      orderItem.available_dispatch_count = 0;
+    }
+
+    eligibleData.push(orderItem);
+  }
+
+  const limit = Math.min(parseInt(query.limit, 10) || 50, 200);
+  const page = Math.max(parseInt(query.page, 10) || 1, 1);
+  const total = eligibleData.length;
+  const skip = (page - 1) * limit;
+  const paginatedData = eligibleData.slice(skip, skip + limit);
 
   return {
     total,
     page,
     limit,
     pages: Math.ceil(total / limit) || 0,
-    data: rows
-      .map((r) => {
-        const available = dispatchesByOrder.get(String(r._id)) || [];
-        if (available.length === 0) return null;
-        const party = r.party && typeof r.party === 'object' ? r.party : null;
-        const city =
-          party?.shipping_address?.city ||
-          party?.billing_address?.city ||
-          null;
-        return {
-          ...toPlain(r),
-          city,
-          invoice_value: r.grand_total || 0,
-          available_dispatches: available,
-          available_dispatch_count: available.length,
-        };
-      })
-      .filter(Boolean),
+    data: paginatedData,
   };
 }
 

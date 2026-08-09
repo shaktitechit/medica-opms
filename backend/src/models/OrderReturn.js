@@ -80,7 +80,7 @@ const orderReturnSchema = new mongoose.Schema(
     return_status: {
       type: String,
       enum: ["pending", "received_at_warehouse"],
-      default: "pending",
+      default: "received_at_warehouse",
       index: true,
     },
 

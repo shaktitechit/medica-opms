@@ -1,7 +1,5 @@
 "use client";
 
-import { LargeModalPortal } from "./LargeModalPortal";
-
 import React, { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import {
   X,
@@ -16,33 +14,62 @@ import {
   Link2,
   ExternalLink,
 } from "lucide-react";
-import { resolveOrderCounterparty } from "@/components/portal/sales/partyDisplay";
+import { resolveOrderCounterparty, pickList } from "@/components/portal/sales/partyDisplay";
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
-import {
-  orderMatchesAdminTab,
-  adminTabQueryParams,
-  ADMIN_ORDER_TABS,
-  type AdminOrderTabCategory,
-} from "@/components/portal/admin/adminOrderUtils";
-import {
-  useListOrdersQuery,
-  useListPartiesQuery,
-  useListUsersQuery,
-  useListTransportsQuery,
-  useListOrderDeliveriesQuery
-} from "@/store/api";
+import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import { publicApiOrigin } from "@/lib/env";
 import { toast } from "@/lib/toast";
+import {
+  useListPartiesQuery,
+  useListUsersQuery,
+  useListTransportsQuery,
+  useListOrderDeliveriesQuery,
+} from "@/store/api";
+
+import { OrderListBottomTabStrip } from "./OrderListBottomTabStrip";
+import {
+  buildOrderListTabCounts,
+  filterListOrders,
+} from "./filterListOrders";
+import type {
+  ListOrdersPageConfig,
+  ListOrdersTabId,
+} from "./listOrdersPageConfig";
+import {
+  formatDateShort,
+  formatMoney,
+  orderKey,
+} from "./orderListDisplay";
+import {
+  ORDER_WORKFLOW_TABS,
+  type OrderWorkflowCategoryOptions,
+} from "./orderWorkflowTabs";
 
 export type GoogleSheetOrdersModalProps = {
   isOpen: boolean;
   onClose: () => void;
   partyNameById: Map<string, string>;
-  /** Pre-select a tab when the modal opens */
-  initialTab?: AdminOrderTabCategory;
-  /** Portal context (tabs are shared across portals) */
-  portal?: "admin" | "finance" | "account" | "super_admin";
+  /** Portal list config — accents + sheet portal identity. */
+  config: ListOrdersPageConfig;
+  /** Same non-draft order pool as ListOrdersPage. */
+  orders: unknown[];
+  /** Same transport/dispatch category options as ListOrdersPage. */
+  categoryOptions: OrderWorkflowCategoryOptions;
+  isOrdersFetching?: boolean;
+  onRefetchOrders?: () => void;
+  /** Shared list URL / strip state — changing these updates ListOrdersPage. */
+  searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
+  activeTab: ListOrdersTabId;
+  onActiveTabChange: (tab: ListOrdersTabId) => void;
+  priorityFilter: string;
+  onPriorityFilterChange: (value: string) => void;
+  dateFilter: string;
+  customDateFrom: string;
+  customDateTo: string;
+  showReset?: boolean;
+  onResetFilters?: () => void;
 };
 
 type OrderItemRow = {
@@ -142,33 +169,29 @@ function ItemsListNestedTable({ items }: { items: OrderItemRow[] }) {
   );
 }
 
-function formatDateShort(v: unknown): string {
-  if (v == null || v === "") return "—";
-  const d = v instanceof Date ? v : new Date(String(v));
-  if (Number.isNaN(d.getTime())) return String(v);
-  return d.toLocaleDateString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function formatMoney(v: number): string {
-  return v.toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
 export function GoogleSheetOrdersModal({
   isOpen,
   onClose,
   partyNameById,
-  initialTab,
-  portal: _portal = "admin"
+  config,
+  orders,
+  categoryOptions,
+  isOrdersFetching = false,
+  onRefetchOrders,
+  searchQuery,
+  onSearchQueryChange,
+  activeTab: listActiveTab,
+  onActiveTabChange,
+  priorityFilter,
+  onPriorityFilterChange,
+  dateFilter,
+  customDateFrom,
+  customDateTo,
+  showReset = false,
+  onResetFilters,
 }: GoogleSheetOrdersModalProps) {
+  const { accents } = config;
   const [activeTab, setActiveTab] = useState<"virtual" | "real">("virtual");
-  const [searchQuery, setSearchQuery] = useState("");
   const [selectedCell, setSelectedCell] = useState<SelectedCell>(null);
   const [realSheetUrl, setRealSheetUrl] = useState("");
   const [copiedScript, setCopiedScript] = useState(false);
@@ -191,10 +214,9 @@ export function GoogleSheetOrdersModal({
     actual_delivery_date: 150,
   });
 
-  // Filter States
+  // Sheet-only advanced filters (workflow tab / priority / date come from list page)
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterCounterparty, setFilterCounterparty] = useState<string>("all");
   const [filterPartyNameQuery, setFilterPartyNameQuery] = useState("");
   const [filterSra, setFilterSra] = useState<string>("all");
@@ -207,37 +229,43 @@ export function GoogleSheetOrdersModal({
   const [filterMaxAmount, setFilterMaxAmount] = useState<string>("");
   const [filterCity, setFilterCity] = useState<string>("all");
   const [filterSalesPerson, setFilterSalesPerson] = useState<string>("all");
-  const [activeSheetTab, setActiveSheetTab] = useState<AdminOrderTabCategory>("all");
 
-  useEffect(() => {
-    if (isOpen) {
-      setActiveSheetTab(initialTab || "all");
-    }
-  }, [isOpen, initialTab]);
+  // Same filter + tab counts as ListOrdersPage (`filterListOrders`).
+  const listFilteredOrders = useMemo(
+    () =>
+      filterListOrders({
+        orders,
+        activeTab: listActiveTab,
+        searchQuery,
+        priorityFilter,
+        dateFilter,
+        customDateFrom,
+        customDateTo,
+        categoryOptions,
+        partyNameById,
+        includeDraftTab: false,
+      }),
+    [
+      orders,
+      listActiveTab,
+      searchQuery,
+      priorityFilter,
+      dateFilter,
+      customDateFrom,
+      customDateTo,
+      categoryOptions,
+      partyNameById,
+    ],
+  );
 
-  // Dynamic backend fetch matching selected activeSheetTab
-  const queryParams = useMemo(() => {
-    const base: Record<string, string | undefined> = {};
+  const tabCounts = useMemo(
+    () => buildOrderListTabCounts(orders, categoryOptions, false),
+    [orders, categoryOptions],
+  );
 
-    if (activeSheetTab !== "all") {
-      Object.assign(
-        base,
-        adminTabQueryParams(activeSheetTab as AdminOrderTabCategory),
-      );
-    }
-    return base;
-  }, [activeSheetTab]);
-
-  const { data: ordersData, isFetching: isOrdersFetching, isLoading: isOrdersLoading, refetch } = useListOrdersQuery(queryParams, {
-    skip: !isOpen
-  });
-
+  // Enrichment only (party/user/delivery columns).
   const partiesQ = useListPartiesQuery({}, { skip: !isOpen });
   const usersQ = useListUsersQuery({}, { skip: !isOpen });
-
-  const orders = useMemo(() => {
-    return pickOrders(ordersData) || [];
-  }, [ordersData]);
 
   const partiesList = useMemo(() => {
     return pickOrders(partiesQ.data) || [];
@@ -269,11 +297,11 @@ export function GoogleSheetOrdersModal({
   const deliveriesQ = useListOrderDeliveriesQuery({}, { skip: !isOpen });
 
   const transportsList = useMemo(() => {
-    return pickOrders(transportsQ.data) || [];
+    return pickList(transportsQ.data);
   }, [transportsQ.data]);
 
   const deliveriesList = useMemo(() => {
-    return pickOrders(deliveriesQ.data) || [];
+    return pickList(deliveriesQ.data);
   }, [deliveriesQ.data]);
 
   const orderDeliveryDateMap = useMemo(() => {
@@ -314,9 +342,9 @@ export function GoogleSheetOrdersModal({
   const dragStartRef = useRef<{ colKey: string; startWidth: number; startX: number } | null>(null);
 
   const localRows = useMemo<FlattenedOrder[]>(() => {
-    return orders.map(o => {
+    return listFilteredOrders.map((o) => {
       const item = o as any;
-      const id = item._id || item.id || "";
+      const id = orderKey(item) || "";
       const ref = item.order_no || item.order_number || id || "—";
       const total = Number(item.grand_total ?? item.total ?? 0);
       const pri = typeof item.priority === "string" ? item.priority : "normal";
@@ -390,7 +418,7 @@ export function GoogleSheetOrdersModal({
         raw: o
       };
     });
-  }, [orders, partyNameById, partyMap, userMap, orderDeliveryDateMap]);
+  }, [listFilteredOrders, partyNameById, partyMap, userMap, orderDeliveryDateMap]);
 
   // Compute filters metadata
   const uniqueStatuses = useMemo(() => {
@@ -443,7 +471,6 @@ export function GoogleSheetOrdersModal({
   const hasActiveFilters = useMemo(() => {
     return (
       filterStatus !== "all" ||
-      filterPriority !== "all" ||
       filterCounterparty !== "all" ||
       filterPartyNameQuery.trim() !== "" ||
       filterSra !== "all" ||
@@ -457,7 +484,6 @@ export function GoogleSheetOrdersModal({
     );
   }, [
     filterStatus,
-    filterPriority,
     filterCounterparty,
     filterPartyNameQuery,
     filterSra,
@@ -467,12 +493,11 @@ export function GoogleSheetOrdersModal({
     filterMinAmount,
     filterMaxAmount,
     filterCity,
-    filterSalesPerson
+    filterSalesPerson,
   ]);
 
   const handleClearFilters = () => {
     setFilterStatus("all");
-    setFilterPriority("all");
     setFilterCounterparty("all");
     setFilterPartyNameQuery("");
     setFilterSra("all");
@@ -487,45 +512,12 @@ export function GoogleSheetOrdersModal({
     setFilterSalesPerson("all");
   };
 
-  // Filtered Rows Memo
+  // listFilteredOrders already applied shared orderList filters; sheet-only extras next.
   const filteredRows = useMemo(() => {
     let rows = localRows;
 
-    // 0. Bottom Sheet Tab Category Filter
-    if (activeSheetTab !== "all") {
-      rows = rows.filter((r) =>
-        orderMatchesAdminTab(r.raw, activeSheetTab as AdminOrderTabCategory),
-      );
-    }
-
-    // 1. Text Search Filter
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      rows = rows.filter(
-        r =>
-          r.order_no.toLowerCase().includes(q) ||
-          r.party_name.toLowerCase().includes(q) ||
-          r.priority.toLowerCase().includes(q) ||
-          r.status.toLowerCase().includes(q) ||
-          r.order_date.toLowerCase().includes(q) ||
-          r.expected_delivery_date.toLowerCase().includes(q) ||
-          r.party_type.toLowerCase().includes(q) ||
-          r.party_city.toLowerCase().includes(q) ||
-          r.sales_person.toLowerCase().includes(q) ||
-          r.items_list.toLowerCase().includes(q) ||
-          r.party_sra.toLowerCase().includes(q) ||
-          r.actual_delivery_date.toLowerCase().includes(q)
-      );
-    }
-
-    // 2. Status Filter
     if (filterStatus !== "all") {
       rows = rows.filter(r => r.status === filterStatus);
-    }
-
-    // 3. Priority Filter
-    if (filterPriority !== "all") {
-      rows = rows.filter(r => r.priority.toLowerCase() === filterPriority);
     }
 
     // 4. Counterparty Dropdown Filter
@@ -636,9 +628,7 @@ export function GoogleSheetOrdersModal({
     return rows;
   }, [
     localRows,
-    searchQuery,
     filterStatus,
-    filterPriority,
     filterCounterparty,
     filterPartyNameQuery,
     filterSra,
@@ -651,7 +641,6 @@ export function GoogleSheetOrdersModal({
     filterMaxAmount,
     filterCity,
     filterSalesPerson,
-    activeSheetTab
   ]);
 
   // Export CSV
@@ -958,7 +947,7 @@ function onEdit(e) {
             </button>
             <button
               type="button"
-              onClick={() => void refetch()}
+              onClick={() => onRefetchOrders?.()}
               className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 transition"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isOrdersFetching ? "animate-spin" : ""}`} />
@@ -975,7 +964,7 @@ function onEdit(e) {
               <input
                 type="text"
                 value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
+                onChange={(e) => onSearchQueryChange(e.target.value)}
                 placeholder="Search values in sheet..."
                 className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-slate-100 outline-none transition focus:border-emerald-600 focus:ring-1 focus:ring-emerald-500/30"
               />
@@ -1044,12 +1033,12 @@ function onEdit(e) {
                       </select>
                     </div>
 
-                    {/* Priority select */}
+                    {/* Priority select — shared with list page bottom strip */}
                     <div>
                       <label className="block font-semibold text-slate-550 dark:text-slate-400 mb-1">Priority</label>
                       <select
-                        value={filterPriority}
-                        onChange={e => setFilterPriority(e.target.value)}
+                        value={priorityFilter}
+                        onChange={(e) => onPriorityFilterChange(e.target.value)}
                         className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
                       >
                         <option value="all">All priorities</option>
@@ -1265,7 +1254,7 @@ function onEdit(e) {
         {/* Spreadsheet Area */}
         <div className="flex-1 overflow-auto bg-slate-100 dark:bg-slate-950 relative">
           {/* Busy Loading Overlay */}
-          {(isOrdersLoading || isOrdersFetching || partiesQ.isLoading || usersQ.isLoading) && (
+          {(isOrdersFetching || partiesQ.isLoading || usersQ.isLoading) && (
             <div className="absolute inset-0 bg-white/50 dark:bg-slate-900/50 flex items-center justify-center z-40 backdrop-blur-[1px]">
               <div className="flex flex-col items-center gap-2.5 bg-white dark:bg-slate-850 p-4 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800">
                 <RefreshCw className="h-5 w-5 animate-spin text-emerald-600 dark:text-emerald-400" />
@@ -1370,46 +1359,57 @@ function onEdit(e) {
           </div>
         </div>
 
-        {/* Google Sheets Sheet Tabs Bottom Bar */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 shrink-0 select-none text-xs">
-          {/* Sheet Tabs */}
-          <div className="flex items-center overflow-x-auto border-b sm:border-b-0 border-slate-200 dark:border-slate-800 scrollbar-none">
-            {/* Sheet navigator mock buttons */}
-            <div className="flex items-center px-3 py-1.5 border-r border-slate-200 dark:border-slate-800 text-slate-400 gap-1.5">
-              <span className="cursor-pointer hover:text-slate-655 dark:hover:text-slate-300">◀</span>
-              <span className="cursor-pointer hover:text-slate-655 dark:hover:text-slate-300">▶</span>
-            </div>
-            
-              {/* Tab list — same shared workflow steps across portals */}
-              <div className="flex items-center h-full relative top-[1px]">
-                {ADMIN_ORDER_TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveSheetTab(tab.id)}
-                    className={`px-4 py-2 border-r border-slate-200 dark:border-slate-800 font-semibold whitespace-nowrap cursor-pointer transition ${
-                      activeSheetTab === tab.id
-                        ? "bg-white dark:bg-slate-950 text-emerald-650 dark:text-emerald-400 border-t-2 border-t-emerald-600 dark:border-t-emerald-450 border-b-transparent"
-                        : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-          {/* Stats & Status */}
-          <div className="flex items-center justify-between sm:justify-end gap-4 px-6 py-2.5 sm:py-0 text-slate-500 dark:text-slate-400">
+        <div className="flex shrink-0 flex-col border-t border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center justify-between gap-4 px-4 py-2 text-xs text-slate-500 dark:text-slate-400">
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-purple-500 animate-pulse" />
-              <span className="font-semibold text-xs text-slate-655 dark:text-slate-355">Read-Only Grid Mode</span>
+              <span className="h-2 w-2 animate-pulse rounded-full bg-purple-500" />
+              <span className="font-semibold">Read-Only Grid Mode</span>
             </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span>Rows: <strong className="text-slate-800 dark:text-slate-200">{filteredRows.length}</strong> / {localRows.length}</span>
-              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">∑ ₹{formatMoney(filteredRows.reduce((a, r) => a + r.grand_total, 0))}</span>
-              <span className="text-purple-600 dark:text-purple-400 font-semibold">Qty: {filteredRows.reduce((a, r) => a + r.total_quantity, 0).toLocaleString("en-IN")}</span>
+            <div className="flex items-center gap-3">
+              <span>
+                Rows:{" "}
+                <strong className="text-slate-800 dark:text-slate-200">
+                  {filteredRows.length}
+                </strong>{" "}
+                / {localRows.length}
+              </span>
+              {config.showPricing && (
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  ∑ ₹
+                  {formatMoney(
+                    filteredRows.reduce((a, r) => a + r.grand_total, 0),
+                  )}
+                </span>
+              )}
+              <span className="font-semibold text-purple-600 dark:text-purple-400">
+                Qty:{" "}
+                {filteredRows
+                  .reduce((a, r) => a + r.total_quantity, 0)
+                  .toLocaleString("en-IN")}
+              </span>
             </div>
           </div>
+          <OrderListBottomTabStrip
+            tabs={ORDER_WORKFLOW_TABS}
+            activeTab={listActiveTab}
+            onTabChange={(tabId) => onActiveTabChange(tabId as ListOrdersTabId)}
+            filteredCount={listFilteredOrders.length}
+            tabCounts={tabCounts}
+            isFetching={isOrdersFetching}
+            searchQuery={searchQuery}
+            onClearSearch={() => onSearchQueryChange("")}
+            priorityFilter={priorityFilter}
+            onPriorityFilterChange={onPriorityFilterChange}
+            showReset={showReset || hasActiveFilters}
+            onReset={() => {
+              handleClearFilters();
+              onResetFilters?.();
+            }}
+            accentActiveClass={accents.tabActive}
+            searchResultAccentClass={accents.searchResult}
+            countBadgeClass={accents.countBadge}
+            compact
+          />
         </div>
         </div>
       ) : (

@@ -28,23 +28,21 @@ module.exports = {
     S.ACCOUNT_REJECTED,
     S.FINANCE_REJECTED,
     S.ON_HOLD,
-    S.CLOSED,
     S.CANCELLED,
   ],
 
   [S.ACCOUNT_REJECTED]: [S.ACCOUNT_REVIEW, S.FINANCE_APPROVED, S.CANCELLED],
 
-  [S.DELIVERED]: [S.IN_TRANSIT, S.CLOSED, S.CANCELLED],
+  [S.DELIVERED]: [S.IN_TRANSIT, S.CANCELLED],
 
   [S.DISPATCH]: [
     S.IN_TRANSIT,
     S.ON_HOLD,
     S.FINANCE_REJECTED,
-    S.CLOSED,
     S.CANCELLED,
   ],
 
-  [S.IN_TRANSIT]: [S.DELIVERED, S.ON_HOLD, S.CLOSED, S.CANCELLED],
+  [S.IN_TRANSIT]: [S.DELIVERED, S.ON_HOLD, S.CANCELLED],
 
   [S.ACCOUNT_APPROVED]: [
     S.DISPATCH,
@@ -52,7 +50,6 @@ module.exports = {
     S.ON_HOLD,
     S.FINANCE_REJECTED,
     S.ACCOUNT_REJECTED,
-    S.CLOSED,
     S.CANCELLED,
   ],
 
@@ -61,7 +58,6 @@ module.exports = {
     S.DISPATCH,
     S.ON_HOLD,
     S.FINANCE_REJECTED,
-    S.CLOSED,
     S.CANCELLED,
   ],
 
@@ -79,6 +75,4 @@ module.exports = {
   ],
 
   [S.CANCELLED]: [],
-
-  [S.CLOSED]: [],
 };

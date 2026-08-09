@@ -63,14 +63,13 @@ function deriveFinanceApprovalStatus(items) {
 
   if (!hasApproved) return APPROVAL_STATUS.PENDING;
   if (allComplete) return APPROVAL_STATUS.APPROVED;
-  return APPROVAL_STATUS.PARTIAL;
+  return APPROVAL_STATUS.PENDING;
 }
 
 function financeWorkflowAction(orderDoc) {
   const fas = normalizeFinanceApprovalStatus(orderDoc.finance_approval_status)
     || deriveFinanceApprovalStatus(orderDoc.order_items);
   if (fas === APPROVAL_STATUS.APPROVED) return ORDER_STATUS.FINANCE_APPROVED;
-  if (fas === APPROVAL_STATUS.PARTIAL) return ORDER_STATUS.FINANCE_APPROVED;
   if (fas === APPROVAL_STATUS.REJECTED) return ORDER_STATUS.FINANCE_REJECTED;
   return ORDER_STATUS.FINANCE_REVIEW;
 }
@@ -85,7 +84,7 @@ function accountClearedQty(line, accountApprovalStatus) {
   const approved = Number(line.approved_quantity ?? 0);
   const aas = normalizeAccountApprovalStatus(accountApprovalStatus);
   if (aas === APPROVAL_STATUS.REJECTED) return 0;
-  if ([APPROVAL_STATUS.APPROVED, APPROVAL_STATUS.PARTIAL].includes(aas)) return approved;
+  if (aas === APPROVAL_STATUS.APPROVED) return approved;
   return 0;
 }
 
@@ -99,10 +98,8 @@ function applyAccountWorkflowAction(orderDoc) {
   }
 
   const aas = normalizeAccountApprovalStatus(orderDoc.account_approval_status);
-  if ([APPROVAL_STATUS.APPROVED, APPROVAL_STATUS.PARTIAL].includes(aas)) {
-    orderDoc.current_action = aas === APPROVAL_STATUS.APPROVED
-      ? 'fully_account_approved'
-      : 'account_partial';
+  if (aas === APPROVAL_STATUS.APPROVED) {
+    orderDoc.current_action = 'account_approved';
     if (
       orderDoc.workflow_stage === ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW ||
       orderDoc.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW
@@ -132,8 +129,8 @@ function applyFinanceWorkflowAction(orderDoc) {
   const fas = normalizeFinanceApprovalStatus(orderDoc.finance_approval_status)
     || deriveFinanceApprovalStatus(orderDoc.order_items);
 
-  if ([APPROVAL_STATUS.APPROVED, APPROVAL_STATUS.PARTIAL].includes(fas)) {
-    orderDoc.current_action = fas === APPROVAL_STATUS.APPROVED ? 'finance_approved' : 'finance_partial';
+  if (fas === APPROVAL_STATUS.APPROVED) {
+    orderDoc.current_action = 'finance_approved';
     if (orderDoc.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW) {
       orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
     }
@@ -143,7 +140,7 @@ function applyFinanceWorkflowAction(orderDoc) {
     orderDoc.status = ORDER_STATUS.FINANCE_REJECTED;
   }
   normalizeOrderWorkflowFields(orderDoc);
-  return action;
+  return orderDoc.current_action;
 }
 
 const DEPARTMENT_LABELS = {
@@ -162,14 +159,9 @@ const ACTION_LABELS = {
   submitted: 'Submitted to admin',
   approved: 'Sales / admin approved',
   review_requested: 'Finance review requested',
-  partially_finance_approved: 'Partially finance approved',
-  fully_finance_approved: 'Fully finance approved',
   rejected: 'Rejected',
   sent_to_dispatch: 'Sent to dispatch queue',
-  partial_dispatch: 'Partial dispatch recorded',
-  full_dispatch: 'Full dispatch recorded',
-  partially_transported: 'Partially in transport',
-  fully_transported: 'All dispatches shipped',
+  dispatch_created: 'Dispatch created',
   transporter_assigned: 'Transporter assigned',
   vehicle_assigned: 'Vehicle assigned',
   picked_up: 'Picked up',
@@ -230,26 +222,12 @@ function buildStatusDimensions(orderPlain, totals) {
       detail: `${delivered} / ${approved || ordered} qty delivered`,
       tone: 'success',
     };
-  } else if (deliveryStatus === FULFILLMENT_STATUS.PARTIAL || delivered > 0) {
+  } else if (dispatchStatus === FULFILLMENT_STATUS.COMPLETED || dispatched > 0) {
     fulfillment = {
-      key: 'partial_delivery',
-      label: 'Partially delivered',
-      detail: `${delivered} delivered · ${pendingDelivery} pending delivery`,
-      tone: 'info',
-    };
-  } else if (dispatchStatus === FULFILLMENT_STATUS.COMPLETED || (dispatched > 0 && pendingDispatch === 0 && approved > 0)) {
-    fulfillment = {
-      key: 'full_dispatch',
-      label: 'Fully dispatched',
+      key: 'dispatch_created',
+      label: 'Dispatch created',
       detail: `${dispatched} / ${approved} approved qty dispatched`,
       tone: 'success',
-    };
-  } else if (dispatchStatus === FULFILLMENT_STATUS.PARTIAL || dispatched > 0) {
-    fulfillment = {
-      key: 'partial_dispatch',
-      label: 'Partially dispatched',
-      detail: `${dispatched} dispatched · ${pendingDispatch} pending dispatch`,
-      tone: 'info',
     };
   } else if (fas === APPROVAL_STATUS.APPROVED) {
     fulfillment = {
@@ -257,13 +235,6 @@ function buildStatusDimensions(orderPlain, totals) {
       label: 'Fully finance approved',
       detail: `${approved} / ${ordered} qty approved`,
       tone: 'success',
-    };
-  } else if (fas === APPROVAL_STATUS.PARTIAL || approved > 0) {
-    fulfillment = {
-      key: 'finance_partial',
-      label: 'Partially finance approved',
-      detail: `${approved} approved · ${pendingFinance} pending finance`,
-      tone: 'warning',
     };
   } else if (fas === APPROVAL_STATUS.REJECTED) {
     fulfillment = { key: 'finance_rejected', label: 'Finance rejected', tone: 'danger' };
@@ -280,9 +251,9 @@ function buildStatusDimensions(orderPlain, totals) {
     actionStage.tone = 'danger';
   } else if (action === 'hold') {
     actionStage.tone = 'warning';
-  } else if (action.includes('approved') || action === 'delivered' || action === 'full_dispatch') {
+  } else if (action.includes('approved') || action === 'delivered' || action === 'dispatch_created') {
     actionStage.tone = 'success';
-  } else if (action.includes('partial') || action.includes('transit')) {
+  } else if (action.includes('transit')) {
     actionStage.tone = 'info';
   }
 
@@ -301,23 +272,20 @@ function buildFinanceCapabilities(orderPlain, totals) {
     display_status:
       fas === APPROVAL_STATUS.APPROVED
         ? ORDER_STATUS.FINANCE_APPROVED
-        : fas === APPROVAL_STATUS.PARTIAL
-          ? ORDER_STATUS.FINANCE_APPROVED
-          : fas === APPROVAL_STATUS.REJECTED
-            ? ORDER_STATUS.FINANCE_REJECTED
-            : ORDER_STATUS.FINANCE_REVIEW,
+        : fas === APPROVAL_STATUS.REJECTED
+          ? ORDER_STATUS.FINANCE_REJECTED
+          : ORDER_STATUS.FINANCE_REVIEW,
     pending_finance_qty: pendingFinance,
     approved_qty: approved,
     ordered_qty: Number(totals.ordered || 0),
-    can_approve_remaining: fas === APPROVAL_STATUS.PARTIAL && pendingFinance > 0,
+    can_approve_remaining: false,
     can_send_to_dispatch:
       approved > 0 &&
       fas !== APPROVAL_STATUS.REJECTED &&
       orderPlain.current_action !== 'sent_to_dispatch' &&
       orderPlain.status !== ORDER_STATUS.DISPATCH &&
       ![ORDER_WORKFLOW_STAGE.DISPATCH, ORDER_WORKFLOW_STAGE.COMPLETED].includes(stage),
-    is_partially_finance_approved: fas === APPROVAL_STATUS.PARTIAL,
-    is_fully_finance_approved: fas === APPROVAL_STATUS.APPROVED,
+    is_finance_approved: fas === APPROVAL_STATUS.APPROVED,
   };
 }
 
@@ -328,7 +296,6 @@ function deriveLineStatus(q) {
 
   if (returned > 0 && netTarget <= 0) return ORDER_LINE_STATUS.CANCELLED;
   if (netTarget > 0 && q.delivered >= netTarget) return ORDER_LINE_STATUS.FULFILLED;
-  if (q.delivered > 0 || q.dispatched > 0 || returned > 0) return ORDER_LINE_STATUS.PARTIAL;
   return ORDER_LINE_STATUS.ACTIVE;
 }
 
@@ -577,7 +544,7 @@ async function syncDispatchDeliveredFromDeliveries(orderId) {
   const dispatches = await OrderDispatch.find({
     order: orderId,
     deletedAt: null,
-    dispatch_status: { $ne: 'cancelled' },
+    dispatch_status: { $nin: ['cancelled', 'draft'] },
   });
 
   for (const dispatch of dispatches) {
@@ -623,7 +590,7 @@ async function syncDispatchDeliveredFromShipments(orderId) {
   const dispatches = await OrderDispatch.find({
     order: orderId,
     deletedAt: null,
-    dispatch_status: { $ne: 'cancelled' },
+    dispatch_status: { $nin: ['cancelled', 'draft'] },
   });
 
   for (const dispatch of dispatches) {
@@ -744,20 +711,51 @@ function assertDispatchItemQuantities(order, dispatchItems, alreadyDispatchedByL
   }
 }
 
-async function recalculateFromExecutions(orderId, user) {
+function isOptimisticConcurrencyError(err) {
+  if (!err) return false;
+  if (err.name === 'VersionError') return true;
+  const msg = String(err.message || '');
+  return /No matching document found for id/i.test(msg) && /version/i.test(msg);
+}
+
+/**
+ * Recompute order line fulfillment rollups from dispatches/deliveries/returns.
+ * Retries on mongoose optimistic-concurrency VersionError (common when sync
+ * recalculate races a queued `recalculate_fulfillment` job).
+ */
+async function recalculateFromExecutions(orderId, user, options = {}) {
+  const maxRetries = Math.max(1, Number(options.maxRetries) || 4);
+  let lastError;
+
+  for (let attempt = 0; attempt < maxRetries; attempt += 1) {
+    try {
+      return await recalculateFromExecutionsOnce(orderId, user);
+    } catch (err) {
+      lastError = err;
+      if (!isOptimisticConcurrencyError(err) || attempt === maxRetries - 1) {
+        throw err;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+async function recalculateFromExecutionsOnce(orderId, user) {
   const { Order, OrderDispatch, TransportShipment } = getModels();
 
   await syncDispatchDeliveredQuantities(orderId);
 
-  const [orderDoc, dispatches, shipments, returns] = await Promise.all([
+  const [orderDoc, dispatches, shipments, returns, approvals] = await Promise.all([
     Order.findById(orderId),
-    OrderDispatch.find({ order: orderId, deletedAt: null, dispatch_status: { $ne: 'cancelled' } }).lean(),
+    OrderDispatch.find({ order: orderId, deletedAt: null, dispatch_status: { $nin: ['cancelled', 'draft'] } }).lean(),
     TransportShipment.find({
       order: orderId,
       deletedAt: null,
       shipment_status: { $nin: ['delivery_failed', 'returned'] },
     }).lean(),
     getModels().OrderReturn.find({ order: orderId, deletedAt: null }).lean(),
+    getModels().OrderApproval.find({ order: orderId, deletedAt: null }).lean(),
   ]);
 
   if (!orderDoc) throw new ApiError(404, 'Order not found');
@@ -799,31 +797,41 @@ async function recalculateFromExecutions(orderId, user) {
     nextItems.length > 0 &&
     nextItems.every((item) => {
       const q = lineQuantities(item);
-      return Number(item.dispatched_quantity || 0) >= q.dispatchCap && q.dispatchCap > 0;
+      return Number(item.dispatched_quantity || 0) >= q.ordered && q.ordered > 0;
     });
 
   const fullyDelivered =
     nextItems.length > 0 &&
     nextItems.every((item) => {
       const q = lineQuantities(item);
-      return Number(item.delivered_quantity || 0) >= q.dispatchCap && q.dispatchCap > 0;
+      return Number(item.delivered_quantity || 0) >= q.ordered && q.ordered > 0;
     });
 
   orderDoc.order_items = nextItems;
-  orderDoc.dispatch_status = totalDispatched === 0
-    ? FULFILLMENT_STATUS.PENDING
-    : fullyDispatched
-      ? FULFILLMENT_STATUS.COMPLETED
-      : FULFILLMENT_STATUS.PARTIAL;
-  orderDoc.delivery_status = totalDelivered === 0
-    ? FULFILLMENT_STATUS.PENDING
-    : fullyDelivered
-      ? FULFILLMENT_STATUS.COMPLETED
-      : FULFILLMENT_STATUS.PARTIAL;
+  orderDoc.dispatch_status = fullyDispatched
+    ? FULFILLMENT_STATUS.COMPLETED
+    : FULFILLMENT_STATUS.PENDING;
+  orderDoc.delivery_status = fullyDelivered
+    ? FULFILLMENT_STATUS.COMPLETED
+    : FULFILLMENT_STATUS.PENDING;
   orderDoc.finance_approval_status = deriveFinanceApprovalStatus(nextItems);
 
-  const isOrderClosed =
-    orderDoc.status === ORDER_STATUS.CLOSED || Boolean(orderDoc.closed_at);
+  const latestApproval = (approvals || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+  const isSettled = latestApproval ? latestApproval.dispatch_release_resolved === true : false;
+
+  const billedDispatches = (dispatches || []).filter(d => d.bill_number && String(d.bill_number).trim() !== '');
+  const billedByLine = aggregateDispatchedByLine(billedDispatches);
+  const totalBilled = nextItems.reduce((sum, item) => sum + (billedByLine[String(item._id)] || 0), 0);
+
+  if (isSettled) {
+    orderDoc.billing_status = 'fully_billed';
+  } else if (totalBilled === 0) {
+    orderDoc.billing_status = 'unbilled';
+  } else {
+    orderDoc.billing_status = 'fully_billed';
+  }
+
+  const isOrderClosed = Boolean(orderDoc.is_locked);
 
   if (!isOrderClosed) {
     if (totalDispatched > 0) {
@@ -831,7 +839,7 @@ async function recalculateFromExecutions(orderId, user) {
         ? ORDER_WORKFLOW_STAGE.COMPLETED
         : ORDER_WORKFLOW_STAGE.DISPATCH;
       orderDoc.status = ORDER_STATUS.DISPATCH;
-      orderDoc.current_action = fullyDispatched ? 'full_dispatch' : 'partial_dispatch';
+      orderDoc.current_action = 'dispatch_created';
       if (fullyDelivered) {
         orderDoc.lifecycle_status = ORDER_LIFECYCLE_STATUS.FULFILLED;
         orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.COMPLETED;
@@ -841,13 +849,11 @@ async function recalculateFromExecutions(orderId, user) {
         orderDoc.lifecycle_status !== ORDER_LIFECYCLE_STATUS.CANCELLED &&
         orderDoc.lifecycle_status !== ORDER_LIFECYCLE_STATUS.ON_HOLD
       ) {
-        orderDoc.lifecycle_status = totalDelivered > 0 || totalDispatched > 0
-          ? ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED
-          : orderDoc.lifecycle_status;
+        orderDoc.lifecycle_status = ORDER_LIFECYCLE_STATUS.ACTIVE;
       }
     } else if (totalApproved > 0) {
       const aas = normalizeAccountApprovalStatus(orderDoc.account_approval_status);
-      if ([APPROVAL_STATUS.APPROVED, APPROVAL_STATUS.PARTIAL].includes(aas)) {
+      if (aas === APPROVAL_STATUS.APPROVED) {
         applyAccountWorkflowAction(orderDoc);
       } else {
         applyFinanceWorkflowAction(orderDoc);
@@ -892,7 +898,7 @@ async function syncOrderLineReturnedQuantitiesFromReturns(orderId) {
     OrderDispatch.find({
       order: orderId,
       deletedAt: null,
-      dispatch_status: { $ne: 'cancelled' },
+      dispatch_status: { $nin: ['cancelled', 'draft'] },
     }).lean(),
   ]);
 

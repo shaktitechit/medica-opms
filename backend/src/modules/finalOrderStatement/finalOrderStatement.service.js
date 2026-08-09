@@ -1,10 +1,11 @@
 /**
- * @fileoverview Build final order statement from a closed order.
+ * @fileoverview Build final order statement from a delivered/closed order.
  * @module modules/finalOrderStatement/finalOrderStatement.service
  */
 const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
 const { ApiError } = require('../../utils/ApiError');
+const { ORDER_STATUS } = require('../../constants/domain');
 const { ORDER_RETURN_STATUS } = require('../../constants/orderReturnStatus');
 
 function num(value) {
@@ -184,13 +185,39 @@ function buildReturnRefs(returns) {
 }
 
 function statementNo(order) {
-  const closedTs = order.closed_at
-    ? new Date(order.closed_at).toISOString().slice(0, 10).replace(/-/g, '')
+  const stampSource =
+    order.closed_at ||
+    order.actual_delivery_date ||
+    order.delivered_at ||
+    null;
+  const closedTs = stampSource
+    ? new Date(stampSource).toISOString().slice(0, 10).replace(/-/g, '')
     : 'OPEN';
   return `FOS-${order.order_no}-${closedTs}`;
 }
 
-async function loadClosedOrder(orderId) {
+function isOrderClosedOrDelivered(order) {
+  if (!order) return false;
+  if (order.closed_at != null && order.closed_at !== '') return true;
+
+  const status = String(order.status || '').toLowerCase();
+  if (
+    status === ORDER_STATUS.CLOSED ||
+    status === ORDER_STATUS.DELIVERED
+  ) {
+    return true;
+  }
+
+  const deliveryStatus = String(order.delivery_status || '').toLowerCase();
+  if (deliveryStatus === 'completed' || deliveryStatus === 'delivered') {
+    return true;
+  }
+
+  const lifecycle = String(order.lifecycle_status || '').toLowerCase();
+  return lifecycle === 'fulfilled';
+}
+
+async function loadStatementOrder(orderId) {
   const order = await getModels()
     .Order.findOne({ _id: orderId, deletedAt: null })
     .populate('party')
@@ -199,10 +226,10 @@ async function loadClosedOrder(orderId) {
 
   if (!order) throw new ApiError(404, 'Order not found');
 
-  if (String(order.status || '') !== 'closed' && !order.closed_at) {
+  if (!isOrderClosedOrDelivered(order)) {
     throw new ApiError(
       400,
-      'Final order statement is available only after the order is closed',
+      'Final order statement is available only after the order is delivered',
     );
   }
 
@@ -210,12 +237,12 @@ async function loadClosedOrder(orderId) {
 }
 
 /**
- * Generate the final order statement for a closed order.
+ * Generate the final order statement for a delivered/closed order.
  * @param {string} orderId
  * @returns {Promise<object>}
  */
 async function generateForOrder(orderId) {
-  const order = await loadClosedOrder(orderId);
+  const order = await loadStatementOrder(orderId);
   const plain = toPlain(order);
 
   const returns = await getModels()
@@ -262,7 +289,7 @@ async function generateForOrder(orderId) {
 }
 
 /**
- * List final statements for orders (one entry per closed order in result set).
+ * List final statements for orders (one entry per delivered/closed order).
  * @param {{ order?: string }} query
  */
 async function list({ order } = {}) {
@@ -273,10 +300,17 @@ async function list({ order } = {}) {
   const orders = await getModels()
     .Order.find({
       deletedAt: null,
-      $or: [{ status: 'closed' }, { closed_at: { $ne: null } }],
+      $or: [
+        { status: ORDER_STATUS.CLOSED },
+        { status: ORDER_STATUS.DELIVERED },
+        { closed_at: { $ne: null } },
+        { delivery_status: 'completed' },
+        { delivery_status: 'delivered' },
+        { lifecycle_status: 'fulfilled' },
+      ],
     })
-    .sort({ closed_at: -1 })
-    .select('_id order_no closed_at')
+    .sort({ closed_at: -1, updatedAt: -1 })
+    .select('_id order_no closed_at actual_delivery_date delivered_at')
     .lean();
 
   return orders.map((row) => ({

@@ -13,6 +13,8 @@ type OrderListBottomTabStripProps = {
   activeTab: string;
   onTabChange: (tabId: string) => void;
   filteredCount: number;
+  /** Per-tab counts (Quick Access sync). Falls back to filteredCount for active tab. */
+  tabCounts?: Record<string, number>;
   isFetching?: boolean;
   searchQuery: string;
   onClearSearch: () => void;
@@ -38,6 +40,7 @@ export function OrderListBottomTabStrip({
   activeTab,
   onTabChange,
   filteredCount,
+  tabCounts,
   isFetching = false,
   searchQuery,
   onClearSearch,
@@ -82,12 +85,15 @@ export function OrderListBottomTabStrip({
             {tabs.map((tab) => {
               const isActive = activeTab === tab.id;
               const TabIcon = getOrderListTabIcon(tab.id);
+              const count =
+                tabCounts?.[tab.id] ?? (isActive ? filteredCount : undefined);
+              const showCount = count != null && !isFetching;
               return (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => onTabChange(tab.id)}
-                  title={tab.label}
+                  title={`${tab.label}${showCount ? ` (${count})` : ""}`}
                   aria-label={tab.label}
                   className={`relative inline-flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap border-t-2 px-2 text-xs font-semibold transition sm:px-3 md:px-3 ${tabPy} ${
                     isActive ? accentActiveClass : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
@@ -95,16 +101,24 @@ export function OrderListBottomTabStrip({
                 >
                   <TabIcon className="h-4 w-4 shrink-0 md:hidden" aria-hidden />
                   <span className="hidden md:inline">{tab.label}</span>
-                  {isActive && !isFetching && (
+                  {showCount && (
                     <>
-                      <span className="hidden rounded-full bg-blue-100 px-1.5 py-0.5 text-2xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 md:inline">
-                        {filteredCount}
-                      </span>
                       <span
-                        className={`absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-2xs font-bold text-white md:hidden ${countBadgeClass}`}
+                        className={`hidden rounded-full px-1.5 py-0.5 text-2xs font-bold md:inline ${
+                          isActive
+                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                            : "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300"
+                        }`}
                       >
-                        {filteredCount}
+                        {count}
                       </span>
+                      {isActive && (
+                        <span
+                          className={`absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-2xs font-bold text-white md:hidden ${countBadgeClass}`}
+                        >
+                          {count}
+                        </span>
+                      )}
                     </>
                   )}
                 </button>

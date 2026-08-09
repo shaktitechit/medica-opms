@@ -4,7 +4,6 @@
  */
 const { getModels } = require('../../data/mongoRegistry');
 const { toPlain } = require('../../utils/mongoJson');
-const orderQueue = require('../../queues/order.queue');
 const {
   ORDER_STATUS,
   ORDER_WORKFLOW_STAGE,
@@ -71,14 +70,14 @@ async function get(id) {
 
 /**
  * Create a new OrderReturn record.
+ * Registers the return as received_at_warehouse immediately and syncs returned
+ * quantities only — does not change main order status / workflow / lifecycle.
  *
  * @param {object} body
  * @param {object} user
  * @param {{ skipPostJob?: boolean }} [options]
- *   skipPostJob: when true, the post_order_return background job is NOT enqueued.
- *   Use this when the caller (e.g. logShipmentDelivery) already enqueues its own
- *   comprehensive job (post_shipment_delivery) that handles order status + workflow,
- *   so we avoid double-queueing and race conditions.
+ *   skipPostJob: kept for callers that already sync quantities themselves.
+ *   post_order_return (order status mutation) is never enqueued from create.
  */
 async function create(body, user, options = {}) {
   const { OrderReturn, Order } = getModels();
@@ -87,7 +86,16 @@ async function create(body, user, options = {}) {
   if (!orderExists) throw new ApiError(404, 'Order not found');
 
   const items = Array.isArray(body.return_items) ? body.return_items : [];
-  const returnStatus = assertValidReturnStatus(body.return_status || ORDER_RETURN_STATUS.PENDING);
+  const returnStatus = assertValidReturnStatus(
+    body.return_status || ORDER_RETURN_STATUS.RECEIVED_AT_WAREHOUSE,
+  );
+  const isReceived = returnStatus === ORDER_RETURN_STATUS.RECEIVED_AT_WAREHOUSE;
+  const receivedAt = body.received_at
+    ? new Date(body.received_at)
+    : isReceived
+      ? new Date()
+      : undefined;
+  const receivedBy = body.received_by || (isReceived ? user._id : undefined);
 
   const doc = await OrderReturn.create({
     return_no: body.return_no || generateReturnNo(),
@@ -105,8 +113,8 @@ async function create(body, user, options = {}) {
       expiry_date: item.expiry_date ? new Date(item.expiry_date) : undefined,
     })),
     returned_by: body.returned_by || '',
-    received_by: body.received_by || undefined,
-    received_at: body.received_at ? new Date(body.received_at) : undefined,
+    received_by: receivedBy || undefined,
+    received_at: receivedAt,
     remarks: body.remarks || '',
     created_by: user._id,
   });
@@ -119,46 +127,24 @@ async function create(body, user, options = {}) {
     message: `Return record ${doc.return_no} created for order ID ${body.order}`,
   });
 
-  // Immediately sync dispatch-level returned_quantity so the dispatch items reflect
-  // the accumulated return totals (sum of ALL OrderReturn docs for this dispatch)
-  // before the HTTP response is sent. This is synchronous intentionally.
+  // Sync returned quantities on order/dispatch lines only — never mutate order status.
   try {
     const fulfillmentService = require('../orders/orderFulfillment.service');
-    await fulfillmentService.syncDispatchDeliveredQuantities(String(doc.order));
+    const orderId = String(doc.order);
+    await fulfillmentService.syncOrderLineReturnedQuantitiesFromReturns(orderId);
+    await fulfillmentService.syncDispatchDeliveredQuantities(orderId);
   } catch (syncErr) {
-    // Non-fatal: background job will retry
     require('../../config/logger').logger.warn(
-      `[orderReturn.create] syncDispatchDeliveredQuantities failed: ${syncErr.message}`,
+      `[orderReturn.create] quantity sync failed: ${syncErr.message}`,
     );
   }
 
-  // Enqueue background jobs to sync dispatch quantities and update order workflow/status.
-  // Skipped when the caller (e.g. logShipmentDelivery) already handles this
-  // via its own comprehensive background job to avoid race conditions.
   if (!options.skipPostJob) {
     const dispatchService = require('../dispatch/dispatch.service');
     const orderId = String(doc.order);
     await dispatchService.enqueueDispatchJob({
       type: 'sync_dispatch_quantities',
       payload: { orderId, userId: String(user._id) },
-    });
-    if (body.dispatch) {
-      await dispatchService.enqueueDispatchJob({
-        type: 'sync_dispatch_status',
-        payload: { dispatchId: String(body.dispatch), userId: String(user._id) },
-      });
-    }
-
-    await orderQueue.enqueue({
-      type: 'post_order_return',
-      payload: {
-        orderId,
-        userId: String(user._id),
-        returnId: String(doc._id),
-        dispatchId: body.dispatch ? String(body.dispatch) : undefined,
-        transportId: body.transport ? String(body.transport) : undefined,
-        remarks: body.remarks || 'Product return logged',
-      },
     });
   }
 

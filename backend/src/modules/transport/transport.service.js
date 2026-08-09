@@ -104,15 +104,49 @@ async function list({
     .TransportShipment.find(q)
     .populate({
       path: 'order',
-      select: 'order_no party customer',
+      select: 'order_no party customer grand_total',
       populate: [
-        { path: 'party', select: 'party_name' },
-        { path: 'customer', select: 'party_name' },
+        { path: 'party', select: 'party_name billing_address shipping_address' },
+        { path: 'customer', select: 'party_name billing_address shipping_address' },
       ],
+    })
+    .populate({
+      path: 'dispatch',
+      populate: {
+        path: 'dispatch_items.product',
+        select: 'product_name sku hsn_code',
+      },
     })
     .sort({ createdAt: -1 })
     .lean();
-  return rows.map(toPlain);
+  const { TransportPlanOrder, OrderDelivery } = getModels();
+  const dispatchIds = rows.map((r) => r.dispatch?._id || r.dispatch).filter(Boolean);
+  const planOrders = await TransportPlanOrder.find({
+    dispatch: { $in: dispatchIds },
+    deletedAt: null,
+  }).lean();
+
+  const deliveries = await OrderDelivery.find({
+    dispatch: { $in: dispatchIds },
+    deletedAt: null,
+  }).lean();
+
+  const planOrderMap = new Map(planOrders.map((p) => [String(p.dispatch), p]));
+  const deliveryMap = new Map(deliveries.map((d) => [String(d.dispatch), d]));
+
+  return rows.map((r) => {
+    const plain = toPlain(r);
+    const dispatchIdStr = String(plain.dispatch?._id || plain.dispatch || "");
+    const po = planOrderMap.get(dispatchIdStr);
+    if (po) {
+      plain.plan_packages = po.packages;
+      plain.plan_weight = po.weight;
+    }
+    const del = deliveryMap.get(dispatchIdStr);
+    plain.delivered_at = plain.delivered_at || del?.delivered_at || del?.actual_delivery_date || del?.createdAt || plain.actual_delivery_date;
+    plain.received_by = plain.received_by || del?.received_by;
+    return plain;
+  });
 }
 
 async function get(id) {
@@ -136,32 +170,25 @@ async function recalculateOrderShipmentState(orderId, user) {
   if (shipments.length === 0) {
     if (orderDoc.dispatch_status === 'completed') {
       orderDoc.status = ORDER_STATUS.DISPATCH;
-      orderDoc.current_action = 'full_dispatch';
-    } else if (orderDoc.dispatch_status === 'partial') {
-      orderDoc.status = ORDER_STATUS.DISPATCH;
-      orderDoc.current_action = 'partial_dispatch';
+      orderDoc.current_action = 'dispatch_created';
     } else if (Number(orderDoc.order_items?.reduce((s, l) => s + Number(l.approved_quantity || 0), 0) || 0) > 0) {
       orderDoc.status = ORDER_STATUS.DISPATCH;
       orderDoc.current_action = 'sent_to_dispatch';
     }
   } else if (shipments.every((shipment) => shipment.shipment_status === 'delivered')) {
     orderDoc.delivery_status = fulfillmentState.fullyDelivered ? 'completed' : 'partial';
-    if (fulfillmentState.fullyDelivered && orderDoc.status !== ORDER_STATUS.CLOSED && !orderDoc.closed_at) {
+    if (fulfillmentState.fullyDelivered) {
       orderDoc.lifecycle_status = ORDER_LIFECYCLE_STATUS.FULFILLED;
       orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.COMPLETED;
       orderDoc.current_action = 'delivered';
     } else if (
-      orderDoc.status !== ORDER_STATUS.CLOSED &&
-      !orderDoc.closed_at &&
       ![ORDER_LIFECYCLE_STATUS.CANCELLED, ORDER_LIFECYCLE_STATUS.ON_HOLD].includes(orderDoc.lifecycle_status)
     ) {
-      orderDoc.lifecycle_status = ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED;
+      orderDoc.lifecycle_status = ORDER_LIFECYCLE_STATUS.ACTIVE;
       orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
       orderDoc.current_action = 'delivered';
     }
-    orderDoc.status = orderDoc.status === ORDER_STATUS.CLOSED || orderDoc.closed_at
-      ? ORDER_STATUS.CLOSED
-      : ORDER_STATUS.DELIVERED;
+    orderDoc.status = ORDER_STATUS.DELIVERED;
   } else {
     orderDoc.delivery_status = fulfillmentState.fullyDelivered ? 'completed' : 'partial';
     orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
@@ -185,13 +212,8 @@ async function recalculateOrderShipmentState(orderId, user) {
       const allDispatchesShipped =
         dispatches.length > 0 && dispatches.every((d) => shippedDispatchIds.has(String(d._id)));
 
-      if (allDispatchesShipped) {
-        orderDoc.current_action = 'fully_transported';
-        orderDoc.status = ORDER_STATUS.IN_TRANSIT;
-      } else {
-        orderDoc.current_action = 'partially_transported';
-        orderDoc.status = ORDER_STATUS.IN_TRANSIT;
-      }
+      orderDoc.current_action = 'in_transit';
+      orderDoc.status = ORDER_STATUS.IN_TRANSIT;
     }
   }
 
@@ -204,8 +226,8 @@ async function recalculateOrderShipmentState(orderId, user) {
   if (
     fulfillmentState.fullyDelivered &&
     allShipmentsDelivered &&
-    orderDoc.status !== ORDER_STATUS.CLOSED &&
-    !orderDoc.closed_at &&
+    orderDoc.status !== ORDER_STATUS.DELIVERED &&
+    !orderDoc.is_locked &&
     String(orderDoc.lifecycle_status || '') !== ORDER_LIFECYCLE_STATUS.CANCELLED
   ) {
     const orderService = require('../orders/order.service');
@@ -225,6 +247,55 @@ async function recalculateOrderShipmentState(orderId, user) {
 
 function workflowRoleForUser(user) {
   return user?.department === 'admin' ? 'admin' : 'dispatch';
+}
+
+/**
+ * When transport is created for a dispatch batch, auto-settle any remaining
+ * clearance on that release (same path as Settle & Unbilled Order):
+ * shrink approval + main order to net dispatched qty and write the rest onto UnbilledOrder.
+ */
+async function settleReleaseAfterTransportCreated(dispatchId, user) {
+  if (!dispatchId) return null;
+  try {
+    const { OrderDispatch, OrderApproval } = getModels();
+    const dispatch = await OrderDispatch.findById(dispatchId)
+      .select('finance_approval order')
+      .lean();
+    if (!dispatch?.finance_approval) return null;
+
+    const approval = await OrderApproval.findOne({
+      _id: dispatch.finance_approval,
+      deletedAt: null,
+    })
+      .select('_id dispatch_release_resolved is_account_approved is_finance_approved approval_no')
+      .lean();
+
+    if (!approval) return null;
+    if (approval.dispatch_release_resolved) return null;
+    if (!approval.is_finance_approved || !approval.is_account_approved) return null;
+
+    const orderApprovalService = require('../orderApproval/orderApproval.service');
+    return await orderApprovalService.resolvePartialDispatchByAccount(
+      approval._id,
+      {
+        amendment_notes:
+          'Auto-settled when transport was created — remaining clearance moved to Unbilled Order',
+      },
+      user,
+      { skipAsyncJobs: true },
+    );
+  } catch (err) {
+    // No remaining qty / already resolved / not eligible — transport still succeeds.
+    const msg = String(err?.message || err || '');
+    const expected =
+      err?.statusCode === 400
+      || /no remaining|already been resolved|at least one dispatch/i.test(msg);
+    if (!expected) {
+      // eslint-disable-next-line no-console
+      console.warn('[transport] auto-settle after transport failed:', msg);
+    }
+    return null;
+  }
 }
 
 async function enqueuePostTransportJobs(orderId, userId, extras = {}) {
@@ -354,11 +425,7 @@ async function syncTransportPlanLineFromShipment(shipment, user, { event = 'crea
 
   const plan = await TransportPlan.findOne({ _id: line.transport_plan, deletedAt: null });
   if (plan) {
-    if (line.status === 'dispatched' && plan.status === 'submitted') {
-      plan.status = 'in_transit';
-      plan.updated_by = user?._id || user?.id || undefined;
-      await plan.save();
-    } else if (line.status === 'delivered') {
+    if (line.status === 'delivered') {
       const openLines = await TransportPlanOrder.countDocuments({
         transport_plan: plan._id,
         deletedAt: null,
@@ -367,10 +434,6 @@ async function syncTransportPlanLineFromShipment(shipment, user, { event = 'crea
       if (openLines === 0 && !['completed', 'cancelled'].includes(plan.status)) {
         plan.status = 'completed';
         plan.completed_at = new Date();
-        plan.updated_by = user?._id || user?.id || undefined;
-        await plan.save();
-      } else if (plan.status === 'submitted') {
-        plan.status = 'in_transit';
         plan.updated_by = user?._id || user?.id || undefined;
         await plan.save();
       }
@@ -423,6 +486,8 @@ async function create(body, user) {
     pickup_date: body.pickup_date ? new Date(body.pickup_date) : undefined,
     expected_delivery_date: body.expected_delivery_date ? new Date(body.expected_delivery_date) : undefined,
     actual_delivery_date: body.actual_delivery_date ? new Date(body.actual_delivery_date) : undefined,
+    delivered_at: body.delivered_at ? new Date(body.delivered_at) : undefined,
+    received_by: body.received_by || '',
     delivery_proof_url: body.delivery_proof_url || body.proof_of_delivery || '',
     remarks: (() => {
       const formattedTimestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
@@ -438,6 +503,9 @@ async function create(body, user) {
   });
 
   await syncTransportPlanLineFromShipment(doc, user, { event: 'created' });
+
+  // Auto settle remaining release clearance → approval + order + UnbilledOrder.
+  await settleReleaseAfterTransportCreated(body.dispatch, user);
 
   await enqueuePostTransportJobs(body.order, user._id, {
     remarks: body.remarks || `Shipment ${doc.shipment_no} created`,
@@ -525,10 +593,12 @@ async function patch(id, patchBody, user) {
   }
   if (patch.vehicle_no !== undefined) doc.vehicle_number = patch.vehicle_no || '';
   if (patch.driver_phone !== undefined) doc.driver_mobile = patch.driver_phone || '';
-  for (const dateField of ['dispatch_date', 'pickup_date', 'expected_delivery_date', 'actual_delivery_date']) {
+  for (const dateField of ['dispatch_date', 'pickup_date', 'expected_delivery_date', 'actual_delivery_date', 'delivered_at']) {
     if (patch[dateField] !== undefined) doc[dateField] = patch[dateField] ? new Date(patch[dateField]) : undefined;
   }
+  if (patch.received_by !== undefined) doc.received_by = patch.received_by || '';
   if (doc.shipment_status === 'delivered' && !doc.actual_delivery_date) doc.actual_delivery_date = new Date();
+  if (doc.shipment_status === 'delivered' && !doc.delivered_at) doc.delivered_at = new Date();
 
   await doc.save();
 

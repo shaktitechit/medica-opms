@@ -31,25 +31,6 @@ exports.update = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.update(req.params.id, req.body, req.user) });
 });
 
-exports.closeOrder = asyncHandler(async (req, res) => {
-  if (!['account', 'admin', 'super_admin', 'dispatch'].includes(req.user.department)) {
-    throw new ApiError(403, 'Only account or dispatch can close orders');
-  }
-  res.json({
-    success: true,
-    data: await service.closeOrder(req.params.id, req.body || {}, req.user),
-  });
-});
-
-exports.reopenOrder = asyncHandler(async (req, res) => {
-  if (!['account', 'admin', 'super_admin', 'dispatch'].includes(req.user.department)) {
-    throw new ApiError(403, 'Only account or dispatch can reopen orders');
-  }
-  res.json({
-    success: true,
-    data: await service.reopenOrder(req.params.id, req.body || {}, req.user),
-  });
-});
 
 exports.closeAfterFullDelivery = asyncHandler(async (req, res) => {
   if (!['dispatch', 'account', 'admin', 'super_admin'].includes(req.user.department)) {

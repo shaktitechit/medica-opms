@@ -84,7 +84,9 @@ import {
 import {
   pickList,
 } from "@/components/portal/sales/partyDisplay";
-import { SettleRestOrderModal } from "@/components/portal/account/order/components/SettleRestOrderModal";
+import { SettleRestOrderModal } from "@/components/portal/shared/orderDetail/modals/SettleRestOrderModal";
+import { largeModalPanelClass } from "@/components/portal/shared/modalLayout";
+import { summarizeReleaseDispatchState } from "@/components/portal/shared/orderDetail/accountDispatchAvailability";
 import { refId, formatMoney, type NamedOption, type ProductOption } from "./utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -378,9 +380,9 @@ function ProductAutocomplete({ products, selectedId, onChange, inputClass }: {
 const STEPS: Step[] = [
   { id: "details", label: "Order Details", icon: <ShoppingCart className="h-4 w-4" />, description: "Party, dates & line items" },
   { id: "approvals", label: "Approvals", icon: <ClipboardCheck className="h-4 w-4" />, description: "Review & approve order" },
-  { id: "dispatches", label: "Dispatches", icon: <Truck className="h-4 w-4" />, description: "Create dispatch batches" },
-  { id: "transports", label: "Transports", icon: <Navigation className="h-4 w-4" />, description: "Manage shipment details" },
-  { id: "deliveries", label: "Deliveries", icon: <MapPin className="h-4 w-4" />, description: "Log delivery events" },
+  { id: "dispatches", label: "Dispatches", icon: <Truck className="h-4 w-4" />, description: "Create one submitted dispatch" },
+  { id: "transports", label: "Transports", icon: <Navigation className="h-4 w-4" />, description: "Create one transport (auto-settles Unbilled)" },
+  { id: "deliveries", label: "Deliveries", icon: <MapPin className="h-4 w-4" />, description: "Log one full delivery" },
   { id: "returns", label: "Returns", icon: <RotateCcw className="h-4 w-4" />, description: "Log return events" },
 ];
 
@@ -417,7 +419,8 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
   const deliveriesQ = useListOrderDeliveriesQuery({ order: createdOrderId! }, { skip: !createdOrderId });
   const returnsQ = useListOrderReturnsQuery({ order: createdOrderId! }, { skip: !createdOrderId });
 
-  const { data: fetchedOrder } = useGetOrderQuery(createdOrderId!, { skip: !createdOrderId });
+  const orderDetailQ = useGetOrderQuery(createdOrderId!, { skip: !createdOrderId });
+  const fetchedOrder = orderDetailQ.data;
 
   // Order data (re-fetched via existing endpoint after creation)
   const [orderData, setOrderData] = useState<any>(null);
@@ -439,10 +442,30 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
   const [logDelivery, { isLoading: isLoggingDelivery }] = useLogShipmentDeliveryMutation();
   const [createReturn, { isLoading: isCreatingReturn }] = useCreateOrderReturnMutation();
 
-  // Settle rest order modal
+  // Settle rest order modal + post-dispatch settle choice
   const [settleModalOpen, setSettleModalOpen] = useState(false);
+  const [settleChoiceOpen, setSettleChoiceOpen] = useState(false);
   const [settleApproval, setSettleApproval] = useState<Record<string, unknown> | null>(null);
   const [settleReleaseNo, setSettleReleaseNo] = useState("");
+
+  const openSettleChoice = useCallback(
+    (approval: Record<string, unknown>, releaseNo: string) => {
+      setSettleApproval(approval);
+      setSettleReleaseNo(releaseNo);
+      setSettleChoiceOpen(true);
+    },
+    [],
+  );
+
+  const openSettleRestOrder = useCallback(
+    (approval: Record<string, unknown>, releaseNo: string) => {
+      setSettleApproval(approval);
+      setSettleReleaseNo(releaseNo);
+      setSettleChoiceOpen(false);
+      setSettleModalOpen(true);
+    },
+    [],
+  );
 
   // ── Step 1 state ────────────────────────────────────────────────────────
   const [partyId, setPartyId] = useState("");
@@ -828,12 +851,19 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
   const handleCreateDispatch = useCallback(async (formData: FormData) => {
     try {
       await createDispatch(formData).unwrap();
-      await dispatchesQ.refetch();
-      toast.success("Dispatch created successfully!");
+      await Promise.all([
+        dispatchesQ.refetch(),
+        approvalsQ.refetch(),
+        createdOrderId && !orderDetailQ.isUninitialized
+          ? orderDetailQ.refetch()
+          : Promise.resolve(),
+      ]);
+      toast.success("Dispatch submitted successfully!");
     } catch (rejected) {
       toast.error(mutationRejectedMessage(rejected));
+      throw rejected;
     }
-  }, [createDispatch, dispatchesQ]);
+  }, [createDispatch, dispatchesQ, approvalsQ, createdOrderId, orderDetailQ]);
 
   const handleSaveTransport = useCallback(async (transportId: string, payload: Record<string, any>) => {
     try {
@@ -848,12 +878,28 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
   const handleCreateTransport = useCallback(async (payload: Record<string, any>) => {
     try {
       await createTransport(payload).unwrap();
-      await transportsQ.refetch();
-      toast.success("Transport created successfully!");
+      await Promise.all([
+        transportsQ.refetch(),
+        dispatchesQ.refetch(),
+        approvalsQ.refetch(),
+        createdOrderId && !orderDetailQ.isUninitialized
+          ? orderDetailQ.refetch()
+          : Promise.resolve(),
+      ]);
+      toast.success(
+        "Transport recorded — remaining clearance settled to Unbilled Order.",
+      );
     } catch (rejected) {
       toast.error(mutationRejectedMessage(rejected));
     }
-  }, [createTransport, transportsQ]);
+  }, [
+    createTransport,
+    transportsQ,
+    dispatchesQ,
+    approvalsQ,
+    createdOrderId,
+    orderDetailQ,
+  ]);
 
   const handleLogDelivery = useCallback(async (payload: Record<string, any>) => {
     try {
@@ -869,7 +915,7 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
     try {
       await createReturn(payload).unwrap();
       await returnsQ.refetch();
-      toast.success("Return logged successfully!");
+      toast.success("Return registered and received at warehouse.");
     } catch (rejected) {
       toast.error(mutationRejectedMessage(rejected));
     }
@@ -884,6 +930,7 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
+    <>
     <LargeModalPortal>
       <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-2 backdrop-blur-sm">
         <div className="flex h-[96vh] w-full max-w-[1200px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
@@ -1326,10 +1373,11 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
                     onClose={() => setActiveStep("transports")}
                     onSave={handleSaveDispatch}
                     onCreate={handleCreateDispatch}
+                    onCreatedWithApproval={(approval, releaseNo) => {
+                      openSettleChoice(approval, releaseNo);
+                    }}
                     onSettleClick={(approval, releaseNo) => {
-                      setSettleApproval(approval);
-                      setSettleReleaseNo(releaseNo);
-                      setSettleModalOpen(true);
+                      openSettleRestOrder(approval, releaseNo);
                     }}
                   />
                 </div>
@@ -1501,23 +1549,6 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
         }}
       />
 
-      {settleModalOpen && settleApproval && createdOrderId && (
-        <SettleRestOrderModal
-          open={settleModalOpen}
-          approval={settleApproval}
-          dispatches={dispatches}
-          releaseNo={settleReleaseNo}
-          orderId={createdOrderId}
-          orderItems={orderData?.order_items || []}
-          onClose={() => { setSettleModalOpen(false); setSettleApproval(null); }}
-          onSettled={() => {
-            setSettleModalOpen(false);
-            setSettleApproval(null);
-            void dispatchesQ.refetch();
-          }}
-        />
-      )}
-
       {/* Flatten sub-modals inside the wizard container */}
       <style jsx global>{`
         .embedded-subform-wrapper > div.fixed {
@@ -1555,6 +1586,105 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
         }
       `}</style>
     </LargeModalPortal>
+
+      {/* Above create-order wizard (z-120): settle choice + Settle & Unbilled */}
+      {settleChoiceOpen && settleApproval ? (
+        <LargeModalPortal>
+          <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/45 p-3 sm:p-6 backdrop-blur-[1px]">
+            <div className={`${largeModalPanelClass} max-w-lg`}>
+              <div className="border-b border-slate-100 px-6 py-4 dark:border-white/5">
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
+                  Settle remaining order?
+                </h3>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Dispatch for release{" "}
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {settleReleaseNo || String(settleApproval.approval_no ?? "—")}
+                  </span>{" "}
+                  was submitted. Choose whether to settle remaining clearance to the
+                  Unbilled Order now, or leave it unsettled (transport create will
+                  auto-settle later).
+                </p>
+              </div>
+              <div className="space-y-3 px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
+                {(() => {
+                  const summary = summarizeReleaseDispatchState(
+                    settleApproval,
+                    dispatches,
+                    orderData?.order_items || [],
+                  );
+                  if (!summary.canResolveRelease) {
+                    return (
+                      <p className="rounded-lg border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-200">
+                        No remaining clearance on this release — settle is optional.
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className="rounded-lg border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-200">
+                      Remaining clearance:{" "}
+                      <span className="font-semibold tabular-nums">
+                        {summary.remainingTotal}
+                      </span>{" "}
+                      unit{summary.remainingTotal === 1 ? "" : "s"}.
+                    </p>
+                  );
+                })()}
+              </div>
+              <div className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/60 px-6 py-4 sm:flex-row sm:justify-end dark:border-white/5 dark:bg-slate-950/40">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettleChoiceOpen(false);
+                    setSettleApproval(null);
+                    setSettleReleaseNo("");
+                    toast.success("Kept unsettled — no Unbilled update.");
+                  }}
+                  className="rounded-lg border border-slate-200/95 px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5"
+                >
+                  Keep unsettled (no unbilled)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!settleApproval) return;
+                    openSettleRestOrder(settleApproval, settleReleaseNo);
+                  }}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                >
+                  Settle &amp; Unbilled
+                </button>
+              </div>
+            </div>
+          </div>
+        </LargeModalPortal>
+      ) : null}
+
+      {settleModalOpen && settleApproval && createdOrderId ? (
+        <SettleRestOrderModal
+          open={settleModalOpen}
+          approval={settleApproval}
+          dispatches={dispatches}
+          releaseNo={settleReleaseNo}
+          orderId={createdOrderId}
+          orderItems={orderData?.order_items || []}
+          backdropClassName="fixed inset-0 z-[140] flex items-center justify-center bg-black/45 p-3 sm:p-6 backdrop-blur-[1px]"
+          onClose={() => {
+            setSettleModalOpen(false);
+            setSettleApproval(null);
+            setSettleReleaseNo("");
+          }}
+          onSettled={() => {
+            setSettleModalOpen(false);
+            setSettleApproval(null);
+            setSettleReleaseNo("");
+            void dispatchesQ.refetch();
+            void approvalsQ.refetch();
+            if (!orderDetailQ.isUninitialized) void orderDetailQ.refetch();
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

@@ -2,7 +2,9 @@
 
 import { LargeModalPortal } from "./LargeModalPortal";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useGetFinalOrderStatementQuery } from "@/store/api";
+import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import {
   companyLetterheadLogoUrl,
@@ -14,11 +16,14 @@ import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay"
 import FinalOrderStatementPdfTemplate, {
   type FinalOrderStatementPdfLine,
 } from "@/components/portal/shared/FinalOrderStatementPdfTemplate";
+import { useAppSelector } from "@/store/hooks";
 
 type FinalOrderStatementModalProps = {
   orderId: string;
   isOpen: boolean;
   onClose: () => void;
+  /** Portal label for PDF footer, e.g. "Admin Portal". */
+  portalLabel?: string;
 };
 
 function formatMoney(v: number): string {
@@ -73,9 +78,19 @@ export default function FinalOrderStatementModal({
   orderId,
   isOpen,
   onClose,
+  portalLabel = "Portal",
 }: FinalOrderStatementModalProps) {
   const pdfTemplateRef = useRef<HTMLDivElement>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+
+  const authUser = useAppSelector((s) => s.auth.user);
+  const downloadedBy = useMemo(() => {
+    if (!authUser || typeof authUser !== "object") return "—";
+    const u = authUser as Record<string, unknown>;
+    return (
+      String(u.name ?? u.full_name ?? u.username ?? u.email ?? "").trim() || "—"
+    );
+  }, [authUser]);
 
   const { data, isLoading, isFetching, isError, error, refetch } = useGetFinalOrderStatementQuery(orderId, {
     skip: !isOpen || !orderId,
@@ -83,6 +98,15 @@ export default function FinalOrderStatementModal({
 
   const companyName = companyLetterheadName();
   const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
+  const pathname = usePathname() || "";
+  const pdfPortalLabel = useMemo(() => {
+    if (pathname.includes("/distributor")) return "Distributor Portal";
+    if (pathname.includes("/sales")) return "Sales Portal";
+    if (pathname.includes("/finance")) return "Finance Portal";
+    if (pathname.includes("/account")) return "Account Portal";
+    if (pathname.includes("/dispatch")) return "Dispatch Portal";
+    return "Admin Portal";
+  }, [pathname]);
 
   const statement = asRecord(data);
   const order = asRecord(statement.order);
@@ -188,6 +212,8 @@ export default function FinalOrderStatementModal({
                 paymentStatus: String(fin.payment_status || "—"),
               }}
               generatedAt={formatDate(statement.generated_at || new Date())}
+              portalLabel={pdfPortalLabel}
+              downloadedBy={downloadedBy}
             />
           </div>
         ) : null}
@@ -226,9 +252,8 @@ export default function FinalOrderStatementModal({
             <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300">
               <p className="font-semibold">Could not load statement</p>
               <p className="mt-1 text-xs opacity-90">
-                {error && typeof error === "object" && "data" in error
-                  ? String((error as { data?: unknown }).data)
-                  : "The order may not be closed yet."}
+                {mutationRejectedMessage(error) ||
+                  "The order may not be delivered yet."}
               </p>
               <button
                 type="button"

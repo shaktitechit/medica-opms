@@ -32,15 +32,35 @@ export type CreateOrderApprovalPayload = {
 };
 
 
-const orderApprovalTags = (id?: string) => [
+const orderApprovalTags = (id?: string, orderId?: string) => [
   { type: "OrderApprovals" as const, id: "LIST" },
   ...(id ? [{ type: "OrderApprovals" as const, id }] : []),
+  ...(orderId ? [{ type: "Order" as const, id: orderId }] : []),
   "Order" as const,
   "Orders" as const,
   "Approvals" as const,
   "FinanceQueue" as const,
   "FinanceSummary" as const,
 ];
+
+const orderApprovalMutationTags = (
+  result: any,
+  error: any,
+  arg: any,
+  extraTags: any[] = []
+) => {
+  const approvalId = typeof arg === "string" ? arg : arg?.id;
+  const orderId =
+    result?.order ||
+    result?.data?.order ||
+    arg?.order ||
+    arg?.body?.order ||
+    arg?.patch?.order;
+  return [
+    ...orderApprovalTags(approvalId, orderId ? String(orderId) : undefined),
+    ...extraTags,
+  ];
+};
 
 /** `/api/order-approvals` */
 export const orderApprovalApi = medicaApi.injectEndpoints({
@@ -73,7 +93,7 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         body,
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: orderApprovalTags(),
+      invalidatesTags: (r, e, arg) => orderApprovalMutationTags(r, e, arg),
     }),
     patchOrderApproval: build.mutation<unknown, Required<Pick<ApprovalMutationArg, "id" | "patch">>>({
       query: ({ id, patch }) => ({
@@ -82,7 +102,7 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         body: patch,
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, arg) => orderApprovalTags(arg.id),
+      invalidatesTags: (r, e, arg) => orderApprovalMutationTags(r, e, arg),
     }),
     superSheetPatchOrderApproval: build.mutation<
       unknown,
@@ -94,7 +114,7 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         body: patch,
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, arg) => orderApprovalTags(arg.id),
+      invalidatesTags: (r, e, arg) => orderApprovalMutationTags(r, e, arg),
     }),
     approveOrderApproval: build.mutation<unknown, ApprovalMutationArg>({
       query: ({ id, body }) => ({
@@ -103,7 +123,7 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         body: body ?? {},
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, arg) => orderApprovalTags(arg.id),
+      invalidatesTags: (r, e, arg) => orderApprovalMutationTags(r, e, arg),
     }),
     rejectOrderApproval: build.mutation<unknown, ApprovalMutationArg>({
       query: ({ id, body }) => ({
@@ -112,7 +132,7 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         body: body ?? {},
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, arg) => orderApprovalTags(arg.id),
+      invalidatesTags: (r, e, arg) => orderApprovalMutationTags(r, e, arg),
     }),
     sendOrderApprovalToFinance: build.mutation<unknown, ApprovalMutationArg>({
       query: ({ id, body }) => ({
@@ -121,11 +141,8 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         body: body ?? {},
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, arg) => [
-        ...orderApprovalTags(arg.id),
-        "FinanceQueue",
-        "FinanceSummary",
-      ],
+      invalidatesTags: (r, e, arg) =>
+        orderApprovalMutationTags(r, e, arg, ["FinanceQueue", "FinanceSummary"]),
     }),
     sendOrderApprovalToAccount: build.mutation<unknown, ApprovalMutationArg>({
       query: ({ id, body }) => ({
@@ -134,11 +151,8 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         body: body ?? {},
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, arg) => [
-        ...orderApprovalTags(arg.id),
-        "FinanceQueue",
-        "FinanceSummary",
-      ],
+      invalidatesTags: (r, e, arg) =>
+        orderApprovalMutationTags(r, e, arg, ["FinanceQueue", "FinanceSummary"]),
     }),
     financeAmendOrderApproval: build.mutation<unknown, ApprovalMutationArg>({
       query: ({ id, body }) => ({
@@ -147,10 +161,7 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         body: body ?? {},
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, arg) => [
-        ...orderApprovalTags(arg.id),
-        "PartyProducts",
-      ],
+      invalidatesTags: (r, e, arg) => orderApprovalMutationTags(r, e, arg, ["PartyProducts"]),
     }),
     amendOrderApproval: build.mutation<unknown, ApprovalMutationArg>({
       query: ({ id, body }) => ({
@@ -159,9 +170,7 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         body: body ?? {},
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, arg) => [
-        ...orderApprovalTags(arg.id),
-      ],
+      invalidatesTags: (r, e, arg) => orderApprovalMutationTags(r, e, arg),
     }),
     resolvePartialDispatchRelease: build.mutation<unknown, ApprovalMutationArg>({
       query: ({ id, body }) => ({
@@ -170,10 +179,8 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         body: body ?? {},
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, arg) => [
-        ...orderApprovalTags(arg.id),
-        "Dispatch",
-      ],
+      invalidatesTags: (r, e, arg) =>
+        orderApprovalMutationTags(r, e, arg, ["Dispatch", "UnbilledOrders", "Orders"]),
     }),
     deleteOrderApproval: build.mutation<unknown, string>({
       query: (id) => ({
@@ -181,10 +188,8 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         method: "DELETE",
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, id) => [
-        ...orderApprovalTags(id),
-        { type: "OrderApprovals", id: "DELETED" },
-      ],
+      invalidatesTags: (r, e, id) =>
+        orderApprovalMutationTags(r, e, id, [{ type: "OrderApprovals", id: "DELETED" }]),
     }),
     restoreOrderApproval: build.mutation<unknown, string>({
       query: (id) => ({
@@ -192,10 +197,8 @@ export const orderApprovalApi = medicaApi.injectEndpoints({
         method: "POST",
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: (_r, _e, id) => [
-        ...orderApprovalTags(id),
-        { type: "OrderApprovals", id: "DELETED" },
-      ],
+      invalidatesTags: (r, e, id) =>
+        orderApprovalMutationTags(r, e, id, [{ type: "OrderApprovals", id: "DELETED" }]),
     }),
   }),
 });

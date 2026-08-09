@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Save, X } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { summarizeReleaseDispatchState } from "@/components/portal/account/order/components/accountDispatchAvailability";
+import {
+  getReleaseDispatches,
+  isDispatchReleaseResolved,
+  summarizeReleaseDispatchState,
+} from "@/components/portal/shared/orderDetail/accountDispatchAvailability";
 import {
   NamedOption,
   refId,
@@ -94,6 +98,7 @@ export function OrderDispatchesForm({
   onSave,
   onCreate,
   onSettleClick,
+  onCreatedWithApproval,
 }: {
   order: any;
   dispatches: Record<string, unknown>[];
@@ -104,8 +109,23 @@ export function OrderDispatchesForm({
   onSave: (dispatchId: string, patch: Record<string, unknown>) => Promise<void>;
   onCreate: (body: FormData) => Promise<void>;
   onSettleClick?: (approval: Record<string, unknown>, releaseNo: string) => void;
+  /** Fired after a new dispatch is created so parent can prompt settle vs keep unsettled. */
+  onCreatedWithApproval?: (approval: Record<string, unknown>, releaseNo: string) => void;
 }) {
   const orderId = refId(order._id || order.id);
+  const orderItems = (order.order_items || []) as Record<string, unknown>[];
+
+  /** Approvals available to link when creating the single dispatch. */
+  const linkableApprovals = useMemo(
+    () =>
+      approvals.filter((app) => {
+        if (isDispatchReleaseResolved(app)) return false;
+        const appId = refId(app._id || app.id);
+        return getReleaseDispatches(dispatches, appId).length === 0;
+      }),
+    [approvals, dispatches],
+  );
+
   const sortedDispatches = useMemo(
     () =>
       [...dispatches].sort((a, b) => {
@@ -113,6 +133,9 @@ export function OrderDispatchesForm({
       }),
     [dispatches],
   );
+
+  /** Only one dispatch for this wizard — create when none exist, otherwise edit. */
+  const isCreateMode = sortedDispatches.length === 0;
 
   const [selectedId, setSelectedId] = useState(
     () => refId(sortedDispatches[0]?._id || sortedDispatches[0]?.id) || "new",
@@ -124,7 +147,7 @@ export function OrderDispatchesForm({
       ? headerFromDispatch(sortedDispatches[0])
       : {
           finance_approval: approvals[0] ? refId(approvals[0]._id || approvals[0].id) : "",
-          dispatch_status: "draft",
+          dispatch_status: "submitted",
           bill_number: "",
           billing_date: new Date().toISOString().split("T")[0],
           warehouse: "",
@@ -152,18 +175,15 @@ export function OrderDispatchesForm({
   );
 
   useEffect(() => {
-    if (selectedId === "new") return;
-    if (!sortedDispatches.length) {
+    if (isCreateMode) {
       setSelectedId("new");
       return;
     }
-    const stillValid = sortedDispatches.some(
-      (d) => refId(d._id || d.id) === selectedId,
-    );
-    if (!stillValid) {
-      setSelectedId(refId(sortedDispatches[0]._id || sortedDispatches[0].id));
+    const firstId = refId(sortedDispatches[0]._id || sortedDispatches[0].id);
+    if (selectedId === "new" || !sortedDispatches.some((d) => refId(d._id || d.id) === selectedId)) {
+      setSelectedId(firstId);
     }
-  }, [sortedDispatches, selectedId]);
+  }, [isCreateMode, sortedDispatches, selectedId]);
 
   useEffect(() => {
     if (selectedId === "new") return;
@@ -185,8 +205,8 @@ export function OrderDispatchesForm({
 
   const releaseSummary = useMemo(() => {
     if (!selectedApprovalObj) return null;
-    return summarizeReleaseDispatchState(selectedApprovalObj, dispatches, order.order_items || []);
-  }, [selectedApprovalObj, dispatches, order.order_items]);
+    return summarizeReleaseDispatchState(selectedApprovalObj, dispatches, orderItems);
+  }, [selectedApprovalObj, dispatches, orderItems]);
 
   const clearedTotal = useMemo(() => {
     if (!selectedApprovalObj) return 0;
@@ -195,23 +215,6 @@ export function OrderDispatchesForm({
       : [];
     return items.reduce((sum, item) => sum + Number(item.approved_quantity || 0), 0);
   }, [selectedApprovalObj]);
-
-  const handleSelectNew = () => {
-    setSelectedId("new");
-    setHeader({
-      finance_approval: approvals[0] ? refId(approvals[0]._id || approvals[0].id) : "",
-      dispatch_status: "draft",
-      bill_number: "",
-      billing_date: new Date().toISOString().split("T")[0],
-      warehouse: "",
-      warehouse_location: "",
-      remarks: "",
-      dispatch_assignee_user: "",
-      dispatched_at: new Date().toISOString().split("T")[0],
-    });
-    setLines(dispatchItemsFromOrder(order.order_items));
-    setBillDocumentFile(null);
-  };
 
   const updateLine = (
     key: string,
@@ -240,8 +243,16 @@ export function OrderDispatchesForm({
     }));
 
     if (selectedId === "new") {
+      if (!isCreateMode) {
+        toast.error("A dispatch already exists for this order.");
+        return;
+      }
       if (!header.finance_approval) {
         toast.error("Linked approval batch is required");
+        return;
+      }
+      if (getReleaseDispatches(dispatches, header.finance_approval).length > 0) {
+        toast.error("This approval already has a dispatch.");
         return;
       }
       if (!header.bill_number.trim()) {
@@ -252,7 +263,8 @@ export function OrderDispatchesForm({
       const formData = new FormData();
       formData.append("order", orderId);
       formData.append("finance_approval", header.finance_approval);
-      formData.append("dispatch_status", header.dispatch_status);
+      // Super-admin create flow: always submit the batch (not draft).
+      formData.append("dispatch_status", "submitted");
       formData.append(
         "dispatch_date",
         header.dispatched_at
@@ -287,7 +299,23 @@ export function OrderDispatchesForm({
         formData.append("bill_document", billDocumentFile);
       }
 
-      await onCreate(formData);
+      try {
+        await onCreate(formData);
+      } catch {
+        // Parent already toasts the mutation error.
+        return;
+      }
+
+      const linkedApproval =
+        approvals.find(
+          (app) => refId(app._id || app.id) === header.finance_approval,
+        ) || null;
+      if (linkedApproval) {
+        onCreatedWithApproval?.(
+          linkedApproval,
+          String(linkedApproval.approval_no || ""),
+        );
+      }
     } else {
       await onSave(selectedId, {
         ...header,
@@ -309,7 +337,7 @@ export function OrderDispatchesForm({
               Order Dispatches — {order.order_no || orderId}
             </h3>
             <p className="text-2xs text-blue-800/80 dark:text-blue-200/70">
-              Select a batch or Create New, edit properties and quantities, then Save (super-admin bypass).
+              Create one submitted dispatch for this order. After create you can settle remaining qty to Unbilled, or keep unsettled.
             </p>
           </div>
           <button
@@ -322,46 +350,27 @@ export function OrderDispatchesForm({
         </div>
 
         <div className="flex-1 overflow-auto p-4 space-y-4 font-sans">
-          <div className="flex flex-wrap gap-2 items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-            <div className="flex flex-wrap gap-2">
-              {sortedDispatches.map((d) => {
-                const id = refId(d._id || d.id);
-                const active = id === selectedId;
-                const label =
-                  String(d.dispatch_no || "").trim() ||
-                  `Dispatch ${formatDateOnly(d.createdAt)}`;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setSelectedId(id)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                      active
-                        ? "bg-blue-600 text-white shadow"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+          {!isCreateMode && sortedDispatches[0] ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300">
+              Editing dispatch{" "}
+              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                {String(sortedDispatches[0].dispatch_no || "").trim() ||
+                  formatDateOnly(sortedDispatches[0].createdAt)}
+              </span>
+              {" · "}status{" "}
+              <span className="font-mono">
+                {String(
+                  sortedDispatches[0].dispatch_status ??
+                    sortedDispatches[0].status ??
+                    "submitted",
+                )}
+              </span>
             </div>
-            <button
-              type="button"
-              onClick={handleSelectNew}
-              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                selectedId === "new"
-                  ? "bg-emerald-600 text-white shadow"
-                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
-              }`}
-            >
-              + Create New Dispatch
-            </button>
-          </div>
+          ) : null}
 
-          {selectedId === "new" && approvals.length === 0 ? (
+          {isCreateMode && approvals.length === 0 ? (
             <div className="rounded-lg border border-dashed border-amber-300 px-4 py-8 text-center text-sm text-amber-800 bg-amber-50/50">
-              No approval batches are available for this order to link with a new dispatch.
+              No approval batches are available for this order to link with a dispatch.
             </div>
           ) : (
             <>
@@ -384,14 +393,14 @@ export function OrderDispatchesForm({
                           onClick={() => onSettleClick(selectedApprovalObj!, String(selectedApprovalObj!.approval_no || ""))}
                           className="rounded bg-indigo-600 px-1.5 py-0.5 text-3xs font-bold text-white shadow-sm hover:bg-indigo-700 transition"
                         >
-                          Settle Rest Order
+                          Settle & Unbilled
                         </button>
                       )}
                     </div>
                   ) : null}
                 </div>
                 <div className="grid gap-4 sm:grid-cols-4">
-                  {selectedId === "new" ? (
+                  {isCreateMode ? (
                     <div>
                       <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
                         Linked Approval Batch *
@@ -408,33 +417,46 @@ export function OrderDispatchesForm({
                         required
                       >
                         <option value="">— Select Approval —</option>
-                        {approvals.map((app) => (
+                        {(linkableApprovals.length ? linkableApprovals : approvals).map((app) => (
                           <option key={refId(app._id || app.id)} value={refId(app._id || app.id)}>
                             {String(app.approval_no || "")} · Rev #{String(app.revision_number ?? 1)}
                           </option>
                         ))}
                       </select>
+                      <p className="mt-1 text-2xs text-slate-500">
+                        Only one dispatch for this order.
+                      </p>
                     </div>
                   ) : null}
                   <div>
                     <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
                       Dispatch Status
                     </label>
-                    <select
-                      value={header.dispatch_status}
-                      onChange={(e) =>
-                        setHeader((prev) => ({
-                          ...prev,
-                          dispatch_status: e.target.value,
-                        }))
-                      }
-                      className={inputClass}
-                    >
-                      <option value="draft">draft</option>
-                      <option value="submitted">submitted</option>
-                      <option value="transport_created">transport_created</option>
-                      <option value="cancelled">cancelled</option>
-                    </select>
+                    {isCreateMode ? (
+                      <input
+                        type="text"
+                        value="submitted"
+                        readOnly
+                        className={`${inputClass} bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300`}
+                        title="Dispatch is created as submitted"
+                      />
+                    ) : (
+                      <select
+                        value={header.dispatch_status}
+                        onChange={(e) =>
+                          setHeader((prev) => ({
+                            ...prev,
+                            dispatch_status: e.target.value,
+                          }))
+                        }
+                        className={inputClass}
+                      >
+                        <option value="draft">draft</option>
+                        <option value="submitted">submitted</option>
+                        <option value="transport_created">transport_created</option>
+                        <option value="cancelled">cancelled</option>
+                      </select>
+                    )}
                   </div>
                   <div>
                     <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
@@ -526,7 +548,7 @@ export function OrderDispatchesForm({
                       ))}
                     </select>
                   </div>
-                  {selectedId === "new" ? (
+                  {isCreateMode ? (
                     <div>
                       <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
                         Bill Document Copy
@@ -539,7 +561,7 @@ export function OrderDispatchesForm({
                       />
                     </div>
                   ) : null}
-                  <div className={selectedId === "new" ? "sm:col-span-4" : "sm:col-span-2"}>
+                  <div className={isCreateMode ? "sm:col-span-4" : "sm:col-span-2"}>
                     <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
                       Remarks / Notes
                     </label>
@@ -567,7 +589,7 @@ export function OrderDispatchesForm({
                         <th className="px-3 py-2">Product Name</th>
                         <th className="px-3 py-2 text-center w-28">Ordered Qty</th>
                         <th className="px-3 py-2 text-center w-28">Dispatched Qty</th>
-                        {selectedId !== "new" && (
+                        {!isCreateMode && (
                           <>
                             <th className="px-3 py-2 text-center w-28">Delivered Qty</th>
                             <th className="px-3 py-2 text-center w-28">Returned Qty</th>
@@ -598,7 +620,7 @@ export function OrderDispatchesForm({
                               className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-center font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                             />
                           </td>
-                          {selectedId !== "new" && (
+                          {!isCreateMode && (
                             <>
                               <td className="px-3 py-1.5 text-center">
                                 <input
@@ -651,7 +673,7 @@ export function OrderDispatchesForm({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={saving || (selectedId === "new" && approvals.length === 0)}
+              disabled={saving || (isCreateMode && approvals.length === 0)}
               onClick={() => void handleSave()}
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60"
             >
@@ -660,7 +682,7 @@ export function OrderDispatchesForm({
               ) : (
                 <Save className="h-3.5 w-3.5" />
               )}
-              {selectedId === "new" ? "Create dispatch" : "Save dispatch"}
+              {isCreateMode ? "Create & submit dispatch" : "Save dispatch"}
             </button>
           </div>
         </div>

@@ -55,16 +55,7 @@ export default function TransportPlannerStatsWidgets({
       iconTone: "text-indigo-600 dark:text-indigo-400",
       Icon: ClipboardList,
     },
-    {
-      key: "transit",
-      label: "In Transit",
-      value: data?.in_transit ?? 0,
-      href: `${portalHome}/transport-planner?status=in_transit`,
-      accent: "bg-amber-500",
-      iconWrap: "bg-amber-50 dark:bg-amber-950/30",
-      iconTone: "text-amber-600 dark:text-amber-400",
-      Icon: Truck,
-    },
+
     {
       key: "completed",
       label: "Completed",

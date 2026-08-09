@@ -15,7 +15,7 @@
  * | Audit trail only     | OrderWorkflow (from_/to_ snapshots)                          |
  *
  * Exclusive pipeline:
- * sales → admin → due sheet → finance → account → dispatch → transport → delivery → return/close
+ * sales → admin → due sheet → finance → account → dispatch → transport pending → in transit → delivery/close
  *
  * List enrichment (orderApprovalPending.util):
  * - approval_pending: { admin, finance, account, stage }
@@ -32,16 +32,36 @@ export type OrderWorkflowCategoryOptions = {
   returnsByOrderId?: Map<string, Record<string, unknown>[]>;
   /** Order ids with ≥1 dispatch batch submitted for transport. */
   submittedDispatchOrderIds?: Set<string>;
+  /** Order ids with ≥1 open (not delivered/returned/cancelled) transport shipment. */
+  activeTransportOrderIds?: Set<string>;
+  /** Order ids with ≥1 transport shipment ever created (incl. delivered). */
+  transportCreatedOrderIds?: Set<string>;
+  /** Order ids with ≥1 OrderDispatch in transport_created. */
+  dispatchTransportOrderIds?: Set<string>;
 };
 
-const TRANSPORT_ACTIVE_STATUSES = new Set([
-  "partial_dispatch_created",
-  "full_dispatch_created",
+/** Submitted dispatch awaiting a transport shipment. */
+const TRANSPORT_PENDING_STATUSES = new Set([
+  "dispatch_created",
   "transport_pending",
+]);
+
+/** Active transport created — order is moving / assigned for shipment. */
+const IN_TRANSIT_STATUSES = new Set([
   "transport_assigned",
   "partially_transported",
   "fully_transported",
   "in_transit",
+]);
+
+const IN_TRANSIT_ACTIONS = new Set([
+  "partially_transported",
+  "fully_transported",
+  "transporter_assigned",
+  "vehicle_assigned",
+  "picked_up",
+  "in_transit",
+  "out_for_delivery",
 ]);
 
 function refId(value: unknown): string {
@@ -51,6 +71,81 @@ function refId(value: unknown): string {
     return String(o._id ?? o.id ?? "");
   }
   return String(value);
+}
+
+/** Shipments that are not a live open transport. */
+const CLOSED_SHIPMENT_STATUSES = new Set([
+  "returned",
+  "cancelled",
+  "delivery_failed",
+  "delivered",
+]);
+
+/** Shipments that never count as "transport created" for pending exclusion. */
+const VOID_SHIPMENT_STATUSES = new Set(["returned", "cancelled"]);
+
+function collectTransportOrderIds(
+  transports: unknown[],
+  excludeStatuses: Set<string>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const raw of transports) {
+    if (!raw || typeof raw !== "object") continue;
+    const tr = raw as Record<string, unknown>;
+    const shipmentStatus = String(tr.shipment_status ?? tr.status ?? "").toLowerCase();
+    if (excludeStatuses.has(shipmentStatus)) continue;
+    const orderId = refId(tr.order);
+    if (orderId) ids.add(orderId);
+  }
+  return ids;
+}
+
+/**
+ * Order ids with ≥1 open transport shipment.
+ * Shared by ListOrdersPage workflow tabs and dashboard Quick Access.
+ */
+export function buildActiveTransportOrderIds(transports: unknown[]): Set<string> {
+  return collectTransportOrderIds(transports, CLOSED_SHIPMENT_STATUSES);
+}
+
+/** Order ids with any non-void transport shipment (includes delivered). */
+export function buildTransportCreatedOrderIds(transports: unknown[]): Set<string> {
+  return collectTransportOrderIds(transports, VOID_SHIPMENT_STATUSES);
+}
+
+/** Order ids whose dispatch batches already have transport_created. */
+export function buildTransportCreatedOrderIdsFromDispatches(
+  dispatches: unknown[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const raw of dispatches) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const dispatchStatus = String(
+      row.dispatch_status ?? row.status ?? "",
+    ).toLowerCase();
+    if (dispatchStatus !== "transport_created") continue;
+    const orderId = refId(row.order);
+    if (orderId) ids.add(orderId);
+  }
+  return ids;
+}
+
+/** Category options used by Quick Access + list workflow tabs. */
+export function buildOrderWorkflowCategoryOptions(params: {
+  transports?: unknown[];
+  dispatches?: unknown[];
+}): OrderWorkflowCategoryOptions {
+  const transports = params.transports ?? [];
+  const transportCreatedOrderIds = buildTransportCreatedOrderIds(transports);
+  const dispatchTransportOrderIds = buildTransportCreatedOrderIdsFromDispatches(
+    params.dispatches ?? [],
+  );
+  return {
+    activeTransportOrderIds: buildActiveTransportOrderIds(transports),
+    transportCreatedOrderIds,
+    dispatchTransportOrderIds,
+  };
 }
 
 function orderHasPendingReturns(
@@ -81,6 +176,82 @@ export function isReturnPendingOrder(
   return orderHasPendingReturns(row, options);
 }
 
+/** Physically closed or delivered — ignores billing (unbilled is a separate queue). */
+export function isFulfillmentComplete(order: unknown): boolean {
+  const row = asRow(order);
+  if (!row) return false;
+  if (isOrderClosed(row) || isOrderDelivered(row)) return true;
+  const legacyStatus = String(row.status || "").toLowerCase();
+  return legacyStatus === "delivered" || legacyStatus === "closed";
+}
+
+function orderHasTransportCreated(
+  order: Record<string, unknown>,
+  options?: OrderWorkflowCategoryOptions,
+): boolean {
+  const orderId = refId(order._id ?? order.id);
+  if (orderId && options?.transportCreatedOrderIds?.has(orderId)) return true;
+  if (orderId && options?.activeTransportOrderIds?.has(orderId)) return true;
+  if (orderId && options?.dispatchTransportOrderIds?.has(orderId)) return true;
+
+  const status = deriveOrderWorkflowStatus(order);
+  if (IN_TRANSIT_STATUSES.has(status)) return true;
+
+  const legacyStatus = String(order.status || "").toLowerCase();
+  if (legacyStatus === "in_transit" || IN_TRANSIT_STATUSES.has(legacyStatus)) return true;
+
+  const action = String(order.current_action || "").toLowerCase();
+  if (IN_TRANSIT_ACTIONS.has(action)) return true;
+
+  return false;
+}
+
+/**
+ * In Transit: an open transport shipment exists, or order status/action
+ * already advanced past transport creation (and not yet delivered/closed).
+ */
+export function isInTransitOrder(
+  order: unknown,
+  options?: OrderWorkflowCategoryOptions,
+): boolean {
+  if (!order || typeof order !== "object") return false;
+  const row = order as Record<string, unknown>;
+  const status = deriveOrderWorkflowStatus(row);
+
+  if (status === "on_hold" || status === "cancelled" || status === "finance_rejected") {
+    return false;
+  }
+  if (isFulfillmentComplete(row)) return false;
+
+  const orderId = refId(row._id ?? row.id);
+  if (orderId && options?.activeTransportOrderIds?.has(orderId)) {
+    return true;
+  }
+
+  if (IN_TRANSIT_STATUSES.has(status)) return true;
+
+  const legacyStatus = String(row.status || "").toLowerCase();
+  if (legacyStatus === "in_transit" || IN_TRANSIT_STATUSES.has(legacyStatus)) {
+    return true;
+  }
+
+  const action = String(row.current_action || "").toLowerCase();
+  if (IN_TRANSIT_ACTIONS.has(action)) return true;
+
+  // Dispatch marked transport_created but shipment list didn't yield an open row.
+  if (orderId && options?.dispatchTransportOrderIds?.has(orderId)) {
+    const onlyFinishedShipments =
+      options.transportCreatedOrderIds?.has(orderId) &&
+      !options.activeTransportOrderIds?.has(orderId);
+    if (!onlyFinishedShipments) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Transport Pending: submitted dispatch exists, and no transport shipment yet.
+ */
 export function isTransportPending(
   order: unknown,
   options?: OrderWorkflowCategoryOptions,
@@ -92,7 +263,9 @@ export function isTransportPending(
   if (status === "on_hold" || status === "cancelled" || status === "finance_rejected") {
     return false;
   }
-  if (isOrderClosedOrDelivered(row)) return false;
+  if (isFulfillmentComplete(row)) return false;
+  if (isInTransitOrder(order, options)) return false;
+  if (orderHasTransportCreated(row, options)) return false;
 
   const orderId = refId(row._id ?? row.id);
   if (orderId && options?.submittedDispatchOrderIds?.has(orderId)) {
@@ -100,7 +273,7 @@ export function isTransportPending(
   }
 
   // Status transitions to partial/full_dispatch_created only on submit.
-  if (TRANSPORT_ACTIVE_STATUSES.has(status)) return true;
+  if (TRANSPORT_PENDING_STATUSES.has(status)) return true;
 
   // Order-level fulfillment flags after submitted qty left the warehouse bucket.
   // Require account clearance so approval-stage rows never land here early.
@@ -122,7 +295,8 @@ export type ApprovalPendingSummary = {
 
 /** Mirrors backend APPROVAL_STATUS (+ registry sent_to_finance). */
 const ADMIN_CLEARED_STATUS = new Set(["approved", "full", "sent_to_finance"]);
-const DEPT_CLEARED_STATUS = new Set(["approved", "full"]);
+/** Account partial still means account signed off some qty — eligible for dispatch. */
+const ACCOUNT_CLEARED_STATUS = new Set(["approved", "full", "partial"]);
 const PARTIAL_OR_PENDING = new Set(["pending", "partial", ""]);
 
 /**
@@ -141,8 +315,7 @@ const POST_ADMIN_STATUSES = new Set([
   "fully_account_approved",
   "dispatch",
   "dispatch_pending",
-  "partial_dispatch_created",
-  "full_dispatch_created",
+  "dispatch_created",
   "in_transit",
   "transport_pending",
   "transport_assigned",
@@ -175,8 +348,7 @@ const POST_FINANCE_STATUSES = new Set([
   "fully_account_approved",
   "dispatch",
   "dispatch_pending",
-  "partial_dispatch_created",
-  "full_dispatch_created",
+  "dispatch_created",
   "in_transit",
   "transport_pending",
   "transport_assigned",
@@ -199,8 +371,8 @@ function adminApprovalCleared(value: unknown): boolean {
   return ADMIN_CLEARED_STATUS.has(String(value || "").toLowerCase());
 }
 
-function deptApprovalCleared(value: unknown): boolean {
-  return DEPT_CLEARED_STATUS.has(String(value || "").toLowerCase());
+function accountApprovalCleared(value: unknown): boolean {
+  return ACCOUNT_CLEARED_STATUS.has(String(value || "").toLowerCase());
 }
 
 function approvalStatusOpen(value: unknown): boolean {
@@ -312,7 +484,7 @@ export function isAccountCleared(order: unknown): boolean {
   if (row.is_account_approved === true) return true;
 
   const accountStatus = String(row.account_approval_status || "pending").toLowerCase();
-  if (deptApprovalCleared(accountStatus)) return true;
+  if (accountApprovalCleared(accountStatus)) return true;
 
   const postAccountStatus =
     status === "account_approved" ||
@@ -320,8 +492,7 @@ export function isAccountCleared(order: unknown): boolean {
     status === "partially_account_approved" ||
     status === "dispatch" ||
     status === "dispatch_pending" ||
-    status === "partial_dispatch_created" ||
-    status === "full_dispatch_created" ||
+    status === "dispatch_created" ||
     status === "in_transit" ||
     status.startsWith("transport") ||
     status === "delivered" ||
@@ -329,9 +500,9 @@ export function isAccountCleared(order: unknown): boolean {
 
   if (postAccountStatus) return true;
 
-  // Enrichment: no batch still needs account, but Order.status / account_approval_status
-  // may still say account_review/pending. Trust OrderApproval so the order lands in
-  // Dispatch Pending instead of a ghost Account Pending count.
+  // Enrichment: no batch still needs admin/finance/account. Trust OrderApproval even
+  // when Order.status / account_approval_status / last_account_approval lagged —
+  // otherwise the row is a ghost Account Pending and never reaches Dispatch Pending.
   if (
     enriched &&
     !enriched.admin &&
@@ -342,11 +513,41 @@ export function isAccountCleared(order: unknown): boolean {
     if (row.last_account_approval != null && row.last_account_approval !== "") {
       return true;
     }
-    // Stuck at account_review after all batches were account-approved.
     if (status === "account_review") return true;
+    // Finance already cleared and no account batch left — ready for dispatch queue.
+    if (!PRE_FINANCE_STATUSES.has(status)) return true;
   }
 
   return false;
+}
+
+/**
+ * Dispatch Pending: admin + due sheet + finance + account cleared, and no
+ * dispatch batch has been created+submitted yet (draft-only still counts here).
+ */
+export function isDispatchPending(
+  order: unknown,
+  options?: OrderWorkflowCategoryOptions,
+): boolean {
+  const row = asRow(order);
+  if (!row) return false;
+  const status = deriveOrderWorkflowStatus(row);
+
+  if (status === "draft") return false;
+  if (status === "on_hold") return false;
+  if (status === "cancelled" || status === "finance_rejected" || status === "account_rejected") {
+    return false;
+  }
+  if (isFulfillmentComplete(row)) return false;
+  if (isInTransitOrder(order, options)) return false;
+  if (isTransportPending(order, options)) return false;
+
+  if (!isAdminCleared(row)) return false;
+  if (!isDueSheetStageCleared(row)) return false;
+  if (!isFinanceCleared(row)) return false;
+  if (!isAccountCleared(row)) return false;
+
+  return true;
 }
 
 /** OrderDueSheet present — list enrichment `due_sheet_uploaded`. */
@@ -447,7 +648,7 @@ export type OrderWorkflowTabCategory =
   | "pending_account_approval"
   | "open_dispatched"
   | "transport_pending"
-  | "return_pending"
+  | "in_transit"
   | "closed_delivered"
   | "on_hold"
   | "cancelled"
@@ -464,7 +665,7 @@ export const ORDER_WORKFLOW_TABS: ReadonlyArray<{
   { id: "pending_account_approval", label: "Account Pending" },
   { id: "open_dispatched", label: "Dispatch Pending" },
   { id: "transport_pending", label: "Transport Pending" },
-  { id: "return_pending", label: "Return Pending" },
+  { id: "in_transit", label: "In Transit" },
   { id: "closed_delivered", label: "Closed/Delivered" },
   { id: "on_hold", label: "On Hold" },
   { id: "cancelled", label: "Cancelled" },
@@ -479,7 +680,7 @@ export const ORDER_WORKFLOW_TAB_LABELS: Record<OrderWorkflowTabCategory, string>
   pending_account_approval: "Account Pending",
   open_dispatched: "Dispatch Pending",
   transport_pending: "Transport Pending",
-  return_pending: "Return Pending",
+  in_transit: "In Transit",
   closed_delivered: "Closed/Delivered",
   on_hold: "On Hold",
   cancelled: "Cancelled",
@@ -505,8 +706,13 @@ export function isOrderDelivered(order: unknown): boolean {
   return deliveryStatus === "completed" || lifecycle === "fulfilled";
 }
 
+/**
+ * Closed/delivered for workflow tabs.
+ * Billing no longer blocks this — unbilled delivered orders belong in
+ * Closed/Delivered (and the Unbilled modal), not Transport Pending.
+ */
 export function isOrderClosedOrDelivered(order: unknown): boolean {
-  return isOrderClosed(order) || isOrderDelivered(order);
+  return isFulfillmentComplete(order);
 }
 
 /**
@@ -532,7 +738,10 @@ export function isDueSheetPending(order: unknown): boolean {
 
 /**
  * Exclusive tab bucket:
- * terminal → return → transport → closed → approvals → dispatch pending.
+ * terminal → closed/delivered → in transit → transport pending → approvals → dispatch pending.
+ *
+ * Dispatch Pending is explicit: admin + due sheet + finance + account cleared,
+ * and no submitted dispatch yet (draft dispatch still belongs here).
  */
 export function getOrderWorkflowTabCategory(
   order: unknown,
@@ -547,9 +756,22 @@ export function getOrderWorkflowTabCategory(
   if (status === "cancelled") return "cancelled";
   if (status === "finance_rejected" || status === "account_rejected") return "rejected";
 
-  if (isReturnPendingOrder(order, options)) return "return_pending";
+  // Delivered/closed first — never park them under transport pending.
+  if (isFulfillmentComplete(row)) return "closed_delivered";
+
+  const orderId = refId(row._id ?? row.id);
+  const hasShipmentHistory =
+    !!orderId && !!options?.transportCreatedOrderIds?.has(orderId);
+  const hasActiveTransport =
+    !!orderId && !!options?.activeTransportOrderIds?.has(orderId);
+
+  // Shipments on file, none open ⇒ finished (delivered/returned), not pending.
+  if (hasShipmentHistory && !hasActiveTransport && !isInTransitOrder(order, options)) {
+    return "closed_delivered";
+  }
+
+  if (isInTransitOrder(order, options)) return "in_transit";
   if (isTransportPending(order, options)) return "transport_pending";
-  if (isOrderClosedOrDelivered(row)) return "closed_delivered";
 
   const pending = resolveApprovalPending(row);
   if (pending.admin) return "pending_admin_approval";
@@ -557,7 +779,9 @@ export function getOrderWorkflowTabCategory(
   if (pending.finance) return "pending_finance_approval";
   if (pending.account) return "pending_account_approval";
 
-  return "open_dispatched";
+  if (isDispatchPending(order, options)) return "open_dispatched";
+
+  return null;
 }
 
 export function orderMatchesWorkflowTab(
@@ -595,44 +819,108 @@ export function normalizeWorkflowTabFromUrl(
   if (value === "transport_return_pending" || value === "pending_transport" || value === "pending_delivery") {
     return "transport_pending";
   }
-  if (value === "returns_pending") return "return_pending";
+  if (value === "returns_pending" || value === "return_pending") return "all";
   if (isOrderWorkflowTabCategory(value)) return value;
   return defaultTab;
 }
 
-/** API query hints for workflow list tabs (when not searching). */
+/**
+ * Shared list query for workflow tabs, Quick Access, and Google Sheet modal.
+ * One RTK cache key → identical order pools; exclusive buckets are client-side.
+ */
+export const ORDER_WORKFLOW_LIST_QUERY: Record<string, string | undefined> = {
+  exclude_status: "draft",
+};
+
+/**
+ * List / Quick Access share one candidate set: all non-draft orders.
+ * Exclusive tab membership is decided only by `getOrderWorkflowTabCategory`.
+ */
 export function workflowTabQueryParams(
-  tab: OrderWorkflowTabCategory,
+  _tab?: OrderWorkflowTabCategory,
 ): Record<string, string | undefined> {
-  if (tab === "transport_pending" || tab === "return_pending") {
-    return { exclude_status: "draft,on_hold,cancelled,finance_rejected" };
+  return { ...ORDER_WORKFLOW_LIST_QUERY };
+}
+
+export type OrderWorkflowTabStat = {
+  count: number;
+  quantity: number;
+  amount: number;
+};
+
+export type OrderWorkflowTabStats = Record<
+  OrderWorkflowTabCategory,
+  OrderWorkflowTabStat
+>;
+
+export function createEmptyOrderWorkflowTabStats(): OrderWorkflowTabStats {
+  return Object.fromEntries(
+    ORDER_WORKFLOW_TABS.map((tab) => [
+      tab.id,
+      { count: 0, quantity: 0, amount: 0 },
+    ]),
+  ) as OrderWorkflowTabStats;
+}
+
+function orderLineQuantityForStats(order: unknown): number {
+  const row = order as { order_items?: unknown[]; status?: unknown };
+  const items = Array.isArray(row.order_items) ? row.order_items : [];
+  const status = deriveOrderWorkflowStatus(row);
+  const isApproved =
+    status !== "draft" &&
+    status !== "submitted" &&
+    status !== "cancelled" &&
+    status !== "finance_rejected" &&
+    status !== "rejected" &&
+    status !== "on_hold";
+
+  return items.reduce((sum: number, item) => {
+    const line = item as {
+      ordered_quantity?: unknown;
+      quantity?: unknown;
+      approved_quantity?: unknown;
+    };
+    const q = isApproved
+      ? Number(line.approved_quantity ?? 0)
+      : Number(line.ordered_quantity ?? line.quantity ?? 0);
+    return sum + q;
+  }, 0);
+}
+
+function orderAmountForStats(order: unknown): number {
+  const row = order as { grand_total?: unknown; total?: unknown };
+  return Number(row.grand_total ?? row.total ?? 0);
+}
+
+/**
+ * Per-tab counts used by dashboard Quick Access and list workflow tabs.
+ * Same exclusive buckets as `orderMatchesWorkflowTab`.
+ */
+export function computeOrderWorkflowTabStats(
+  orders: unknown[],
+  options?: OrderWorkflowCategoryOptions,
+): OrderWorkflowTabStats {
+  const stats = createEmptyOrderWorkflowTabStats();
+
+  for (const order of orders) {
+    if (!order || typeof order !== "object") continue;
+    const status = deriveOrderWorkflowStatus(order);
+    if (status === "draft") continue;
+
+    const qty = orderLineQuantityForStats(order);
+    const amount = orderAmountForStats(order);
+
+    stats.all.count += 1;
+    stats.all.quantity += qty;
+    stats.all.amount += amount;
+
+    const cat = getOrderWorkflowTabCategory(order, options);
+    if (!cat || cat === "all") continue;
+
+    stats[cat].count += 1;
+    stats[cat].quantity += qty;
+    stats[cat].amount += amount;
   }
 
-  switch (tab) {
-    case "all":
-      return { exclude_status: "draft" };
-    case "pending_admin_approval":
-      return { status: "pending_review" };
-    case "due_sheet_pending":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    case "pending_finance_approval":
-      // Broad fetch — client exclusive filter is source of truth for tab membership.
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    case "pending_account_approval":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    case "on_hold":
-      return { status: "on_hold" };
-    case "cancelled":
-      return { status: "cancelled" };
-    case "rejected":
-      return { status: "finance_rejected" };
-    case "open_dispatched":
-      // Broad fetch so post-approval orders are not hidden when Order.status lags
-      // behind OrderApproval; client filter places them in Dispatch Pending.
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected,delivered,closed" };
-    case "closed_delivered":
-      return { exclude_status: "draft,submitted,on_hold,cancelled,finance_rejected" };
-    default:
-      return {};
-  }
+  return stats;
 }

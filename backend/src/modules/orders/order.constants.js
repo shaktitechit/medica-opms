@@ -5,7 +5,6 @@
 
 const ORDER_LINE_STATUS = Object.freeze({
   ACTIVE: 'active',
-  PARTIAL: 'partial',
   FULFILLED: 'fulfilled',
   CANCELLED: 'cancelled',
 });
@@ -13,9 +12,7 @@ const ORDER_LINE_STATUS = Object.freeze({
 const ORDER_LIFECYCLE_STATUS = Object.freeze({
   DRAFT: 'draft',
   ACTIVE: 'active',
-  PARTIALLY_FULFILLED: 'partially_fulfilled',
   FULFILLED: 'fulfilled',
-  CLOSED: 'closed',
   CANCELLED: 'cancelled',
   ON_HOLD: 'on_hold',
 });
@@ -44,14 +41,12 @@ const ORDER_STATUS = Object.freeze({
   DISPATCH: 'dispatch',
   IN_TRANSIT: 'in_transit',
   DELIVERED: 'delivered',
-  CLOSED: 'closed',
   CANCELLED: 'cancelled',
   ON_HOLD: 'on_hold',
 });
 
 const APPROVAL_STATUS = Object.freeze({
   PENDING: 'pending',
-  PARTIAL: 'partial',
   APPROVED: 'approved',
   REJECTED: 'rejected',
   FULL: 'full',
@@ -59,7 +54,6 @@ const APPROVAL_STATUS = Object.freeze({
 
 const FULFILLMENT_STATUS = Object.freeze({
   PENDING: 'pending',
-  PARTIAL: 'partial',
   COMPLETED: 'completed',
 });
 
@@ -90,17 +84,10 @@ function normalizeFinanceApprovalStatus(status) {
 
 /** Legacy queue statuses stored on older Order documents. */
 const LEGACY_ORDER_STATUS_ALIASES = Object.freeze({
-  partially_finance_approved: ORDER_STATUS.FINANCE_APPROVED,
-  fully_finance_approved: ORDER_STATUS.FINANCE_APPROVED,
-  partially_account_approved: ORDER_STATUS.ACCOUNT_APPROVED,
-  fully_account_approved: ORDER_STATUS.ACCOUNT_APPROVED,
   dispatch_pending: ORDER_STATUS.DISPATCH,
-  partial_dispatch_created: ORDER_STATUS.DISPATCH,
-  full_dispatch_created: ORDER_STATUS.DISPATCH,
+  dispatch_created: ORDER_STATUS.DISPATCH,
   transport_pending: ORDER_STATUS.IN_TRANSIT,
   transport_assigned: ORDER_STATUS.IN_TRANSIT,
-  partially_transported: ORDER_STATUS.IN_TRANSIT,
-  fully_transported: ORDER_STATUS.IN_TRANSIT,
   hold: ORDER_STATUS.ON_HOLD,
 });
 
@@ -120,10 +107,6 @@ function normalizeWorkflowStage(stage) {
 
 /** Legacy line_status values stored on older Order documents. */
 const LEGACY_ORDER_LINE_STATUS_ALIASES = Object.freeze({
-  fully_delivered: ORDER_LINE_STATUS.FULFILLED,
-  partially_delivered: ORDER_LINE_STATUS.PARTIAL,
-  fully_dispatched: ORDER_LINE_STATUS.FULFILLED,
-  partially_dispatched: ORDER_LINE_STATUS.PARTIAL,
   draft: ORDER_LINE_STATUS.ACTIVE,
   confirmed: ORDER_LINE_STATUS.ACTIVE,
 });
@@ -144,11 +127,94 @@ function normalizeOrderLineItems(doc) {
   return doc;
 }
 
+function alignWorkflowStagesFromStatus(doc) {
+  if (!doc || !doc.status) return doc;
+  const status = String(doc.status);
+  switch (status) {
+    case 'draft':
+      doc.lifecycle_status = 'draft';
+      doc.workflow_stage = 'sales';
+      doc.pending_with_role = 'sales';
+      doc.current_department = 'sales';
+      break;
+    case 'submitted':
+      doc.lifecycle_status = 'active';
+      doc.workflow_stage = 'admin_review';
+      doc.pending_with_role = 'admin';
+      doc.current_department = 'admin';
+      break;
+    case 'sales_approved':
+    case 'finance_review':
+      doc.lifecycle_status = 'active';
+      doc.workflow_stage = 'finance_review';
+      doc.pending_with_role = 'finance';
+      doc.current_department = 'finance';
+      break;
+    case 'finance_approved':
+      doc.lifecycle_status = 'active';
+      doc.workflow_stage = 'dispatch';
+      doc.pending_with_role = 'dispatch';
+      doc.current_department = 'dispatch';
+      break;
+    case 'finance_rejected':
+      doc.lifecycle_status = 'active';
+      doc.workflow_stage = 'sales';
+      doc.pending_with_role = 'sales';
+      doc.current_department = 'sales';
+      break;
+    case 'account_review':
+      doc.lifecycle_status = 'active';
+      doc.workflow_stage = 'account_review';
+      doc.pending_with_role = 'account';
+      doc.current_department = 'account';
+      break;
+    case 'account_approved':
+      doc.lifecycle_status = 'active';
+      doc.workflow_stage = 'dispatch';
+      doc.pending_with_role = 'dispatch';
+      doc.current_department = 'dispatch';
+      break;
+    case 'account_rejected':
+      doc.lifecycle_status = 'active';
+      doc.workflow_stage = 'account_review';
+      doc.pending_with_role = 'account';
+      doc.current_department = 'account';
+      break;
+    case 'dispatch':
+    case 'in_transit':
+      doc.lifecycle_status = 'active';
+      doc.workflow_stage = 'dispatch';
+      doc.pending_with_role = 'dispatch';
+      doc.current_department = 'dispatch';
+      break;
+    case 'delivered':
+      doc.lifecycle_status = 'fulfilled';
+      doc.workflow_stage = 'completed';
+      doc.pending_with_role = undefined;
+      doc.current_department = undefined;
+      break;
+    case 'cancelled':
+      doc.lifecycle_status = 'cancelled';
+      doc.workflow_stage = 'cancelled';
+      doc.pending_with_role = undefined;
+      doc.current_department = undefined;
+      break;
+    case 'on_hold':
+      doc.lifecycle_status = 'on_hold';
+      doc.workflow_stage = 'on_hold';
+      doc.pending_with_role = undefined;
+      doc.current_department = undefined;
+      break;
+  }
+  return doc;
+}
+
 /** Coerce legacy status/stage values before persisting Order documents. */
 function normalizeOrderWorkflowFields(doc) {
   if (!doc) return doc;
   const normalizedStatus = normalizeOrderStoredStatus(doc.status);
   if (normalizedStatus) doc.status = normalizedStatus;
+  alignWorkflowStagesFromStatus(doc);
   const normalizedStage = normalizeWorkflowStage(doc.workflow_stage);
   if (normalizedStage) doc.workflow_stage = normalizedStage;
   if (doc.account_approval_status === 'full') {

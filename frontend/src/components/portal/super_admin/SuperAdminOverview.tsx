@@ -12,12 +12,12 @@ import SalesLeaderboard from "@/components/portal/shared/dashboard/SalesLeaderbo
 import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashboard/FeaturedProductGroupSalesUserTable";
 import FeaturedProductGroupZoneTable from "@/components/portal/shared/dashboard/FeaturedProductGroupZoneTable";
 import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/shared/dashboard/FeaturedProductGroupFeaturedPartyTable";
-import { buildPendingReturnOrderIds } from "@/components/portal/admin/adminOrderUtils";
 import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
+import { ORDER_WORKFLOW_LIST_QUERY } from "@/components/portal/shared/orderList/orderWorkflowTabs";
+import { useOrderWorkflowCategoryOptions } from "@/components/portal/shared/orderList/useOrderWorkflowCategoryOptions";
 import {
   useGetDashboardSuperQuery,
   useGetTransportPlanStatsQuery,
-  useListOrderReturnsQuery,
   useListOrdersQuery,
   useListPartiesQuery,
   useListUsersQuery,
@@ -25,10 +25,7 @@ import {
 import { OverviewFlagsWidget } from "@/components/portal/shared/OverviewFlagsWidget";
 import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import {
-  buildPartyNameById,
-  pickList,
-} from "@/components/portal/sales/partyDisplay";
+import { buildPartyNameById } from "@/components/portal/sales/partyDisplay";
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
 import { FilePlus, RefreshCw } from "lucide-react";
 import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
@@ -55,11 +52,11 @@ export default function SuperAdminOverview() {
     data: ordersData,
     isFetching: isOrdersFetching,
     refetch: refetchOrders,
-  } = useListOrdersQuery({});
+  } = useListOrdersQuery(ORDER_WORKFLOW_LIST_QUERY);
 
   const { data: partiesData } = useListPartiesQuery({});
   const { data: usersData } = useListUsersQuery({ department: "sales" });
-  const { data: returnsData } = useListOrderReturnsQuery({});
+  const categoryOptions = useOrderWorkflowCategoryOptions();
 
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
@@ -87,16 +84,6 @@ export default function SuperAdminOverview() {
       selectedMonths
     );
   }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
-
-  const pendingReturnOrderIds = useMemo(
-    () => buildPendingReturnOrderIds(pickList(returnsData)),
-    [returnsData],
-  );
-
-  const categoryOptions = useMemo(
-    () => ({ pendingReturnOrderIds }),
-    [pendingReturnOrderIds],
-  );
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),

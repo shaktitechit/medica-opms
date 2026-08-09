@@ -20,17 +20,10 @@ const WORKFLOW_JOB_TYPES = Object.freeze({
 
 /** Map legacy queue statuses to canonical ORDER_STATUS. */
 const LEGACY_STATUS_ALIASES = Object.freeze({
-  partially_finance_approved: ORDER_STATUS.FINANCE_APPROVED,
-  fully_finance_approved: ORDER_STATUS.FINANCE_APPROVED,
-  partially_account_approved: ORDER_STATUS.ACCOUNT_APPROVED,
-  fully_account_approved: ORDER_STATUS.ACCOUNT_APPROVED,
   dispatch_pending: ORDER_STATUS.DISPATCH,
-  partial_dispatch_created: ORDER_STATUS.DISPATCH,
-  full_dispatch_created: ORDER_STATUS.DISPATCH,
+  dispatch_created: ORDER_STATUS.DISPATCH,
   transport_pending: ORDER_STATUS.IN_TRANSIT,
   transport_assigned: ORDER_STATUS.IN_TRANSIT,
-  partially_transported: ORDER_STATUS.IN_TRANSIT,
-  fully_transported: ORDER_STATUS.IN_TRANSIT,
   hold: ORDER_STATUS.ON_HOLD,
 });
 
@@ -81,12 +74,12 @@ const STATUS_TO_WORKFLOW = Object.freeze({
     current_action: 'account_rejected',
   },
   [ORDER_STATUS.DISPATCH]: {
-    lifecycle_status: ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED,
+    lifecycle_status: ORDER_LIFECYCLE_STATUS.ACTIVE,
     workflow_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
     current_action: 'dispatch',
   },
   [ORDER_STATUS.IN_TRANSIT]: {
-    lifecycle_status: ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED,
+    lifecycle_status: ORDER_LIFECYCLE_STATUS.ACTIVE,
     workflow_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
     current_action: 'in_transit',
   },
@@ -95,13 +88,6 @@ const STATUS_TO_WORKFLOW = Object.freeze({
     workflow_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
     current_action: 'delivered',
     delivery_status: 'completed',
-  },
-  [ORDER_STATUS.CLOSED]: {
-    lifecycle_status: ORDER_LIFECYCLE_STATUS.FULFILLED,
-    workflow_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
-    current_action: 'closed',
-    delivery_status: 'completed',
-    dispatch_status: 'completed',
   },
   [ORDER_STATUS.CANCELLED]: {
     lifecycle_status: ORDER_LIFECYCLE_STATUS.CANCELLED,
@@ -144,15 +130,8 @@ function deriveOrderPatches(requestedStatus, canonicalStatus) {
   const patches = {};
 
   if (canonicalStatus === ORDER_STATUS.FINANCE_APPROVED) {
-    if (requestedStatus === 'partially_finance_approved') {
-      patches.finance_approval_status = APPROVAL_STATUS.PARTIAL;
-      patches.current_action = 'finance_partial';
-    } else {
-      patches.finance_approval_status = APPROVAL_STATUS.APPROVED;
-      patches.current_action = requestedStatus === 'fully_finance_approved'
-        ? 'fully_finance_approved'
-        : 'finance_approved';
-    }
+    patches.finance_approval_status = APPROVAL_STATUS.APPROVED;
+    patches.current_action = 'finance_approved';
   }
 
   if (canonicalStatus === ORDER_STATUS.FINANCE_REJECTED) {
@@ -160,15 +139,8 @@ function deriveOrderPatches(requestedStatus, canonicalStatus) {
   }
 
   if (canonicalStatus === ORDER_STATUS.ACCOUNT_APPROVED) {
-    if (requestedStatus === 'partially_account_approved') {
-      patches.account_approval_status = APPROVAL_STATUS.PARTIAL;
-      patches.current_action = 'account_partial';
-    } else {
-      patches.account_approval_status = APPROVAL_STATUS.APPROVED;
-      patches.current_action = requestedStatus === 'fully_account_approved'
-        ? 'fully_account_approved'
-        : 'account_approved';
-    }
+    patches.account_approval_status = APPROVAL_STATUS.APPROVED;
+    patches.current_action = 'account_approved';
   }
 
   if (canonicalStatus === ORDER_STATUS.ACCOUNT_REJECTED) {
@@ -181,9 +153,9 @@ function deriveOrderPatches(requestedStatus, canonicalStatus) {
   }
 
   if (canonicalStatus === ORDER_STATUS.DISPATCH) {
-    if (['partial_dispatch_created', 'full_dispatch_created'].includes(requestedStatus)) {
-      patches.dispatch_status = requestedStatus === 'full_dispatch_created' ? 'completed' : 'partial';
-      patches.current_action = requestedStatus === 'full_dispatch_created' ? 'full_dispatch' : 'partial_dispatch';
+    if (requestedStatus === 'dispatch_created') {
+      patches.dispatch_status = 'completed';
+      patches.current_action = 'dispatch_created';
     }
   }
 

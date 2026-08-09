@@ -60,7 +60,7 @@ const {
  * PATCH may only contain these plain fields. Everything else must go through `/transition`.
  * Blocks Mongo operators like `{ "$set": { status: … } }` (spread + doc.set bypassed blacklist).
  */
-const PAYMENT_STATUS_VALUES = new Set(['unpaid', 'partial', 'paid']);
+const PAYMENT_STATUS_VALUES = new Set(['unpaid', 'paid']);
 
 const ORDER_PATCH_KEYS = new Set([
   'party',
@@ -207,15 +207,15 @@ function recalcCommercialsForClosure(order) {
 
 function isOrderSettlementClosed(doc) {
   if (!doc) return false;
-  return String(doc.status || '') === ORDER_STATUS.CLOSED || Boolean(doc.closed_at);
+  return Boolean(doc.is_locked);
 }
 
 /** Full-delivery closure state used by the dispatch completion path. */
 function applyOrderSettlementClosedState(doc, user, options = {}) {
-  doc.status = ORDER_STATUS.CLOSED;
+  doc.status = ORDER_STATUS.DELIVERED;
   doc.lifecycle_status = ORDER_LIFECYCLE_STATUS.FULFILLED;
   doc.workflow_stage = ORDER_WORKFLOW_STAGE.COMPLETED;
-  doc.current_action = 'closed';
+  doc.current_action = 'delivered';
   doc.dispatch_status = options.dispatch_status || FULFILLMENT_STATUS.COMPLETED;
   doc.delivery_status = options.delivery_status || FULFILLMENT_STATUS.COMPLETED;
   doc.is_locked = true;
@@ -524,19 +524,19 @@ async function closeAfterFullDelivery(id, body, user) {
   await OrderStatusHistory.create({
     order: id,
     from_status: fromStatus,
-    to_status: ORDER_STATUS.CLOSED,
+    to_status: ORDER_STATUS.DELIVERED,
     changed_by: user._id,
-    remarks: remarks || 'Order closed after full delivery',
+    remarks: remarks || 'Order delivered',
   });
 
   await OrderWorkflow.create({
     order: id,
     action_by: user._id,
     role: dept === 'super_admin' ? 'admin' : dept,
-    action: 'closed',
+    action: 'delivered',
     from_stage: fromStage,
     to_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
-    to_status: ORDER_STATUS.CLOSED,
+    to_status: ORDER_STATUS.DELIVERED,
     remarks: remarks || '',
     revision_number: doc.current_revision,
   });
@@ -546,7 +546,7 @@ async function closeAfterFullDelivery(id, body, user) {
     entity_type: 'order',
     entity_id: String(doc._id),
     action: 'status_changed',
-    message: `Order ${doc.order_no} closed after full delivery`,
+    message: `Order ${doc.order_no} delivered`,
     old_value: { lifecycle_status: fromLifecycle, status: fromStatus },
     new_value: {
       lifecycle_status: ORDER_LIFECYCLE_STATUS.FULFILLED,
@@ -558,150 +558,7 @@ async function closeAfterFullDelivery(id, body, user) {
   return toPlain(doc.toObject());
 }
 
-/**
- * Close an order without modifying fulfillment quantities, approvals, returns, or commercials.
- * Only workflow state and closure audit metadata are updated.
- */
-async function closeOrder(id, body, user) {
-  const dept = String(user.department || '');
-  if (!['account', 'admin', 'super_admin', 'dispatch'].includes(dept)) {
-    throw new ApiError(403, 'Only account or dispatch can close orders');
-  }
 
-  const { Order, OrderWorkflow, OrderStatusHistory } = getModels();
-  const doc = await Order.findById(id);
-  if (!doc) throw new ApiError(404, 'Order not found');
-  if (isOrderSettlementClosed(doc)) {
-    throw new ApiError(400, 'Order is already closed');
-  }
-  if (String(doc.lifecycle_status || '') === ORDER_LIFECYCLE_STATUS.CANCELLED) {
-    throw new ApiError(400, 'Cancelled orders cannot be closed');
-  }
-
-  const remarks = String(body?.remarks || '').trim();
-  const fromStatus = doc.status || '';
-  const fromStage = normalizeWorkflowStage(doc.workflow_stage) || ORDER_WORKFLOW_STAGE.DISPATCH;
-
-  doc.status = ORDER_STATUS.CLOSED;
-  doc.workflow_stage = ORDER_WORKFLOW_STAGE.COMPLETED;
-  doc.current_action = 'closed';
-  doc.is_locked = true;
-  doc.closed_at = new Date();
-  doc.closed_by = user._id;
-  doc.updated_by = user._id;
-  doc.current_revision = Number(doc.current_revision || 1) + 1;
-  if (remarks) doc.closure_remarks = remarks;
-  await doc.save();
-
-  await OrderStatusHistory.create({
-    order: id,
-    from_status: fromStatus,
-    to_status: ORDER_STATUS.CLOSED,
-    changed_by: user._id,
-    remarks: remarks || 'Order closed by account',
-  });
-
-  await OrderWorkflow.create({
-    order: id,
-    action_by: user._id,
-    role: dept === 'super_admin' ? 'admin' : dept,
-    action: 'closed',
-    from_stage: fromStage,
-    to_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
-    to_status: ORDER_STATUS.CLOSED,
-    remarks,
-    revision_number: doc.current_revision,
-  });
-
-  await activityService.create({
-    actor: user._id,
-    entity_type: 'order',
-    entity_id: String(doc._id),
-    action: 'status_changed',
-    message: `Order ${doc.order_no} closed`,
-    old_value: { status: fromStatus, workflow_stage: fromStage },
-    new_value: {
-      status: ORDER_STATUS.CLOSED,
-      workflow_stage: ORDER_WORKFLOW_STAGE.COMPLETED,
-    },
-  });
-
-  return toPlain(doc.toObject());
-}
-
-/**
- * Reopen a closed order at the dispatch stage without changing fulfillment or commercials.
- * Clears closure audit fields and records the state transition.
- */
-async function reopenOrder(id, body, user) {
-  const dept = String(user.department || '');
-  if (!['account', 'admin', 'super_admin', 'dispatch'].includes(dept)) {
-    throw new ApiError(403, 'Only account or dispatch can reopen orders');
-  }
-
-  const { Order, OrderWorkflow, OrderStatusHistory } = getModels();
-  const doc = await Order.findById(id);
-  if (!doc) throw new ApiError(404, 'Order not found');
-  if (!isOrderSettlementClosed(doc)) {
-    throw new ApiError(400, 'Only closed orders can be reopened');
-  }
-
-  const remarks = String(body?.remarks || '').trim();
-  const fromStatus = doc.status || ORDER_STATUS.CLOSED;
-  const fromStage =
-    normalizeWorkflowStage(doc.workflow_stage) || ORDER_WORKFLOW_STAGE.COMPLETED;
-
-  doc.status = ORDER_STATUS.DISPATCH;
-  doc.lifecycle_status = ORDER_LIFECYCLE_STATUS.PARTIALLY_FULFILLED;
-  doc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
-  doc.current_action = 'reopened';
-  doc.is_locked = false;
-  doc.closed_at = null;
-  doc.closed_by = null;
-  doc.closure_remarks = null;
-  doc.updated_by = user._id;
-  doc.current_revision = Number(doc.current_revision || 1) + 1;
-  await doc.save();
-
-  await OrderStatusHistory.create({
-    order: id,
-    from_status: fromStatus,
-    to_status: ORDER_STATUS.DISPATCH,
-    changed_by: user._id,
-    remarks: remarks || `Order reopened by ${dept}`,
-  });
-
-  await OrderWorkflow.create({
-    order: id,
-    action_by: user._id,
-    role: dept === 'super_admin' ? 'admin' : dept,
-    action: 'reopened',
-    from_stage: fromStage,
-    to_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
-    from_status: fromStatus,
-    to_status: ORDER_STATUS.DISPATCH,
-    remarks,
-    revision_number: doc.current_revision,
-  });
-
-  await activityService.create({
-    actor: user._id,
-    entity_type: 'order',
-    entity_id: String(doc._id),
-    action: 'status_changed',
-    message: `Order ${doc.order_no} reopened`,
-    old_value: {
-      status: fromStatus,
-      workflow_stage: fromStage,
-    },
-    new_value: {
-      status: ORDER_STATUS.DISPATCH,
-      workflow_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
-    },
-  });
-
-  return toPlain(doc.toObject());
-}
 
 /**
  * Map API line payloads into mongoose subdocuments with normalized numbers.
@@ -781,7 +638,7 @@ function applyAccessFilter(q, user) {
 
 async function buildBaseQuery(query = {}, user) {
   const q = {};
-  const { status, customer, party, exclude_status, search, priority, tab, dateFrom, dateTo } = query;
+  const { status, customer, party, exclude_status, search, priority, tab, dateFrom, dateTo, billing_status } = query;
 
   if (tab) {
     const s = String(tab).toLowerCase();
@@ -794,7 +651,7 @@ async function buildBaseQuery(query = {}, user) {
       const allUploaded = [...new Set([...dueSheetOrderIds.map(String), ...approvalDueSheetOrderIds.map(String)])];
       const adminPendingIds = await findOrderIdsWithPendingApproval('admin', getModels());
 
-      q.status = { $nin: ['draft', 'submitted', 'pending_review', 'on_hold', 'cancelled', 'finance_rejected', 'account_rejected', 'delivered', 'closed'] };
+      q.status = { $nin: ['draft', 'submitted', 'pending_review', 'on_hold', 'cancelled', 'finance_rejected', 'account_rejected', 'delivered'] };
       q._id = { $nin: [...allUploaded, ...adminPendingIds] };
     } else if (s === 'pending_finance_approval') {
       const dueSheetOrderIds = await getModels().OrderDueSheet.distinct('order', { is_current: true, status: 'active', deletedAt: null });
@@ -807,25 +664,59 @@ async function buildBaseQuery(query = {}, user) {
       const accountPendingIds = await findOrderIdsWithPendingApproval('account', getModels());
       q._id = { $in: accountPendingIds };
     } else if (s === 'open_dispatched') {
+      // Dispatch Pending: past approval queues, no submitted dispatch yet.
+      // Draft dispatches do not advance Order.status into transport statuses.
       const adminPending = await findOrderIdsWithPendingApproval('admin', getModels());
       const financePending = await findOrderIdsWithPendingApproval('finance', getModels());
       const accountPending = await findOrderIdsWithPendingApproval('account', getModels());
       const nonDispatchPendingIds = new Set([...adminPending, ...financePending, ...accountPending]);
 
-      q.status = { $nin: ['draft', 'submitted', 'pending_review', 'on_hold', 'cancelled', 'finance_rejected', 'account_rejected', 'delivered', 'closed'] };
+      q.status = {
+        $nin: [
+          'draft',
+          'submitted',
+          'pending_review',
+          'on_hold',
+          'cancelled',
+          'finance_rejected',
+          'account_rejected',
+          'delivered',
+          'dispatch_created',
+          'transport_pending',
+          'transport_assigned',
+          'in_transit',
+        ],
+      };
       q._id = { $nin: [...nonDispatchPendingIds] };
+      // Submitted qty sets dispatch_status to partial/completed → Transport Pending.
       q.dispatch_status = { $ne: 'completed' };
     } else if (s === 'transport_pending') {
-      q.status = { $in: ['partial_dispatch_created', 'full_dispatch_created', 'transport_pending', 'transport_assigned', 'partially_transported', 'fully_transported', 'in_transit'] };
+      // Submitted / awaiting transport (client exclusive buckets also use shipments).
+      q.status = {
+        $in: [
+          'dispatch_created',
+          'transport_pending',
+          'dispatch',
+        ],
+      };
+      q.delivery_status = { $ne: 'completed' };
+      q.lifecycle_status = { $ne: 'fulfilled' };
+    } else if (s === 'in_transit') {
+      q.status = {
+        $in: [
+          'in_transit',
+          'transport_assigned',
+        ],
+      };
       q.delivery_status = { $ne: 'completed' };
       q.lifecycle_status = { $ne: 'fulfilled' };
     } else if (s === 'return_pending') {
-      const activeReturns = await getModels().OrderReturn.find({ return_status: 'pending', deletedAt: null }).select('order').lean();
-      q._id = { $in: activeReturns.map(r => r.order) };
+      // Legacy tab — returns are no longer a list workflow bucket.
+      q._id = { $in: [] };
     } else if (s === 'closed_delivered') {
       q.$or = [
-        { status: { $in: ['delivered', 'closed'] } },
-        { closed_at: { $exists: true, $ne: null } },
+        { status: 'delivered' },
+        { is_locked: true },
         { delivery_status: 'completed' },
         { lifecycle_status: 'fulfilled' }
       ];
@@ -848,10 +739,7 @@ async function buildBaseQuery(query = {}, user) {
     } else if (s === 'rejected') {
       q.$or = [{ finance_approval_status: 'rejected' }, { status: 'finance_rejected' }];
     } else if (s === 'closed') {
-      q.$or = [
-        { status: ORDER_STATUS.CLOSED },
-        { closed_at: { $exists: true, $ne: null } },
-      ];
+      q.is_locked = true;
     } else if (s === 'open') {
       q.status = {
         $nin: [
@@ -861,10 +749,9 @@ async function buildBaseQuery(query = {}, user) {
           ORDER_STATUS.SUBMITTED,
           ORDER_STATUS.ON_HOLD,
           ORDER_STATUS.DELIVERED,
-          ORDER_STATUS.CLOSED,
         ],
       };
-      q.closed_at = null;
+      q.is_locked = { $ne: true };
       q.workflow_stage = { $nin: [ORDER_WORKFLOW_STAGE.ADMIN_REVIEW, ORDER_WORKFLOW_STAGE.COMPLETED] };
       q.delivery_status = { $ne: FULFILLMENT_STATUS.COMPLETED };
       q.lifecycle_status = { $ne: ORDER_LIFECYCLE_STATUS.FULFILLED };
@@ -878,27 +765,20 @@ async function buildBaseQuery(query = {}, user) {
       s === ORDER_STATUS.ON_HOLD ||
       s === ORDER_STATUS.DISPATCH ||
       s === ORDER_STATUS.IN_TRANSIT ||
-      s === ORDER_STATUS.DELIVERED ||
-      s === ORDER_STATUS.CLOSED
+      s === ORDER_STATUS.DELIVERED
     ) {
       q.status = status;
     } else if (s === 'dispatch_review' || s === 'dispatch_execution' || s === ORDER_STATUS.DISPATCH) {
       q.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
-    } else if (s === 'partially_finance_approved' || s === 'finance_partial') {
-      q.finance_approval_status = { $in: [APPROVAL_STATUS.PARTIAL, 'partial'] };
-    } else if (s === 'fully_finance_approved' || s === ORDER_STATUS.FINANCE_APPROVED) {
-      q.finance_approval_status = { $in: [APPROVAL_STATUS.APPROVED, 'full'] };
+    } else if (s === ORDER_STATUS.FINANCE_APPROVED) {
+      q.finance_approval_status = APPROVAL_STATUS.APPROVED;
     } else if (s === ORDER_STATUS.FINANCE_REJECTED) {
       q.finance_approval_status = APPROVAL_STATUS.REJECTED;
     } else if (s === 'dispatch_pending') {
       q.dispatch_status = FULFILLMENT_STATUS.PENDING;
-    } else if (s === 'partial_dispatch_created' || s === 'partially_dispatched') {
-      q.dispatch_status = FULFILLMENT_STATUS.PARTIAL;
-    } else if (s === 'full_dispatch_created' || s === 'fully_dispatched') {
+    } else if (s === 'dispatch_created') {
       q.dispatch_status = FULFILLMENT_STATUS.COMPLETED;
-    } else if (s === 'partially_transported' || s === 'partially_delivered') {
-      q.delivery_status = FULFILLMENT_STATUS.PARTIAL;
-    } else if (s === 'fully_transported' || s === 'fully_delivered' || s === ORDER_STATUS.DELIVERED) {
+    } else if (s === 'fully_delivered' || s === ORDER_STATUS.DELIVERED) {
       q.delivery_status = FULFILLMENT_STATUS.COMPLETED;
     } else {
       q.status = status;
@@ -909,6 +789,19 @@ async function buildBaseQuery(query = {}, user) {
   }
   if (customer) q.customer = customer;
   if (party) q.party = party;
+
+  if (billing_status) {
+    const split = String(billing_status).split(',').map(s => s.trim().toLowerCase());
+    if (split.includes('unbilled')) {
+      q.$or = [
+        { billing_status: { $in: split } },
+        { billing_status: { $exists: false } },
+        { billing_status: null }
+      ];
+    } else {
+      q.billing_status = split.length > 1 ? { $in: split } : split[0];
+    }
+  }
 
   if (priority && priority !== 'all') {
     q.priority = String(priority).toLowerCase();
@@ -996,7 +889,7 @@ async function getWorkflowStats(query = {}, user) {
     'pending_account_approval',
     'open_dispatched',
     'transport_pending',
-    'return_pending',
+    'in_transit',
     'closed_delivered',
     'on_hold',
     'cancelled',
@@ -1890,6 +1783,7 @@ async function superSheetUpdate(id, body, user) {
 }
 
 module.exports = {
+  buildBaseQuery,
   list,
   getWorkflowStats,
   getById,
@@ -1900,8 +1794,6 @@ module.exports = {
   history,
   fulfillment,
   assignees,
-  closeOrder,
-  reopenOrder,
   closeAfterFullDelivery,
   recalcCommercials,
   normalizeItems,

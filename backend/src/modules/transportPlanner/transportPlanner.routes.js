@@ -9,8 +9,8 @@ const { requireDepartment } = require('../../middlewares/dept.middleware');
 const controller = require('./transportPlanner.controller');
 const { ensureTransportPlanOrderIndexes } = require('./transportPlanner.indexes');
 
-const planners = ['account', 'admin', 'super_admin'];
-const viewers = ['account', 'dispatch', 'admin', 'super_admin'];
+const planners = ['account', 'finance', 'admin', 'super_admin'];
+const viewers = ['account', 'finance', 'dispatch', 'admin', 'super_admin'];
 const executors = ['dispatch', 'admin', 'super_admin'];
 
 router.use(requireAuth);

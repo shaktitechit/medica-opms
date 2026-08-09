@@ -81,29 +81,15 @@ async function transitionOrderStatus(params) {
     const fromCanonical = normalizeOrderStatus(fromStatus);
 
     if (fromCanonical === canonicalStatus) {
-      const isLegacyRefinement = (
-        requestedStatus !== String(doc.status || '')
-        && ['fully_finance_approved', 'partially_finance_approved', 'fully_account_approved', 'partially_account_approved'].includes(requestedStatus)
-      );
-      const needsSettlementClose =
-        canonicalStatus === ORDER_STATUS.CLOSED
-        && (
-          !doc.closed_at
-          || String(doc.status || '') !== ORDER_STATUS.CLOSED
-          || doc.lifecycle_status !== ORDER_LIFECYCLE_STATUS.FULFILLED
-          || doc.workflow_stage !== ORDER_WORKFLOW_STAGE.COMPLETED
-        );
-      if (!isLegacyRefinement && !( _systemCall && needsSettlementClose)) {
-        if (_systemCall) {
-          normalizeOrderWorkflowFields(doc);
-          if (doc.isModified()) {
-            await doc.save(session ? { session } : {});
-          }
-          return toPlain(doc.toObject());
+      if (_systemCall) {
+        normalizeOrderWorkflowFields(doc);
+        if (doc.isModified()) {
+          await doc.save(session ? { session } : {});
         }
-        if (normalizeOrderStatus(doc.status) === canonicalStatus && requestedStatus === String(doc.status || '')) {
-          throw new ApiError(400, 'Order is already in this status');
-        }
+        return toPlain(doc.toObject());
+      }
+      if (normalizeOrderStatus(doc.status) === canonicalStatus && requestedStatus === String(doc.status || '')) {
+        throw new ApiError(400, 'Order is already in this status');
       }
     }
 
@@ -183,15 +169,6 @@ async function transitionOrderStatus(params) {
     if (patches.pending_with_role) doc.pending_with_role = patches.pending_with_role;
     if (patches.current_department) doc.current_department = patches.current_department;
     if (remarks !== undefined) doc.remarks = remarks;
-
-    if (canonicalStatus === ORDER_STATUS.CLOSED) {
-      if (!doc.closed_at) doc.closed_at = new Date();
-      doc.closed_by = userId;
-      doc.is_locked = true;
-      if (remarks) {
-        doc.closure_remarks = String(remarks).trim();
-      }
-    }
 
     await doc.save(session ? { session } : {});
 
@@ -349,23 +326,6 @@ async function processWorkflowJob({ type, payload = {} }) {
     case WORKFLOW_JOB_TYPES.POST_TRANSITION: {
       const orderId = payload.orderId;
       if (!orderId) throw new Error('post_transition requires orderId');
-      const nextStatus = payload.nextStatus ? String(payload.nextStatus) : '';
-
-      if (nextStatus === ORDER_STATUS.CLOSED || nextStatus === 'closed') {
-        const { Order } = getModels();
-        const existing = await Order.findById(orderId).lean();
-        const alreadyClosed =
-          String(existing?.status || '') === ORDER_STATUS.CLOSED || Boolean(existing?.closed_at);
-        if (!alreadyClosed) {
-          await transitionOrderStatus({
-            orderId,
-            nextStatus: ORDER_STATUS.CLOSED,
-            userId: payload.actorId,
-            remarks: payload.remarks || '',
-            _systemCall: true,
-          });
-        }
-      }
 
       await flagService.recomputeOrderFlagAggregates(orderId);
       return {

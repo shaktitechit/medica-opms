@@ -9,20 +9,12 @@ const { extendedTags, extendedPaths, extendedSchemas } = require('./swaggerExten
 /** Canonical Order.status values plus legacy workflow transition tokens still accepted. */
 const ORDER_STATUS_VALUES = [
   ...CANONICAL_ORDER_STATUS,
-  'partially_finance_approved',
-  'fully_finance_approved',
-  'partially_account_approved',
-  'fully_account_approved',
   'dispatch_pending',
-  'partial_dispatch_created',
-  'full_dispatch_created',
+  'dispatch_created',
   'transport_pending',
   'transport_assigned',
-  'partially_transported',
-  'fully_transported',
   'invoice_generated',
   'collection_pending',
-  'partially_paid',
   'paid',
 ];
 

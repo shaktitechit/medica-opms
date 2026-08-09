@@ -10,17 +10,14 @@ async function summary() {
   const { Order } = getModels();
 
   const [dispatch_pending, partial, dispatched] = await Promise.all([
-    Order.countDocuments({ status: ORDER_STATUS.DISPATCH_PENDING }),
-    Order.countDocuments({ status: ORDER_STATUS.PARTIAL_DISPATCH_CREATED }),
+    Order.countDocuments({ status: ORDER_STATUS.DISPATCH, dispatch_status: { $ne: 'completed' } }),
+    0,
     Order.countDocuments({
       status: { $in: [
-        ORDER_STATUS.FULL_DISPATCH_CREATED,
-        ORDER_STATUS.TRANSPORT_PENDING,
-        ORDER_STATUS.TRANSPORT_ASSIGNED,
-        ORDER_STATUS.PARTIALLY_TRANSPORTED,
-        ORDER_STATUS.FULLY_TRANSPORTED,
+        ORDER_STATUS.DISPATCH,
         ORDER_STATUS.IN_TRANSIT
       ] },
+      dispatch_status: 'completed'
     }),
   ]);
 

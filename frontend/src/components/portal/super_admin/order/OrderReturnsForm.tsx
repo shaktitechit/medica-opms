@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { RefreshCw, Save, X } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { ORDER_RETURN_STATUS } from "@/constants/orderReturnStatus";
+import { useAppSelector } from "@/store";
 import {
   refId,
-  toDateInput,
   formatDateOnly,
 } from "./utils";
 
@@ -48,6 +49,8 @@ export function OrderReturnsForm({
   onClose,
   onCreateReturn,
 }: OrderReturnsFormProps) {
+  const user = useAppSelector((s) => s.auth.user);
+  const currentUserId = user?._id || user?.id ? String(user?._id || user?.id) : "";
   const orderId = refId(order._id || order.id);
   const sortedReturns = useMemo(
     () =>
@@ -178,8 +181,12 @@ export function OrderReturnsForm({
         order: orderId,
         dispatch: dispatchId,
         return_items: payloadItems,
-        returned_by_person: returnedByPerson.trim(),
-        remarks: overallRemarks.trim(),
+        returned_by: returnedByPerson.trim(),
+        remarks: overallRemarks.trim() || undefined,
+        // Register as warehouse-received immediately (same as dispatch CreateReturnModal).
+        return_status: ORDER_RETURN_STATUS.RECEIVED_AT_WAREHOUSE,
+        received_at: new Date().toISOString(),
+        ...(currentUserId ? { received_by: currentUserId } : {}),
       };
       await onCreateReturn(payload);
     } catch (err: any) {
@@ -199,7 +206,7 @@ export function OrderReturnsForm({
               Order Returns — {order.order_no || orderId}
             </h3>
             <p className="text-2xs text-amber-800/80 dark:text-amber-200/70">
-              Log new returns or view history. Super-admin bypass submits return transactions directly.
+              Submit returns as received at warehouse. Super-admin bypass registers stock immediately.
             </p>
           </div>
           <button
@@ -423,7 +430,15 @@ export function OrderReturnsForm({
                   </div>
                   <div>
                     <span className="text-slate-400 font-semibold uppercase block">Returned By</span>
-                    <span className="text-slate-800 dark:text-slate-200">{selectedReturn.returned_by_person || "—"}</span>
+                    <span className="text-slate-800 dark:text-slate-200">
+                      {selectedReturn.returned_by || selectedReturn.returned_by_person || "—"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-semibold uppercase block">Status</span>
+                    <span className="font-mono text-slate-800 dark:text-slate-200">
+                      {String(selectedReturn.return_status || "—").replace(/_/g, " ")}
+                    </span>
                   </div>
                   <div>
                     <span className="text-slate-400 font-semibold uppercase block">Remarks</span>
@@ -498,7 +513,7 @@ export function OrderReturnsForm({
                   ) : (
                     <Save className="h-3.5 w-3.5" />
                   )}
-                  Submit Return
+                  Submit return (warehouse received)
                 </button>
               </div>
             )

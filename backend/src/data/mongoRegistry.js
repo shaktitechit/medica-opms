@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const softDeletePlugin = require('../plugins/softDelete.plugin');
 const {
   deriveOrderPriorityFromExpectedDeliveryDate,
+  normalizeOrderWorkflowFields,
 } = require('../modules/orders/order.constants');
 
 const MODULE_ENUM = [
@@ -1051,6 +1052,12 @@ function registerModels() {
         default: "unpaid",
         index: true,
       },
+      billing_status: {
+        type: String,
+        enum: ["unbilled", "partially_billed", "fully_billed"],
+        default: "unbilled",
+        index: true,
+      },
       finance_approval_status: {
         type: String,
         enum: ["pending", "partial", "approved", "rejected", "full"],
@@ -1134,13 +1141,14 @@ function registerModels() {
   orderSchema.index({ status: 1, closed_at: -1 });
 
   // Keep priority derived from expected_delivery_date on every save.
-  orderSchema.pre('save', function syncPriorityFromEdd(next) {
+  orderSchema.pre('save', function syncPriorityAndWorkflow(next) {
     if (this.expected_delivery_date) {
       this.priority = deriveOrderPriorityFromExpectedDeliveryDate(
         this.expected_delivery_date,
         this.priority || 'normal',
       );
     }
+    normalizeOrderWorkflowFields(this);
     next();
   });
 
@@ -1567,6 +1575,8 @@ function registerModels() {
       pickup_date: Date,
       expected_delivery_date: Date,
       actual_delivery_date: Date,
+      delivered_at: Date,
+      received_by: String,
       delivery_proof_url: String,
       remarks: String,
       weight: Number,
@@ -1688,6 +1698,74 @@ function registerModels() {
   orderDueSheetSchema.index({ order: 1, is_current: 1 });
   orderDueSheetSchema.plugin(softDeletePlugin);
   mongoose.model("OrderDueSheet", orderDueSheetSchema);
+
+  // --- Schemas from UnbilledOrder.js ---
+  /**
+   * Tracks orders with approved qty not yet covered by billed+submitted dispatch.
+   * @module models/UnbilledOrder
+   */
+  const unbilledOrderItemSchema = new mongoose.Schema(
+    {
+      order_item_id: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+      product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true, index: true },
+      product_name: { type: String, trim: true, default: "" },
+      sku: { type: String, trim: true, default: "" },
+      approved_quantity: { type: Number, default: 0, min: 0 },
+      billed_dispatched_quantity: { type: Number, default: 0, min: 0 },
+      remaining_quantity: { type: Number, default: 0, min: 0 },
+    },
+    { _id: true },
+  );
+
+  const unbilledOrderSchema = new mongoose.Schema(
+    {
+      order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
+      order_no: { type: String, trim: true, index: true },
+      party: { type: mongoose.Schema.Types.ObjectId, ref: "Party", index: true },
+      customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", index: true },
+      billing_status: {
+        type: String,
+        enum: ["unbilled", "partially_billed", "fully_billed"],
+        default: "unbilled",
+        index: true,
+      },
+      status: {
+        type: String,
+        enum: ["open", "resolved", "cancelled"],
+        default: "open",
+        index: true,
+      },
+      pipeline_stage: { type: String, trim: true, default: "", index: true },
+      manual_remaining: { type: Boolean, default: false, index: true },
+      manual_resolved: { type: Boolean, default: false, index: true },
+      replacement_order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", index: true },
+      approved_quantity: { type: Number, default: 0, min: 0 },
+      billed_dispatched_quantity: { type: Number, default: 0, min: 0 },
+      remaining_quantity: { type: Number, default: 0, min: 0, index: true },
+      unbilled_items: { type: [unbilledOrderItemSchema], default: [] },
+      last_synced_at: { type: Date, default: Date.now, index: true },
+      remarks: { type: String, trim: true, default: "" },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      resolved_at: Date,
+      resolved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true },
+  );
+
+  unbilledOrderSchema.index(
+    { order: 1 },
+    {
+      name: "unbilled_order_1_active_unique",
+      unique: true,
+      partialFilterExpression: { deletedAt: null },
+    },
+  );
+  unbilledOrderSchema.index({ status: 1, remaining_quantity: -1 });
+  unbilledOrderSchema.index({ party: 1, status: 1 });
+  unbilledOrderSchema.plugin(softDeletePlugin);
+  mongoose.model("UnbilledOrder", unbilledOrderSchema);
 
   // --- Schemas from ActivityLog.js ---
   /**
@@ -2178,7 +2256,7 @@ function registerModels() {
       dispatch: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'OrderDispatch',
-        required: true,
+        required: false,
       },
       dispatch_date: Date,
       lr_number: { type: String, trim: true },
@@ -2260,6 +2338,7 @@ function registerModels() {
     OrderDelivery: mongoose.models.OrderDelivery || mongoose.model('OrderDelivery', orderDeliverySchema),
     OrderReturn: mongoose.models.OrderReturn || mongoose.model('OrderReturn', orderReturnSchema),
     OrderDueSheet: mongoose.models.OrderDueSheet || mongoose.model('OrderDueSheet', orderDueSheetSchema),
+    UnbilledOrder: mongoose.models.UnbilledOrder || mongoose.model('UnbilledOrder', unbilledOrderSchema),
     ActivityLog: mongoose.models.ActivityLog || mongoose.model('ActivityLog', activityLogSchema),
     Notification: mongoose.models.Notification || mongoose.model('Notification', notificationSchema),
     PushSubscription:

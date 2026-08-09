@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  PdfDocumentShell,
-  pdfTdCompactStyle,
-  pdfThCompactStyle,
-} from "./orderPdfLayout";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 
 export type FinalOrderStatementPdfLine = {
   productName: string;
@@ -63,28 +59,549 @@ export type FinalOrderStatementPdfTemplateProps = {
   quantityTotals: FinalOrderStatementPdfTotals;
   financialSummary: FinalOrderStatementPdfFinancialSummary;
   generatedAt: string;
+  /** Portal the statement was downloaded from (shown on every page footer). */
+  portalLabel?: string;
+  /** User who downloaded the statement (shown on every page footer). */
+  downloadedBy?: string;
 };
 
-export function FinalOrderStatementPdfTemplate({
+/** A4 @ 96dpi — each `[data-pdf-page]` is captured as one PDF page. */
+const PAGE_WIDTH = 794;
+const PAGE_HEIGHT = 1123;
+const PAGE_PAD_X = 40;
+const PAGE_PAD_Y = 28;
+const HEADER_BLOCK_H = 148;
+const FOOTER_BLOCK_H = 58;
+const BODY_MAX_H = PAGE_HEIGHT - PAGE_PAD_Y * 2 - HEADER_BLOCK_H - FOOTER_BLOCK_H;
+
+const H_META = 118;
+const H_TABLE_HEAD = 32;
+const H_ROW_BASE = 34;
+const H_LINE_TOTALS = 34;
+const H_QTY_SUMMARY = 96;
+const H_FIN_SUMMARY = 220;
+
+type ContentBlock =
+  | { kind: "meta"; height: number }
+  | { kind: "thead"; height: number }
+  | { kind: "line"; line: FinalOrderStatementPdfLine; height: number }
+  | { kind: "line-totals"; height: number }
+  | { kind: "qty-summary"; height: number }
+  | { kind: "fin-summary"; height: number };
+
+type PageModel = { blocks: ContentBlock[] };
+
+const pageShellStyle: CSSProperties = {
+  width: `${PAGE_WIDTH}px`,
+  height: `${PAGE_HEIGHT}px`,
+  padding: `${PAGE_PAD_Y}px ${PAGE_PAD_X}px`,
+  backgroundColor: "#ffffff",
+  color: "#0f172a",
+  fontFamily: "Arial, Helvetica, sans-serif",
+  fontSize: "11px",
+  lineHeight: 1.35,
+  boxSizing: "border-box",
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
+};
+
+const thStyle: CSSProperties = {
+  padding: "8px 3px",
+  textAlign: "left",
+  fontWeight: 700,
+  fontSize: "8px",
+  textTransform: "uppercase",
+  letterSpacing: "0.03em",
+  color: "#1e3a5f",
+  backgroundColor: "#f1f5f9",
+  border: "none",
+  verticalAlign: "middle",
+  lineHeight: 1.25,
+  whiteSpace: "nowrap",
+};
+
+const tdStyle: CSSProperties = {
+  padding: "7px 3px",
+  border: "none",
+  verticalAlign: "top",
+  fontSize: "9px",
+  lineHeight: 1.3,
+};
+
+const tableStyle: CSSProperties = {
+  width: "100%",
+  borderCollapse: "separate",
+  borderSpacing: 0,
+  marginBottom: "8px",
+  tableLayout: "fixed",
+};
+
+function lineHeight(line: FinalOrderStatementPdfLine): number {
+  let h = H_ROW_BASE;
+  if (line.sku) h += 10;
+  if (line.hsnCode) h += 10;
+  return h;
+}
+
+function buildContentBlocks(
+  lines: FinalOrderStatementPdfLine[],
+  closureRemarks?: string,
+  partyGstin?: string,
+): ContentBlock[] {
+  const metaH =
+    H_META + (partyGstin ? 18 : 0) + (closureRemarks ? 28 : 0);
+  const blocks: ContentBlock[] = [{ kind: "meta", height: metaH }];
+
+  if (lines.length > 0) {
+    blocks.push({ kind: "thead", height: H_TABLE_HEAD });
+    for (const line of lines) {
+      blocks.push({ kind: "line", line, height: lineHeight(line) });
+    }
+    blocks.push({ kind: "line-totals", height: H_LINE_TOTALS });
+  }
+
+  blocks.push({ kind: "qty-summary", height: H_QTY_SUMMARY });
+  blocks.push({ kind: "fin-summary", height: H_FIN_SUMMARY });
+  return blocks;
+}
+
+function paginateBlocks(blocks: ContentBlock[]): PageModel[] {
+  const pages: PageModel[] = [];
+  let current: ContentBlock[] = [];
+  let used = 0;
+  let inLines = false;
+
+  const flush = () => {
+    if (current.length === 0) return;
+    pages.push({ blocks: current });
+    current = [];
+    used = 0;
+  };
+
+  for (const block of blocks) {
+    if (block.kind === "thead") inLines = true;
+    if (
+      block.kind === "meta" ||
+      block.kind === "qty-summary" ||
+      block.kind === "fin-summary"
+    ) {
+      inLines = false;
+    }
+
+    let chunk: ContentBlock[] = [block];
+
+    if (current.length === 0 && block.kind === "line" && inLines) {
+      chunk = [
+        { kind: "thead", height: H_TABLE_HEAD },
+        block,
+      ];
+    }
+
+    let chunkH = chunk.reduce((sum, b) => sum + b.height, 0);
+
+    if (used + chunkH > BODY_MAX_H && current.length > 0) {
+      flush();
+      if (block.kind === "line") {
+        chunk = [
+          { kind: "thead", height: H_TABLE_HEAD },
+          block,
+        ];
+        chunkH = chunk.reduce((sum, b) => sum + b.height, 0);
+        inLines = true;
+      } else {
+        chunk = [block];
+        chunkH = block.height;
+      }
+    }
+
+    for (const b of chunk) {
+      current.push(b);
+      used += b.height;
+    }
+  }
+
+  flush();
+  return pages.length > 0 ? pages : [{ blocks: [] }];
+}
+
+function PageHeader({
   companyName,
   logoUrl,
   statementNo,
+}: {
+  companyName: string;
+  logoUrl: string;
+  statementNo: string;
+}) {
+  return (
+    <header style={{ flexShrink: 0, marginBottom: "10px" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "14px",
+          marginBottom: "10px",
+        }}
+      >
+        <img
+          src={logoUrl}
+          alt={companyName}
+          crossOrigin="anonymous"
+          style={{
+            width: "112px",
+            height: "46px",
+            objectFit: "contain",
+            objectPosition: "left center",
+            flexShrink: 0,
+          }}
+        />
+        <div style={{ flex: 1, textAlign: "center" }}>
+          <div
+            style={{
+              fontSize: "22px",
+              fontWeight: 700,
+              color: "#1e3a5f",
+              letterSpacing: "0.02em",
+            }}
+          >
+            {companyName}
+          </div>
+          <div
+            style={{
+              marginTop: "3px",
+              fontSize: "10px",
+              color: "#64748b",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+            }}
+          >
+            Order Management Portal
+          </div>
+        </div>
+        <div style={{ width: "112px", flexShrink: 0 }} aria-hidden />
+      </div>
+      <div
+        style={{
+          height: "3px",
+          background:
+            "linear-gradient(90deg, #1e3a5f 0%, #3b82f6 50%, #1e3a5f 100%)",
+          borderRadius: "2px",
+          marginBottom: "12px",
+        }}
+      />
+      <h1
+        style={{
+          margin: 0,
+          fontSize: "15px",
+          fontWeight: 700,
+          color: "#0f172a",
+        }}
+      >
+        Final Order Statement
+      </h1>
+      <p style={{ margin: "3px 0 0", color: "#64748b", fontSize: "10px" }}>
+        {statementNo}
+      </p>
+    </header>
+  );
+}
+
+function PageFooter({
+  companyName,
+  portalLabel,
+  downloadedBy,
+  generatedAt,
+  pageNo,
+  pageCount,
+}: {
+  companyName: string;
+  portalLabel: string;
+  downloadedBy: string;
+  generatedAt: string;
+  pageNo: number;
+  pageCount: number;
+}) {
+  return (
+    <footer
+      style={{
+        flexShrink: 0,
+        marginTop: "auto",
+        paddingTop: "8px",
+        borderTop: "1px solid #cbd5e1",
+        fontSize: "9px",
+        color: "#64748b",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "10px",
+          marginBottom: "4px",
+          fontWeight: 600,
+          color: "#334155",
+        }}
+      >
+        <span style={{ minWidth: 0 }}>Portal: {portalLabel}</span>
+        <span style={{ minWidth: 0, textAlign: "center" }}>
+          Downloaded by: {downloadedBy}
+        </span>
+        <span style={{ minWidth: 0, textAlign: "right" }}>{generatedAt}</span>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "10px",
+          color: "#94a3b8",
+        }}
+      >
+        <span>
+          Generated electronically by {companyName} OPMS — no signature
+          required.
+        </span>
+        <span>
+          Page {pageNo} of {pageCount}
+        </span>
+      </div>
+    </footer>
+  );
+}
+
+function MetaBlock({
   orderNo,
+  orderDate,
   partyName,
   partyCode,
   partyGstin,
-  orderDate,
   closedAt,
   closedBy,
   closureRemarks,
-  lines,
-  quantityTotals,
-  financialSummary,
-  generatedAt,
-}: FinalOrderStatementPdfTemplateProps) {
-  const fin = financialSummary;
+}: {
+  orderNo: string;
+  orderDate: string;
+  partyName: string;
+  partyCode?: string;
+  partyGstin?: string;
+  closedAt: string;
+  closedBy: string;
+  closureRemarks?: string;
+}) {
+  const label: CSSProperties = { padding: "4px 0", width: "22%", color: "#64748b" };
+  const value: CSSProperties = { padding: "4px 0", fontWeight: 600 };
 
-  const financeRows: { label: string; value: string; tone?: "deduct" | "add" | "emphasis" }[] = [
+  return (
+    <table
+      style={{
+        width: "100%",
+        marginBottom: "14px",
+        borderCollapse: "collapse",
+      }}
+    >
+      <tbody>
+        <tr>
+          <td style={label}>Order No.</td>
+          <td style={value}>{orderNo}</td>
+          <td style={label}>Order Date</td>
+          <td style={value}>{orderDate}</td>
+        </tr>
+        <tr>
+          <td style={label}>Party</td>
+          <td style={value}>{partyName}</td>
+          <td style={label}>Closed At</td>
+          <td style={value}>{closedAt}</td>
+        </tr>
+        <tr>
+          <td style={label}>Party Code</td>
+          <td style={value}>{partyCode || "—"}</td>
+          <td style={label}>Closed By</td>
+          <td style={value}>{closedBy}</td>
+        </tr>
+        {partyGstin ? (
+          <tr>
+            <td style={label}>GSTIN</td>
+            <td colSpan={3} style={value}>
+              {partyGstin}
+            </td>
+          </tr>
+        ) : null}
+        {closureRemarks ? (
+          <tr>
+            <td style={{ ...label, verticalAlign: "top" }}>Closure Remarks</td>
+            <td colSpan={3} style={{ ...value, fontStyle: "italic", fontWeight: 500 }}>
+              {closureRemarks}
+            </td>
+          </tr>
+        ) : null}
+      </tbody>
+    </table>
+  );
+}
+
+function LinesTableHead() {
+  return (
+    <thead>
+      <tr>
+        <th style={{ ...thStyle, width: "18%" }}>Product</th>
+        <th style={{ ...thStyle, textAlign: "right" }}>Ord</th>
+        <th style={{ ...thStyle, textAlign: "right" }}>Appr</th>
+        <th style={{ ...thStyle, textAlign: "right" }}>Disp</th>
+        <th style={{ ...thStyle, textAlign: "right" }}>Deliv</th>
+        <th style={{ ...thStyle, textAlign: "right" }}>Ret</th>
+        <th style={{ ...thStyle, textAlign: "right" }}>Net</th>
+        <th style={{ ...thStyle, textAlign: "right" }}>Rate</th>
+        <th style={{ ...thStyle, textAlign: "center" }}>Type</th>
+        <th style={{ ...thStyle, textAlign: "right" }}>GST%</th>
+        <th style={{ ...thStyle, textAlign: "right" }}>GST</th>
+        <th style={{ ...thStyle, textAlign: "right" }}>Total</th>
+      </tr>
+    </thead>
+  );
+}
+
+function LineRow({ line, idx }: { line: FinalOrderStatementPdfLine; idx: number }) {
+  return (
+    <tr key={`${line.productName}-${idx}`}>
+      <td style={tdStyle}>
+        <div style={{ fontWeight: 600 }}>{line.productName}</div>
+        {line.sku ? (
+          <div style={{ fontSize: "8px", color: "#64748b" }}>SKU {line.sku}</div>
+        ) : null}
+        {line.hsnCode ? (
+          <div style={{ fontSize: "8px", color: "#64748b" }}>
+            HSN {line.hsnCode}
+          </div>
+        ) : null}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>{line.ordered}</td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>{line.approved}</td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>{line.dispatched}</td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>{line.delivered}</td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>{line.returned}</td>
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{line.net}</td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>{line.unitPrice}</td>
+      <td style={{ ...tdStyle, textAlign: "center" }}>{line.rateType}</td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>{line.gstPercent}</td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>{line.gstAmount}</td>
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>
+        {line.lineTotal}
+      </td>
+    </tr>
+  );
+}
+
+function LineTotalsRow({
+  quantityTotals,
+}: {
+  quantityTotals: FinalOrderStatementPdfTotals;
+}) {
+  return (
+    <tr>
+      <td style={{ ...tdStyle, fontWeight: 700 }}>Totals</td>
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>
+        {quantityTotals.ordered}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>
+        {quantityTotals.approved}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>
+        {quantityTotals.dispatched}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>
+        {quantityTotals.delivered}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>
+        {quantityTotals.returned}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>
+        {quantityTotals.net}
+      </td>
+      <td colSpan={3} style={tdStyle} />
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>
+        {quantityTotals.gstAmount}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>
+        {quantityTotals.grandTotal}
+      </td>
+    </tr>
+  );
+}
+
+function QtySummary({
+  quantityTotals,
+}: {
+  quantityTotals: FinalOrderStatementPdfTotals;
+}) {
+  return (
+    <div
+      style={{
+        marginBottom: "12px",
+        padding: "12px 14px",
+        borderRadius: "8px",
+        border: "1px solid #bfdbfe",
+        backgroundColor: "#eff6ff",
+      }}
+    >
+      <div
+        style={{
+          fontSize: "10px",
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          color: "#1d4ed8",
+          marginBottom: "8px",
+        }}
+      >
+        Quantity Summary (Settled)
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <tbody>
+          <tr>
+            <td style={{ padding: "3px 0", color: "#1e40af" }}>Ordered</td>
+            <td style={{ padding: "3px 0", fontWeight: 600 }}>
+              {quantityTotals.ordered}
+            </td>
+            <td style={{ padding: "3px 0", color: "#1e40af" }}>Approved</td>
+            <td style={{ padding: "3px 0", fontWeight: 600 }}>
+              {quantityTotals.approved}
+            </td>
+            <td style={{ padding: "3px 0", color: "#1e40af" }}>Dispatched</td>
+            <td style={{ padding: "3px 0", fontWeight: 600 }}>
+              {quantityTotals.dispatched}
+            </td>
+          </tr>
+          <tr>
+            <td style={{ padding: "3px 0", color: "#1e40af" }}>Delivered</td>
+            <td style={{ padding: "3px 0", fontWeight: 600 }}>
+              {quantityTotals.delivered}
+            </td>
+            <td style={{ padding: "3px 0", color: "#1e40af" }}>Returns</td>
+            <td style={{ padding: "3px 0", fontWeight: 600 }}>
+              {quantityTotals.returned}
+            </td>
+            <td style={{ padding: "3px 0", color: "#1e40af" }}>Net</td>
+            <td style={{ padding: "3px 0", fontWeight: 600 }}>
+              {quantityTotals.net}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FinSummary({
+  financialSummary,
+}: {
+  financialSummary: FinalOrderStatementPdfFinancialSummary;
+}) {
+  const fin = financialSummary;
+  const financeRows: {
+    label: string;
+    value: string;
+    tone?: "deduct" | "add";
+  }[] = [
     { label: "Subtotal (settled net lines)", value: fin.subtotal },
     { label: "Line Discount Total", value: fin.lineDiscountTotal, tone: "deduct" },
     { label: "Taxable Amount", value: fin.taxableAmount },
@@ -94,264 +611,238 @@ export function FinalOrderStatementPdfTemplate({
     { label: "Penalty Amount", value: fin.penaltyAmount, tone: "add" },
     { label: "Damage Charge", value: fin.damageCharge, tone: "add" },
   ];
+
   return (
-    <PdfDocumentShell
-      companyName={companyName}
-      logoUrl={logoUrl}
-      rootId="final-order-statement-pdf-root"
+    <div
+      style={{
+        marginTop: "4px",
+        padding: "14px 16px",
+        borderRadius: "8px",
+        border: "1px solid #a7f3d0",
+        backgroundColor: "#ecfdf5",
+      }}
     >
-      <div style={{ marginBottom: "20px" }}>
-        <h1
-          style={{
-            margin: 0,
-            fontSize: "18px",
-            fontWeight: 700,
-            color: "#0f172a",
-          }}
-        >
-          Final Order Statement
-        </h1>
-        <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: "11px" }}>
-          {statementNo} · Generated on {generatedAt}
-        </p>
-      </div>
-
-      <table style={{ width: "100%", marginBottom: "18px", borderCollapse: "collapse" }}>
-        <tbody>
-          <tr>
-            <td style={{ padding: "4px 0", width: "22%", color: "#64748b" }}>Order No.</td>
-            <td style={{ padding: "4px 0", fontWeight: 600 }}>{orderNo}</td>
-            <td style={{ padding: "4px 0", width: "22%", color: "#64748b" }}>Order Date</td>
-            <td style={{ padding: "4px 0", fontWeight: 600 }}>{orderDate}</td>
-          </tr>
-          <tr>
-            <td style={{ padding: "4px 0", color: "#64748b" }}>Party</td>
-            <td style={{ padding: "4px 0", fontWeight: 600 }}>{partyName}</td>
-            <td style={{ padding: "4px 0", color: "#64748b" }}>Closed At</td>
-            <td style={{ padding: "4px 0", fontWeight: 600 }}>{closedAt}</td>
-          </tr>
-          <tr>
-            <td style={{ padding: "4px 0", color: "#64748b" }}>Party Code</td>
-            <td style={{ padding: "4px 0", fontWeight: 600 }}>{partyCode || "—"}</td>
-            <td style={{ padding: "4px 0", color: "#64748b" }}>Closed By</td>
-            <td style={{ padding: "4px 0", fontWeight: 600 }}>{closedBy}</td>
-          </tr>
-          {partyGstin ? (
-            <tr>
-              <td style={{ padding: "4px 0", color: "#64748b" }}>GSTIN</td>
-              <td colSpan={3} style={{ padding: "4px 0", fontWeight: 600 }}>
-                {partyGstin}
-              </td>
-            </tr>
-          ) : null}
-          {closureRemarks ? (
-            <tr>
-              <td style={{ padding: "4px 0", color: "#64748b", verticalAlign: "top" }}>
-                Closure Remarks
-              </td>
-              <td colSpan={3} style={{ padding: "4px 0", fontStyle: "italic" }}>
-                {closureRemarks}
-              </td>
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
-
-      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "16px" }}>
-        <thead>
-          <tr>
-            <th style={{ ...pdfThCompactStyle, width: "18%" }}>Product</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Ord</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Appr</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Disp</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Deliv</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Ret</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Net</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Rate</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "center" }}>Type</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>GST%</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>GST</th>
-            <th style={{ ...pdfThCompactStyle, textAlign: "right" }}>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((line, idx) => (
-            <tr key={`${line.productName}-${idx}`}>
-              <td style={pdfTdCompactStyle}>
-                <div style={{ fontWeight: 600 }}>{line.productName}</div>
-                {line.sku ? (
-                  <div style={{ fontSize: "8px", color: "#64748b" }}>SKU {line.sku}</div>
-                ) : null}
-                {line.hsnCode ? (
-                  <div style={{ fontSize: "8px", color: "#64748b" }}>HSN {line.hsnCode}</div>
-                ) : null}
-              </td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.ordered}</td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.approved}</td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.dispatched}</td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.delivered}</td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.returned}</td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 600 }}>
-                {line.net}
-              </td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.unitPrice}</td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "center" }}>{line.rateType}</td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.gstPercent}</td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "right" }}>{line.gstAmount}</td>
-              <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 600 }}>
-                {line.lineTotal}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td style={{ ...pdfTdCompactStyle, fontWeight: 700 }}>Totals</td>
-            <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
-              {quantityTotals.ordered}
-            </td>
-            <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
-              {quantityTotals.approved}
-            </td>
-            <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
-              {quantityTotals.dispatched}
-            </td>
-            <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
-              {quantityTotals.delivered}
-            </td>
-            <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
-              {quantityTotals.returned}
-            </td>
-            <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
-              {quantityTotals.net}
-            </td>
-            <td colSpan={3} style={pdfTdCompactStyle} />
-            <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
-              {quantityTotals.gstAmount}
-            </td>
-            <td style={{ ...pdfTdCompactStyle, textAlign: "right", fontWeight: 700 }}>
-              {quantityTotals.grandTotal}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-
-      {/* Quantity summary */}
       <div
         style={{
-          marginBottom: "18px",
-          padding: "12px 14px",
-          borderRadius: "8px",
-          border: "1px solid #bfdbfe",
-          backgroundColor: "#eff6ff",
+          fontSize: "10px",
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          color: "#047857",
+          marginBottom: "10px",
         }}
       >
-        <div
-          style={{
-            fontSize: "10px",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            color: "#1d4ed8",
-            marginBottom: "8px",
-          }}
-        >
-          Quantity Summary (Settled)
-        </div>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <tbody>
-            <tr>
-              <td style={{ padding: "3px 0", color: "#1e40af" }}>Ordered</td>
-              <td style={{ padding: "3px 0", fontWeight: 600 }}>{quantityTotals.ordered}</td>
-              <td style={{ padding: "3px 0", color: "#1e40af" }}>Approved</td>
-              <td style={{ padding: "3px 0", fontWeight: 600 }}>{quantityTotals.approved}</td>
-              <td style={{ padding: "3px 0", color: "#1e40af" }}>Dispatched</td>
-              <td style={{ padding: "3px 0", fontWeight: 600 }}>{quantityTotals.dispatched}</td>
-            </tr>
-            <tr>
-              <td style={{ padding: "3px 0", color: "#1e40af" }}>Delivered</td>
-              <td style={{ padding: "3px 0", fontWeight: 600 }}>{quantityTotals.delivered}</td>
-              <td style={{ padding: "3px 0", color: "#1e40af" }}>Returns</td>
-              <td style={{ padding: "3px 0", fontWeight: 600 }}>{quantityTotals.returned}</td>
-              <td style={{ padding: "3px 0", color: "#1e40af" }}>Net</td>
-              <td style={{ padding: "3px 0", fontWeight: 600 }}>{quantityTotals.net}</td>
-            </tr>
-          </tbody>
-        </table>
+        Financial Summary (Settled)
       </div>
-
-      {/* Full financial summary */}
-      <div
-        style={{
-          marginTop: "8px",
-          padding: "14px 16px",
-          borderRadius: "8px",
-          border: "1px solid #a7f3d0",
-          backgroundColor: "#ecfdf5",
-        }}
-      >
-        <div
-          style={{
-            fontSize: "10px",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            color: "#047857",
-            marginBottom: "10px",
-          }}
-        >
-          Financial Summary (Settled)
-        </div>
-        <div style={{ marginLeft: "auto", width: "320px" }}>
-          {financeRows.map((row) => (
-            <div
-              key={row.label}
+      <div style={{ marginLeft: "auto", width: "320px" }}>
+        {financeRows.map((row) => (
+          <div
+            key={row.label}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              padding: "4px 0",
+              fontSize: "11px",
+            }}
+          >
+            <span style={{ color: "#065f46" }}>{row.label}</span>
+            <span
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                padding: "4px 0",
-                fontSize: "11px",
+                fontWeight: 600,
+                color: row.tone === "deduct" ? "#b91c1c" : "#0f172a",
               }}
             >
-              <span style={{ color: "#065f46" }}>{row.label}</span>
-              <span
-                style={{
-                  fontWeight: 600,
-                  color: row.tone === "deduct" ? "#b91c1c" : "#0f172a",
-                }}
-              >
-                ₹{row.value}
-              </span>
-            </div>
-          ))}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "10px 0 0",
-              marginTop: "8px",
-              borderTop: "2px solid #047857",
-              fontSize: "14px",
-            }}
-          >
-            <span style={{ fontWeight: 700, color: "#065f46" }}>Settled Grand Total</span>
-            <span style={{ fontWeight: 700, color: "#1e3a5f" }}>₹{fin.grandTotal}</span>
+              ₹{row.value}
+            </span>
           </div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "8px 0 0",
-              fontSize: "10px",
-              color: "#047857",
-            }}
-          >
-            <span>Payment Status</span>
-            <span style={{ fontWeight: 600, textTransform: "capitalize" }}>{fin.paymentStatus}</span>
-          </div>
+        ))}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "10px 0 0",
+            marginTop: "8px",
+            borderTop: "2px solid #047857",
+            fontSize: "14px",
+          }}
+        >
+          <span style={{ fontWeight: 700, color: "#065f46" }}>
+            Settled Grand Total
+          </span>
+          <span style={{ fontWeight: 700, color: "#1e3a5f" }}>
+            ₹{fin.grandTotal}
+          </span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "8px 0 0",
+            fontSize: "10px",
+            color: "#047857",
+          }}
+        >
+          <span>Payment Status</span>
+          <span style={{ fontWeight: 600, textTransform: "capitalize" }}>
+            {fin.paymentStatus}
+          </span>
         </div>
       </div>
-    </PdfDocumentShell>
+    </div>
+  );
+}
+
+function renderLineChunk(
+  blocks: ContentBlock[],
+  start: number,
+  quantityTotals: FinalOrderStatementPdfTotals,
+): { node: ReactNode; end: number } {
+  if (blocks[start]?.kind !== "thead") {
+    return { node: null, end: start };
+  }
+
+  const rows: ReactNode[] = [];
+  let i = start + 1;
+  while (i < blocks.length) {
+    const b = blocks[i]!;
+    if (b.kind === "line") {
+      rows.push(<LineRow key={`line-${i}`} line={b.line} idx={i} />);
+      i += 1;
+      continue;
+    }
+    if (b.kind === "line-totals") {
+      rows.push(
+        <LineTotalsRow key={`totals-${i}`} quantityTotals={quantityTotals} />,
+      );
+      i += 1;
+      continue;
+    }
+    break;
+  }
+
+  return {
+    end: i,
+    node: (
+      <table style={tableStyle}>
+        <LinesTableHead />
+        <tbody>{rows}</tbody>
+      </table>
+    ),
+  };
+}
+
+function PageBody({
+  blocks,
+  props,
+}: {
+  blocks: ContentBlock[];
+  props: FinalOrderStatementPdfTemplateProps;
+}) {
+  const nodes: ReactNode[] = [];
+  let i = 0;
+  while (i < blocks.length) {
+    const block = blocks[i]!;
+    if (block.kind === "meta") {
+      nodes.push(
+        <MetaBlock
+          key={`meta-${i}`}
+          orderNo={props.orderNo}
+          orderDate={props.orderDate}
+          partyName={props.partyName}
+          partyCode={props.partyCode}
+          partyGstin={props.partyGstin}
+          closedAt={props.closedAt}
+          closedBy={props.closedBy}
+          closureRemarks={props.closureRemarks}
+        />,
+      );
+      i += 1;
+      continue;
+    }
+    if (block.kind === "thead") {
+      const chunk = renderLineChunk(blocks, i, props.quantityTotals);
+      nodes.push(<div key={`tbl-${i}`}>{chunk.node}</div>);
+      i = chunk.end;
+      continue;
+    }
+    if (block.kind === "qty-summary") {
+      nodes.push(
+        <QtySummary key={`qty-${i}`} quantityTotals={props.quantityTotals} />,
+      );
+      i += 1;
+      continue;
+    }
+    if (block.kind === "fin-summary") {
+      nodes.push(
+        <FinSummary
+          key={`fin-${i}`}
+          financialSummary={props.financialSummary}
+        />,
+      );
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+
+  return (
+    <div style={{ flex: "1 1 auto", minHeight: 0, overflow: "hidden" }}>
+      {nodes}
+    </div>
+  );
+}
+
+export function FinalOrderStatementPdfTemplate(
+  props: FinalOrderStatementPdfTemplateProps,
+) {
+  const {
+    companyName,
+    logoUrl,
+    statementNo,
+    lines,
+    partyGstin,
+    closureRemarks,
+    generatedAt,
+    portalLabel = "Portal",
+    downloadedBy = "—",
+  } = props;
+
+  const pages = useMemo(
+    () =>
+      paginateBlocks(
+        buildContentBlocks(lines, closureRemarks, partyGstin),
+      ),
+    [lines, closureRemarks, partyGstin],
+  );
+
+  return (
+    <div id="final-order-statement-pdf-root">
+      {pages.map((page, idx) => (
+        <div
+          key={`fos-page-${idx}`}
+          data-pdf-page
+          style={{
+            ...pageShellStyle,
+            marginBottom: idx < pages.length - 1 ? "12px" : 0,
+          }}
+        >
+          <PageHeader
+            companyName={companyName}
+            logoUrl={logoUrl}
+            statementNo={statementNo}
+          />
+          <PageBody blocks={page.blocks} props={props} />
+          <PageFooter
+            companyName={companyName}
+            portalLabel={portalLabel}
+            downloadedBy={downloadedBy}
+            generatedAt={generatedAt}
+            pageNo={idx + 1}
+            pageCount={pages.length}
+          />
+        </div>
+      ))}
+    </div>
   );
 }
 

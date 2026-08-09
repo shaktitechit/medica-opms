@@ -170,6 +170,32 @@ export type EligibleOrderRecord = {
   city?: string | null;
   available_dispatches?: EligibleDispatchRecord[];
   available_dispatch_count?: number;
+  transport_plan?: {
+    _id?: string;
+    plan_date?: string;
+    status?: string;
+    transport_agent?:
+      | string
+      | {
+          _id?: string;
+          agent_code?: string;
+          agent_name?: string;
+        };
+  } | null;
+  transport?: {
+    _id?: string;
+    id?: string;
+    shipment_no?: string;
+    shipment_status?: string;
+    dispatch_date?: string;
+    transport_agent?:
+      | string
+      | {
+          _id?: string;
+          agent_code?: string;
+          agent_name?: string;
+        };
+  } | null;
   party?:
     | string
     | {

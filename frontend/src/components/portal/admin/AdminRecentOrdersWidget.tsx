@@ -89,9 +89,9 @@ function renderWorkflowStatusBadge(category: string) {
       bgClass =
         "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-955/30 dark:text-amber-400 dark:ring-amber-500/25";
       break;
-    case "return_pending":
+    case "in_transit":
       bgClass =
-        "bg-rose-50 text-rose-700 ring-rose-600/10 dark:bg-rose-955/30 dark:text-rose-400 dark:ring-rose-500/25";
+        "bg-sky-50 text-sky-700 ring-sky-600/10 dark:bg-sky-955/30 dark:text-sky-400 dark:ring-sky-500/25";
       break;
     case "closed_delivered":
       bgClass =

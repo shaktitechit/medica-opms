@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
 
-import { downloadCsvFile } from "@/components/portal/shared/dashboard/reportDownloadUtils";
+import { useRef } from "react";
+import { usePathname } from "next/navigation";
+import { useAppSelector } from "@/store/hooks";
+import {
+  companyLetterheadLogoUrl,
+  companyLetterheadName,
+  resolvePublicAssetUrl,
+} from "@/lib/env";
+import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
+import TransportPlansPdfTemplate from "./TransportPlansPdfTemplate";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";
@@ -31,10 +40,23 @@ export type DownloadTransportPlansModalProps = {
   onClose: () => void;
 };
 
-type PeriodPreset = "current_month" | "last_month" | "custom";
+type PeriodPreset = "today" | "yesterday" | "current_month" | "last_month" | "custom";
 
 function ymd(d: Date) {
   return d.toISOString().slice(0, 10);
+}
+
+function formatDateTime(v: unknown = new Date()): string {
+  if (!v) return "";
+  const d = new Date(String(v));
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const y = d.getFullYear();
+  const m = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hr = pad(d.getHours());
+  const min = pad(d.getMinutes());
+  return `${y}-${m}-${day} ${hr}:${min}`;
 }
 
 function monthRange(offsetMonths: number): { from: string; to: string } {
@@ -56,8 +78,148 @@ function idOf(value: unknown): string {
   return "";
 }
 
+function formatAddr(addr: unknown): string {
+  if (!addr) return "";
+  if (typeof addr === "string") return addr.trim();
+  if (typeof addr === "object") {
+    const a = addr as Record<string, unknown>;
+    const parts: string[] = [];
+    if (a.address_line_1) parts.push(String(a.address_line_1).trim());
+    if (a.address_line_2) parts.push(String(a.address_line_2).trim());
+    const cityLine = [a.city, a.state, a.pincode]
+      .map((x) => (x ? String(x).trim() : ""))
+      .filter(Boolean)
+      .join(", ");
+    if (cityLine) parts.push(cityLine);
+    if (a.country && String(a.country).trim() !== "India") {
+      parts.push(String(a.country).trim());
+    }
+    return parts.join(", ");
+  }
+  return "";
+}
+
+function partyCity(party: unknown): string {
+  if (!party || typeof party !== "object") return "—";
+  const p = party as {
+    shipping_address?: any;
+    billing_address?: any;
+    address?: any;
+  };
+  const city =
+    p.shipping_address?.city ||
+    p.billing_address?.city ||
+    p.address?.city ||
+    "";
+  return String(city).trim() || "—";
+}
+
 function shipmentStatusOf(line: TransportPlanOrderRecord): string {
   return String(line.transport?.shipment_status || "").toLowerCase();
+}
+
+function MultiSelectDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  options: { id: string; label: string }[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  disabled?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const handleToggle = (id: string) => {
+    if (id === "all") {
+      onChange([]);
+    } else {
+      const next = selected.includes(id)
+        ? selected.filter((x) => x !== id)
+        : [...selected, id];
+      onChange(next);
+    }
+  };
+
+  const displayText =
+    selected.length === 0
+      ? "All"
+      : selected
+          .map((id) => options.find((o) => o.id === id)?.label)
+          .filter(Boolean)
+          .join(", ");
+
+  return (
+    <div className="relative inline-block text-left">
+      <label className="mb-1 block text-[11px] font-medium text-slate-500">
+        {label}
+      </label>
+      <div>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setIsOpen(!isOpen)}
+          className="inline-flex w-full min-w-[160px] max-w-[240px] justify-between rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs dark:border-white/15 dark:bg-slate-950 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900"
+        >
+          <span className="truncate">{displayText}</span>
+          <svg
+            className="ml-2 -mr-0.5 h-4 w-4 shrink-0 text-slate-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        </button>
+      </div>
+
+      {isOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setIsOpen(false)}
+          />
+          <div className="absolute left-0 mt-1 z-50 w-56 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-slate-900 dark:ring-white/15">
+            <div className="py-1 max-h-60 overflow-y-auto">
+              <label className="flex items-center px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selected.length === 0}
+                  onChange={() => handleToggle("all")}
+                  className="mr-2 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                All
+              </label>
+              {options
+                .filter((o) => o.id !== "all")
+                .map((opt) => (
+                  <label
+                    key={opt.id}
+                    className="flex items-center px-4 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(opt.id)}
+                      onChange={() => handleToggle(opt.id)}
+                      className="mr-2 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 export function DownloadTransportPlansModal({
@@ -67,10 +229,36 @@ export function DownloadTransportPlansModal({
   const [preset, setPreset] = useState<PeriodPreset>("current_month");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [agentId, setAgentId] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [agentId, setAgentId] = useState<string[]>([]);
   const [plans, setPlans] = useState<TransportPlanRecord[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const pdfTemplateRef = useRef<HTMLDivElement>(null);
+  const [pdfGeneratedAt, setPdfGeneratedAt] = useState("");
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+
+  const authUser = useAppSelector((s) => s.auth.user);
+  const downloadedBy = useMemo(() => {
+    if (!authUser || typeof authUser !== "object") return "—";
+    const u = authUser as Record<string, unknown>;
+    return (
+      String(u.name ?? u.full_name ?? u.username ?? u.email ?? "").trim() || "—"
+    );
+  }, [authUser]);
+
+  const pathname = usePathname() || "";
+  const portalLabel = useMemo(() => {
+    if (pathname.includes("/distributor")) return "Distributor";
+    if (pathname.includes("/sales")) return "Sales / Employee";
+    if (pathname.includes("/finance")) return "Finance";
+    if (pathname.includes("/account")) return "Account";
+    if (pathname.includes("/dispatch")) return "Dispatch";
+    return "Admin";
+  }, [pathname]);
+
+  const companyName = companyLetterheadName();
+  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
 
   const [fetchList] = useLazyListTransportPlansQuery();
   const [fetchDetail] = useLazyGetTransportPlanQuery();
@@ -82,7 +270,24 @@ export function DownloadTransportPlansModal({
     return [];
   }, [agentsQ.data]);
 
+  const agentOptions = useMemo(() => {
+    const list = agents.map((a) => ({
+      id: idOf(a),
+      label: agentLabel(a) || idOf(a),
+    }));
+    return [{ id: "all", label: "All" }, ...list];
+  }, [agents]);
+
   const range = useMemo(() => {
+    if (preset === "today") {
+      const now = new Date();
+      return { from: ymd(now), to: ymd(now) };
+    }
+    if (preset === "yesterday") {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { from: ymd(yesterday), to: ymd(yesterday) };
+    }
     if (preset === "current_month") return monthRange(0);
     if (preset === "last_month") return monthRange(-1);
     return { from: customFrom, to: customTo };
@@ -107,8 +312,8 @@ export function DownloadTransportPlansModal({
           from: range.from,
           to: range.to,
         };
-        if (statusFilter && statusFilter !== "all") args.status = statusFilter;
-        if (agentId) args.transport_agent = agentId;
+        if (statusFilter.length > 0) args.status = statusFilter.join(",");
+        if (agentId.length > 0) args.transport_agent = agentId.join(",");
         const result = await fetchList(args).unwrap();
         listRows.push(...(result.data ?? []));
         pages = Math.max(result.pages || 1, 1);
@@ -135,15 +340,15 @@ export function DownloadTransportPlansModal({
     } finally {
       setLoading(false);
     }
-  }, [canLoad, fetchDetail, fetchList, range.from, range.to, agentId, statusFilter]);
+  }, [canLoad, fetchDetail, fetchList, range.from, range.to, agentId.join(","), statusFilter.join(",")]);
 
   useEffect(() => {
     if (!open) return;
     setPreset("current_month");
     setCustomFrom("");
     setCustomTo("");
-    setStatusFilter("all");
-    setAgentId("");
+    setStatusFilter([]);
+    setAgentId([]);
   }, [open]);
 
   useEffect(() => {
@@ -153,7 +358,7 @@ export function DownloadTransportPlansModal({
       return;
     }
     void loadPlans();
-  }, [open, preset, customFrom, customTo, agentId, statusFilter, loadPlans]);
+  }, [open, preset, customFrom, customTo, agentId.join(","), statusFilter.join(","), loadPlans]);
 
   useEffect(() => {
     if (!open) return;
@@ -181,130 +386,74 @@ export function DownloadTransportPlansModal({
     [plans],
   );
 
-  const handleDownloadCsv = () => {
+  const handleDownloadPdf = useCallback(async () => {
     if (plans.length === 0) {
       toast.error("No transport plans to download");
       return;
     }
-    const headers = [
-      "Plan Date",
-      "Transport Agent",
-      "Plan Status",
-      "Plan Remarks",
-      "Order No",
-      "Party",
-      "Dispatch No",
-      "Bill / Invoice No",
-      "LR No",
-      "Packages",
-      "Weight (kg)",
-      "Invoice Value",
-      "Order Line Status",
-      "Shipment Status",
-      "Vehicle No",
-      "Driver Phone",
-      "Submitted At",
-      "Completed At",
-      "Cancelled At",
-      "Cancellation Reason",
-    ];
-
-    const csvRows: Array<Array<string | number>> = [];
-    for (const p of plans) {
-      const orders = (p.orders ?? []).filter((o) => o.status !== "cancelled");
-      const planBase = [
-        formatPlanDate(p.plan_date),
-        agentLabel(p.transport_agent),
-        p.status || "",
-        p.remarks || "",
-      ];
-      const planTail = [
-        p.submitted_at ? formatPlanDate(p.submitted_at) : "",
-        p.completed_at ? formatPlanDate(p.completed_at) : "",
-        p.cancelled_at ? formatPlanDate(p.cancelled_at) : "",
-        p.cancellation_reason || "",
-      ];
-
-      if (orders.length === 0) {
-        csvRows.push([
-          ...planBase,
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          ...planTail,
-        ]);
-        continue;
+    const stamp = formatDateTime(new Date());
+    setPdfGeneratedAt(stamp);
+    setIsDownloadingPdf(true);
+    try {
+      await new Promise<void>((resolve) => {
+        window.setTimeout(() => resolve(), 80);
+      });
+      if (!pdfTemplateRef.current) {
+        throw new Error("PDF template is not ready.");
       }
-
-      for (const line of orders) {
-        const ord = line.order && typeof line.order === "object" ? line.order : null;
-        const disp = line.dispatch && typeof line.dispatch === "object" ? line.dispatch : null;
-        const transport = line.transport || null;
-        const invoice = line.invoice_number || disp?.bill_number || "";
-        const lr = line.lr_number || transport?.lr_number || "";
-        const packages = line.packages ?? "";
-        const weight = line.weight ?? transport?.weight ?? "";
-        const val = ord?.grand_total ?? "";
-        const vehicle = transport?.vehicle_number || transport?.vehicle_no || "";
-        const driver = transport?.driver_mobile || transport?.driver_phone || "";
-
-        csvRows.push([
-          ...planBase,
-          orderNoOf(line.order),
-          partyLabel(line.party || ord?.party),
-          disp?.dispatch_no || idOf(line.dispatch) || "",
-          invoice,
-          lr,
-          packages,
-          weight,
-          val,
-          line.status || "",
-          shipmentStatusOf(line),
-          vehicle,
-          driver,
-          ...planTail,
-        ]);
-      }
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      await downloadOrderItemsPdf(
+        pdfTemplateRef.current,
+        `transport_plans_${dateStamp}.pdf`,
+        { orientation: "landscape" },
+      );
+      toast.success("Transport plans PDF downloaded.");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not generate PDF.";
+      toast.error(message);
+    } finally {
+      setIsDownloadingPdf(false);
     }
+  }, [plans]);
 
-    const agentLabelSelected =
-      agentId
-        ? agentLabel(agents.find((a) => idOf(a) === agentId)) || agentId
-        : "All Agents";
-    const statusLabelSelected =
-      TRANSPORT_PLAN_STATUS_TABS.find((t) => t.id === statusFilter)?.label || "All";
+  const agentLabelSelected = useMemo(() => {
+    return agentId.length > 0
+      ? agentId.map((id) => agentLabel(agents.find((a) => idOf(a) === id)) || id).join(", ")
+      : "All Agents";
+  }, [agentId, agents]);
 
-    downloadCsvFile(
-      `transport_plans_${range.from}_to_${range.to}.csv`,
-      headers,
-      csvRows,
-      [
-        `Transport plans export`,
-        `Period: ${range.from} to ${range.to}`,
-        `Status: ${statusLabelSelected}`,
-        `Agent: ${agentLabelSelected}`,
-        `Plans: ${plans.length}`,
-        `Total Orders: ${totalOrders}`,
-      ],
-    );
-    toast.success("Transport plan CSV downloaded");
-  };
+  const statusLabelSelected = useMemo(() => {
+    return statusFilter.length > 0
+      ? statusFilter.map((id) => TRANSPORT_PLAN_STATUS_TABS.find((t) => t.id === id)?.label || id).join(", ")
+      : "All";
+  }, [statusFilter]);
 
   if (!open) return null;
 
   return (
     <LargeModalPortal>
       <div
-        className="fixed inset-0 z-[100] flex items-stretch justify-center bg-black/50 p-2 sm:p-4 backdrop-blur-[1px]"
+        aria-hidden
+        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
+      >
+        <div ref={pdfTemplateRef}>
+          <TransportPlansPdfTemplate
+            companyName={companyName}
+            logoUrl={logoUrl}
+            portalLabel={portalLabel}
+            downloadedBy={downloadedBy}
+            generatedAt={pdfGeneratedAt}
+            plans={plans}
+            range={range}
+            statusLabelSelected={statusLabelSelected}
+            agentLabelSelected={agentLabelSelected}
+          />
+        </div>
+      </div>
+
+      <div
+        className="fixed inset-0 z-[100] flex items-stretch justify-center bg-black/50 p-0 backdrop-blur-[1px]"
         role="presentation"
         onClick={() => !loading && onClose()}
       >
@@ -312,7 +461,7 @@ export function DownloadTransportPlansModal({
           role="dialog"
           aria-modal="true"
           aria-label="Download transport plans"
-          className="relative flex h-full w-full max-w-7xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900"
+          className="relative flex h-screen w-screen max-w-none flex-col overflow-hidden rounded-none border-0 bg-white shadow-2xl dark:bg-slate-900"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-white/10 sm:px-5">
@@ -321,18 +470,18 @@ export function DownloadTransportPlansModal({
                 Download transport plans
               </h2>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Filter by period, plan status, and transport agent, then download complete CSV report
+                Filter by period, plan status, and transport agent, then download complete PDF report
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                disabled={loading || plans.length === 0}
-                onClick={handleDownloadCsv}
+                disabled={loading || isDownloadingPdf || plans.length === 0}
+                onClick={handleDownloadPdf}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" />
-                Download CSV
+                Download PDF
               </button>
               <button
                 type="button"
@@ -357,6 +506,8 @@ export function DownloadTransportPlansModal({
                 onChange={(e) => setPreset(e.target.value as PeriodPreset)}
                 className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs dark:border-white/15 dark:bg-slate-950"
               >
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
                 <option value="current_month">Current month</option>
                 <option value="last_month">Last month</option>
                 <option value="custom">Custom date range</option>
@@ -394,44 +545,20 @@ export function DownloadTransportPlansModal({
                 {range.from} → {range.to}
               </div>
             )}
-            <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">
-                Plan Status
-              </label>
-              <select
-                value={statusFilter}
-                disabled={loading}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="min-w-[140px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs dark:border-white/15 dark:bg-slate-950"
-              >
-                {TRANSPORT_PLAN_STATUS_TABS.map((tab) => (
-                  <option key={tab.id} value={tab.id}>
-                    {tab.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">
-                Transport Agent
-              </label>
-              <select
-                value={agentId}
-                disabled={loading}
-                onChange={(e) => setAgentId(e.target.value)}
-                className="min-w-[160px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs dark:border-white/15 dark:bg-slate-950"
-              >
-                <option value="">All</option>
-                {agents.map((a) => {
-                  const id = idOf(a);
-                  return (
-                    <option key={id} value={id}>
-                      {agentLabel(a)}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+            <MultiSelectDropdown
+              label="Plan Status"
+              options={TRANSPORT_PLAN_STATUS_TABS as any}
+              selected={statusFilter}
+              onChange={setStatusFilter}
+              disabled={loading}
+            />
+            <MultiSelectDropdown
+              label="Transport Agent"
+              options={agentOptions}
+              selected={agentId}
+              onChange={setAgentId}
+              disabled={loading}
+            />
             <div className="ml-auto pb-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
               {plans.length} plan{plans.length === 1 ? "" : "s"} · {totalOrders} order
               {totalOrders === 1 ? "" : "s"}
@@ -459,14 +586,82 @@ export function DownloadTransportPlansModal({
                     total_invoice_value: 0,
                   };
 
+                  const agentObj =
+                    p.transport_agent && typeof p.transport_agent === "object"
+                      ? (p.transport_agent as Record<string, unknown>)
+                      : null;
+                  const agentPhone = String(
+                    agentObj?.phone || agentObj?.mobile || agentObj?.contact_person_phone || "",
+                  );
+                  const agentContactName = String(agentObj?.contact_person || "");
+
+                  // Extract driver and vehicle from transport shipments or plan lines
+                  const driverNames = Array.from(
+                    new Set(
+                      orders
+                        .map((o) => {
+                          const t = o.transport as Record<string, unknown> | null;
+                          return String(
+                            t?.driver_name ||
+                              (o as unknown as Record<string, unknown>).driver_name ||
+                              "",
+                          );
+                        })
+                        .filter(Boolean),
+                    ),
+                  ).join(", ");
+                  const driverMobiles = Array.from(
+                    new Set(
+                      orders
+                        .map((o) => {
+                          const t = o.transport as Record<string, unknown> | null;
+                          return String(
+                            t?.driver_mobile ||
+                              t?.driver_phone ||
+                              (o as unknown as Record<string, unknown>).driver_mobile ||
+                              (o as unknown as Record<string, unknown>).driver_phone ||
+                              "",
+                          );
+                        })
+                        .filter(Boolean),
+                    ),
+                  ).join(", ");
+                  const vehicleNos = Array.from(
+                    new Set(
+                      orders
+                        .map((o) => {
+                          const t = o.transport as Record<string, unknown> | null;
+                          return String(
+                            t?.vehicle_number ||
+                              t?.vehicle_no ||
+                              (o as unknown as Record<string, unknown>).vehicle_number ||
+                              (o as unknown as Record<string, unknown>).vehicle_no ||
+                              "",
+                          );
+                        })
+                        .filter(Boolean),
+                    ),
+                  ).join(", ");
+
                   return (
                     <section key={planIdOf(p)} className="bg-white dark:bg-slate-900">
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-100 bg-slate-50 px-4 py-2.5 dark:border-white/10 dark:bg-slate-950/80">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-slate-100 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950/80">
                         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
                           {formatPlanDate(p.plan_date)}
                         </h3>
-                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
                           Agent: {agentLabel(p.transport_agent)}
+                        </span>
+                        {agentPhone || agentContactName ? (
+                          <span className="text-xs text-slate-500 font-mono">
+                            Contact: {agentContactName ? `${agentContactName} ` : ""}{agentPhone ? `(${agentPhone})` : ""}
+                          </span>
+                        ) : null}
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                          Vehicle: <span className="font-mono">{vehicleNos || "Not assigned"}</span>
+                        </span>
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                          Driver: {driverNames || (driverMobiles ? "" : "Not assigned")} {driverMobiles ? `(${driverMobiles})` : ""}
                         </span>
                         {renderPlanStatusBadge(p.status)}
                         <span className="text-xs tabular-nums text-slate-500">
@@ -495,25 +690,47 @@ export function DownloadTransportPlansModal({
                               <tr>
                                 <th className="px-3 py-2 font-semibold">Order #</th>
                                 <th className="px-3 py-2 font-semibold">Party</th>
+                                <th className="px-3 py-2 font-semibold">Party City</th>
                                 <th className="px-3 py-2 font-semibold">Dispatch #</th>
                                 <th className="px-3 py-2 font-semibold">Invoice / Bill #</th>
                                 <th className="px-3 py-2 font-semibold">LR #</th>
                                 <th className="px-3 py-2 font-semibold">Pkg / Wt</th>
+                                <th className="px-3 py-2 font-semibold">Items</th>
+                                <th className="px-3 py-2 font-semibold">Qty</th>
+                                <th className="px-3 py-2 font-semibold">Total</th>
                                 <th className="px-3 py-2 font-semibold">Status</th>
                                 <th className="px-3 py-2 font-semibold">Shipment</th>
+                                <th className="px-3 py-2 font-semibold">Delivered At</th>
+                                <th className="px-3 py-2 font-semibold">Received By</th>
                               </tr>
                             </thead>
                             <tbody>
                               {orders.map((line) => {
                                 const lineId = planIdOf(line);
                                 const ord = line.order && typeof line.order === "object" ? line.order : null;
+                                const ordDispatches = ord && Array.isArray((ord as any).dispatches) ? (ord as any).dispatches : [];
                                 const disp = line.dispatch && typeof line.dispatch === "object" ? line.dispatch : null;
                                 const transport = line.transport || null;
                                 const shipmentStatus = shipmentStatusOf(line);
-                                const invoice = line.invoice_number || disp?.bill_number || "—";
-                                const lr = line.lr_number || transport?.lr_number || "—";
-                                const pkgs = line.packages ?? (transport?.packed_boxes != null ? Number(transport?.packed_boxes || 0) + Number(transport?.open_boxes || 0) : "—");
-                                const wt = line.weight ?? transport?.weight ?? "—";
+                                const dispatchNo = ordDispatches.length > 0
+                                  ? ordDispatches.map((d: any) => d.dispatch_no).filter(Boolean).join(", ")
+                                  : (disp?.dispatch_no || "—");
+                                const invoice = ordDispatches.length > 0
+                                  ? ordDispatches.map((d: any) => d.bill_number).filter(Boolean).join(", ")
+                                  : (disp?.bill_number || "—");
+                                const lr = transport?.lr_number || line.lr_number || "—";
+                                const pkgs =
+                                  transport?.packed_boxes != null || transport?.open_boxes != null
+                                    ? Number(transport?.packed_boxes || 0) + Number(transport?.open_boxes || 0)
+                                    : line.packages ?? "—";
+                                const wt = transport?.weight ?? line.weight ?? "—";
+                                const lineRecord = line as unknown as Record<string, unknown>;
+                                const deliveredAt = lineRecord.delivered_at ? formatPlanDate(lineRecord.delivered_at) : "—";
+                                const receivedBy = String(lineRecord.received_by || "—");
+
+                                const isDelivered = deliveredAt !== "—" || shipmentStatus === "delivered";
+                                const isDispatched = !isDelivered && ["dispatched", "in_transit", "out_for_delivery", "picked_up"].includes(shipmentStatus);
+                                const statusVal = line.status === "cancelled" ? "cancelled" : isDelivered ? "delivered" : isDispatched ? "dispatched" : (line.status || "pending");
 
                                 return (
                                   <tr
@@ -526,8 +743,11 @@ export function DownloadTransportPlansModal({
                                     <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
                                       {partyLabel(line.party || ord?.party)}
                                     </td>
+                                    <td className="px-3 py-2 text-slate-500 max-w-xs truncate text-[11px] dark:text-slate-400">
+                                      {partyCity(line.party || ord?.party)}
+                                    </td>
                                     <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-400">
-                                      {disp?.dispatch_no || idOf(line.dispatch) || "—"}
+                                      {dispatchNo}
                                     </td>
                                     <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-400">
                                       {invoice}
@@ -538,8 +758,65 @@ export function DownloadTransportPlansModal({
                                     <td className="px-3 py-2 tabular-nums text-slate-600 dark:text-slate-400">
                                       {pkgs} pkg / {wt} kg
                                     </td>
+                                    <td className="px-3 py-2 text-slate-600 dark:text-slate-400 text-[11px] whitespace-normal break-words max-w-[200px]" title={(() => {
+                                      if (ordDispatches.length > 0) {
+                                        const list: string[] = [];
+                                        for (const d of ordDispatches) {
+                                          const items = Array.isArray(d.dispatch_items) ? d.dispatch_items : [];
+                                          items.forEach((item: any) => {
+                                            const name = item.product?.product_name || "Unknown Product";
+                                            list.push(`${name} (${item.dispatched_quantity})`);
+                                          });
+                                        }
+                                        return list.join(", ");
+                                      } else {
+                                        const items = disp && Array.isArray((disp as any).dispatch_items) ? (disp as any).dispatch_items : [];
+                                        return items.map((item: any) => {
+                                          const name = item.product?.product_name || "Unknown Product";
+                                          return `${name} (${item.dispatched_quantity})`;
+                                        }).join(", ");
+                                      }
+                                    })()}>
+                                      {(() => {
+                                        if (ordDispatches.length > 0) {
+                                          const list: string[] = [];
+                                          for (const d of ordDispatches) {
+                                            const items = Array.isArray(d.dispatch_items) ? d.dispatch_items : [];
+                                            items.forEach((item: any) => {
+                                              const name = item.product?.product_name || "Unknown Product";
+                                              list.push(`${name} (${item.dispatched_quantity})`);
+                                            });
+                                          }
+                                          return list.join(", ") || "—";
+                                        } else {
+                                          const items = disp && Array.isArray((disp as any).dispatch_items) ? (disp as any).dispatch_items : [];
+                                          return items.map((item: any) => {
+                                            const name = item.product?.product_name || "Unknown Product";
+                                            return `${name} (${item.dispatched_quantity})`;
+                                          }).join(", ") || "—";
+                                        }
+                                      })()}
+                                    </td>
+                                    <td className="px-3 py-2 tabular-nums text-slate-600 dark:text-slate-400">
+                                      {(() => {
+                                        let qty = 0;
+                                        if (ordDispatches.length > 0) {
+                                          for (const d of ordDispatches) {
+                                            const items = Array.isArray(d.dispatch_items) ? d.dispatch_items : [];
+                                            qty += items.reduce((sum: number, item: any) => sum + (Number(item.dispatched_quantity) || 0), 0);
+                                          }
+                                        } else {
+                                          const items = disp && Array.isArray((disp as any).dispatch_items) ? (disp as any).dispatch_items : [];
+                                          qty = items.reduce((sum: number, item: any) => sum + (Number(item.dispatched_quantity) || 0), 0);
+                                        }
+                                        return qty || "—";
+                                      })()}
+                                    </td>
+                                    <td className="px-3 py-2 font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                      {ord?.grand_total != null ? formatMoney(Number(ord.grand_total)) : "—"}
+                                    </td>
                                     <td className="px-3 py-2">
-                                      {renderOrderStatusBadge(line.status)}
+                                      {renderOrderStatusBadge(statusVal)}
                                     </td>
                                     <td className="px-3 py-2">
                                       {transport ? (
@@ -549,6 +826,12 @@ export function DownloadTransportPlansModal({
                                       ) : (
                                         <span className="text-slate-400">—</span>
                                       )}
+                                    </td>
+                                    <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                                      {deliveredAt}
+                                    </td>
+                                    <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                                      {receivedBy}
                                     </td>
                                   </tr>
                                 );

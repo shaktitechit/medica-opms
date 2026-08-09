@@ -57,12 +57,8 @@ const ADMIN_CREATE_STATUSES = new Set([
   'on_hold',
   'sales_approved',
   'finance_review',
-  'partially_finance_approved',
   'finance_approved',
-  'fully_finance_approved',
   'account_review',
-  'partially_account_approved',
-  'fully_account_approved',
   'account_approved',
 ]);
 const APPROVE_FROM_STATUSES = new Set([
@@ -71,12 +67,8 @@ const APPROVE_FROM_STATUSES = new Set([
   'on_hold',
   'sales_approved',
   'finance_review',
-  'partially_finance_approved',
   'finance_approved',
-  'fully_finance_approved',
   'account_review',
-  'partially_account_approved',
-  'fully_account_approved',
   'account_approved',
 ]);
 /** Only transition order → sales_approved on first admin sign-off from sales queue. */
@@ -85,15 +77,9 @@ const SEND_TO_FINANCE_ORDER_STATUSES = new Set([
   ORDER_STATUS.SALES_APPROVED,
   ORDER_STATUS.FINANCE_REVIEW,
   ORDER_STATUS.FINANCE_APPROVED,
-  'partially_finance_approved',
-  'fully_finance_approved',
 ]);
 const SEND_TO_ACCOUNT_ORDER_STATUSES = new Set([
-  'partially_finance_approved',
-  'fully_finance_approved',
   ORDER_STATUS.ACCOUNT_REVIEW,
-  'partially_account_approved',
-  'fully_account_approved',
   ORDER_STATUS.ACCOUNT_APPROVED,
 ]);
 
@@ -1575,9 +1561,9 @@ async function decideFinance(id, decision, body, user) {
 
     const nextStatus = (isRejected || finalStatus === 'rejected')
       ? 'finance_rejected'
-      : (allApproved ? 'fully_finance_approved' : 'partially_finance_approved');
+      : 'finance_approved';
 
-    const isPastFinance = ['finance_approved', 'fully_finance_approved', 'partially_finance_approved', 'account_review', 'account_approved', 'fully_account_approved', 'partially_account_approved', 'dispatched', 'delivered', 'closed', 'cancelled'].includes(order.status);
+    const isPastFinance = ['finance_approved', 'account_review', 'account_approved', 'dispatched', 'delivered', 'cancelled'].includes(order.status);
     if (!isPastFinance) {
       await workflowService.transitionOrderStatus({
         orderId: order._id,
@@ -1600,7 +1586,7 @@ async function decideFinance(id, decision, body, user) {
         order: order._id,
         action_by: user._id,
         role: 'finance',
-        action: allApproved ? 'fully_finance_approved' : 'partially_finance_approved',
+        action: 'finance_approved',
           to_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
           to_status: ORDER_STATUS.FINANCE_APPROVED,
         remarks: body?.approval_notes || '',
@@ -1609,7 +1595,7 @@ async function decideFinance(id, decision, body, user) {
           entity_type: 'OrderApproval',
           entity_id: String(doc._id),
           approval_no: doc.approval_no,
-            finance_approval_status: allApproved ? APPROVAL_STATUS.APPROVED : APPROVAL_STATUS.PARTIAL,
+            finance_approval_status: APPROVAL_STATUS.APPROVED,
         },
       });
 
@@ -1750,7 +1736,7 @@ async function decideAccount(id, decision, body, user, options = {}) {
         ) {
           refreshed.status = ORDER_STATUS.ACCOUNT_APPROVED;
         }
-        refreshed.current_action = allApproved ? 'fully_account_approved' : 'account_partial';
+        refreshed.current_action = 'account_approved';
         recalcCommercials(refreshed);
         normalizeOrderWorkflowFields(refreshed);
         await refreshed.save();
@@ -1762,18 +1748,15 @@ async function decideAccount(id, decision, body, user, options = {}) {
 
     const nextStatus = (isRejected || finalStatus === 'rejected')
       ? 'account_rejected'
-      : (allApproved ? 'fully_account_approved' : 'partially_account_approved');
+      : 'account_approved';
 
     const orderForTransition = await Order.findById(order._id).lean();
     const currentStatus = String(orderForTransition?.status || order.status || '');
     const isPastAccount = [
       'account_approved',
-      'fully_account_approved',
-      'partially_account_approved',
       'dispatch',
       'dispatched',
       'delivered',
-      'closed',
       'cancelled',
     ].includes(currentStatus);
     if (!isPastAccount) {
@@ -1792,9 +1775,7 @@ async function decideAccount(id, decision, body, user, options = {}) {
       if (orderAfterTransition) {
         await fulfillmentService.applyAccountWorkflowAction(orderAfterTransition);
         orderAfterTransition.last_account_approval = doc._id;
-        orderAfterTransition.account_approval_status = allApproved
-          ? APPROVAL_STATUS.APPROVED
-          : APPROVAL_STATUS.PARTIAL;
+        orderAfterTransition.account_approval_status = APPROVAL_STATUS.APPROVED;
         if (
           orderAfterTransition.workflow_stage === ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW
           || orderAfterTransition.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW
@@ -1808,7 +1789,7 @@ async function decideAccount(id, decision, body, user, options = {}) {
           order: order._id,
           action_by: user._id,
           role: 'account',
-          action: allApproved ? 'fully_account_approved' : 'partially_account_approved',
+          action: 'account_approved',
           to_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
           to_status: ORDER_STATUS.ACCOUNT_APPROVED,
           remarks: body?.approval_notes || '',
@@ -1817,7 +1798,7 @@ async function decideAccount(id, decision, body, user, options = {}) {
             entity_type: 'OrderApproval',
             entity_id: String(doc._id),
             approval_no: doc.approval_no,
-            account_approval_status: allApproved ? APPROVAL_STATUS.APPROVED : APPROVAL_STATUS.PARTIAL,
+            account_approval_status: APPROVAL_STATUS.APPROVED,
           },
         });
 
@@ -2439,6 +2420,35 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
     throw new ApiError(400, 'No dispatched or return quantities found to resolve against');
   }
 
+  // Settled-away rest → UnbilledOrder (client may send settled_rest_items explicitly).
+  const afterByLine = new Map(
+    overridesToApply.map((item) => [
+      String(item.order_item_id),
+      Number(item.approved_quantity || 0),
+    ]),
+  );
+  let settledRestItems = Array.isArray(body?.settled_rest_items) ? body.settled_rest_items : null;
+  if (!settledRestItems) {
+    settledRestItems = [];
+    for (const item of approvalItems) {
+      const key = String(item.order_item_id);
+      const priorApproved = Number(item.approved_quantity || 0);
+      if (priorApproved <= 0) continue;
+      const afterQty = afterByLine.has(key) ? afterByLine.get(key) : 0;
+      const restQty = Math.max(0, priorApproved - afterQty);
+      if (restQty <= 0) continue;
+      const orderLine = (order.order_items || []).find((line) => String(line._id) === key);
+      settledRestItems.push({
+        order_item_id: item.order_item_id,
+        product: item.product || orderLine?.product,
+        product_name: orderLine?.product_name || item.product_name || '',
+        sku: orderLine?.sku || item.sku || '',
+        approved_quantity: restQty,
+        remaining_quantity: restQty,
+      });
+    }
+  }
+
   const priorLineIds = new Set(
     approvalItems.map((item) => String(item.order_item_id)),
   );
@@ -2565,8 +2575,20 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
 
   await dispatchService.settleReleaseDispatchFulfillment(releaseDispatches, netSettledByLine);
 
-  await fulfillmentService.recalculateFromExecutions(order._id, user);
+  // Single recalculate (recalculateOrderDispatchState → recalculateFromExecutions).
   await dispatchService.recalculateOrderDispatchState(order._id, user);
+
+  // After sync, write settled-away rest onto UnbilledOrder (manual_remaining).
+  try {
+    const unbilledOrderService = require('../unbilledOrder/unbilledOrder.service');
+    await unbilledOrderService.applySettledRest(order._id, settledRestItems, user, {
+      remarks: note
+        ? `Settled rest from partial dispatch: ${note}`
+        : 'Settled rest from partial dispatch release',
+    });
+  } catch (_err) {
+    // Unbilled update is best-effort; settle already succeeded.
+  }
 
   const { OrderAmmendmentUser } = getModels();
   await OrderAmmendmentUser.create({
@@ -2581,19 +2603,21 @@ async function resolvePartialDispatchByAccount(id, body, user, options = {}) {
     entity_type: 'approval',
     entity_id: doc._id,
     action: 'updated',
-    message: `Account approval ${doc.approval_no} settled to net dispatched quantities (approval + order amended)`,
+    message: `Account approval ${doc.approval_no} settled to net dispatched quantities (approval + order amended; rest → unbilled)`,
   });
 
   // bypassSequence: do not copy stale order line qtys back onto the settled approval items.
+  // skipAsyncJobs: fulfillment already recalculated; avoid racing queued recalculate_fulfillment.
   return decideAccount(id, 'approved', {
     approval_notes: note,
     approved_total_amount: doc.approved_total_amount,
-  }, user, { ...options, bypassSequence: true });
+  }, user, { ...options, bypassSequence: true, skipAsyncJobs: true });
 }
 
 async function amend(id, body, user) {
   const userDept = String(user?.department || '').toLowerCase();
-  if (userDept === 'account') {
+  const mode = String(body?.mode || '').toLowerCase();
+  if (userDept === 'account' || (userDept === 'super_admin' && mode === 'account')) {
     return amendByAccount(id, body, user);
   }
 

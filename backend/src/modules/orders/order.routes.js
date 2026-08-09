@@ -37,8 +37,6 @@ router.patch(
 
 router.patch('/:id', controller.update);
 
-router.post('/:id/close', controller.closeOrder);
-router.post('/:id/reopen', controller.reopenOrder);
 router.post('/:id/close-after-full-delivery', controller.closeAfterFullDelivery);
 
 router.post('/:id/submit', requirePermissions('orders:write', '*'), controller.submit);

@@ -40,7 +40,7 @@ const transportPlanOrderSchema = new mongoose.Schema(
     dispatch: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "OrderDispatch",
-      required: true,
+      required: false,
     },
     dispatch_date: Date,
     lr_number: { type: String, trim: true },

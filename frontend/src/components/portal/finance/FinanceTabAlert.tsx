@@ -10,11 +10,10 @@ import {
 } from "react";
 
 import { useBrowserTabAlert } from "@/hooks/useBrowserTabAlert";
-import { pickList } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { useListOrderReturnsQuery, useListOrdersQuery } from "@/store/api";
+import { useOrderWorkflowCategoryOptions } from "@/components/portal/shared/orderList/useOrderWorkflowCategoryOptions";
+import { useListOrdersQuery } from "@/store/api";
 import {
-  buildPendingReturnOrderIds,
   financeTabQueryParams,
   orderMatchesFinanceTab,
 } from "./financeOrderUtils";
@@ -63,15 +62,13 @@ function FinanceTabAlertInner({
       refetchOnReconnect: true,
     },
   );
-  const { data: returnsData } = useListOrderReturnsQuery({});
+  const categoryOptions = useOrderWorkflowCategoryOptions();
 
   const queryCount = useMemo(() => {
-    const pendingReturnOrderIds = buildPendingReturnOrderIds(pickList(returnsData));
-    const options = { pendingReturnOrderIds };
     return pickOrders(data).filter((order) =>
-      orderMatchesFinanceTab(order, "pending_finance_approval", options),
+      orderMatchesFinanceTab(order, "pending_finance_approval", categoryOptions),
     ).length;
-  }, [data, returnsData]);
+  }, [data, categoryOptions]);
 
   const count = overrideCount ?? queryCount;
 

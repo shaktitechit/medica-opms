@@ -23,12 +23,13 @@ function normalizePlanItems(body) {
         throw new ApiError(400, `items[${i}] must be an object`);
       }
       const orderId = item.order_id || item.order;
-      const dispatchId = item.dispatch_id || item.dispatch;
+      const dispatchId = item.dispatch_id || item.dispatch || null;
       if (!orderId) throw new ApiError(400, `items[${i}].order_id is required`);
-      if (!dispatchId) throw new ApiError(400, `items[${i}].dispatch_id is required`);
       assertObjectId(orderId, `items[${i}].order_id`);
-      assertObjectId(dispatchId, `items[${i}].dispatch_id`);
-      return { order_id: String(orderId), dispatch_id: String(dispatchId) };
+      if (dispatchId) {
+        assertObjectId(dispatchId, `items[${i}].dispatch_id`);
+      }
+      return { order_id: String(orderId), dispatch_id: dispatchId ? String(dispatchId) : null };
     });
   }
 
@@ -38,8 +39,11 @@ function normalizePlanItems(body) {
     }
     return body.order_ids.map((orderId, i) => {
       assertObjectId(orderId, `order_ids[${i}]`);
-      assertObjectId(body.dispatch_ids[i], `dispatch_ids[${i}]`);
-      return { order_id: String(orderId), dispatch_id: String(body.dispatch_ids[i]) };
+      const dispatchId = body.dispatch_ids[i] || null;
+      if (dispatchId) {
+        assertObjectId(dispatchId, `dispatch_ids[${i}]`);
+      }
+      return { order_id: String(orderId), dispatch_id: dispatchId ? String(dispatchId) : null };
     });
   }
 

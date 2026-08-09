@@ -11,12 +11,10 @@ import {
 
 import { useBrowserTabAlert } from "@/hooks/useBrowserTabAlert";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { pickList } from "@/components/portal/sales/partyDisplay";
-import {
-  buildPendingReturnOrderIds,
-  computeDispatchOrderStats,
-} from "@/components/portal/dispatch/dispatchOrderUtils";
-import { useListOrdersQuery, useListOrderReturnsQuery } from "@/store/api";
+import { computeDispatchOrderStats } from "@/components/portal/dispatch/dispatchOrderUtils";
+import { ORDER_WORKFLOW_LIST_QUERY } from "@/components/portal/shared/orderList/orderWorkflowTabs";
+import { useOrderWorkflowCategoryOptions } from "@/components/portal/shared/orderList/useOrderWorkflowCategoryOptions";
+import { useListOrdersQuery } from "@/store/api";
 
 const OverrideContext = createContext<(count: number | null) => void>(() => {});
 
@@ -55,34 +53,26 @@ function DispatchTabAlertInner({
   overrideCount: number | null;
 }) {
   const { data, isError } = useListOrdersQuery(
-    {},
+    ORDER_WORKFLOW_LIST_QUERY,
     {
       pollingInterval: 30_000,
       refetchOnFocus: true,
       refetchOnReconnect: true,
     },
   );
-  const returnsQ = useListOrderReturnsQuery(
-    {},
-    {
-      pollingInterval: 30_000,
-      refetchOnFocus: true,
-      refetchOnReconnect: true,
-    },
-  );
+  const categoryOptions = useOrderWorkflowCategoryOptions();
 
   const queryCount = useMemo(() => {
-    const pendingReturnOrderIds = buildPendingReturnOrderIds(pickList(returnsQ.data));
     const orders = pickOrders(data);
-    const stats = computeDispatchOrderStats(orders, { pendingReturnOrderIds });
+    const stats = computeDispatchOrderStats(orders, categoryOptions);
     return stats.transport_pending.count;
-  }, [data, returnsQ.data]);
+  }, [data, categoryOptions]);
 
   const count = overrideCount ?? queryCount;
 
   useBrowserTabAlert({
     count,
-    enabled: (!isError && !returnsQ.isError) || overrideCount != null,
+    enabled: !isError || overrideCount != null,
     alertLabel: "pending dispatch actions",
   });
 

@@ -7,22 +7,40 @@ import { ArrowLeft, Printer, Send, Truck, XCircle } from "lucide-react";
 
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
-import { CreateTransportModal } from "@/components/portal/dispatch/order/components/CreateTransportModal";
+import type { CreateTransportFormDefaults } from "@/components/portal/shared/orderDetail/modals/CreateTransportModal";
 import { OrderDeliveryModal } from "@/components/portal/dispatch/order/components/OrderDeliveryModal";
+import { OrderDetailModal } from "@/components/portal/sales/components/modals/OrderDetailModal";
+import { buildPartyNameById } from "@/components/portal/sales/partyDisplay";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import { useAppSelector } from "@/store/hooks";
 import {
   useCancelTransportPlanMutation,
-  useCancelTransportPlanOrderMutation,
   useGetOrderQuery,
   useGetTransportPlanQuery,
   useListDispatchesQuery,
   usePatchTransportMutation,
+  useRemoveTransportPlanOrderMutation,
   useSubmitTransportPlanMutation,
+  useListOrderApprovalsQuery,
+  usePatchDispatchMutation,
+  usePatchTransportPlanOrderMutation,
+  useListPartiesQuery,
   type TransportPlanOrderRecord,
 } from "@/store/api";
+import { CreateAccountDispatchModal } from "@/components/portal/account/order/components/CreateAccountDispatchModal";
 import { CancelTransportPlanModal } from "./CancelTransportPlanModal";
+import { ApprovalsTab } from "@/components/portal/shared/orderDetail/tabs/ApprovalsTab";
+import { DispatchesTab } from "@/components/portal/shared/orderDetail/tabs/DispatchesTab";
+import { TransportsTab } from "@/components/portal/shared/orderDetail/tabs/TransportsTab";
+import { DeliveriesTab } from "@/components/portal/shared/orderDetail/tabs/DeliveriesTab";
+import { buildUserNameById } from "@/components/portal/shared/userDisplay";
+import { formatDate } from "@/components/portal/shared/orderDetail/orderDetailUtils";
+import {
+  useListUsersQuery,
+  useListTransportsQuery,
+  useListOrderDeliveriesQuery,
+} from "@/store/api";
 import {
   agentLabel,
   canEditPlan,
@@ -101,6 +119,201 @@ function uniqueById(rows: Record<string, unknown>[]): Record<string, unknown>[] 
   return out;
 }
 
+type PlanOrderTabsSectionProps = {
+  orderId: string;
+  detail: Record<string, unknown>;
+  disp?: Record<string, unknown> | null;
+  userDept: string;
+  transportFormDefaults?: CreateTransportFormDefaults;
+};
+
+function PlanOrderTabsSection({
+  orderId,
+  detail,
+  disp,
+  userDept,
+  transportFormDefaults,
+}: PlanOrderTabsSectionProps) {
+  const [activeTab, setActiveTab] = useState<
+    "approvals" | "dispatches" | "transports" | "deliveries"
+  >("approvals");
+
+  const dispatchesQ = useListDispatchesQuery({ order: orderId }, { skip: !orderId });
+  const transportsQ = useListTransportsQuery({ order: orderId }, { skip: !orderId });
+  const usersQ = useListUsersQuery({});
+  const [patchTransport, patchTransportState] = usePatchTransportMutation();
+
+  const handleUpdateTransportStatus = useCallback(
+    async (
+      transportId: string,
+      nextStatus: string,
+      remarks?: string,
+      suppressToast?: boolean,
+    ) => {
+      try {
+        await patchTransport({
+          id: transportId,
+          patch: { status: nextStatus, ...(remarks ? { remarks } : {}) },
+        }).unwrap();
+        if (!suppressToast) {
+          toast.success(
+            `Transport status updated to ${nextStatus.replace(/_/g, " ")}`,
+          );
+        }
+        void transportsQ.refetch();
+      } catch (err) {
+        toast.error(mutationRejectedMessage(err));
+      }
+    },
+    [patchTransport, transportsQ],
+  );
+
+  const dispatches = useMemo(() => pickList(dispatchesQ.data), [dispatchesQ.data]);
+  const transports = useMemo(() => pickList(transportsQ.data), [transportsQ.data]);
+  const users = useMemo(() => pickList(usersQ.data), [usersQ.data]);
+  const userNameById = useMemo(() => buildUserNameById(users), [users]);
+
+  const orderItems = useMemo(() => {
+    if (Array.isArray(detail.order_items)) return detail.order_items as Record<string, unknown>[];
+    return [];
+  }, [detail]);
+
+  const partyObj = detail.party && typeof detail.party === "object" ? (detail.party as Record<string, unknown>) : null;
+  const partyLabelStr = String(partyObj?.name || partyObj?.party_name || "—");
+
+  const approvalsPortal =
+    userDept === "finance" ? "finance" : userDept === "account" ? "account" : "admin";
+
+  const dispatchesMode =
+    userDept === "account" || userDept === "super_admin"
+      ? "account"
+      : userDept === "dispatch"
+        ? "dispatch_ops"
+        : "readonly";
+
+  const transportsMode =
+    userDept === "dispatch" || userDept === "super_admin"
+      ? "dispatch_ops"
+      : "readonly";
+
+  return (
+    <div className="mt-4 border-t border-slate-100 dark:border-white/5 pt-3">
+      {/* Sub-tab navigation bar */}
+      <div className="flex border-b border-slate-200 dark:border-white/10 mb-4 gap-1 sm:gap-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab("approvals")}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition ${activeTab === "approvals"
+            ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600 dark:bg-blue-950/30 dark:text-blue-400"
+            : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+        >
+          Approvals
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("dispatches")}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition ${activeTab === "dispatches"
+            ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600 dark:bg-blue-950/30 dark:text-blue-400"
+            : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+        >
+          Dispatches
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("transports")}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition ${activeTab === "transports"
+            ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600 dark:bg-blue-950/30 dark:text-blue-400"
+            : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+        >
+          Transports
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("deliveries")}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition ${activeTab === "deliveries"
+            ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600 dark:bg-blue-950/30 dark:text-blue-400"
+            : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+        >
+          Deliveries
+        </button>
+      </div>
+
+      {/* Active Tab Component */}
+      {activeTab === "approvals" && (
+        <ApprovalsTab
+          portal={approvalsPortal}
+          orderId={orderId}
+          detail={detail}
+          status={String(detail.status || "")}
+          readOnlyItems={orderItems}
+          refetchOrder={() => undefined}
+          partyLabel={partyLabelStr}
+        />
+      )}
+
+      {activeTab === "dispatches" && (
+        <DispatchesTab
+          mode={dispatchesMode}
+          orderId={orderId}
+          detail={detail}
+          refetchOrder={() => undefined}
+          partyLabel={partyLabelStr}
+          isAssignedToMe={true}
+          dispatches={dispatches}
+          transports={transports}
+          isFetching={dispatchesQ.isFetching}
+          userNameById={userNameById}
+          orderItems={orderItems}
+          orderStatus={String(detail.status || "")}
+          expectedDeliveryDate={
+            detail.expected_delivery_date
+              ? String(detail.expected_delivery_date)
+              : undefined
+          }
+          shippingAddress={partyObj?.shipping_address}
+          transportFormDefaults={transportFormDefaults}
+          disableTransportAgent={true}
+          onRefetch={() => {
+            void dispatchesQ.refetch();
+            void transportsQ.refetch();
+          }}
+        />
+      )}
+
+      {activeTab === "transports" && (
+        <TransportsTab
+          mode={transportsMode}
+          orderId={orderId}
+          detail={detail}
+          refetchOrder={() => undefined}
+          transports={transports}
+          isFetching={transportsQ.isFetching}
+          isPatchingTransport={patchTransportState.isLoading}
+          onUpdateStatus={handleUpdateTransportStatus}
+          formatDate={formatDate}
+          onRefetch={() => {
+            void transportsQ.refetch();
+          }}
+          dispatches={dispatches}
+          orderItems={orderItems}
+        />
+      )}
+
+      {activeTab === "deliveries" && (
+        <DeliveriesTab
+          orderId={orderId}
+          detail={detail}
+          refetchOrder={() => undefined}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function TransportPlanDetailPage({
   planId,
   portalHome,
@@ -118,23 +331,30 @@ export default function TransportPlanDetailPage({
   const portalName = String(rawPortal || "").toLowerCase();
 
   const isPlanner =
-    ["account", "admin", "super_admin"].includes(userDept) ||
-    (["account", "admin", "super_admin"].includes(portalName) && userDept !== "dispatch");
+    ["account", "admin", "finance", "super_admin"].includes(userDept) ||
+    (["account", "admin", "finance", "super_admin"].includes(portalName) && userDept !== "dispatch");
 
   const isExecutor =
     ["dispatch", "super_admin"].includes(userDept) ||
-    (["dispatch", "super_admin"].includes(portalName) && !["account", "admin"].includes(userDept));
+    (["dispatch", "super_admin"].includes(portalName) && !["account", "admin", "finance"].includes(userDept));
 
   const { data, isLoading, isFetching, isError, refetch } =
     useGetTransportPlanQuery(planId);
   const [submitPlan, submitState] = useSubmitTransportPlanMutation();
   const [cancelPlan, cancelState] = useCancelTransportPlanMutation();
-  const [cancelPlanOrder, cancelLineState] = useCancelTransportPlanOrderMutation();
+  const [removePlanOrder, removeLineState] = useRemoveTransportPlanOrderMutation();
   const [patchTransport, patchTransportState] = usePatchTransportMutation();
 
+  const [viewOrderId, setViewOrderId] = useState<string | null>(null);
+  const [activeOrderIndex, setActiveOrderIndex] = useState(0);
+  const partiesQ = useListPartiesQuery({});
+  const partyNameById = useMemo(
+    () => buildPartyNameById(partiesQ.data),
+    [partiesQ.data]
+  );
+
   const [cancelOpen, setCancelOpen] = useState(false);
-  const [createTransportLineId, setCreateTransportLineId] = useState<string | null>(null);
-  const [confirmCancelLineId, setConfirmCancelLineId] = useState<string | null>(null);
+  const [confirmRemoveLineId, setConfirmRemoveLineId] = useState<string | null>(null);
   const [statusConfirm, setStatusConfirm] = useState<{
     transportId: string;
     nextStatus: string;
@@ -146,17 +366,47 @@ export default function TransportPlanDetailPage({
     orderId: string;
   } | null>(null);
 
-  const createLine = useMemo(
-    () => (data?.orders ?? []).find((l) => planIdOf(l) === createTransportLineId) || null,
-    [data?.orders, createTransportLineId]
-  );
-  const createOrderId = idOf(createLine?.order);
-  const createDispatchId = idOf(createLine?.dispatch);
+  const [createDispatchModal, setCreateDispatchModal] = useState<{
+    orderId: string;
+    planOrderId: string;
+    partyLabel?: string;
+  } | null>(null);
 
-  const dispatchesQ = useListDispatchesQuery(
-    { order: createOrderId },
-    { skip: !createOrderId || !createTransportLineId }
+  const [previewDispatch, setPreviewDispatch] = useState<{
+    dispatch: Record<string, unknown>;
+    planOrderId: string;
+    partyLabel?: string;
+  } | null>(null);
+
+  const [patchDispatch, patchDispatchState] = usePatchDispatchMutation();
+  const [patchTransportPlanOrder, patchPlanOrderState] = usePatchTransportPlanOrderMutation();
+
+  const dispatchOrderQ = useGetOrderQuery(createDispatchModal?.orderId ?? "", {
+    skip: !createDispatchModal?.orderId,
+  });
+  const dispatchDispatchesQ = useListDispatchesQuery(
+    { order: createDispatchModal?.orderId },
+    { skip: !createDispatchModal?.orderId }
   );
+  const dispatchApprovalsQ = useListOrderApprovalsQuery(
+    { order: createDispatchModal?.orderId },
+    { skip: !createDispatchModal?.orderId }
+  );
+
+  const dispatchOrderItems = useMemo(() => {
+    const detail = dispatchOrderQ.data as Record<string, unknown> | undefined;
+    if (!detail || !Array.isArray(detail.order_items)) return [];
+    return detail.order_items as Record<string, unknown>[];
+  }, [dispatchOrderQ.data]);
+
+  const dispatchDispatches = useMemo(() => {
+    return pickList(dispatchDispatchesQ.data);
+  }, [dispatchDispatchesQ.data]);
+
+  const dispatchApprovals = useMemo(() => {
+    return pickList(dispatchApprovalsQ.data);
+  }, [dispatchApprovalsQ.data]);
+
   const deliveryDispatchesQ = useListDispatchesQuery(
     { order: deliveryModal?.orderId },
     { skip: !deliveryModal?.orderId }
@@ -187,10 +437,15 @@ export default function TransportPlanDetailPage({
     isFetching ||
     submitState.isLoading ||
     cancelState.isLoading ||
-    cancelLineState.isLoading ||
+    removeLineState.isLoading ||
     patchTransportState.isLoading;
 
   const orders = (data?.orders ?? []).filter((o) => o.status !== "cancelled");
+  const deliveredOrdersCount = orders.filter(
+    (l) => shipmentStatusOf(l) === "delivered",
+  ).length;
+  const pendingOrdersCount = orders.length - deliveredOrdersCount;
+
   const summary = data?.summary || {
     total_orders: orders.length,
     total_packages: 0,
@@ -201,9 +456,8 @@ export default function TransportPlanDetailPage({
   const planAgentId = idOf(data?.transport_agent);
   const planIsActive =
     data?.status !== "completed" && data?.status !== "cancelled";
-  const canRunTransportActions =
-    isExecutor && canExecutePlan(data?.status) && planIsActive;
-  const canCancelLine =
+  /** Remove order from plan — only before transport is created. */
+  const canRemoveLine =
     (isPlanner || isExecutor) &&
     planIsActive &&
     ["planned", "submitted", "in_transit", "draft"].includes(String(data?.status || ""));
@@ -316,9 +570,9 @@ export default function TransportPlanDetailPage({
           ) : null}
 
           {isPlanner &&
-          data?.status !== "completed" &&
-          data?.status !== "cancelled" &&
-          !orders.some((line) => hasActiveTransport(line)) ? (
+            data?.status !== "completed" &&
+            data?.status !== "cancelled" &&
+            !orders.some((line) => hasActiveTransport(line)) ? (
             <button
               type="button"
               onClick={() => setCancelOpen(true)}
@@ -343,8 +597,25 @@ export default function TransportPlanDetailPage({
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900">
+          <div className="text-[11px] text-slate-500">Total orders</div>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="text-xl font-bold tabular-nums text-slate-900 dark:text-slate-50">
+              {summary.total_orders ?? orders.length}
+            </span>
+            <div className="flex items-center gap-1.5 text-[11px] font-medium">
+              <span className="text-emerald-600 dark:text-emerald-400">
+                {deliveredOrdersCount} delivered
+              </span>
+              <span className="text-slate-300 dark:text-slate-700">·</span>
+              <span className="text-amber-600 dark:text-amber-400">
+                {pendingOrdersCount} pending
+              </span>
+            </div>
+          </div>
+        </div>
+
         {[
-          { label: "Total orders", value: summary.total_orders ?? 0 },
           { label: "Packages", value: summary.total_packages ?? 0 },
           { label: "Weight", value: summary.total_weight ?? 0 },
           {
@@ -364,51 +635,93 @@ export default function TransportPlanDetailPage({
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-auto">
-        {orders.length === 0 ? (
-          <div className="rounded-xl border border-slate-200 bg-white px-3 py-8 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-slate-900">
-            No orders on this plan.
+      {orders.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-3 py-8 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-slate-900">
+          No orders on this plan.
+        </div>
+      ) : (
+        <div className="flex flex-col min-h-0 flex-1 space-y-4">
+          {/* Horizontal Order Tabs Header */}
+          <div className="flex overflow-x-auto border-b border-slate-200 dark:border-white/10 gap-2 pb-0.5 scrollbar-thin">
+            {orders.map((line, idx) => {
+              const lineId = planIdOf(line);
+              const isSelected = activeOrderIndex === idx;
+              const ord = line.order && typeof line.order === "object" ? line.order : null;
+              const partyName = partyLabel(line.party || ord?.party);
+              const ordNo = orderNoOf(line.order);
+              const shipmentStatus = shipmentStatusOf(line);
+
+              return (
+                <button
+                  key={lineId}
+                  type="button"
+                  onClick={() => setActiveOrderIndex(idx)}
+                  className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-t-lg transition shrink-0 border-b-2 ${isSelected
+                    ? "bg-blue-50 text-blue-700 border-blue-600 dark:bg-blue-950/40 dark:text-blue-400"
+                    : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-white/5"
+                    }`}
+                >
+                  <div className="flex flex-col text-left">
+                    <span className="font-bold text-xs">{partyName}</span>
+                    <span className="text-[10px] opacity-75 font-mono">{ordNo}</span>
+                  </div>
+                  {shipmentStatus ? (
+                    <span
+                      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize ${shipmentStatus === "delivered"
+                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                        : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                        }`}
+                    >
+                      {shipmentStatus.replace(/_/g, " ")}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
-        ) : (
-          orders.map((line) => {
+
+          {/* Active Order Card */}
+          {(() => {
+            const line = orders[activeOrderIndex] || orders[0];
+            if (!line) return null;
             const lineId = planIdOf(line);
             const ord = line.order && typeof line.order === "object" ? line.order : null;
             const disp =
               line.dispatch && typeof line.dispatch === "object" ? line.dispatch : null;
             const transport = line.transport || null;
-            const transportId = idOf(transport);
             const shipmentStatus = shipmentStatusOf(line);
-            const nextStatus = transport
-              ? NEXT_STATUS_MAP[shipmentStatus] ?? null
-              : null;
-            const agent =
-              transport?.transport_agent && typeof transport.transport_agent === "object"
-                ? transport.transport_agent
-                : null;
-            const vehicleNo = transport?.vehicle_number || transport?.vehicle_no || "—";
-            const driverPhone = transport?.driver_mobile || transport?.driver_phone || "";
-            const invoice =
-              line.invoice_number || disp?.bill_number || "—";
-            const lr = line.lr_number || transport?.lr_number || "—";
-            const packages =
-              line.packages ??
-              (transport?.packed_boxes != null || transport?.open_boxes != null
-                ? Number(transport?.packed_boxes || 0) + Number(transport?.open_boxes || 0)
-                : null);
-            const weight = line.weight ?? transport?.weight ?? null;
-            const showCreateTransport =
-              canRunTransportActions &&
+            const showRemoveLine =
+              canRemoveLine &&
               !hasActiveTransport(line) &&
               ["pending", "packed"].includes(String(line.status || "pending"));
-            const showCancelLine =
-              canCancelLine &&
-              !hasActiveTransport(line) &&
-              ["pending", "packed"].includes(String(line.status || "pending"));
+
+            const lineRecord = line as unknown as Record<string, unknown>;
+            const isDelivered = Boolean(lineRecord.delivered_at) || shipmentStatus === "delivered";
+            const isDispatched = !isDelivered && ["dispatched", "in_transit", "out_for_delivery", "picked_up"].includes(shipmentStatus);
+            const statusVal = line.status === "cancelled" ? "cancelled" : isDelivered ? "delivered" : isDispatched ? "dispatched" : (line.status || "pending");
+
+            const lineTransportDefaults: CreateTransportFormDefaults = {
+              transportAgentId: planAgentId || undefined,
+              dispatchDate: data?.plan_date
+                ? String(data.plan_date).slice(0, 10)
+                : undefined,
+              remarks: data?.remarks || undefined,
+              lrNumber: line.lr_number || undefined,
+              weight: line.weight ?? undefined,
+              packedBoxes: line.packages ?? undefined,
+              expectedDeliveryDate:
+                ord && typeof ord === "object" && "expected_delivery_date" in ord
+                  ? String(
+                    (ord as { expected_delivery_date?: unknown })
+                      .expected_delivery_date ?? "",
+                  ) || undefined
+                  : undefined,
+            };
 
             return (
               <div
                 key={lineId}
-                className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900"
+                className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900 min-h-0 flex-1 overflow-auto"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3 dark:border-white/5">
                   <div>
@@ -416,174 +729,68 @@ export default function TransportPlanDetailPage({
                       <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
                         {orderNoOf(line.order)}
                       </h3>
-                      {renderOrderStatusBadge(line.status)}
-                      {transport ? (
-                        <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold capitalize text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
-                          {(shipmentStatus || "created").replaceAll("_", " ")}
+                      {ord && (
+                        <span className="inline-flex items-center rounded-full bg-indigo-50 dark:bg-indigo-950/30 px-2 py-0.5 text-[11px] font-semibold capitalize text-indigo-700 dark:text-indigo-400 ring-1 ring-inset ring-indigo-700/10">
+                          Order: {String(ord.status || "").replaceAll("_", " ")}
                         </span>
-                      ) : null}
+                      )}
+                      {statusVal && (
+                        <span className="inline-flex items-center rounded-full bg-blue-50 dark:bg-blue-950/30 px-2 py-0.5 text-[11px] font-semibold capitalize text-blue-700 dark:text-blue-300 ring-1 ring-inset ring-blue-700/10">
+                          Dispatch: {String(statusVal).replaceAll("_", " ")}
+                        </span>
+                      )}
+                      {transport && (
+                        <span className="inline-flex items-center rounded-full bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 text-[11px] font-semibold capitalize text-amber-700 dark:text-amber-400 ring-1 ring-inset ring-amber-700/10">
+                          Transit: {(shipmentStatus || "created").replaceAll("_", " ")}
+                        </span>
+                      )}
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {partyLabel(line.party || ord?.party)} · Dispatch{" "}
-                      <span className="font-mono">
-                        {disp?.dispatch_no || idOf(line.dispatch) || "—"}
-                      </span>
+                    <p className="mt-1 font-semibold text-slate-900 dark:text-slate-50">
+                      {partyLabel(line.party || ord?.party)}
+
                     </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    {showCreateTransport ? (
+                    {showRemoveLine ? (
                       <button
                         type="button"
-                        onClick={() => setCreateTransportLineId(lineId)}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                        onClick={() => setConfirmRemoveLineId(lineId)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300"
                       >
-                        <Truck className="h-3.5 w-3.5" />
-                        Create Transport
+                        Remove
                       </button>
                     ) : null}
-                    {showCancelLine ? (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmCancelLineId(lineId)}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:bg-rose-950/20 dark:text-rose-300"
-                      >
-                        Cancel
-                      </button>
-                    ) : null}
-
-                    {canRunTransportActions && transport && nextStatus ? (
-                      <button
-                        type="button"
-                        disabled={patchTransportState.isLoading}
-                        onClick={() => {
-                          if (nextStatus === "delivered") {
-                            const orderId = idOf(line.order);
-                            const dispatchId = idOf(line.dispatch);
-                            if (!orderId || !dispatchId || !transportId) {
-                              toast.error("Missing order/dispatch reference for delivery");
-                              return;
-                            }
-                            setDeliveryModal({
-                              transportId,
-                              dispatchId,
-                              orderId,
-                            });
-                            return;
-                          }
-                          setStatusConfirm({ transportId, nextStatus });
-                          setStatusRemarks("");
-                        }}
-                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50 ${
-                          nextStatus === "in_transit"
-                            ? "bg-blue-600 hover:bg-blue-700"
-                            : nextStatus === "out_for_delivery"
-                              ? "bg-amber-600 hover:bg-amber-700"
-                              : "bg-emerald-600 hover:bg-emerald-700"
-                        }`}
-                      >
-                        {STATUS_LABEL[nextStatus] || nextStatus}
-                      </button>
-                    ) : null}
-
-                    {canRunTransportActions &&
-                    transport &&
-                    ["delivered", "returned", "delivery_failed"].includes(shipmentStatus) ? (
-                      <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">
-                        {shipmentStatus === "delivered" ? "Delivered" : "Finalized"}
-                      </span>
-                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const orderId = idOf(line.order);
+                        if (orderId) {
+                          setViewOrderId(orderId);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-sm transition-colors duration-200"
+                    >
+                      View Order
+                    </button>
                   </div>
                 </div>
 
-                <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                      Invoice
-                    </div>
-                    <div className="mt-0.5 font-mono font-medium text-slate-800 dark:text-slate-100">
-                      {invoice}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                      LR number
-                    </div>
-                    <div className="mt-0.5 font-mono font-medium text-slate-800 dark:text-slate-100">
-                      {lr}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                      Packages
-                    </div>
-                    <div className="mt-0.5 font-medium tabular-nums text-slate-800 dark:text-slate-100">
-                      {packages ?? "—"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                      Weight
-                    </div>
-                    <div className="mt-0.5 font-medium tabular-nums text-slate-800 dark:text-slate-100">
-                      {weight != null
-                        ? `${weight}${transport?.weight_unit ? ` ${transport.weight_unit}` : ""}`
-                        : "—"}
-                    </div>
-                  </div>
-                </div>
-
-                {transport ? (
-                  <div className="mt-3 grid gap-3 rounded-lg border border-slate-100 bg-slate-50/60 p-3 text-xs dark:border-white/5 dark:bg-slate-950/30 sm:grid-cols-3">
-                    <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                        Transport agent
-                      </div>
-                      <div className="mt-0.5 font-semibold text-slate-800 dark:text-slate-100">
-                        {agent?.agent_name || agentLabel(data?.transport_agent)}
-                      </div>
-                      {agent?.agent_code ? (
-                        <div className="font-mono text-[11px] text-slate-500">
-                          {agent.agent_code}
-                        </div>
-                      ) : null}
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                        Driver
-                      </div>
-                      <div className="mt-0.5 font-semibold text-slate-800 dark:text-slate-100">
-                        {transport.driver_name || "—"}
-                      </div>
-                      {driverPhone ? (
-                        <div className="text-[11px] text-slate-500">{driverPhone}</div>
-                      ) : null}
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                        Vehicle
-                      </div>
-                      <div className="mt-0.5 font-semibold uppercase text-slate-800 dark:text-slate-100">
-                        {vehicleNo}
-                      </div>
-                      {transport.shipment_no ? (
-                        <div className="font-mono text-[11px] text-slate-500">
-                          {transport.shipment_no}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-xs text-slate-500">
-                    Invoice, LR, packages, weight, agent, driver and vehicle details will
-                    fill when transport is created.
-                  </p>
-                )}
+                {/* Order Detail Sub-Tabs (Approvals, Dispatches, Transports, Deliveries) */}
+                {ord && idOf(line.order) ? (
+                  <PlanOrderTabsSection
+                    orderId={idOf(line.order)}
+                    detail={ord}
+                    disp={disp}
+                    userDept={userDept}
+                    transportFormDefaults={lineTransportDefaults}
+                  />
+                ) : null}
               </div>
             );
-          })
-        )}
-      </div>
+          })()}
+        </div>
+      )}
 
       <CancelTransportPlanModal
         open={cancelOpen}
@@ -602,41 +809,6 @@ export default function TransportPlanDetailPage({
         }}
       />
 
-      <CreateTransportModal
-        open={createTransportLineId !== null && !!createOrderId && !!createDispatchId}
-        onClose={() => setCreateTransportLineId(null)}
-        orderId={createOrderId}
-        dispatchId={createDispatchId}
-        dispatches={uniqueById([
-          ...(createLine?.dispatch && typeof createLine.dispatch === "object"
-            ? [createLine.dispatch as Record<string, unknown>]
-            : []),
-          ...pickList(dispatchesQ.data),
-        ])}
-        transports={createLine?.transport ? [createLine.transport] : []}
-        expectedDeliveryDate={
-          createLine?.order && typeof createLine.order === "object"
-            ? (createLine.order as { expected_delivery_date?: string }).expected_delivery_date
-            : undefined
-        }
-        shippingAddress={
-          (createLine?.party && typeof createLine.party === "object"
-            ? (createLine.party as { shipping_address?: unknown }).shipping_address
-            : undefined) ||
-          (createLine?.order &&
-          typeof createLine.order === "object" &&
-          createLine.order.party &&
-          typeof createLine.order.party === "object"
-            ? (createLine.order.party as { shipping_address?: unknown }).shipping_address
-            : undefined)
-        }
-        defaultTransportAgentId={planAgentId || undefined}
-        onCreated={() => {
-          setCreateTransportLineId(null);
-          handleRefetch();
-        }}
-      />
-
       <OrderDeliveryModal
         open={deliveryModal !== null}
         onClose={() => setDeliveryModal(null)}
@@ -651,45 +823,45 @@ export default function TransportPlanDetailPage({
         }}
       />
 
-      {confirmCancelLineId ? (
+      {confirmRemoveLineId ? (
         <LargeModalPortal>
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
             <div className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900">
               <div className="flex items-center gap-3 border-b border-slate-100 bg-rose-50/60 px-6 py-4 dark:border-white/5 dark:bg-rose-950/20">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                    Cancel plan line?
+                    Remove order from plan?
                   </h3>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    This removes the order dispatch from this transport plan. Transport must
-                    not have been created yet.
+                    This removes the order from this transport plan only. The order and its
+                    dispatch stay unchanged. Not available after transport is created.
                   </p>
                 </div>
               </div>
               <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-4 dark:border-white/5">
                 <button
                   type="button"
-                  onClick={() => setConfirmCancelLineId(null)}
+                  onClick={() => setConfirmRemoveLineId(null)}
                   className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-white/15 dark:text-slate-200"
                 >
                   Keep
                 </button>
                 <button
                   type="button"
-                  disabled={cancelLineState.isLoading}
+                  disabled={removeLineState.isLoading}
                   onClick={() => {
                     void runAction(
                       () =>
-                        cancelPlanOrder({
+                        removePlanOrder({
                           id: planId,
-                          planOrderId: confirmCancelLineId,
+                          planOrderId: confirmRemoveLineId,
                         }).unwrap(),
-                      "Plan line cancelled"
-                    ).then(() => setConfirmCancelLineId(null));
+                      "Order removed from transport plan"
+                    ).then(() => setConfirmRemoveLineId(null));
                   }}
                   className="rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
                 >
-                  {cancelLineState.isLoading ? "Cancelling…" : "Yes, cancel"}
+                  {removeLineState.isLoading ? "Removing…" : "Yes, remove"}
                 </button>
               </div>
             </div>
@@ -749,6 +921,186 @@ export default function TransportPlanDetailPage({
           </div>
         </LargeModalPortal>
       ) : null}
+
+      {createDispatchModal ? (
+        <CreateAccountDispatchModal
+          open={true}
+          onClose={() => setCreateDispatchModal(null)}
+          orderId={createDispatchModal.orderId}
+          detail={dispatchOrderQ.data as Record<string, unknown> | null}
+          partyLabel={createDispatchModal.partyLabel}
+          orderItems={dispatchOrderItems}
+          dispatches={dispatchDispatches}
+          approvals={dispatchApprovals}
+          editingDispatch={previewDispatch?.dispatch}
+          onCreated={(res) => {
+            const planOrderId = createDispatchModal.planOrderId;
+            const partyLabel = createDispatchModal.partyLabel;
+            setCreateDispatchModal(null);
+            setPreviewDispatch(null);
+            if (res && planOrderId) {
+              setPreviewDispatch({
+                dispatch: res as Record<string, unknown>,
+                planOrderId,
+                partyLabel,
+              });
+            }
+            refetch();
+          }}
+        />
+      ) : null}
+
+      {previewDispatch ? (
+        <LargeModalPortal>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
+            <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900">
+              <div className="border-b border-slate-100 bg-slate-50 px-6 py-4 dark:border-white/5 dark:bg-slate-950/20 flex justify-between items-center">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                    Preview Dispatch: {String(previewDispatch.dispatch.dispatch_no || "Draft")}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Customer: {previewDispatch.partyLabel}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPreviewDispatch(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <span className="sr-only">Close</span>
+                  &times;
+                </button>
+              </div>
+
+              <div className="max-h-[60vh] overflow-y-auto px-6 py-4 space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <span className="font-semibold text-slate-500">Bill Number:</span>{" "}
+                    <span className="text-slate-800 dark:text-slate-200">
+                      {String(previewDispatch.dispatch.bill_number || "—")}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">Billing Date:</span>{" "}
+                    <span className="text-slate-800 dark:text-slate-200">
+                      {previewDispatch.dispatch.billing_date
+                        ? new Date(String(previewDispatch.dispatch.billing_date)).toLocaleDateString()
+                        : "—"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">Warehouse Location:</span>{" "}
+                    <span className="text-slate-800 dark:text-slate-200">
+                      {String(previewDispatch.dispatch.warehouse_location || "—")}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">Remarks:</span>{" "}
+                    <span className="text-slate-800 dark:text-slate-200">
+                      {String(previewDispatch.dispatch.remarks || "—")}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-100 pt-3 dark:border-white/5">
+                  <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                    Dispatched Items
+                  </h4>
+                  <div className="overflow-x-auto rounded-lg border border-slate-200/60 dark:border-white/5">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-950 font-medium text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2">Product</th>
+                          <th className="px-3 py-2 text-center w-24">Quantity</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                        {Array.isArray(previewDispatch.dispatch.dispatch_items) &&
+                          previewDispatch.dispatch.dispatch_items.map((item: any, idx: number) => (
+                            <tr key={idx}>
+                              <td className="px-3 py-2 text-slate-800 dark:text-slate-200">
+                                {item.product_name || "—"}
+                              </td>
+                              <td className="px-3 py-2 text-center text-slate-600 dark:text-slate-400">
+                                {item.dispatched_quantity ?? item.dispatch_quantity ?? "—"}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-4 dark:border-white/5 bg-slate-50/50">
+                <button
+                  type="button"
+                  onClick={() => setPreviewDispatch(null)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-white/15 dark:text-slate-200"
+                >
+                  Close (Keep Draft)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const orderId =
+                      idOf(previewDispatch.dispatch.order) ||
+                      String(previewDispatch.dispatch.order || "");
+                    setCreateDispatchModal({
+                      orderId,
+                      planOrderId: previewDispatch.planOrderId,
+                      partyLabel: previewDispatch.partyLabel,
+                    });
+                    setPreviewDispatch(null);
+                  }}
+                  className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-300"
+                >
+                  Edit Dispatch
+                </button>
+                <button
+                  type="button"
+                  disabled={patchDispatchState.isLoading || patchPlanOrderState.isLoading}
+                  onClick={async () => {
+                    try {
+                      const dispatchId = String(previewDispatch.dispatch._id || previewDispatch.dispatch.id || "");
+                      await patchDispatch({
+                        id: dispatchId,
+                        patch: { dispatch_status: "submitted" },
+                      }).unwrap();
+
+                      await patchTransportPlanOrder({
+                        id: planId,
+                        planOrderId: previewDispatch.planOrderId,
+                        patch: { dispatch: dispatchId },
+                      }).unwrap();
+
+                      toast.success("Dispatch submitted and mapped to transport plan successfully.");
+                      setPreviewDispatch(null);
+                      refetch();
+                    } catch (err) {
+                      toast.error(mutationRejectedMessage(err));
+                    }
+                  }}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {patchDispatchState.isLoading || patchPlanOrderState.isLoading
+                    ? "Submitting…"
+                    : "Submit to Dispatch Team"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </LargeModalPortal>
+      ) : null}
+
+      {viewOrderId && (
+        <OrderDetailModal
+          orderId={viewOrderId}
+          partyNameById={partyNameById}
+          onClose={() => setViewOrderId(null)}
+        />
+      )}
     </div>
   );
 }

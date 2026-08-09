@@ -39,8 +39,7 @@ function num(v: unknown): number {
  */
 const DISPATCH_HANDOFF_STATUSES = new Set([
   "dispatch_pending",
-  "partial_dispatch_created",
-  "full_dispatch_created",
+  "dispatch_created",
   "transport_pending",
   "partially_transported",
   "fully_transported",

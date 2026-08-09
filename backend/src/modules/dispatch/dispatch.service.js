@@ -10,7 +10,6 @@ const { softDeleteActiveById, restoreSoftDeletedById, listDeletedLean } = requir
 const activityService = require('../activity/activity.service');
 const attachmentService = require('../attachments/attachment.service');
 const workflowService = require('../workflow/workflow.service');
-const orderQueue = require('../../queues/order.queue');
 const dispatchQueue = require('../../queues/dispatch.queue');
 const { API_PUBLIC_BASE_URL, FILE_DOCUMENT_LINKS_RELATIVE } = require('../../config/fileManagement');
 const { uploadMulterFile, getFileMeta } = require('../../services/fileManagement/index');
@@ -30,15 +29,42 @@ const DISP_NF = 'Order dispatch not found';
 
 async function enqueuePostDispatchJobs(orderId, userId) {
   const oid = String(orderId);
-  await orderQueue.enqueue({
-    type: 'recalculate_fulfillment',
-    payload: { orderId: oid, userId: userId ? String(userId) : undefined },
-  });
-  // Also queue a dispatch quantities sync so returned/delivered fields stay accurate
+  // Do not enqueue recalculate_fulfillment here — callers already run
+  // recalculateOrderDispatchState synchronously; a parallel queue job races
+  // Order.__v on order_items/billing_status (VersionError).
   await dispatchQueue.enqueue({
     type: 'sync_dispatch_quantities',
     payload: { orderId: oid, userId: userId ? String(userId) : undefined },
   });
+}
+
+async function linkDispatchToActiveTransportPlan(dispatch, user) {
+  const { TransportPlanOrder, TransportPlan } = getModels();
+  
+  // Find active transport plans
+  const activePlans = await TransportPlan.find({
+    deletedAt: null,
+    status: { $in: ['draft', 'planned', 'submitted'] }
+  }).select('_id').lean();
+  
+  if (activePlans.length === 0) return;
+  const activePlanIds = activePlans.map(p => p._id);
+  
+  // Find a transport plan order line for this order that does not have a dispatch assigned
+  const planOrderLine = await TransportPlanOrder.findOne({
+    transport_plan: { $in: activePlanIds },
+    order: dispatch.order,
+    dispatch: null,
+    deletedAt: null
+  });
+  
+  if (planOrderLine) {
+    planOrderLine.dispatch = dispatch._id;
+    if (dispatch.bill_number) {
+      planOrderLine.invoice_number = dispatch.bill_number;
+    }
+    await planOrderLine.save();
+  }
 }
 
 /**
@@ -462,13 +488,8 @@ async function create(body, user, options = {}) {
 
   const warehouseFields = resolveWarehouseFields(body);
 
-  const dispatchNo = body.dispatch_no || await generateDispatchNo(
-    order.party,
-    body.dispatched_at || body.dispatch_date || new Date()
-  );
-
-  const doc = await OrderDispatch.create({
-    dispatch_no: dispatchNo,
+  const dispatchDate = body.dispatched_at || body.dispatch_date || new Date();
+  const payloadBase = {
     order: body.order,
     finance_approval: body.finance_approval || undefined,
     warehouse: warehouseFields.warehouse,
@@ -487,7 +508,31 @@ async function create(body, user, options = {}) {
     bill_document: body.bill_document || undefined,
     remarks: body.remarks || '',
     created_by: user._id,
-  });
+  };
+
+  // Retry on duplicate dispatch_no (race / soft-deleted serial still indexed)
+  const maxAttempts = body.dispatch_no ? 1 : 5;
+  let doc = null;
+  let lastErr = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const dispatchNo =
+      body.dispatch_no ||
+      (await generateDispatchNo(order.party, dispatchDate));
+    try {
+      doc = await OrderDispatch.create({
+        ...payloadBase,
+        dispatch_no: dispatchNo,
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (err && (err.code === 11000 || err.code === '11000') && !body.dispatch_no) {
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (!doc) throw lastErr;
 
   if (file) {
     doc.bill_document = await attachBillDocument(
@@ -502,13 +547,16 @@ async function create(body, user, options = {}) {
   if (dispatchStatus === 'submitted') {
     await workflowService.transitionOrderStatus({
       orderId: body.order,
-      nextStatus: 'partial_dispatch_created',
+      nextStatus: 'dispatch_created',
       userId: user._id,
       remarks: body.remarks || `Dispatch ${doc.dispatch_no} recorded`,
       _systemCall: true,
     });
     await enqueuePostDispatchJobs(body.order, user._id);
+    await linkDispatchToActiveTransportPlan(doc, user);
   }
+
+  await recalculateOrderDispatchState(body.order, user);
 
   const populated = await OrderDispatch.findById(doc._id)
     .populate('bill_document', 'original_name url mime_type')
@@ -526,16 +574,45 @@ async function create(body, user, options = {}) {
 }
 
 async function patch(id, patchBody, user) {
-  const { OrderDispatch } = getModels();
+  const { OrderDispatch, OrderApproval, TransportShipment } = getModels();
   const existing = await OrderDispatch.findById(id);
   if (!existing) throw new ApiError(404, DISP_NF);
 
   const patch = patchBody || {};
   const previousStatus = existing.dispatch_status;
-  const editableByAccount = previousStatus === 'draft' || previousStatus === 'cancelled';
+  const statusKey = String(previousStatus || 'draft').toLowerCase();
+
+  let releaseResolved = false;
+  if (existing.finance_approval) {
+    const approval = await OrderApproval.findById(existing.finance_approval)
+      .select('dispatch_release_resolved')
+      .lean();
+    releaseResolved = Boolean(approval?.dispatch_release_resolved);
+  }
+
+  const hasTransport =
+    statusKey === 'transport_created'
+    || Boolean(
+      await TransportShipment.exists({
+        dispatch: existing._id,
+        deletedAt: null,
+        shipment_status: { $nin: ['returned', 'cancelled'] },
+      }),
+    );
+
+  const fullyEditableByAccount =
+    !releaseResolved
+    && !hasTransport
+    && (statusKey === 'draft' || statusKey === 'cancelled' || statusKey === 'submitted');
 
   if (user.department === 'account') {
-    if (editableByAccount) {
+    if (releaseResolved) {
+      throw new ApiError(403, 'This release has been settled; dispatch can no longer be edited');
+    }
+    if (hasTransport && statusKey !== 'draft' && statusKey !== 'cancelled') {
+      throw new ApiError(403, 'Dispatch cannot be edited after transport is created');
+    }
+    if (fullyEditableByAccount) {
       const allowed = new Set([
         'bill_number',
         'billing_date',
@@ -553,7 +630,7 @@ async function patch(id, patchBody, user) {
       ]);
       const keys = Object.keys(patch);
       if (keys.some((key) => !allowed.has(key))) {
-        throw new ApiError(403, 'Account users may only update editable draft/cancelled dispatch fields');
+        throw new ApiError(403, 'Account users may only update editable dispatch fields');
       }
     } else {
       const allowed = new Set(['bill_number', 'billing_date', 'bill_document', 'dispatch_assignee_user']);
@@ -619,12 +696,13 @@ async function patch(id, patchBody, user) {
   if (becameSubmitted) {
     await workflowService.transitionOrderStatus({
       orderId: existing.order,
-      nextStatus: 'partial_dispatch_created',
+      nextStatus: 'dispatch_created',
       userId: user._id,
       remarks: existing.remarks || `Dispatch ${existing.dispatch_no} submitted`,
       _systemCall: true,
     });
     await enqueuePostDispatchJobs(existing.order, user._id);
+    await linkDispatchToActiveTransportPlan(existing, user);
   }
 
   await recalculateOrderDispatchState(existing.order, user);

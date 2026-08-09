@@ -5,7 +5,6 @@ import { RefreshCw, Save, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import {
   refId,
-  toDateInput,
   formatDateOnly,
 } from "./utils";
 
@@ -24,7 +23,6 @@ type DeliveryItemDraft = {
   productName: string;
   dispatchedQty: number;
   deliveredQty: number;
-  remarks: string;
 };
 
 export function OrderDeliveriesForm({
@@ -45,9 +43,26 @@ export function OrderDeliveriesForm({
     [deliveries],
   );
 
+  /** Only one delivery log for this wizard — create when none exist, otherwise view. */
+  const isCreateMode = sortedDeliveries.length === 0;
+
   const [selectedId, setSelectedId] = useState(() =>
     sortedDeliveries[0] ? refId(sortedDeliveries[0]._id || sortedDeliveries[0].id) : "new"
   );
+
+  useEffect(() => {
+    if (isCreateMode) {
+      setSelectedId("new");
+      return;
+    }
+    const firstId = refId(sortedDeliveries[0]._id || sortedDeliveries[0].id);
+    if (
+      selectedId === "new" ||
+      !sortedDeliveries.some((d) => refId(d._id || d.id) === selectedId)
+    ) {
+      setSelectedId(firstId);
+    }
+  }, [isCreateMode, sortedDeliveries, selectedId]);
 
   const selectedDelivery = useMemo(
     () =>
@@ -57,13 +72,11 @@ export function OrderDeliveriesForm({
     [sortedDeliveries, selectedId],
   );
 
-  // For new delivery logging
   const [transportId, setTransportId] = useState("");
   const [receivedBy, setReceivedBy] = useState("");
   const [overallRemarks, setOverallRemarks] = useState("");
   const [newItems, setNewItems] = useState<DeliveryItemDraft[]>([]);
 
-  // Find dispatch linked to the selected transport
   const selectedTransportObj = useMemo(() => {
     if (!transportId) return null;
     return transports.find((t) => refId(t._id || t.id) === transportId) || null;
@@ -79,9 +92,8 @@ export function OrderDeliveriesForm({
     return dispatches.find((d) => refId(d._id || d.id) === linkedDispatchId) || null;
   }, [linkedDispatchId, dispatches]);
 
-  // Load items from dispatch when transport changes
   useEffect(() => {
-    if (selectedId !== "new") return;
+    if (!isCreateMode) return;
     if (!linkedDispatchObj) {
       setNewItems([]);
       return;
@@ -105,12 +117,11 @@ export function OrderDeliveriesForm({
         product: pId,
         productName: prodName,
         dispatchedQty: dispQty,
-        deliveredQty: dispQty, // Default to full delivery
-        remarks: "",
+        deliveredQty: dispQty,
       };
     });
     setNewItems(draftItems);
-  }, [linkedDispatchObj, selectedId, order.order_items]);
+  }, [linkedDispatchObj, isCreateMode, order.order_items]);
 
   const resetForm = useCallback(() => {
     const defaultTransport = transports.find((t) => t.shipment_status !== "delivered") || transports[0];
@@ -121,26 +132,14 @@ export function OrderDeliveriesForm({
   }, [transports]);
 
   useEffect(() => {
-    if (selectedId === "new") {
+    if (isCreateMode) {
       resetForm();
     }
-  }, [selectedId, resetForm]);
-
-  const updateItemQty = (prodId: string, val: number) => {
-    setNewItems((prev) =>
-      prev.map((item) => (item.product === prodId ? { ...item, deliveredQty: val } : item))
-    );
-  };
-
-  const updateItemRemarks = (prodId: string, val: string) => {
-    setNewItems((prev) =>
-      prev.map((item) => (item.product === prodId ? { ...item, remarks: val } : item))
-    );
-  };
+  }, [isCreateMode, resetForm]);
 
   const handleSave = async () => {
-    if (selectedId !== "new") {
-      toast.error("Editing existing logged deliveries is not supported.");
+    if (!isCreateMode) {
+      toast.error("A delivery already exists for this order.");
       return;
     }
     if (!transportId) {
@@ -168,7 +167,6 @@ export function OrderDeliveriesForm({
       delivery_items: newItems.map((item) => ({
         product: item.product,
         delivered_quantity: item.deliveredQty,
-        remarks: item.remarks.trim(),
       })),
       received_by: receivedBy.trim(),
       remarks: overallRemarks.trim(),
@@ -199,7 +197,7 @@ export function OrderDeliveriesForm({
               Order Deliveries — {order.order_no || orderId}
             </h3>
             <p className="text-2xs text-amber-800/80 dark:text-amber-200/70">
-              Log new deliveries or view history. Super-admin bypass logs delivery status directly.
+              Log one full delivery for this order. Delivered qty matches dispatched qty.
             </p>
           </div>
           <button
@@ -212,155 +210,107 @@ export function OrderDeliveriesForm({
         </div>
 
         <div className="flex-1 overflow-auto p-4 space-y-4 font-sans">
-          <div className="flex flex-wrap gap-2 items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-            <div className="flex flex-wrap gap-2">
-              {sortedDeliveries.map((d) => {
-                const id = refId(d._id || d.id);
-                const label =
-                  String(d.delivery_no || "").trim() ||
-                  `Delivery ${formatDateOnly(d.createdAt)}`;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setSelectedId(id)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                      selectedId === id
-                        ? "bg-amber-600 text-white shadow"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+          {!isCreateMode && sortedDeliveries[0] ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300">
+              Viewing delivery{" "}
+              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                {String(sortedDeliveries[0].delivery_no || "").trim() ||
+                  formatDateOnly(sortedDeliveries[0].createdAt)}
+              </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setSelectedId("new")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                selectedId === "new"
-                  ? "bg-emerald-600 text-white shadow"
-                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
-              }`}
-            >
-              + Log New Delivery
-            </button>
-          </div>
+          ) : null}
 
-          {selectedId === "new" ? (
-            <>
-              {transports.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-amber-300 px-4 py-8 text-center text-sm text-amber-800 bg-amber-50/50">
-                  No transport shipments available to deliver. Please create a transport shipment first.
-                </div>
-              ) : (
-                <>
-                  <div className="rounded-xl border border-slate-200 p-4 space-y-4 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <div>
-                        <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
-                          Select Shipment (LR Number) *
-                        </label>
-                        <select
-                          value={transportId}
-                          onChange={(e) => setTransportId(e.target.value)}
-                          className={inputClass}
-                          required
-                        >
-                          <option value="">— Select Transport —</option>
-                          {transports.map((t) => (
-                            <option key={refId(t._id || t.id)} value={refId(t._id || t.id)}>
-                              {t.lr_number || "Shipment"} &middot; {t.transporter_name || "Agent"}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+          {isCreateMode ? (
+            transports.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-amber-300 px-4 py-8 text-center text-sm text-amber-800 bg-amber-50/50">
+                No transport shipments available to deliver. Please create a transport shipment first.
+              </div>
+            ) : (
+              <>
+                <div className="rounded-xl border border-slate-200 p-4 space-y-4 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div>
+                      <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
+                        Select Shipment (LR Number) *
+                      </label>
+                      <select
+                        value={transportId}
+                        onChange={(e) => setTransportId(e.target.value)}
+                        className={inputClass}
+                        required
+                      >
+                        <option value="">— Select Transport —</option>
+                        {transports.map((t) => (
+                          <option key={refId(t._id || t.id)} value={refId(t._id || t.id)}>
+                            {t.lr_number || "Shipment"} &middot; {t.transporter_name || "Agent"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                      <div>
-                        <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
-                          Received By Name
-                        </label>
-                        <input
-                          type="text"
-                          value={receivedBy}
-                          onChange={(e) => setReceivedBy(e.target.value)}
-                          className={inputClass}
-                          placeholder="Staff or Customer name"
-                        />
-                      </div>
+                    <div>
+                      <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
+                        Received By Name
+                      </label>
+                      <input
+                        type="text"
+                        value={receivedBy}
+                        onChange={(e) => setReceivedBy(e.target.value)}
+                        className={inputClass}
+                        placeholder="Staff or Customer name"
+                      />
+                    </div>
 
-                      <div>
-                        <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
-                          Overall Remarks
-                        </label>
-                        <input
-                          type="text"
-                          value={overallRemarks}
-                          onChange={(e) => setOverallRemarks(e.target.value)}
-                          className={inputClass}
-                          placeholder="e.g. Received intact"
-                        />
-                      </div>
+                    <div>
+                      <label className="mb-1 block text-2xs font-semibold text-slate-500 uppercase">
+                        Overall Remarks
+                      </label>
+                      <input
+                        type="text"
+                        value={overallRemarks}
+                        onChange={(e) => setOverallRemarks(e.target.value)}
+                        className={inputClass}
+                        placeholder="e.g. Received intact"
+                      />
                     </div>
                   </div>
+                </div>
 
-                  {newItems.length > 0 && (
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                        Items being delivered
-                      </h4>
-                      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-slate-50 text-slate-500 dark:bg-slate-950 font-medium">
-                            <tr>
-                              <th className="px-3 py-2">Product Name</th>
-                              <th className="px-3 py-2 text-center w-28">Dispatched Qty</th>
-                              <th className="px-3 py-2 text-center w-28">Delivered Qty</th>
-                              <th className="px-3 py-2">Item Remarks</th>
+                {newItems.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Items being delivered
+                    </h4>
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 text-slate-500 dark:bg-slate-950 font-medium">
+                          <tr>
+                            <th className="px-3 py-2">Product Name</th>
+                            <th className="px-3 py-2 text-center w-28">Dispatched Qty</th>
+                            <th className="px-3 py-2 text-center w-28">Delivered Qty</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                          {newItems.map((item) => (
+                            <tr key={item.product} className="bg-white dark:bg-slate-900">
+                              <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                                {item.productName}
+                              </td>
+                              <td className="px-3 py-1.5 text-center font-semibold text-slate-500 dark:text-slate-400">
+                                {item.dispatchedQty}
+                              </td>
+                              <td className="px-3 py-1.5 text-center font-bold tabular-nums text-slate-800 dark:text-slate-100">
+                                {item.deliveredQty}
+                              </td>
                             </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                            {newItems.map((item) => (
-                              <tr key={item.product} className="bg-white dark:bg-slate-900">
-                                <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
-                                  {item.productName}
-                                </td>
-                                <td className="px-3 py-1.5 text-center font-semibold text-slate-500 dark:text-slate-400">
-                                  {item.dispatchedQty}
-                                </td>
-                                <td className="px-3 py-1.5 text-center">
-                                  <input
-                                    type="number"
-                                    value={item.deliveredQty}
-                                    onChange={(e) =>
-                                      updateItemQty(
-                                        item.product,
-                                        Math.max(0, Math.min(item.dispatchedQty, Number(e.target.value) || 0))
-                                      )
-                                    }
-                                    className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-center font-semibold text-slate-800 outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                                  />
-                                </td>
-                                <td className="px-3 py-1.5">
-                                  <input
-                                    type="text"
-                                    value={item.remarks}
-                                    onChange={(e) => updateItemRemarks(item.product, e.target.value)}
-                                    className="w-full rounded border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-950 text-xs"
-                                    placeholder="Remarks for this line"
-                                  />
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  )}
-                </>
-              )}
-            </>
+                  </div>
+                )}
+              </>
+            )
           ) : (
             selectedDelivery && (
               <div className="rounded-xl border border-slate-200 p-4 space-y-4 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
@@ -428,7 +378,7 @@ export function OrderDeliveriesForm({
           >
             Close
           </button>
-          {selectedId === "new" ? (
+          {isCreateMode ? (
             transports.length > 0 && (
               <div className="flex items-center gap-2">
                 <button

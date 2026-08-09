@@ -35,7 +35,8 @@ const extendedTags = [
   { name: 'order-deliveries', description: 'Delivery execution records' },
   { name: 'order-returns', description: 'Warehouse return records' },
   { name: 'order-due-sheets', description: 'Order due sheet documents (file management + Attachment ref)' },
-  { name: 'final-order-statements', description: 'Computed statement for closed orders' },
+  { name: 'unbilled-orders', description: 'Orders with approved qty not yet covered by billed+submitted dispatch' },
+  { name: 'final-order-statements', description: 'Computed statement for delivered/closed orders' },
   { name: 'party-products', description: 'Party–product mappings and rates' },
   { name: 'party-order-products-rate', description: 'Check/map rates for order lines' },
   { name: 'transport-agents', description: 'Third-party transport agents' },
@@ -516,6 +517,133 @@ const extendedPaths = {
     },
   },
 
+  '/api/unbilled-orders': {
+    get: {
+      tags: ['unbilled-orders'],
+      summary: 'List unbilled order tracking rows',
+      description:
+        'Default returns `status=open` only. Pass `include_resolved=true` to include resolved/cancelled. ' +
+        'Department: sales, admin, finance, account, dispatch, or super_admin.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { name: 'order', in: 'query', schema: { type: 'string' } },
+        { name: 'party', in: 'query', schema: { type: 'string' } },
+        {
+          name: 'status',
+          in: 'query',
+          schema: { type: 'string', enum: ['open', 'resolved', 'cancelled'] },
+        },
+        {
+          name: 'billing_status',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Comma-separated: unbilled,partially_billed,fully_billed',
+        },
+        { name: 'search', in: 'query', schema: { type: 'string' }, description: 'Match order_no' },
+        {
+          name: 'include_resolved',
+          in: 'query',
+          schema: { type: 'string', enum: ['true', 'false'] },
+        },
+      ],
+      responses: stdResponses.getList,
+    },
+    post: {
+      tags: ['unbilled-orders'],
+      summary: 'Create / refresh tracking for one order',
+      description:
+        'Computes remaining approved qty vs billed+submitted dispatch and upserts the UnbilledOrder row. ' +
+        'Returns null body data when the order has no remaining qty.',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['order'],
+              properties: {
+                order: { type: 'string' },
+                remarks: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      responses: stdResponses.mutate,
+    },
+  },
+  '/api/unbilled-orders/deleted': {
+    get: {
+      tags: ['unbilled-orders'],
+      summary: 'List soft-deleted unbilled order rows',
+      description: SOFT_DELETE_RBAC,
+      security: [{ bearerAuth: [] }],
+      parameters: [{ name: 'order', in: 'query', schema: { type: 'string' } }],
+      responses: stdResponses.getList,
+    },
+  },
+  '/api/unbilled-orders/order/{orderId}': {
+    get: {
+      tags: ['unbilled-orders'],
+      summary: 'Get unbilled tracking by order id',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ name: 'orderId', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: {
+        '200': { $ref: '#/components/responses/SuccessObject' },
+        '401': { $ref: '#/components/responses/Unauthorized' },
+        '403': { $ref: '#/components/responses/Forbidden' },
+      },
+    },
+  },
+  '/api/unbilled-orders/{id}': {
+    get: {
+      tags: ['unbilled-orders'],
+      summary: 'Get unbilled order row by id',
+      security: [{ bearerAuth: [] }],
+      parameters: idPath,
+      responses: stdResponses.getOne,
+    },
+    patch: {
+      tags: ['unbilled-orders'],
+      summary: 'Patch status / remarks',
+      security: [{ bearerAuth: [] }],
+      parameters: idPath,
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                status: { type: 'string', enum: ['open', 'resolved', 'cancelled'] },
+                remarks: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      responses: stdResponses.mutate,
+    },
+    delete: {
+      tags: ['unbilled-orders'],
+      summary: 'Soft-delete unbilled order row',
+      description: SOFT_DELETE_RBAC,
+      security: [{ bearerAuth: [] }],
+      parameters: idPath,
+      responses: stdResponses.mutate,
+    },
+  },
+  '/api/unbilled-orders/{id}/restore': {
+    post: {
+      tags: ['unbilled-orders'],
+      summary: 'Restore soft-deleted unbilled order row',
+      description: SOFT_DELETE_RBAC,
+      security: [{ bearerAuth: [] }],
+      parameters: idPath,
+      responses: stdResponses.mutate,
+    },
+  },
+
   '/api/final-order-statements': {
     get: {
       tags: ['final-order-statements'],
@@ -528,7 +656,7 @@ const extendedPaths = {
   '/api/final-order-statements/order/{orderId}': {
     get: {
       tags: ['final-order-statements'],
-      summary: 'Generate final statement for closed order',
+      summary: 'Generate final statement for delivered/closed order',
       security: [{ bearerAuth: [] }],
       parameters: [{ name: 'orderId', in: 'path', required: true, schema: { type: 'string' } }],
       responses: stdResponses.getOne,

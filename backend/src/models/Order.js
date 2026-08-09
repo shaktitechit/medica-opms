@@ -10,14 +10,12 @@ import mongoose from "mongoose";
  * ENUMS (canonical values for this model)
  * ======================================================= */
 
-const ORDER_LINE_STATUS = ["active", "partial", "fulfilled", "cancelled"];
+const ORDER_LINE_STATUS = ["active", "fulfilled", "cancelled"];
 
 const ORDER_LIFECYCLE_STATUS = [
   "draft",
   "active",
-  "partially_fulfilled",
   "fulfilled",
-  "closed", // legacy lifecycle value; terminal state is represented by status=closed
   "cancelled",
   "on_hold",
 ];
@@ -47,14 +45,13 @@ const ORDER_STATUS = [
   "dispatch",
   "in_transit",
   "delivered",
-  "closed",
   "cancelled",
   "on_hold",
 ];
 
-const APPROVAL_STATUS = ["pending", "partial", "approved", "rejected", "full"];
+const APPROVAL_STATUS = ["pending", "approved", "rejected", "full"];
 
-const FULFILLMENT_STATUS = ["pending", "partial", "completed"];
+const FULFILLMENT_STATUS = ["pending", "completed"];
 
 /* =========================================================
  * ORDER ITEM
@@ -396,8 +393,15 @@ const orderSchema = new mongoose.Schema(
 
     payment_status: {
       type: String,
-      enum: ["unpaid", "partial", "paid"],
+      enum: ["unpaid", "paid"],
       default: "unpaid",
+      index: true,
+    },
+
+    billing_status: {
+      type: String,
+      enum: ["unbilled", "fully_billed"],
+      default: "unbilled",
       index: true,
     },
 
@@ -534,5 +538,89 @@ orderSchema.index({ party: 1, createdAt: -1 });
 orderSchema.index({ order_date: -1 });
 orderSchema.index({ order_no: 1 });
 orderSchema.index({ order_number: 1 });
+
+orderSchema.pre("save", function (next) {
+  const doc = this;
+  if (doc.isModified("status") || doc.isNew) {
+    const status = String(doc.status);
+    switch (status) {
+      case "draft":
+        doc.lifecycle_status = "draft";
+        doc.workflow_stage = "sales";
+        doc.pending_with_role = "sales";
+        doc.current_department = "sales";
+        break;
+      case "submitted":
+        doc.lifecycle_status = "active";
+        doc.workflow_stage = "admin_review";
+        doc.pending_with_role = "admin";
+        doc.current_department = "admin";
+        break;
+      case "sales_approved":
+      case "finance_review":
+        doc.lifecycle_status = "active";
+        doc.workflow_stage = "finance_review";
+        doc.pending_with_role = "finance";
+        doc.current_department = "finance";
+        break;
+      case "finance_approved":
+        doc.lifecycle_status = "active";
+        doc.workflow_stage = "dispatch";
+        doc.pending_with_role = "dispatch";
+        doc.current_department = "dispatch";
+        break;
+      case "finance_rejected":
+        doc.lifecycle_status = "active";
+        doc.workflow_stage = "sales";
+        doc.pending_with_role = "sales";
+        doc.current_department = "sales";
+        break;
+      case "account_review":
+        doc.lifecycle_status = "active";
+        doc.workflow_stage = "account_review";
+        doc.pending_with_role = "account";
+        doc.current_department = "account";
+        break;
+      case "account_approved":
+        doc.lifecycle_status = "active";
+        doc.workflow_stage = "dispatch";
+        doc.pending_with_role = "dispatch";
+        doc.current_department = "dispatch";
+        break;
+      case "account_rejected":
+        doc.lifecycle_status = "active";
+        doc.workflow_stage = "account_review";
+        doc.pending_with_role = "account";
+        doc.current_department = "account";
+        break;
+      case "dispatch":
+      case "in_transit":
+        doc.lifecycle_status = "active";
+        doc.workflow_stage = "dispatch";
+        doc.pending_with_role = "dispatch";
+        doc.current_department = "dispatch";
+        break;
+      case "delivered":
+        doc.lifecycle_status = "fulfilled";
+        doc.workflow_stage = "completed";
+        doc.pending_with_role = undefined;
+        doc.current_department = undefined;
+        break;
+      case "cancelled":
+        doc.lifecycle_status = "cancelled";
+        doc.workflow_stage = "cancelled";
+        doc.pending_with_role = undefined;
+        doc.current_department = undefined;
+        break;
+      case "on_hold":
+        doc.lifecycle_status = "on_hold";
+        doc.workflow_stage = "on_hold";
+        doc.pending_with_role = undefined;
+        doc.current_department = undefined;
+        break;
+    }
+  }
+  next();
+});
 
 export default mongoose.model("Order", orderSchema);

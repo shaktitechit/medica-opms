@@ -12,21 +12,15 @@ import {
   useGetDashboardSalesQuery,
   useGetWorkPlanStatsQuery,
   useListOrdersQuery,
-  useListOrderReturnsQuery,
   useListPartiesQuery,
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
 import { OverviewFlagsWidget } from "@/components/portal/shared/OverviewFlagsWidget";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import {
-  buildPendingReturnOrderIds,
-  filterOrdersForSalesUser,
-} from "@/components/portal/sales/orderUtils";
+import { filterOrdersForSalesUser } from "@/components/portal/sales/orderUtils";
 import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
-import {
-  buildPartyNameById,
-  pickList,
-} from "@/components/portal/sales/partyDisplay";
+import { useOrderWorkflowCategoryOptions } from "@/components/portal/shared/orderList/useOrderWorkflowCategoryOptions";
+import { buildPartyNameById } from "@/components/portal/sales/partyDisplay";
 import {
   FilePlus,
   RefreshCw,
@@ -56,8 +50,8 @@ export default function SalesOverview() {
     refetch: refetchOrders,
   } = useListOrdersQuery({});
 
-  const { data: returnsData } = useListOrderReturnsQuery({});
   const { data: partiesData } = useListPartiesQuery({});
+  const categoryOptions = useOrderWorkflowCategoryOptions();
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -91,16 +85,6 @@ export default function SalesOverview() {
       selectedMonths
     );
   }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
-
-  const pendingReturnOrderIds = useMemo(
-    () => buildPendingReturnOrderIds(pickList(returnsData)),
-    [returnsData],
-  );
-
-  const categoryOptions = useMemo(
-    () => ({ pendingReturnOrderIds }),
-    [pendingReturnOrderIds],
-  );
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),

@@ -63,9 +63,26 @@ export function OrderTransportsForm({
     [transports],
   );
 
+  /** Only one transport for this wizard — create when none exist, otherwise edit. */
+  const isCreateMode = sortedTransports.length === 0;
+
   const [selectedId, setSelectedId] = useState(() =>
     sortedTransports[0] ? refId(sortedTransports[0]._id || sortedTransports[0].id) : "new"
   );
+
+  useEffect(() => {
+    if (isCreateMode) {
+      setSelectedId("new");
+      return;
+    }
+    const firstId = refId(sortedTransports[0]._id || sortedTransports[0].id);
+    if (
+      selectedId === "new" ||
+      !sortedTransports.some((t) => refId(t._id || t.id) === selectedId)
+    ) {
+      setSelectedId(firstId);
+    }
+  }, [isCreateMode, sortedTransports, selectedId]);
 
   const transportAgentsQ = useListTransportAgentsQuery({ is_active: "true" });
   const driversQ = useListDriversQuery({});
@@ -215,6 +232,10 @@ export function OrderTransportsForm({
   }, [driverId, drivers]);
 
   const handleSave = async () => {
+    if (selectedId === "new" && !isCreateMode) {
+      toast.error("A transport already exists for this order.");
+      return;
+    }
     if (!dispatchId) {
       toast.error("Linked dispatch reference is required");
       return;
@@ -279,7 +300,8 @@ export function OrderTransportsForm({
               Order Transports — {order.order_no || orderId}
             </h3>
             <p className="text-2xs text-amber-800/80 dark:text-amber-200/70">
-              Manage transport shipments linked to dispatches. Create new or edit existing details.
+              Create one transport for this order. Creating transport auto-settles remaining
+              clearance on that release to the Unbilled Order.
             </p>
           </div>
           <button
@@ -292,42 +314,33 @@ export function OrderTransportsForm({
         </div>
 
         <div className="flex-1 overflow-auto p-4 space-y-4 font-sans">
-          <div className="flex flex-wrap gap-2 items-center justify-between border-b border-slate-100 pb-3 dark:border-white/5">
-            <div className="flex flex-wrap gap-2">
-              {sortedTransports.map((t) => {
-                const id = refId(t._id || t.id);
-                const active = id === selectedId;
-                const label =
-                  String(t.lr_number || "").trim() ||
-                  `Transport ${formatDateOnly(t.createdAt)}`;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setSelectedId(id)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                      active
-                        ? "bg-amber-600 text-white shadow"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+          {!isCreateMode && sortedTransports[0] ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300">
+              Editing transport{" "}
+              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                {String(sortedTransports[0].lr_number || "").trim() ||
+                  formatDateOnly(sortedTransports[0].createdAt)}
+              </span>
+              {" · "}status{" "}
+              <span className="font-mono">
+                {String(sortedTransports[0].shipment_status || "pending")}
+              </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setSelectedId("new")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                selectedId === "new"
-                  ? "bg-emerald-600 text-white shadow"
-                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
-              }`}
-            >
-              + Create New Transport
-            </button>
-          </div>
+          ) : null}
+
+          {isCreateMode ? (
+            <div className="rounded-lg border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-2xs text-amber-900 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-200">
+              Creating transport will settle any remaining clearance on this release
+              (approval + order) and move the rest to the Unbilled Order — same as account
+              transport create.
+            </div>
+          ) : null}
+
+          {dispatches.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-amber-300 px-4 py-8 text-center text-sm text-amber-800 bg-amber-50/50">
+              No dispatch batch available. Create a dispatch before arranging transport.
+            </div>
+          ) : (
 
           <div className="rounded-xl border border-slate-200 p-4 space-y-4 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
             <div className="grid gap-4 sm:grid-cols-4">
@@ -340,6 +353,7 @@ export function OrderTransportsForm({
                   onChange={(e) => setDispatchId(e.target.value)}
                   className={inputClass}
                   required
+                  disabled={!isCreateMode}
                 >
                   <option value="">— Select Dispatch —</option>
                   {dispatches.map((d) => (
@@ -626,6 +640,7 @@ export function OrderTransportsForm({
               </div>
             </div>
           </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-3 shrink-0 dark:border-slate-800 dark:bg-slate-900">
@@ -639,7 +654,7 @@ export function OrderTransportsForm({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={saving}
+              disabled={saving || dispatches.length === 0}
               onClick={() => void handleSave()}
               className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-amber-700 disabled:opacity-60"
             >
@@ -648,7 +663,7 @@ export function OrderTransportsForm({
               ) : (
                 <Save className="h-3.5 w-3.5" />
               )}
-              {selectedId === "new" ? "Create transport" : "Save transport"}
+              {isCreateMode ? "Create transport (auto-settle)" : "Save transport"}
             </button>
           </div>
         </div>

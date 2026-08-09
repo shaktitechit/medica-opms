@@ -10,12 +10,11 @@ import {
 } from "react";
 
 import { useBrowserTabAlert } from "@/hooks/useBrowserTabAlert";
-import { pickList } from "@/components/portal/sales/partyDisplay";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
-import { useListOrderReturnsQuery, useListOrdersQuery } from "@/store/api";
+import { useOrderWorkflowCategoryOptions } from "@/components/portal/shared/orderList/useOrderWorkflowCategoryOptions";
+import { useListOrdersQuery } from "@/store/api";
 import {
   accountTabQueryParams,
-  buildPendingReturnOrderIds,
   orderMatchesAccountTab,
 } from "./accountOrderUtils";
 
@@ -63,15 +62,13 @@ function AccountTabAlertInner({
       refetchOnReconnect: true,
     },
   );
-  const { data: returnsData } = useListOrderReturnsQuery({});
+  const categoryOptions = useOrderWorkflowCategoryOptions();
 
   const queryCount = useMemo(() => {
-    const pendingReturnOrderIds = buildPendingReturnOrderIds(pickList(returnsData));
-    const options = { pendingReturnOrderIds };
     return pickOrders(data).filter((order) =>
-      orderMatchesAccountTab(order, "pending_account_approval", options),
+      orderMatchesAccountTab(order, "pending_account_approval", categoryOptions),
     ).length;
-  }, [data, returnsData]);
+  }, [data, categoryOptions]);
 
   const count = overrideCount ?? queryCount;
 

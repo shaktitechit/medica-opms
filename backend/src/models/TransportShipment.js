@@ -96,6 +96,10 @@ const transportShipmentSchema = new mongoose.Schema(
 
     actual_delivery_date: Date,
 
+    delivered_at: Date,
+
+    received_by: String,
+
     delivery_proof_url: String,
 
     remarks: String,

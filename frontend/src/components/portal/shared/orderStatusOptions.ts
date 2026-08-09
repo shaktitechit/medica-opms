@@ -21,8 +21,7 @@ const PARTIALLY_FINANCE_APPROVED: StatusOption = { value: "partially_finance_app
 const FULLY_FINANCE_APPROVED:    StatusOption = { value: "fully_finance_approved",     label: "Fully Finance Approved" };
 const FINANCE_REJECTED:         StatusOption = { value: "finance_rejected",          label: "Finance Rejected" };
 const DISPATCH_PENDING:         StatusOption = { value: "dispatch_pending",          label: "Dispatch Pending" };
-const PARTIAL_DISPATCH_CREATED: StatusOption = { value: "partial_dispatch_created",  label: "Partial Dispatch Created" };
-const FULL_DISPATCH_CREATED:    StatusOption = { value: "full_dispatch_created",     label: "Full Dispatch Created" };
+const DISPATCH_CREATED:          StatusOption = { value: "dispatch_created",         label: "Dispatch Created" };
 const TRANSPORT_PENDING:        StatusOption = { value: "transport_pending",         label: "Transport Pending" };
 const TRANSPORT_ASSIGNED:       StatusOption = { value: "transport_assigned",        label: "Transport Assigned" };
 const PARTIALLY_TRANSPORTED: StatusOption = { value: "partially_transported", label: "Partially Transported" };
@@ -77,8 +76,7 @@ export const ADMIN_ORDER_STATUSES: StatusOption[] = [
   FULLY_FINANCE_APPROVED,
   FINANCE_REJECTED,
   DISPATCH_PENDING,
-  PARTIAL_DISPATCH_CREATED,
-  FULL_DISPATCH_CREATED,
+  DISPATCH_CREATED,
   TRANSPORT_PENDING,
   TRANSPORT_ASSIGNED,
   PARTIALLY_TRANSPORTED,
@@ -109,8 +107,7 @@ export const FINANCE_ORDER_STATUSES: StatusOption[] = [
  */
 export const DISPATCH_ORDER_STATUSES: StatusOption[] = [
   DISPATCH_PENDING,
-  PARTIAL_DISPATCH_CREATED,
-  FULL_DISPATCH_CREATED,
+  DISPATCH_CREATED,
   TRANSPORT_PENDING,
   TRANSPORT_ASSIGNED,
   PARTIALLY_TRANSPORTED,

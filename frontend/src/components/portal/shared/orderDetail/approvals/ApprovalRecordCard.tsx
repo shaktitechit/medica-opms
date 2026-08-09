@@ -2,12 +2,21 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Download, Pencil, Send } from "lucide-react";
+import { useAppSelector } from "@/store";
 
 import {
   OrderItemsPdfTemplate,
   type OrderItemsPdfLine,
 } from "@/components/portal/shared/OrderItemsPdfTemplate";
 import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
+import {
+  accountAmendmentNotes,
+  isAccountAmended,
+} from "@/components/portal/shared/orderAccountApprovalDisplay";
+import {
+  adminAmendmentNotes,
+  isAdminAmended,
+} from "@/components/portal/shared/orderAdminApprovalDisplay";
 import { resolveUserDisplay } from "@/components/portal/shared/userDisplay";
 import {
   companyLetterheadLogoUrl,
@@ -23,12 +32,17 @@ type ApprovalRecordCardProps = {
   orderDate?: unknown;
   expectedDeliveryDate?: unknown;
   userNameById: Record<string, string>;
+  portal?: "admin" | "finance" | "account";
   onSendToFinance?: (approvalId: string) => void;
-  onAmend?: (approvalId: string) => void;
+  onSendToAccount?: (approvalId: string) => void;
+  onAmend?: (approvalId: string, mode: "admin" | "finance" | "account") => void;
+  onApprove?: () => void;
   amendBusy?: boolean;
   amendingApprovalId?: string | null;
   sendToFinanceBusy?: boolean;
+  sendToAccountBusy?: boolean;
   sendingApprovalId?: string | null;
+  isAmendBlocked?: boolean;
 };
 
 function formatDate(v: unknown): string {
@@ -95,12 +109,17 @@ export function ApprovalRecordCard({
   orderDate,
   expectedDeliveryDate,
   userNameById,
+  portal = "admin",
   onSendToFinance,
+  onSendToAccount,
   onAmend,
+  onApprove,
   amendBusy = false,
   amendingApprovalId = null,
   sendToFinanceBusy = false,
+  sendToAccountBusy = false,
   sendingApprovalId = null,
+  isAmendBlocked = false,
 }: ApprovalRecordCardProps) {
   const approvalId = String(approval._id ?? approval.id ?? "");
   const approvalStatus = useMemo(() => {
@@ -143,6 +162,20 @@ export function ApprovalRecordCard({
     userNameById,
   );
   const financeAmendedAtLabel = formatDate(approval.finance_amended_at);
+  const accountAmended = isAccountAmended(approval);
+  const accountAmendedByLabel = resolveUserDisplay(
+    approval.account_amended_by,
+    userNameById,
+  );
+  const accountAmendedAtLabel = formatDate(approval.account_amended_at);
+  const accountAmendNotes = accountAmendmentNotes(approval);
+  const adminAmended = isAdminAmended(approval);
+  const adminAmendedByLabel = resolveUserDisplay(
+    approval.admin_amended_by,
+    userNameById,
+  );
+  const adminAmendedAtLabel = formatDate(approval.admin_amended_at);
+  const adminAmendNotes = adminAmendmentNotes(approval);
   const financeAssigneeLabel = resolveUserDisplay(
     approval.assigned_finance_user,
     userNameById,
@@ -161,15 +194,51 @@ export function ApprovalRecordCard({
   );
   const accountApprovedAtLabel = formatDate(approval.account_approved_at);
 
+  const salesSubmittedByLabel = resolveUserDisplay(
+    approval.sales_submitted_by,
+    userNameById,
+  );
+  const salesSubmittedAtLabel = formatDate(approval.sales_submitted_at);
+
+  const isFinancePortal = portal === "finance";
+  const isAccountPortal = portal === "account";
+  const accountAssigneeLabel = resolveUserDisplay(
+    approval.assigned_account_user,
+    userNameById,
+  );
+  const sentToAccountAtLabel = formatDate(approval.sent_to_account_at);
+
+  const currentUser = useAppSelector((state) => state.auth.user);
+  const userDept = currentUser?.department;
+  const isSuperAdmin = userDept === "super_admin";
+  const isUserAdmin = userDept === "admin" || isSuperAdmin;
+  const isUserFinance = userDept === "finance" || isSuperAdmin;
+  const isUserAccount = userDept === "account" || isSuperAdmin;
+
   const canDownloadPdf =
     approvalStatus === "approved" ||
     approvalStatus === "sent_to_finance" ||
-    Boolean(approval.is_admin_approved);
-  const canSendToFinance = approvalStatus === "approved";
-  const canAmend =
-    approvalStatus === "approved" ||
-    approvalStatus === "sent_to_finance" ||
-    Boolean(approval.is_admin_approved);
+    approvalStatus === "fully_approved" ||
+    approvalStatus === "partially_approved" ||
+    Boolean(approval.is_admin_approved) ||
+    Boolean(approval.is_finance_approved) ||
+    Boolean(approval.is_account_approved);
+  const isAdminApproved = Boolean(approval.is_admin_approved);
+  const isFinanceApproved = Boolean(approval.is_finance_approved);
+  const isAccountApproved = Boolean(approval.is_account_approved);
+
+  const showAdminApprove = !isAdminApproved && isUserAdmin;
+  const showAdminAmend = isAdminApproved && isUserAdmin && !isAmendBlocked;
+
+  const showFinanceApprove = isAdminApproved && !isFinanceApproved && isUserFinance && !isAmendBlocked;
+  const showFinanceAmend = isFinanceApproved && isUserFinance && !isAmendBlocked;
+
+  const showAccountApprove = isFinanceApproved && !isAccountApproved && isUserAccount && !isAmendBlocked;
+  const showAccountAmend = isAccountApproved && isUserAccount && !isAmendBlocked;
+
+  const canSendToFinance = isAdminApproved && !approval.assigned_finance_user && !isFinanceApproved && isUserAdmin;
+  const canSendToAccount = isFinanceApproved && !approval.assigned_account_user && !isAccountApproved && isUserFinance;
+
   const isAmendingThis = amendBusy && amendingApprovalId === approvalId;
 
   const pdfLines = useMemo((): OrderItemsPdfLine[] => {
@@ -257,7 +326,7 @@ export function ApprovalRecordCard({
   }, [approvalNo, canDownloadPdf, orderNo, pdfLines.length]);
 
   const isSendingThis =
-    sendToFinanceBusy && sendingApprovalId === approvalId;
+    (sendToFinanceBusy || sendToAccountBusy) && sendingApprovalId === approvalId;
 
   return (
     <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900/40">
@@ -296,6 +365,15 @@ export function ApprovalRecordCard({
                   }
                   : undefined
               }
+              adminAmendment={
+                adminAmended
+                  ? {
+                    amendedBy: adminAmendedByLabel,
+                    amendedAt: adminAmendedAtLabel,
+                    amendmentNotes: adminAmendNotes,
+                  }
+                  : undefined
+              }
               items={pdfLines}
               subtotal={pdfMoney(computedTotals.subtotal)}
               gst={pdfMoney(computedTotals.gst)}
@@ -320,7 +398,14 @@ export function ApprovalRecordCard({
 
       </div>
 
-      {(approvalStatus === "approved" || approvalStatus === "sent_to_finance" || Boolean(approval.is_admin_approved)) && (
+      {(approvalStatus === "approved" ||
+        approvalStatus === "sent_to_finance" ||
+        approvalStatus === "fully_approved" ||
+        approvalStatus === "partially_approved" ||
+        approvalStatus === "pending_review" ||
+        Boolean(approval.is_admin_approved) ||
+        Boolean(approval.is_finance_approved) ||
+        Boolean(approval.is_sales_submited)) && (
         <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -362,8 +447,26 @@ export function ApprovalRecordCard({
                   Finance Amended
                 </span>
               )}
+
+              {accountAmended && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-500/10 px-2.5 py-1 text-xs font-semibold text-teal-700 ring-1 ring-teal-600/20 dark:bg-teal-950/30 dark:text-teal-300">
+                  Account Amended
+                </span>
+              )}
+
+              {adminAmended && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-600/20 dark:bg-violet-950/30 dark:text-violet-300">
+                  Admin Amended
+                </span>
+              )}
             </div>
             <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+              {(Boolean(approval.is_sales_submited) || Boolean(approval.sales_submitted_by)) && (
+                <p>
+                  <b>Sales:</b> Submitted by <span className="font-medium text-slate-700 dark:text-slate-200">{salesSubmittedByLabel}</span>
+                  {salesSubmittedAtLabel && salesSubmittedAtLabel !== "—" ? <span className="tabular-nums"> at {salesSubmittedAtLabel}</span> : null}
+                </p>
+              )}
               <p>
                 <b>Admin:</b>{" "}
                 {approval.is_admin_approved ? (
@@ -401,6 +504,44 @@ export function ApprovalRecordCard({
                   ) : null}
                 </p>
               )}
+              {accountAmended && (
+                <p className="text-slate-500 dark:text-slate-400">
+                  <b>Account Amendment:</b> Amended by{" "}
+                  <span className="font-medium text-slate-700 dark:text-slate-200">
+                    {accountAmendedByLabel}
+                  </span>
+                  {accountAmendedAtLabel !== "—" ? (
+                    <>
+                      {" "}
+                      · <span className="tabular-nums">{accountAmendedAtLabel}</span>
+                    </>
+                  ) : null}
+                  {accountAmendNotes ? (
+                    <span className="mt-1 block text-2xs italic text-slate-500 dark:text-slate-400 font-sans">
+                      {accountAmendNotes}
+                    </span>
+                  ) : null}
+                </p>
+              )}
+              {adminAmended && (
+                <p className="text-slate-500 dark:text-slate-400">
+                  <b>Admin Amendment:</b> Amended by{" "}
+                  <span className="font-medium text-slate-700 dark:text-slate-200">
+                    {adminAmendedByLabel}
+                  </span>
+                  {adminAmendedAtLabel !== "—" ? (
+                    <>
+                      {" "}
+                      · <span className="tabular-nums">{adminAmendedAtLabel}</span>
+                    </>
+                  ) : null}
+                  {adminAmendNotes ? (
+                    <span className="mt-1 block text-2xs italic text-slate-500 dark:text-slate-400 font-sans">
+                      {adminAmendNotes}
+                    </span>
+                  ) : null}
+                </p>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -413,17 +554,74 @@ export function ApprovalRecordCard({
               <Download className="h-3.5 w-3.5" />
               {isDownloadingPdf ? "Generating PDF…" : "Download PDF"}
             </button>
-            {canAmend && onAmend ? (
+            {showAdminApprove && onAmend && (
               <button
                 type="button"
-                onClick={() => onAmend(approvalId)}
+                onClick={() => onAmend(approvalId, "admin")}
                 disabled={isAmendingThis}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-300"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-400 cursor-pointer"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {isAmendingThis ? "Opening…" : "Admin Approve"}
+              </button>
+            )}
+            {showAdminAmend && onAmend && (
+              <button
+                type="button"
+                onClick={() => onAmend(approvalId, "admin")}
+                disabled={isAmendingThis}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-white/5 cursor-pointer"
               >
                 <Pencil className="h-3.5 w-3.5" />
-                {isAmendingThis ? "Opening…" : "Amend"}
+                {isAmendingThis ? "Opening…" : "Admin Amend"}
               </button>
-            ) : null}
+            )}
+
+            {showFinanceApprove && onAmend && (
+              <button
+                type="button"
+                onClick={() => onAmend(approvalId, "finance")}
+                disabled={isAmendingThis}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400 cursor-pointer"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {isAmendingThis ? "Opening…" : "Finance Approve"}
+              </button>
+            )}
+            {showFinanceAmend && onAmend && (
+              <button
+                type="button"
+                onClick={() => onAmend(approvalId, "finance")}
+                disabled={isAmendingThis}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-300 cursor-pointer"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                {isAmendingThis ? "Opening…" : "Finance Amend"}
+              </button>
+            )}
+
+            {showAccountApprove && onAmend && (
+              <button
+                type="button"
+                onClick={() => onAmend(approvalId, "account")}
+                disabled={isAmendingThis}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {isAmendingThis ? "Opening…" : "Account Approve"}
+              </button>
+            )}
+            {showAccountAmend && onAmend && (
+              <button
+                type="button"
+                onClick={() => onAmend(approvalId, "account")}
+                disabled={isAmendingThis}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300 cursor-pointer"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                {isAmendingThis ? "Opening…" : "Account Amend"}
+              </button>
+            )}
             {canSendToFinance && onSendToFinance ? (
               <button
                 type="button"
@@ -435,10 +633,33 @@ export function ApprovalRecordCard({
                 {isSendingThis ? "Sending…" : "Send to Finance"}
               </button>
             ) : null}
-            {approvalStatus === "sent_to_finance" ? (
+            {canSendToAccount && onSendToAccount ? (
+              <button
+                type="button"
+                onClick={() => onSendToAccount(approvalId)}
+                disabled={isSendingThis}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
+              >
+                <Send className="h-3.5 w-3.5" />
+                {isSendingThis ? "Sending…" : "Send to Account"}
+              </button>
+            ) : null}
+            {!isFinancePortal && approvalStatus === "sent_to_finance" ? (
               <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300">
                 <Send className="h-3.5 w-3.5" />
                 Sent to Finance
+              </span>
+            ) : null}
+            {isFinancePortal && Boolean(approval.assigned_account_user) ? (
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 dark:bg-teal-950/30 dark:text-teal-300">
+                <Send className="h-3.5 w-3.5" />
+                Sent to Account
+              </span>
+            ) : null}
+            {isAccountPortal && Boolean(approval.is_account_approved) ? (
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Account Cleared
               </span>
             ) : null}
           </div>
@@ -452,6 +673,28 @@ export function ApprovalRecordCard({
                 <>
                   {" "}
                   · <span className="tabular-nums">{sentToFinanceAtLabel}</span>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          {isFinancePortal && accountAssigneeLabel !== "—" ? (
+            <p className="mt-2 w-full text-right text-xs text-slate-500 dark:text-slate-400">
+              Account assignee{" "}
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                {accountAssigneeLabel}
+              </span>
+            </p>
+          ) : null}
+          {isAccountPortal && accountAssigneeLabel !== "—" ? (
+            <p className="mt-2 w-full text-right text-xs text-slate-500 dark:text-slate-400">
+              Assigned to{" "}
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                {accountAssigneeLabel}
+              </span>
+              {sentToAccountAtLabel !== "—" ? (
+                <>
+                  {" "}
+                  · <span className="tabular-nums">{sentToAccountAtLabel}</span>
                 </>
               ) : null}
             </p>
@@ -521,7 +764,6 @@ export function ApprovalRecordCard({
                   <th className="px-3 py-2 font-medium text-right">Discount</th>
                   <th className="px-3 py-2 font-medium text-right">GST</th>
                   <th className="px-3 py-2 font-medium text-right">Net Total</th>
-                  <th className="px-3 py-2 font-medium">Line Status</th>
                   <th className="px-3 py-2 font-medium">Remarks</th>
                 </tr>
               </thead>
@@ -605,35 +847,6 @@ export function ApprovalRecordCard({
                       </td>
                       <td className="px-3 py-2 text-right font-bold tabular-nums text-slate-900 dark:text-slate-100 bg-slate-50/20 dark:bg-slate-950/20">
                         {lineTotal.toFixed(2)}
-                      </td>
-                      <td
-                        className={`px-3 py-2 font-medium ${lineApprovalBadgeClass(
-                          (() => {
-                            const approvedQty = Number(it.approved_quantity ?? 0);
-                            const orderedQty = Number(it.ordered_quantity ?? 0);
-                            if (approvalStatus === "rejected" || approvedQty <= 0) {
-                              return "rejected";
-                            }
-                            if (approvedQty >= orderedQty) {
-                              return "fully_approved";
-                            }
-                            return "partially_approved";
-                          })()
-                        )}`}
-                      >
-                        {formatStatus(
-                          (() => {
-                            const approvedQty = Number(it.approved_quantity ?? 0);
-                            const orderedQty = Number(it.ordered_quantity ?? 0);
-                            if (approvalStatus === "rejected" || approvedQty <= 0) {
-                              return "rejected";
-                            }
-                            if (approvedQty >= orderedQty) {
-                              return "fully_approved";
-                            }
-                            return "partially_approved";
-                          })()
-                        )}
                       </td>
                       <td
                         className="max-w-[150px] truncate px-3 py-2 italic text-slate-500"

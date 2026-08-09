@@ -69,7 +69,7 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
   const p = rawProduct as any;
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-12">
+    <div className="space-y-6 max-w-none w-full pb-12">
       {/* Edit Modal popup */}
       {isEditModalOpen && (
         <ProductDetailModal

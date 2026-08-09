@@ -96,8 +96,7 @@ const ADMIN_APPROVED_ORDER_STATUSES = new Set([
   "fully_account_approved",
   "partially_account_approved",
   "dispatch_pending",
-  "partial_dispatch_created",
-  "full_dispatch_created",
+  "dispatch_created",
   "delivered",
 ]);
 

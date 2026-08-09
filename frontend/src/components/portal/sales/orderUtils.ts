@@ -74,7 +74,7 @@ export type { ApprovalPendingStage, ApprovalPendingSummary };
 
 /**
  * Sales list tab bucket — same exclusive priority as other portals:
- * draft → terminal → return → transport → closed → approvals → dispatch pending.
+ * draft → terminal → in transit → transport pending → closed → approvals → dispatch pending.
  * Unbilled orders are outside workflow tabs (see UnbilledOrdersModal).
  */
 export function getOrderTabCategory(
@@ -142,7 +142,7 @@ export function normalizeSalesTabFromUrl(
   if (value === "transport_return_pending" || value === "pending_transport" || value === "pending_delivery") {
     return "transport_pending";
   }
-  if (value === "returns_pending") return "return_pending";
+  if (value === "returns_pending" || value === "return_pending") return "all";
   if (value === "dispatch_pending") return "open_dispatched";
   if (isSalesOrderTabCategory(value)) return value;
   const workflowDefault: OrderWorkflowTabCategory =
@@ -251,11 +251,11 @@ export const SALES_STATUS_COLORS: Record<
     dot: "bg-amber-500 dark:bg-amber-400",
     label: "Transport Pending",
   },
-  return_pending: {
-    fill: "fill-rose-500/85 dark:fill-rose-500/60",
-    hover: "fill-rose-600 dark:fill-rose-400",
-    dot: "bg-rose-500 dark:bg-rose-400",
-    label: "Return Pending",
+  in_transit: {
+    fill: "fill-sky-500/85 dark:fill-sky-500/60",
+    hover: "fill-sky-600 dark:fill-sky-400",
+    dot: "bg-sky-500 dark:bg-sky-400",
+    label: "In Transit",
   },
   closed_delivered: {
     fill: "fill-emerald-500/85 dark:fill-emerald-550/60",

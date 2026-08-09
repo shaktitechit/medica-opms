@@ -1,6 +1,13 @@
 export type DownloadOrderItemsPdfOptions = {
   /** When false, download is blocked (order must be sales-approved first). */
   salesApproved?: boolean;
+  /**
+   * When set, each matching child is captured as its own A4 page
+   * (avoids slicing rows mid-text). Defaults to `[data-pdf-page]`.
+   * Pass `null` to force single-canvas slice mode.
+   */
+  pageSelector?: string | null;
+  orientation?: "portrait" | "landscape";
 };
 
 async function waitForImages(container: HTMLElement): Promise<void> {
@@ -21,8 +28,11 @@ async function waitForImages(container: HTMLElement): Promise<void> {
 }
 
 /**
- * Renders a DOM node (typically {@link OrderItemsPdfTemplate}) to a multi-page A4 PDF.
- * Requires sales approval before export.
+ * Renders a DOM node to a multi-page A4 PDF.
+ *
+ * If the element contains `[data-pdf-page]` children (or a custom
+ * `pageSelector`), each page node is captured separately so headers/footers
+ * repeat and table rows are never sliced mid-line.
  */
 export async function downloadOrderItemsPdf(
   element: HTMLElement,
@@ -41,6 +51,43 @@ export async function downloadOrderItemsPdf(
     import("jspdf"),
   ]);
 
+  const selector =
+    options.pageSelector === null
+      ? null
+      : (options.pageSelector ?? "[data-pdf-page]");
+  const pages =
+    selector == null
+      ? []
+      : Array.from(element.querySelectorAll<HTMLElement>(selector));
+
+  if (pages.length > 0) {
+    const pdf = new jsPDF({ orientation: options.orientation ?? "portrait", unit: "mm", format: "a4" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    for (let i = 0; i < pages.length; i += 1) {
+      const pageEl = pages[i]!;
+      await waitForImages(pageEl);
+      const canvas = await html2canvas(pageEl, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        logging: false,
+        useCORS: true,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const imgWidth = pageWidth;
+      const imgHeight = Math.min(
+        (canvas.height * imgWidth) / canvas.width,
+        pageHeight,
+      );
+      if (i > 0) pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+    }
+
+    pdf.save(filename);
+    return;
+  }
+
   const canvas = await html2canvas(element, {
     scale: 2,
     backgroundColor: "#ffffff",
@@ -49,7 +96,7 @@ export async function downloadOrderItemsPdf(
   });
 
   const imgData = canvas.toDataURL("image/png");
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pdf = new jsPDF({ orientation: options.orientation ?? "portrait", unit: "mm", format: "a4" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const imgWidth = pageWidth;

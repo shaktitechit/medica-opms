@@ -15,12 +15,14 @@ import {
   ArrowLeft,
   Check,
   History,
+  X,
 } from "lucide-react";
 
 import {
   mutationRejectedMessage,
 } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
+import { ModalOverlay } from "@/components/portal/shared/ModalOverlay";
 import {
   MapOrderLinePriceModal,
   type MapOrderLinePriceSuccess,
@@ -584,13 +586,49 @@ const PORTAL_CREATE_CONFIG: Record<
   },
 };
 
-type AdminCreateOrderPageProps = {
+export type StaffCreateOrderLinePrefill = {
+  productId: string;
+  quantity: number;
+  product_name?: string;
+  sku?: string;
+};
+
+export type AdminCreateOrderPageProps = {
   /** Portal base path for back/success navigation (default "/admin"). */
   portalHome?: StaffCreateOrderPortalHome;
+  /** Render as a full-screen modal instead of a page. */
+  asModal?: boolean;
+  isOpen?: boolean;
+  onClose?: () => void;
+  onCreated?: (info: { orderId: string; orderNo: string }) => void;
+  /** Prefill party when opening (e.g. from Un Billed Orders). */
+  initialPartyId?: string;
+  /** Prefill sales representative when opening. */
+  initialAssignedSalesUserId?: string;
+  /** Prefill catalog lines (qty) when opening. */
+  initialLinePrefills?: StaffCreateOrderLinePrefill[];
+  /** Context note shown under the modal title. */
+  modalSubtitle?: string;
 };
+
+function todayInputValue(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export default function AdminCreateOrderPage({
   portalHome = "/admin",
+  asModal = false,
+  isOpen = true,
+  onClose,
+  onCreated,
+  initialPartyId = "",
+  initialAssignedSalesUserId = "",
+  initialLinePrefills,
+  modalSubtitle,
 }: AdminCreateOrderPageProps = {}) {
   const router = useRouter();
   const user = useAppSelector((s) => s.auth.user);
@@ -604,18 +642,13 @@ export default function AdminCreateOrderPage({
   const salesUsers = useMemo(() => pickList(salesUsersQ.data), [salesUsersQ.data]);
 
   const [partyId, setPartyId] = useState("");
-  const [orderDate, setOrderDate] = useState(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  });
+  const [orderDate, setOrderDate] = useState(todayInputValue);
   const [expectedDate, setExpectedDate] = useState("");
   const headerDiscount = "0";
   const [remarks, setRemarks] = useState("");
   const [assignedSales, setAssignedSales] = useState("");
   const [lines, setLines] = useState<LineRow[]>(() => [newLine()]);
+  const prefillAppliedRef = useRef(false);
 
   const [mapTarget, setMapTarget] = useState<MapOrderLinePriceTarget | null>(null);
   const [mapModalOpen, setMapModalOpen] = useState(false);
@@ -634,14 +667,102 @@ export default function AdminCreateOrderPage({
     ? String(selectedParty.party_name || "")
     : "";
 
-  const onPartyChange = useCallback((id: string) => {
-    setPartyId(id);
-    if (id) {
-      setPreviousItemsModalOpen(true);
-    } else {
-      setPreviousItemsModalOpen(false);
-    }
+  const resetForm = useCallback(() => {
+    setPartyId("");
+    setOrderDate(todayInputValue());
+    setExpectedDate("");
+    setRemarks("");
+    setAssignedSales("");
+    setLines([newLine()]);
+    setMapTarget(null);
+    setMapModalOpen(false);
+    setPreviousItemsModalOpen(false);
+    prefillAppliedRef.current = false;
   }, []);
+
+  // Apply party / sales / line prefills when the modal (or page with initial values) mounts/opens.
+  useEffect(() => {
+    if (asModal && !isOpen) {
+      resetForm();
+      return;
+    }
+    if (prefillAppliedRef.current) return;
+    const hasPrefill =
+      Boolean(initialPartyId) ||
+      Boolean(initialAssignedSalesUserId) ||
+      Boolean(initialLinePrefills && initialLinePrefills.length);
+    if (!hasPrefill) return;
+
+    if (initialPartyId) {
+      setPartyId(initialPartyId);
+    }
+    if (initialAssignedSalesUserId) {
+      setAssignedSales(initialAssignedSalesUserId);
+    }
+
+    if (initialLinePrefills?.length && products.length > 0) {
+      const mapped: LineRow[] = initialLinePrefills.map((pref) => {
+        const p = products.find(
+          (x) => String(x._id ?? x.id ?? "") === String(pref.productId),
+        );
+        const base = newLine();
+        if (!p) {
+          return {
+            ...base,
+            productId: pref.productId,
+            product_name: pref.product_name || "",
+            sku: pref.sku || "",
+            quantity: Math.max(1, Number(pref.quantity) || 1),
+          };
+        }
+        return {
+          ...base,
+          productId: String(p._id ?? p.id ?? ""),
+          product_name: String(p.product_name ?? pref.product_name ?? ""),
+          sku: String(p.sku ?? pref.sku ?? ""),
+          brand: String(p.brand ?? ""),
+          manufacturer: String(p.manufacturer ?? ""),
+          product_group: String(p.product_group ?? ""),
+          product_subgroup: String(p.product_subgroup ?? ""),
+          unit: String(p.unit ?? ""),
+          quantity: Math.max(1, Number(pref.quantity) || 1),
+          unit_price: Number(p.unit_price ?? p.sr_rate ?? p.selling_price ?? 0) || 0,
+          gst_percent: Number(p.gst_percent ?? p.default_gst_rate ?? p.gst_rate ?? 18),
+        };
+      });
+      setLines(mapped.length ? mapped : [newLine()]);
+      prefillAppliedRef.current = true;
+      return;
+    }
+
+    // Party/sales-only prefill; wait for products if lines are also expected.
+    if (!initialLinePrefills?.length) {
+      prefillAppliedRef.current = true;
+    }
+  }, [
+    asModal,
+    isOpen,
+    initialPartyId,
+    initialAssignedSalesUserId,
+    initialLinePrefills,
+    products,
+    resetForm,
+  ]);
+
+  const onPartyChange = useCallback(
+    (id: string) => {
+      setPartyId(id);
+      if (id) {
+        // Prefill from unbilled already supplies lines — don't auto-open previous items.
+        if (!(initialLinePrefills && initialLinePrefills.length > 0)) {
+          setPreviousItemsModalOpen(true);
+        }
+      } else {
+        setPreviousItemsModalOpen(false);
+      }
+    },
+    [initialLinePrefills],
+  );
 
   const lineRateCheckInput = useMemo(() => {
     if (!partyId) return null;
@@ -1028,9 +1149,15 @@ export default function AdminCreateOrderPage({
 
         const data = (await createOrder(body).unwrap()) as any;
         const orderNo = String(data?.order_no ?? "");
+        const orderId = String(data?._id ?? data?.id ?? "");
 
         toast.success(portalConfig.successToast(orderNo));
-        router.push(`${portalHome}/orders`);
+        onCreated?.({ orderId, orderNo });
+        if (asModal) {
+          onClose?.();
+        } else {
+          router.push(`${portalHome}/orders`);
+        }
       } catch (rejected) {
         toast.error(mutationRejectedMessage(rejected));
       }
@@ -1050,36 +1177,78 @@ export default function AdminCreateOrderPage({
       allItemsNegotiated,
       liveSummary,
       parties,
+      asModal,
+      onClose,
+      onCreated,
     ],
   );
 
-  return (
-    <div className="mx-auto w-full max-w-[min(100rem,calc(100vw-2rem))] space-y-6">
+  if (asModal && !isOpen) return null;
+
+  const formBody = (
+    <div
+      className={
+        asModal
+          ? "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-slate-900"
+          : "mx-auto w-full max-w-[min(100rem,calc(100vw-2rem))] space-y-6"
+      }
+    >
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/60 pb-4 dark:border-white/10">
+      <div
+        className={
+          asModal
+            ? "flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-slate-200/60 px-5 py-4 dark:border-white/10"
+            : "flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/60 pb-4 dark:border-white/10"
+        }
+      >
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
             <ShoppingCart className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+            <h1
+              className={
+                asModal
+                  ? "text-sm font-bold tracking-tight text-slate-900 dark:text-slate-50"
+                  : "text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50"
+              }
+            >
               Create New Order
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Create and submit a new purchase or sales order.
+              {modalSubtitle ||
+                "Create and submit a new purchase or sales order."}
             </p>
           </div>
         </div>
-        <Link
-          href={portalHome}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-slate-50"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to overview
-        </Link>
+        {asModal ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : (
+          <Link
+            href={portalHome}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-slate-50"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to overview
+          </Link>
+        )}
       </div>
 
-      <form onSubmit={onSubmit} className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <form
+        onSubmit={onSubmit}
+        className={
+          asModal
+            ? "min-h-0 flex-1 overflow-auto px-5 py-5 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]"
+            : "grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]"
+        }
+      >
         {/* Left Column: Form Details & Line Items */}
         <div className="min-w-0 space-y-6">
           {/* Party & Terms */}
@@ -1625,4 +1794,25 @@ export default function AdminCreateOrderPage({
       />
     </div>
   );
+
+  if (asModal) {
+    return (
+      <ModalOverlay
+        onClick={onClose}
+        className="fixed inset-0 z-[120] flex bg-slate-900/50 backdrop-blur-[1px]"
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Create New Order"
+          className="flex h-full w-full flex-col overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {formBody}
+        </div>
+      </ModalOverlay>
+    );
+  }
+
+  return formBody;
 }

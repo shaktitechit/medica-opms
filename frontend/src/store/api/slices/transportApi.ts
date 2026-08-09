@@ -108,7 +108,16 @@ export const transportApi = medicaApi.injectEndpoints({
         body: normalizeTransportBody(body),
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
-      invalidatesTags: ["Transport", "Order", "Orders", "Dispatch", "TransportPlans"],
+      invalidatesTags: [
+        "Transport",
+        "Order",
+        "Orders",
+        "Dispatch",
+        "TransportPlans",
+        "UnbilledOrders",
+        "OrderApprovals",
+        "Approvals",
+      ],
     }),
     patchTransport: build.mutation<
       unknown,
