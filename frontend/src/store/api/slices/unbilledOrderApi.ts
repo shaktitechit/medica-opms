@@ -110,7 +110,18 @@ export const unbilledOrderApi = medicaApi.injectEndpoints({
 
     createUnbilledOrder: build.mutation<
       UnbilledOrderRecord | null,
-      { order: string; remarks?: string }
+      {
+        order: string;
+        remarks?: string;
+        items?: {
+          order_item_id?: string;
+          productId?: string;
+          productName?: string;
+          sku?: string;
+          lastQuantity?: number;
+          quantity: number;
+        }[];
+      }
     >({
       query: (body) => ({
         url: "unbilled-orders",
@@ -131,6 +142,14 @@ export const unbilledOrderApi = medicaApi.injectEndpoints({
           remarks: string;
           replacement_order: string;
           manual_resolved: boolean;
+          items: {
+            order_item_id?: string;
+            productId?: string;
+            productName?: string;
+            sku?: string;
+            lastQuantity?: number;
+            quantity: number;
+          }[];
         }>;
       }
     >({

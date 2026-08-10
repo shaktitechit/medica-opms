@@ -1,12 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, X } from "lucide-react";
+import { usePathname } from "next/navigation";
 
-import { downloadCsvFile } from "@/components/portal/shared/dashboard/reportDownloadUtils";
+import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";
+import {
+  companyLetterheadLogoUrl,
+  companyLetterheadName,
+  resolvePublicAssetUrl,
+} from "@/lib/env";
+import { useAppSelector } from "@/store/hooks";
 import {
   useLazyListWorkPlansQuery,
   type WorkPlanRecord,
@@ -21,6 +28,7 @@ import {
   renderVisitStatusBadge,
   visitPartyLabel,
 } from "./workPlanUtils";
+import WorkPlansPdfTemplate from "@/components/portal/admin/workPlanner/WorkPlansPdfTemplate";
 
 export type DownloadWorkPlansModalProps = {
   open: boolean;
@@ -65,6 +73,14 @@ function visitMeetingsLine(v: WorkPlanVisitRecord): string {
   return parts.join("; ");
 }
 
+function formatPdfDateTime(v: unknown = new Date()): string {
+  if (!v) return "";
+  const d = new Date(String(v));
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModalProps) {
   const [preset, setPreset] = useState<PeriodPreset>("current_month");
   const [customFrom, setCustomFrom] = useState("");
@@ -72,7 +88,31 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
   const [statusFilter, setStatusFilter] = useState("all");
   const [rows, setRows] = useState<WorkPlanRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [pdfGeneratedAt, setPdfGeneratedAt] = useState("");
+  const pdfTemplateRef = useRef<HTMLDivElement>(null);
+
   const [fetchList] = useLazyListWorkPlansQuery();
+
+  const authUser = useAppSelector((s) => s.auth.user);
+  const salesUserLabel = useMemo(() => {
+    if (!authUser || typeof authUser !== "object") return "—";
+    const u = authUser as Record<string, unknown>;
+    return String(u.name ?? u.full_name ?? u.username ?? u.email ?? "").trim() || "—";
+  }, [authUser]);
+
+  const pathname = usePathname() || "";
+  const portalLabel = useMemo(() => {
+    if (pathname.includes("/distributor")) return "Distributor";
+    if (pathname.includes("/sales")) return "Sales / Employee";
+    if (pathname.includes("/finance")) return "Finance";
+    if (pathname.includes("/account")) return "Account";
+    if (pathname.includes("/dispatch")) return "Dispatch";
+    return "Admin";
+  }, [pathname]);
+
+  const companyName = companyLetterheadName();
+  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
 
   const range = useMemo(() => {
     if (preset === "current_month") return monthRange(0);
@@ -159,138 +199,68 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
     [rows],
   );
 
-  const handleDownloadCsv = () => {
+  const statusLabelDisplay = useMemo(
+    () => WORK_PLAN_STATUS_TABS.find((t) => t.id === statusFilter)?.label || "All",
+    [statusFilter],
+  );
+
+  const handleDownloadPdf = useCallback(async () => {
     if (rows.length === 0) {
       toast.error("No work plans to download");
       return;
     }
-    const headers = [
-      "Plan date",
-      "Location",
-      "Plan status",
-      "Plan remarks",
-      "Visit #",
-      "Party",
-      "Party type",
-      "Contact person",
-      "Contact number",
-      "Contact email",
-      "Address",
-      "Purpose",
-      "Planned start",
-      "Planned end",
-      "Visit status",
-      "Check-in",
-      "Check-out",
-      "Outcome",
-      "Notes",
-      "Meeting doctor",
-      "Meeting purchase",
-      "Meeting finance",
-      "Meeting engineer",
-      "New product introduced",
-      "Order received",
-      "Next follow-up",
-      "Submitted at",
-      "Approved at",
-      "Rejection reason",
-    ];
-    const csvRows: Array<Array<string | number>> = [];
-    for (const r of rows) {
-      const visits = Array.isArray(r.visits) ? r.visits : [];
-      const planBase = [
-        formatPlanDate(r.plan_date),
-        r.location || "",
-        r.status || "",
-        r.remarks || "",
-      ];
-      const planTail = [
-        r.submitted_at ? formatPlanDate(r.submitted_at) : "",
-        r.approved_at ? formatPlanDate(r.approved_at) : "",
-        r.rejection_reason || "",
-      ];
-      if (visits.length === 0) {
-        csvRows.push([
-          ...planBase,
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          ...planTail,
-        ]);
-        continue;
+    const stamp = formatPdfDateTime(new Date());
+    setPdfGeneratedAt(stamp);
+    setIsDownloadingPdf(true);
+    try {
+      await new Promise<void>((resolve) => window.setTimeout(() => resolve(), 80));
+      if (!pdfTemplateRef.current) {
+        throw new Error("PDF template is not ready.");
       }
-      for (const v of visits) {
-        csvRows.push([
-          ...planBase,
-          v.sequence ?? "",
-          visitPartyLabel(v),
-          v.party_type || "",
-          v.contact_person || "",
-          v.contact_number || "",
-          v.contact_email || "",
-          v.address || "",
-          v.purpose || "",
-          v.planned_start_time ? formatDateTime(v.planned_start_time) : "",
-          v.planned_end_time ? formatDateTime(v.planned_end_time) : "",
-          v.status || "",
-          v.actual_check_in ? formatDateTime(v.actual_check_in) : "",
-          v.actual_check_out ? formatDateTime(v.actual_check_out) : "",
-          v.outcome || "",
-          v.notes || "",
-          yn(v.meeting_with_doctor),
-          yn(v.meeting_with_purchase),
-          yn(v.meeting_with_finance),
-          yn(v.meeting_with_engineer),
-          yn(v.new_product_introduced),
-          yn(v.order_received),
-          v.next_followup_date ? formatPlanDate(v.next_followup_date) : "",
-          ...planTail,
-        ]);
-      }
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      await downloadOrderItemsPdf(
+        pdfTemplateRef.current,
+        `sales_work_plans_${dateStamp}.pdf`,
+        { orientation: "landscape" },
+      );
+      toast.success("Work plans PDF downloaded.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not generate PDF.");
+    } finally {
+      setIsDownloadingPdf(false);
     }
-    const statusLabel =
-      WORK_PLAN_STATUS_TABS.find((t) => t.id === statusFilter)?.label || "All";
-    downloadCsvFile(
-      `sales_work_plans_${range.from}_to_${range.to}.csv`,
-      headers,
-      csvRows,
-      [
-        `Sales work plans export`,
-        `Period: ${range.from} to ${range.to}`,
-        `Status: ${statusLabel}`,
-        `Plans: ${rows.length}`,
-        `Visits: ${totalVisits}`,
-      ],
-    );
-    toast.success("Work plan CSV downloaded");
-  };
+  }, [rows]);
 
   if (!open) return null;
 
   return (
     <LargeModalPortal>
+      {/* Hidden PDF Template */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
+      >
+        <div ref={pdfTemplateRef}>
+          <WorkPlansPdfTemplate
+            companyName={companyName}
+            logoUrl={logoUrl}
+            portalLabel={portalLabel}
+            downloadedBy={salesUserLabel}
+            generatedAt={pdfGeneratedAt}
+            periodFrom={range.from}
+            periodTo={range.to}
+            salesUserLabel={salesUserLabel}
+            statusLabel={statusLabelDisplay}
+            plans={rows}
+            totalVisits={totalVisits}
+          />
+        </div>
+      </div>
+
       <div
         className="fixed inset-0 z-[100] flex items-stretch justify-center bg-black/50 p-2 sm:p-4 backdrop-blur-[1px]"
         role="presentation"
-        onClick={() => !loading && onClose()}
+        onClick={() => !loading && !isDownloadingPdf && onClose()}
       >
         <div
           role="dialog"
@@ -305,22 +275,22 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
                 Download work plans
               </h2>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Choose a period to load your work plans, then download as CSV (includes all visits)
+                Choose a period to load your work plans, then download as PDF (includes all visits)
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                disabled={loading || rows.length === 0}
-                onClick={handleDownloadCsv}
+                disabled={loading || isDownloadingPdf || rows.length === 0}
+                onClick={handleDownloadPdf}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" />
-                Download CSV
+                {isDownloadingPdf ? "Generating PDF…" : "Download PDF"}
               </button>
               <button
                 type="button"
-                disabled={loading}
+                disabled={loading || isDownloadingPdf}
                 onClick={onClose}
                 className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10"
                 aria-label="Close"
@@ -453,7 +423,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
                                 <th className="px-3 py-2 font-semibold">Status</th>
                                 <th className="px-3 py-2 font-semibold">Execution</th>
                                 <th className="px-3 py-2 font-semibold">Outcome / notes</th>
-                                <th className="px-3 py-2 font-semibold">Meetings & flags</th>
+                                <th className="px-3 py-2 font-semibold">Meetings &amp; flags</th>
                               </tr>
                             </thead>
                             <tbody>

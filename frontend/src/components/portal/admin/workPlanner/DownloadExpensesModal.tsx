@@ -1,12 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, X } from "lucide-react";
+import { usePathname } from "next/navigation";
 
-import { downloadCsvFile } from "@/components/portal/shared/dashboard/reportDownloadUtils";
+import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";
+import {
+  companyLetterheadLogoUrl,
+  companyLetterheadName,
+  resolvePublicAssetUrl,
+} from "@/lib/env";
+import { useAppSelector } from "@/store/hooks";
 import {
   useLazyListWorkPlanExpensesQuery,
   useListUsersQuery,
@@ -18,6 +25,7 @@ import {
   renderExpenseStatusBadge,
   salesUserLabel,
 } from "./workPlanUtils";
+import ExpensesPdfTemplate from "./ExpensesPdfTemplate";
 
 export type DownloadExpensesModalProps = {
   open: boolean;
@@ -80,17 +88,17 @@ function visitLabel(exp: WorkPlanExpenseRecord) {
   return party ? `${seq} — ${party}` : seq;
 }
 
-function attachmentName(
-  att: WorkPlanExpenseRecord["receipt_attachment"],
-): string {
-  if (!att) return "";
-  if (typeof att === "string") return "Attached";
-  return att.original_name || att.file_name || "Attached";
-}
-
 function readingValue(n?: number | null) {
   if (n == null || !Number.isFinite(Number(n))) return "";
   return String(n);
+}
+
+function formatDateTime(v: unknown = new Date()): string {
+  if (!v) return "";
+  const d = new Date(String(v));
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalProps) {
@@ -100,8 +108,32 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
   const [salesUserId, setSalesUserId] = useState("");
   const [rows, setRows] = useState<WorkPlanExpenseRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [pdfGeneratedAt, setPdfGeneratedAt] = useState("");
+  const pdfTemplateRef = useRef<HTMLDivElement>(null);
+
   const [fetchList] = useLazyListWorkPlanExpensesQuery();
   const usersQ = useListUsersQuery({ department: "sales" }, { skip: !open });
+
+  const authUser = useAppSelector((s) => s.auth.user);
+  const downloadedBy = useMemo(() => {
+    if (!authUser || typeof authUser !== "object") return "—";
+    const u = authUser as Record<string, unknown>;
+    return String(u.name ?? u.full_name ?? u.username ?? u.email ?? "").trim() || "—";
+  }, [authUser]);
+
+  const pathname = usePathname() || "";
+  const portalLabel = useMemo(() => {
+    if (pathname.includes("/distributor")) return "Distributor";
+    if (pathname.includes("/sales")) return "Sales / Employee";
+    if (pathname.includes("/finance")) return "Finance";
+    if (pathname.includes("/account")) return "Account";
+    if (pathname.includes("/dispatch")) return "Dispatch";
+    return "Admin";
+  }, [pathname]);
+
+  const companyName = companyLetterheadName();
+  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
 
   const salesUsers = useMemo(() => {
     const raw = usersQ.data;
@@ -188,90 +220,74 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
     [rows],
   );
 
-  const handleDownloadCsv = () => {
-    if (rows.length === 0) {
-      toast.error("No expenses to download");
-      return;
-    }
-    const headers = [
-      "Expense date",
-      "Plan date",
-      "Sales executive",
-      "Location",
-      "Visit",
-      "Category",
-      "Sub-category",
-      "Start reading",
-      "Closing reading",
-      "Start reading image",
-      "End reading image",
-      "Amount",
-      "Payment",
-      "Status",
-      "Approved / Rejected by",
-      "Vendor",
-      "Bill number",
-      "Description",
-      "Receipt",
-    ];
-    const csvRows = rows.map((r) => {
-      const plan = planRef(r);
-      const isPrivateBike = r.sub_category === "Private Bike";
-      return [
-        formatPlanDate(r.expense_date),
-        formatPlanDate(plan.plan_date),
-        salesUserLabel(plan.sales_user),
-        plan.location || "",
-        visitLabel(r),
-        r.category || "",
-        r.sub_category || "",
-        isPrivateBike ? readingValue(r.start_reading) : "",
-        isPrivateBike ? readingValue(r.closing_reading) : "",
-        isPrivateBike ? attachmentName(r.start_reading_image) : "",
-        isPrivateBike ? attachmentName(r.end_reading_image) : "",
-        Number(r.amount) || 0,
-        r.payment_mode || "",
-        r.status || "",
-        r.status === "approved" || r.status === "rejected"
-          ? salesUserLabel(r.approved_by)
-          : "",
-        r.vendor_name || "",
-        r.bill_number || "",
-        r.description || "",
-        attachmentName(r.receipt_attachment),
-      ];
-    });
-    const salesLabel =
+  const salesLabel = useMemo(
+    () =>
       salesUserId
         ? salesUserLabel(
             (salesUsers as Array<{ _id?: string; id?: string; name?: string; email?: string }>).find(
               (u) => String(u._id || u.id) === salesUserId,
             ) || salesUserId,
           )
-        : "All sales users";
-    downloadCsvFile(
-      `admin_expenses_${range.from}_to_${range.to}.csv`,
-      headers,
-      csvRows,
-      [
-        `Admin expenses export`,
-        `Period: ${range.from} to ${range.to}`,
-        `Sales user: ${salesLabel}`,
-        `Rows: ${rows.length}`,
-        `Total amount: ${formatMoney(totalAmount)}`,
-      ],
-    );
-    toast.success("Expense CSV downloaded");
-  };
+        : "All sales users",
+    [salesUserId, salesUsers],
+  );
+
+  const handleDownloadPdf = useCallback(async () => {
+    if (rows.length === 0) {
+      toast.error("No expenses to download");
+      return;
+    }
+    const stamp = formatDateTime(new Date());
+    setPdfGeneratedAt(stamp);
+    setIsDownloadingPdf(true);
+    try {
+      await new Promise<void>((resolve) => window.setTimeout(() => resolve(), 80));
+      if (!pdfTemplateRef.current) {
+        throw new Error("PDF template is not ready.");
+      }
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      await downloadOrderItemsPdf(
+        pdfTemplateRef.current,
+        `admin_expenses_${dateStamp}.pdf`,
+        { orientation: "landscape" },
+      );
+      toast.success("Expenses PDF downloaded.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not generate PDF.");
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  }, [rows]);
 
   if (!open) return null;
 
   return (
     <LargeModalPortal>
+      {/* Hidden PDF Template */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
+      >
+        <div ref={pdfTemplateRef}>
+          <ExpensesPdfTemplate
+            companyName={companyName}
+            logoUrl={logoUrl}
+            portalLabel={portalLabel}
+            downloadedBy={downloadedBy}
+            generatedAt={pdfGeneratedAt}
+            periodFrom={range.from}
+            periodTo={range.to}
+            salesUserLabel={salesLabel}
+            expenses={rows}
+            totalAmount={totalAmount}
+          />
+        </div>
+      </div>
+
       <div
         className="fixed inset-0 z-[100] flex items-stretch justify-center bg-black/50 p-2 sm:p-4 backdrop-blur-[1px]"
         role="presentation"
-        onClick={() => !loading && onClose()}
+        onClick={() => !loading && !isDownloadingPdf && onClose()}
       >
         <div
           role="dialog"
@@ -286,22 +302,22 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
                 Download expenses
               </h2>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Filter by period and sales executive, then download as CSV
+                Filter by period and sales executive, then download as PDF
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                disabled={loading || rows.length === 0}
-                onClick={handleDownloadCsv}
+                disabled={loading || isDownloadingPdf || rows.length === 0}
+                onClick={handleDownloadPdf}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" />
-                Download CSV
+                {isDownloadingPdf ? "Generating PDF…" : "Download PDF"}
               </button>
               <button
                 type="button"
-                disabled={loading}
+                disabled={loading || isDownloadingPdf}
                 onClick={onClose}
                 className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10"
                 aria-label="Close"
@@ -452,18 +468,6 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
                               <div className="tabular-nums">
                                 {readingValue(row.start_reading) || "—"} →{" "}
                                 {readingValue(row.closing_reading) || "—"}
-                              </div>
-                              <div className="mt-0.5 text-[11px] text-slate-500">
-                                {[
-                                  attachmentName(row.start_reading_image)
-                                    ? "Start img"
-                                    : null,
-                                  attachmentName(row.end_reading_image)
-                                    ? "End img"
-                                    : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(" · ") || "No images"}
                               </div>
                             </div>
                           ) : (

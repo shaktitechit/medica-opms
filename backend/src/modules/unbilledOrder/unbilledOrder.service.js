@@ -194,9 +194,10 @@ async function orderFulfillmentComplete(order, dispatches = [], models = getMode
   return Boolean(delivered);
 }
 
-/** Approved line qty only — ordered/fallback is not an approval gap. */
+/** Approved line qty with ordered_quantity fallback if approved_quantity is not set. */
 function lineApprovedQuantity(line) {
-  return num(line?.approved_quantity);
+  const approved = num(line?.approved_quantity);
+  return approved > 0 ? approved : num(line?.ordered_quantity ?? line?.quantity);
 }
 
 /**
@@ -560,10 +561,75 @@ async function create(body, user) {
 
   const models = getModels();
   const { order, dispatches } = await loadOrderAndDispatches(orderId);
-  const pipelineStage = await resolvePipelineStage(order, dispatches, models);
-  const snapshot = buildUnbilledSnapshot(order, dispatches, pipelineStage);
+  let pipelineStage = await resolvePipelineStage(order, dispatches, models);
+  if (!TRACKABLE_PIPELINE_STAGES.includes(pipelineStage)) {
+    pipelineStage = PIPELINE_STAGE.UNBILLED;
+  }
+  let snapshot = buildUnbilledSnapshot(order, dispatches, pipelineStage);
   if (!snapshot) {
-    throw new ApiError(400, 'Order is not eligible for unbilled tracking (need approved qty greater than dispatched qty)');
+    // For manual creation of unbilled order, construct tracking from order items directly if order is active
+    if (order && !isExcludedFromUnbilled(order) && String(order.status || '').toLowerCase() !== 'draft') {
+      const items = (order.order_items || []).map((line) => {
+        const qty = num(line.ordered_quantity ?? line.approved_quantity ?? line.quantity);
+        if (qty <= 0) return null;
+        return {
+          order_item_id: line._id,
+          product: line.product,
+          product_name: line.product_name || '',
+          sku: line.sku || '',
+          approved_quantity: qty,
+          billed_dispatched_quantity: 0,
+          remaining_quantity: qty,
+        };
+      }).filter(Boolean);
+      const remainingTotal = items.reduce((sum, r) => sum + r.remaining_quantity, 0);
+
+      if (items.length > 0 && remainingTotal > 0) {
+        snapshot = {
+          order: order._id,
+          order_no: order.order_no || '',
+          party: order.party || undefined,
+          customer: order.customer || undefined,
+          billing_status: 'unbilled',
+          status: UNBILLED_ORDER_STATUS.OPEN,
+          pipeline_stage: PIPELINE_STAGE.UNBILLED,
+          approved_quantity: remainingTotal,
+          billed_dispatched_quantity: 0,
+          remaining_quantity: remainingTotal,
+          unbilled_items: items,
+          last_synced_at: new Date(),
+        };
+      }
+    }
+  }
+  if (!snapshot) {
+    throw new ApiError(400, 'Order is not eligible for unbilled tracking (need approved or ordered items)');
+  }
+
+  // If custom unbilled items / quantities are supplied by frontend modal form, apply them
+  if (Array.isArray(body.items) && body.items.length > 0) {
+    const customItems = [];
+    let customRemaining = 0;
+    for (const item of body.items) {
+      const qty = num(item.quantity);
+      if (qty <= 0) continue;
+      customItems.push({
+        order_item_id: item.order_item_id || item.productId || undefined,
+        product: item.productId || item.product || undefined,
+        product_name: item.productName || item.product_name || '',
+        sku: item.sku || '',
+        approved_quantity: num(item.lastQuantity || item.approved_quantity || qty),
+        billed_dispatched_quantity: 0,
+        remaining_quantity: qty,
+      });
+      customRemaining += qty;
+    }
+
+    if (customItems.length > 0) {
+      snapshot.unbilled_items = customItems;
+      snapshot.remaining_quantity = customRemaining;
+      snapshot.manual_remaining = true;
+    }
   }
 
   const existing = await UnbilledOrder.findOne({ order: orderId, deletedAt: null });
@@ -582,7 +648,7 @@ async function create(body, user) {
     existing.billing_status = snapshot.billing_status;
     existing.status = UNBILLED_ORDER_STATUS.OPEN;
     existing.pipeline_stage = snapshot.pipeline_stage;
-    existing.manual_remaining = Boolean(existing.manual_remaining);
+    existing.manual_remaining = snapshot.manual_remaining || Boolean(existing.manual_remaining);
     existing.approved_quantity = snapshot.approved_quantity;
     existing.billed_dispatched_quantity = snapshot.billed_dispatched_quantity;
     existing.remaining_quantity = snapshot.remaining_quantity;
@@ -598,7 +664,7 @@ async function create(body, user) {
 
   const created = await UnbilledOrder.create({
     ...snapshot,
-    manual_remaining: false,
+    manual_remaining: snapshot.manual_remaining || false,
     remarks: body.remarks != null ? String(body.remarks || '').trim() : undefined,
     created_by: user?._id,
     updated_by: user?._id,
@@ -655,6 +721,31 @@ async function patch(id, body, user) {
       doc.replacement_order = undefined;
     }
   }
+  if (Array.isArray(body.unbilled_items) || Array.isArray(body.items)) {
+    const rawItems = Array.isArray(body.unbilled_items) ? body.unbilled_items : body.items;
+    const customItems = [];
+    let customRemaining = 0;
+    for (const item of rawItems) {
+      const qty = num(item.quantity ?? item.remaining_quantity);
+      if (qty <= 0) continue;
+      customItems.push({
+        order_item_id: item.order_item_id || item.productId || undefined,
+        product: item.productId || item.product || undefined,
+        product_name: item.productName || item.product_name || '',
+        sku: item.sku || '',
+        approved_quantity: num(item.lastQuantity || item.approved_quantity || qty),
+        billed_dispatched_quantity: num(item.billed_dispatched_quantity || 0),
+        remaining_quantity: qty,
+      });
+      customRemaining += qty;
+    }
+    if (customItems.length > 0) {
+      doc.unbilled_items = customItems;
+      doc.remaining_quantity = customRemaining;
+      doc.manual_remaining = true;
+    }
+  }
+
   if (body.remarks !== undefined) {
     doc.remarks = String(body.remarks || '').trim();
   }

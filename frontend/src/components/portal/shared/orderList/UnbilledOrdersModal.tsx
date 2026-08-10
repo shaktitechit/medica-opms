@@ -16,11 +16,13 @@ import {
   Download,
   ExternalLink,
   PauseCircle,
+  Pencil,
   Plus,
   Receipt,
   RefreshCw,
   Search,
   SlidersHorizontal,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -63,9 +65,11 @@ import {
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { useAppSelector } from "@/store/hooks";
+import { AddUnbilledOrderModal } from "@/components/portal/shared/orderList/AddUnbilledOrderModal";
 import {
   useListUnbilledOrdersQuery,
   usePatchUnbilledOrderMutation,
+  type UnbilledOrderRecord,
 } from "@/store/api";
 
 type ModalMainTab = "unbilled" | "process_pending" | "on_hold";
@@ -210,6 +214,7 @@ type UnbilledOrderView = {
   lines: UnbilledOrderLine[];
   statusLabel: string;
   canCreateOrder: boolean;
+  rawRecord: UnbilledOrderRecord;
 };
 
 type ResolveTarget = {
@@ -356,6 +361,17 @@ export function UnbilledOrdersModal({
     setFilterMaxRemaining("");
   }, []);
 
+  const [isAddUnbilledOpen, setIsAddUnbilledOpen] = useState(false);
+  const [editRecord, setEditRecord] = useState<UnbilledOrderRecord | null>(null);
+
+  const openEditModal = useCallback((record: UnbilledOrderRecord) => {
+    setEditRecord(record);
+  }, []);
+
+  const closeEditModal = useCallback(() => {
+    setEditRecord(null);
+  }, []);
+
   useEffect(() => {
     if (!isOpen) {
       setMainTab("unbilled");
@@ -366,6 +382,8 @@ export function UnbilledOrdersModal({
       setPdfGeneratedAt(formatDateTime(new Date()));
       setIsFilterPanelOpen(false);
       setSearchQuery("");
+      setIsAddUnbilledOpen(false);
+      setEditRecord(null);
       handleClearFilters();
     }
   }, [isOpen, handleClearFilters]);
@@ -385,6 +403,12 @@ export function UnbilledOrdersModal({
     () => (Array.isArray(unbilledQ.data) ? unbilledQ.data : []),
     [unbilledQ.data],
   );
+
+  const existingUnbilledOrderIds = useMemo(() => {
+    return new Set(
+      records.map((r) => unbilledRecordOrderId(r)).filter(Boolean),
+    );
+  }, [records]);
 
   /** Live list orders by id — same enrichment ListOrdersPage tabs use. */
   const listOrderById = useMemo(() => {
@@ -456,6 +480,7 @@ export function UnbilledOrdersModal({
         lines,
         statusLabel,
         canCreateOrder,
+        rawRecord: record,
       });
     }
     return views;
@@ -699,6 +724,44 @@ export function UnbilledOrdersModal({
       setIsResolving(false);
     }
   }, [resolveTarget, patchUnbilledOrder, unbilledQ]);
+
+  const availableOrdersForUnbilled = useMemo(() => {
+    const list: { id: string; orderNo: string; party: string }[] = [];
+    const existingOrderIds = new Set(
+      records.map((r) => unbilledRecordOrderId(r)).filter(Boolean),
+    );
+    for (const raw of Array.isArray(orders) ? orders : []) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw as Record<string, unknown>;
+      const id = orderRefId(row._id ?? row.id);
+      if (!id || existingOrderIds.has(id)) continue;
+      const status = String(row.status ?? "").toLowerCase();
+      if (
+        status === "cancelled" ||
+        status === "draft" ||
+        status === "on_hold"
+      ) {
+        continue;
+      }
+      const orderNo =
+        String(row.order_no ?? row.order_number ?? "").trim() || id;
+      const partyObj =
+        row.party && typeof row.party === "object"
+          ? String(
+              (row.party as Record<string, unknown>).party_name ??
+                (row.party as Record<string, unknown>).name ??
+                "",
+            ).trim()
+          : "";
+      const partyId = orderRefId(row.party);
+      const party =
+        partyObj || (partyId && partyNameById.get(partyId)) || "—";
+      list.push({ id, orderNo, party });
+    }
+    return list.sort((a, b) => a.orderNo.localeCompare(b.orderNo));
+  }, [orders, records, partyNameById]);
+
+
 
   const handleCreated = useCallback(
     async (info: { orderId: string; orderNo: string }) => {
@@ -951,16 +1014,27 @@ export function UnbilledOrdersModal({
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {isUnbilledTab ? (
-              <button
-                type="button"
-                onClick={handleRefresh}
-                disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-white/5"
-                title="Reload unbilled list"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
-                Refresh
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsAddUnbilledOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-600 bg-cyan-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-cyan-700 dark:border-cyan-500 dark:bg-cyan-600 dark:hover:bg-cyan-500"
+                  title="Add an unbilled order manually by selecting an order"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Unbilled Order
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-white/5"
+                  title="Reload unbilled list"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+              </>
             ) : null}
             <button
               type="button"
@@ -1386,9 +1460,6 @@ export function UnbilledOrdersModal({
                     Status
                   </th>
                   <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
-                    Qty (approved / dispatch)
-                  </th>
-                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
                     Unbilled
                   </th>
                   <th className="px-4 py-2.5 font-semibold uppercase tracking-wider text-slate-500">
@@ -1426,9 +1497,6 @@ export function UnbilledOrdersModal({
                           {view.statusLabel}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 tabular-nums font-semibold text-slate-700 dark:text-slate-300">
-                        {view.approved} / {view.submittedDispatch}
-                      </td>
                       <td className="px-4 py-2.5 tabular-nums font-semibold text-cyan-700 dark:text-cyan-400">
                         {view.remaining}
                       </td>
@@ -1448,6 +1516,15 @@ export function UnbilledOrdersModal({
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(view.rawRecord)}
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-2xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-white/5"
+                            title="Edit unbilled order items, quantities or remarks"
+                          >
+                            <Pencil className="h-3 w-3 text-slate-500" />
+                            Edit
+                          </button>
                           {view.canCreateOrder ? (
                             <button
                               type="button"
@@ -1485,9 +1562,6 @@ export function UnbilledOrdersModal({
                         <td className="px-4 py-2 text-slate-400">—</td>
                         <td className="px-4 py-2 text-slate-400">—</td>
                         <td className="px-4 py-2 text-slate-400">—</td>
-                        <td className="px-4 py-2 tabular-nums text-slate-600 dark:text-slate-400">
-                          {line.approved} / {line.submittedDispatch}
-                        </td>
                         <td className="px-4 py-2 tabular-nums font-semibold text-cyan-700 dark:text-cyan-400">
                           {line.remaining}
                         </td>
@@ -1570,6 +1644,27 @@ export function UnbilledOrdersModal({
           </div>
         </div>
       ) : null}
+
+      <AddUnbilledOrderModal
+        isOpen={isAddUnbilledOpen}
+        onClose={() => setIsAddUnbilledOpen(false)}
+        onSuccess={() => void unbilledQ.refetch()}
+        orders={orders}
+        existingUnbilledOrderIds={existingUnbilledOrderIds}
+        partyNameById={partyNameById}
+        mode="create"
+      />
+
+      <AddUnbilledOrderModal
+        isOpen={Boolean(editRecord)}
+        onClose={closeEditModal}
+        onSuccess={() => void unbilledQ.refetch()}
+        orders={orders}
+        existingUnbilledOrderIds={existingUnbilledOrderIds}
+        partyNameById={partyNameById}
+        mode="edit"
+        initialRecord={editRecord}
+      />
 
       <AdminCreateOrderPage
         asModal
