@@ -42,10 +42,16 @@ export function withAdminApprovalQuantities(
 
   return items.map((line) => {
     const lineId = String(line._id ?? line.id ?? "");
-    const ordered = num(line.ordered_quantity ?? line.quantity);
     const persisted = num(line.sales_approved_quantity);
+    const approved = num(line.approved_quantity);
     const audited = fromApprovals.get(lineId) ?? 0;
-    const salesApproved = Math.min(ordered, Math.max(persisted, audited));
+    // Order line approved_quantity is the ledger after approve/amend.
+    const salesApproved =
+      approved > 0
+        ? approved
+        : fromApprovals.has(lineId)
+          ? audited
+          : persisted;
     if (salesApproved === persisted) return line;
     return { ...line, sales_approved_quantity: salesApproved };
   });

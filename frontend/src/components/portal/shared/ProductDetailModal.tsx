@@ -41,6 +41,8 @@ const UNIT_OPTIONS = [
   "bottle",
 ] as const;
 
+const PRODUCT_TYPE_OPTIONS = ["individual", "kit"] as const;
+
 function stringField(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
@@ -62,6 +64,7 @@ function valsEqual(a: unknown, b: unknown): boolean {
 
 type ProductState = {
   product_name: string;
+  product_type: "individual" | "kit";
   generic_name: string;
   sku: string;
   product_group: string;
@@ -83,6 +86,7 @@ type ProductState = {
 
 const defaultProductState = (): ProductState => ({
   product_name: "",
+  product_type: "individual",
   generic_name: "",
   sku: "",
   product_group: "",
@@ -111,6 +115,11 @@ function productToFormState(
   const baseName = stringField(p.product_name);
   return {
     product_name: opts?.asCopy && baseName ? `${baseName} (Copy)` : baseName,
+    product_type: PRODUCT_TYPE_OPTIONS.includes(
+      p.product_type as (typeof PRODUCT_TYPE_OPTIONS)[number],
+    )
+      ? (p.product_type as ProductState["product_type"])
+      : "individual",
     generic_name: stringField(p.generic_name),
     // Clear SKU on duplicate so the new product can get a unique code
     sku: opts?.asCopy ? "" : stringField(p.sku),
@@ -259,6 +268,7 @@ export function ProductDetailModal({
 
     const payload: Record<string, any> = {
       product_name: form.product_name.trim(),
+      product_type: form.product_type,
       generic_name: form.generic_name.trim() || undefined,
       sku: form.sku.trim() || undefined,
       product_group: groupName || undefined,
@@ -294,6 +304,11 @@ export function ProductDetailModal({
         const oldManufacturer = productRefLabel(pObj.manufacturer);
 
         if (!valsEqual(form.product_name.trim(), pObj.product_name)) patch.product_name = form.product_name.trim();
+        const oldType =
+          PRODUCT_TYPE_OPTIONS.includes(pObj.product_type as (typeof PRODUCT_TYPE_OPTIONS)[number])
+            ? pObj.product_type
+            : "individual";
+        if (form.product_type !== oldType) patch.product_type = form.product_type;
         if (!valsEqual(form.generic_name.trim(), pObj.generic_name)) patch.generic_name = form.generic_name.trim() || null;
         if (!valsEqual(form.sku.trim(), pObj.sku)) patch.sku = form.sku.trim() || null;
 
@@ -440,6 +455,27 @@ export function ProductDetailModal({
               </div>
 
               <div className="space-y-1">
+                <label className={labelClass}>Product Type</label>
+                <select
+                  className={inputClass}
+                  value={form.product_type}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      product_type: e.target.value as ProductState["product_type"],
+                    }))
+                  }
+                  disabled={isSaving}
+                >
+                  {PRODUCT_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt === "individual" ? "Individual" : "Kit"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
                 <label className={labelClass}>Generic Name</label>
                 <input
                   type="text"
@@ -480,8 +516,8 @@ export function ProductDetailModal({
                   disabled={isSaving}
                 />
                 <datalist id="group-options">
-                  {metaOptions?.groups?.map((g) => (
-                    <option key={g._id} value={g.name} />
+                  {metaOptions?.groups?.map((g, i) => (
+                    <option key={`group:${String(g._id ?? g.name)}:${i}`} value={g.name} />
                   ))}
                 </datalist>
                 <p className="text-2xs text-slate-500 dark:text-slate-400">
@@ -501,8 +537,8 @@ export function ProductDetailModal({
                   disabled={isSaving || !form.product_group.trim()}
                 />
                 <datalist id="subgroup-options">
-                  {subgroupOptions.map((sg) => (
-                    <option key={sg._id} value={sg.name} />
+                  {subgroupOptions.map((sg, i) => (
+                    <option key={`subgroup:${String(sg._id ?? sg.name)}:${i}`} value={sg.name} />
                   ))}
                 </datalist>
                 <p className="text-2xs text-slate-500 dark:text-slate-400">
@@ -524,8 +560,8 @@ export function ProductDetailModal({
                   disabled={isSaving}
                 />
                 <datalist id="brand-options">
-                  {metaOptions?.brands?.map((b) => (
-                    <option key={b._id} value={b.name} />
+                  {metaOptions?.brands?.map((b, i) => (
+                    <option key={`brand:${String(b._id ?? b.name)}:${i}`} value={b.name} />
                   ))}
                 </datalist>
                 <p className="text-2xs text-slate-500 dark:text-slate-400">
@@ -545,8 +581,8 @@ export function ProductDetailModal({
                   disabled={isSaving}
                 />
                 <datalist id="manufacturer-options">
-                  {metaOptions?.manufacturers?.map((m) => (
-                    <option key={m._id} value={m.name} />
+                  {metaOptions?.manufacturers?.map((m, i) => (
+                    <option key={`mfr:${String(m._id ?? m.name)}:${i}`} value={m.name} />
                   ))}
                 </datalist>
                 <p className="text-2xs text-slate-500 dark:text-slate-400">

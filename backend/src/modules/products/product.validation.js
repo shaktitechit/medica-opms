@@ -16,7 +16,11 @@ const PRODUCT_UNITS = Object.freeze([
   'bottle',
 ]);
 
+/** Matches `mongoRegistry` Product.product_type enum */
+const PRODUCT_TYPES = Object.freeze(['individual', 'kit']);
+
 const PRODUCT_UNIT_SET = new Set(PRODUCT_UNITS);
+const PRODUCT_TYPE_SET = new Set(PRODUCT_TYPES);
 
 function assertCreate(body) {
   if (!body || typeof body !== 'object') throw new ApiError(400, 'JSON body required');
@@ -43,6 +47,14 @@ function assertCreate(body) {
   if (body.unit != null && !PRODUCT_UNIT_SET.has(String(body.unit).trim())) {
     throw new ApiError(400, 'Invalid unit');
   }
+
+  if (body.product_type != null && !PRODUCT_TYPE_SET.has(String(body.product_type).trim())) {
+    throw new ApiError(400, 'Invalid product_type');
+  }
 }
 
-module.exports = { assertCreate, PRODUCT_UNITS: PRODUCT_UNIT_SET };
+module.exports = {
+  assertCreate,
+  PRODUCT_UNITS: PRODUCT_UNIT_SET,
+  PRODUCT_TYPES: PRODUCT_TYPE_SET,
+};

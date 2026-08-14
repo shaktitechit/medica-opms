@@ -1,16 +1,23 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 
 import { LargeModalBackdrop } from "@/components/portal/shared/LargeModalBackdrop";
 import { largeModalPanelClass } from "@/components/portal/shared/modalLayout";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import { useLogShipmentDeliveryMutation } from "@/store/api";
+import {
+  idFromRef,
+  nestDispatchLinesForDisplay,
+  type DispatchLineDisplay,
+} from "../dispatchKitDisplay";
 
 type DeliveryFormItem = {
   product: string;
   productName: string;
+  order_item_id?: string;
+  kit_parent_product?: string;
   dispatchedQty: number;
 };
 
@@ -24,6 +31,98 @@ type OrderDeliveryModalProps = {
   orderItems?: Record<string, unknown>[];
   onRefetch?: () => void;
 };
+
+/** Normalize every dispatched line for display + full-delivery payload (incl. kit shells). */
+function normalizeDispatchItemsForDelivery(
+  dispatchItems: Record<string, unknown>[],
+  orderItems: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return dispatchItems
+    .map((item) => {
+      const orderItemId = idFromRef(item.order_item_id);
+      const matchItem = orderItems.find(
+        (oi) => idFromRef(oi._id ?? oi.id) === orderItemId,
+      );
+      const productId =
+        idFromRef(item.product) || idFromRef(matchItem?.product);
+      const qty = Number(
+        item.dispatched_quantity ?? item.dispatch_quantity ?? 0,
+      );
+      return {
+        ...item,
+        order_item_id: orderItemId || idFromRef(matchItem?._id ?? matchItem?.id),
+        product: productId,
+        product_name:
+          matchItem?.product_name ||
+          item.product_name ||
+          (typeof item.product === "object" && item.product
+            ? (item.product as Record<string, unknown>).product_name
+            : undefined),
+        sku: matchItem?.sku ?? item.sku,
+        kit_parent_product:
+          idFromRef(item.kit_parent_product) ||
+          idFromRef(matchItem?.kit_parent_product) ||
+          undefined,
+        dispatched_quantity: qty,
+        delivered_quantity: qty,
+      };
+    })
+    .filter((item) => Number(item.dispatched_quantity) > 0);
+}
+
+function DeliveryNestRow({
+  line,
+  isBucket,
+}: {
+  line: DispatchLineDisplay;
+  isBucket?: boolean;
+}) {
+  const isKitParent = Boolean(line.isKitParent) && !isBucket;
+  return (
+    <tr
+      className={
+        isBucket
+          ? "bg-slate-50/80 dark:bg-slate-950/60"
+          : isKitParent
+            ? "bg-violet-50/40 dark:bg-violet-950/20"
+            : "bg-white dark:bg-slate-900"
+      }
+    >
+      <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
+        <div
+          className={
+            isBucket
+              ? "ml-3 border-l-2 border-violet-300 pl-2 dark:border-violet-700"
+              : undefined
+          }
+        >
+          {line.productName}
+          {isKitParent ? (
+            <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+              KIT
+            </span>
+          ) : null}
+          {isBucket || line.isKitBucket ? (
+            <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+              KIT BUCKET
+            </span>
+          ) : null}
+          {line.sku ? (
+            <span className="mt-0.5 block text-2xs font-normal text-slate-400">
+              SKU {line.sku}
+            </span>
+          ) : null}
+        </div>
+      </td>
+      <td className="px-4 py-3 text-center font-medium text-slate-600 dark:text-slate-300">
+        {line.dispatchedQty}
+      </td>
+      <td className="px-4 py-3 text-center font-bold text-emerald-600 dark:text-emerald-400">
+        {line.deliveredQty > 0 ? line.deliveredQty : line.dispatchedQty}
+      </td>
+    </tr>
+  );
+}
 
 export function OrderDeliveryModal({
   open,
@@ -45,47 +144,40 @@ export function OrderDeliveryModal({
     setReceivedBy("");
   }, []);
 
-  const deliveryFormItems = useMemo<DeliveryFormItem[]>(() => {
-    const selectedDispatch = dispatches.find(
-      (dispatch) => String(dispatch._id ?? dispatch.id ?? "") === dispatchId,
-    );
-    const dispatchItems = Array.isArray(selectedDispatch?.dispatch_items)
-      ? selectedDispatch.dispatch_items
-      : Array.isArray(selectedDispatch?.items)
-        ? selectedDispatch.items
-        : [];
+  const selectedDispatch = useMemo(
+    () =>
+      dispatches.find(
+        (dispatch) => idFromRef(dispatch._id ?? dispatch.id) === dispatchId,
+      ) ?? null,
+    [dispatches, dispatchId],
+  );
 
-    return dispatchItems.map((rawItem) => {
-        const item = rawItem as Record<string, unknown>;
-        const orderItem = orderItems.find(
-          (row) => String(row._id ?? row.id ?? "") === String(item.order_item_id),
-        );
-        const productFromItem =
-          item.product && typeof item.product === "object"
-            ? (item.product as Record<string, unknown>)
-            : null;
-        const productFromOrderItem =
-          orderItem?.product && typeof orderItem.product === "object"
-            ? (orderItem.product as Record<string, unknown>)
-            : null;
-        const product = productFromItem || productFromOrderItem;
-        return {
-          product:
-            product
-              ? String(product._id ?? product.id ?? "")
-              : String(item.product ?? orderItem?.product ?? ""),
-          productName: String(
-            orderItem?.product_name ||
-            product?.product_name ||
-            item.product_name ||
-            "—",
-          ),
-          dispatchedQty: Number(
-            item.dispatched_quantity ?? item.dispatch_quantity ?? 0,
-          ),
-        };
-      });
-  }, [dispatchId, dispatches, orderItems]);
+  const normalizedDispatchItems = useMemo(() => {
+    const dispatchItems = Array.isArray(selectedDispatch?.dispatch_items)
+      ? (selectedDispatch!.dispatch_items as Record<string, unknown>[])
+      : Array.isArray(selectedDispatch?.items)
+        ? (selectedDispatch!.items as Record<string, unknown>[])
+        : [];
+    return normalizeDispatchItemsForDelivery(dispatchItems, orderItems);
+  }, [selectedDispatch, orderItems]);
+
+  const displayGroups = useMemo(
+    () => nestDispatchLinesForDisplay(normalizedDispatchItems, orderItems),
+    [normalizedDispatchItems, orderItems],
+  );
+
+  /** Every dispatched product with qty > 0 (kit shells, buckets, individuals). */
+  const deliveryFormItems = useMemo<DeliveryFormItem[]>(() => {
+    return normalizedDispatchItems
+      .map((item) => ({
+        product: idFromRef(item.product),
+        productName: String(item.product_name ?? "—"),
+        order_item_id: idFromRef(item.order_item_id) || undefined,
+        kit_parent_product: idFromRef(item.kit_parent_product) || undefined,
+        dispatchedQty: Number(item.dispatched_quantity ?? 0),
+      }))
+      .filter((item) => Boolean(item.product) && item.dispatchedQty > 0);
+  }, [normalizedDispatchItems]);
 
   const handleClose = useCallback(() => {
     resetForm();
@@ -112,6 +204,7 @@ export function OrderDeliveryModal({
         dispatch: dispatchId,
         transport: transportId,
         delivery_type: "full",
+        // Full delivery mirrors every dispatched product (kit shells + buckets + individuals).
         delivery_items: deliveryFormItems.map((item) => ({
           product: item.product,
           delivered_quantity: item.dispatchedQty,
@@ -152,7 +245,7 @@ export function OrderDeliveryModal({
               Confirm Full Delivery
             </h3>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              All dispatched products will be marked delivered in full.
+              Full delivery includes every product on the linked dispatch.
             </p>
           </div>
           <button
@@ -184,19 +277,63 @@ export function OrderDeliveryModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {deliveryFormItems.map((item, index) => (
-                  <tr key={`${item.product}-${index}`} className="bg-white dark:bg-slate-900">
-                    <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
-                      {item.productName}
-                    </td>
-                    <td className="px-4 py-3 text-center font-medium text-slate-600 dark:text-slate-300">
-                      {item.dispatchedQty}
-                    </td>
-                    <td className="px-4 py-3 text-center font-bold text-emerald-600 dark:text-emerald-400">
-                      {item.dispatchedQty}
+                {displayGroups.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={3}
+                      className="px-4 py-6 text-center text-slate-500"
+                    >
+                      No dispatched items are available for full delivery.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  displayGroups.map((group, gIdx) => {
+                    if (group.line) {
+                      return (
+                        <DeliveryNestRow key={group.line.key} line={group.line} />
+                      );
+                    }
+
+                    const headerLine: DispatchLineDisplay | null = group.parent
+                      ? {
+                          ...group.parent,
+                          isKitParent:
+                            group.parent.isKitParent || group.buckets.length > 0,
+                        }
+                      : group.kitHeader
+                        ? {
+                            key: `kit-header-${group.kitHeader.productId}-${gIdx}`,
+                            item: {},
+                            productName: group.kitHeader.productName,
+                            sku: group.kitHeader.sku,
+                            orderedQty: group.kitHeader.orderedQty,
+                            dispatchedQty: group.kitHeader.dispatchedQty,
+                            deliveredQty: group.kitHeader.deliveredQty,
+                            returnedQty: group.kitHeader.returnedQty,
+                            remainingQty: group.kitHeader.remainingQty,
+                            productId: group.kitHeader.productId,
+                            kitParentProduct: "",
+                            isKitBucket: false,
+                            isKitParent: true,
+                          }
+                        : null;
+
+                    return (
+                      <Fragment key={headerLine?.key ?? `group-${gIdx}`}>
+                        {headerLine ? (
+                          <DeliveryNestRow line={headerLine} />
+                        ) : null}
+                        {group.buckets.map((bucket) => (
+                          <DeliveryNestRow
+                            key={bucket.key}
+                            line={bucket}
+                            isBucket
+                          />
+                        ))}
+                      </Fragment>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>

@@ -29,6 +29,9 @@ const {
   normalizePendingStage,
   findOrderIdsWithPendingApproval,
   findOrderIdsWithAnyPendingApproval,
+  findOrderIdsWithDueSheetPending,
+  findOrderIdsWithFinancePending,
+  findOrderIdsWithAccountPending,
   isAnyPendingApprovalStatus,
   enrichOrdersWithApprovalPending,
   enrichOrdersWithDueSheetStatus,
@@ -602,6 +605,7 @@ function normalizeItems(items) {
       line_status: ORDER_LINE_STATUS_VALUES.includes(String(line.line_status || '').toLowerCase())
         ? String(line.line_status).toLowerCase()
         : ORDER_LINE_STATUS.ACTIVE,
+      kit_parent_product: line.kit_parent_product || undefined,
       remarks: line.remarks || '',
     };
     if (line._id && mongoose.Types.ObjectId.isValid(String(line._id))) {
@@ -646,22 +650,16 @@ async function buildBaseQuery(query = {}, user) {
       const pendingOrderIds = await findOrderIdsWithPendingApproval('admin', getModels());
       q._id = { $in: pendingOrderIds };
     } else if (s === 'due_sheet_pending') {
-      const dueSheetOrderIds = await getModels().OrderDueSheet.distinct('order', { is_current: true, status: 'active', deletedAt: null });
-      const approvalDueSheetOrderIds = await getModels().OrderApproval.distinct('order', { is_due_sheet_uploaded: true, deletedAt: null });
-      const allUploaded = [...new Set([...dueSheetOrderIds.map(String), ...approvalDueSheetOrderIds.map(String)])];
-      const adminPendingIds = await findOrderIdsWithPendingApproval('admin', getModels());
-
-      q.status = { $nin: ['draft', 'submitted', 'pending_review', 'on_hold', 'cancelled', 'finance_rejected', 'account_rejected', 'delivered'] };
-      q._id = { $nin: [...allUploaded, ...adminPendingIds] };
+      // Finance review + OrderApproval.is_due_sheet_uploaded is not true.
+      const dueSheetPendingIds = await findOrderIdsWithDueSheetPending(getModels());
+      q._id = { $in: dueSheetPendingIds };
     } else if (s === 'pending_finance_approval') {
-      const dueSheetOrderIds = await getModels().OrderDueSheet.distinct('order', { is_current: true, status: 'active', deletedAt: null });
-      const approvalDueSheetOrderIds = await getModels().OrderApproval.distinct('order', { is_due_sheet_uploaded: true, deletedAt: null });
-      const allUploaded = [...new Set([...dueSheetOrderIds.map(String), ...approvalDueSheetOrderIds.map(String)])];
-
-      const financePendingIds = await findOrderIdsWithPendingApproval('finance', getModels());
-      q._id = { $in: financePendingIds.filter(id => allUploaded.includes(id)) };
+      // Finance review + OrderApproval.is_due_sheet_uploaded is true.
+      const financePendingIds = await findOrderIdsWithFinancePending(getModels());
+      q._id = { $in: financePendingIds };
     } else if (s === 'pending_account_approval') {
-      const accountPendingIds = await findOrderIdsWithPendingApproval('account', getModels());
+      // Finance-approved / account-review + OrderApproval.is_account_approved is false.
+      const accountPendingIds = await findOrderIdsWithAccountPending(getModels());
       q._id = { $in: accountPendingIds };
     } else if (s === 'open_dispatched') {
       // Dispatch Pending: past approval queues, no submitted dispatch yet.
@@ -1095,6 +1093,21 @@ async function create(body, user) {
         },
         user,
       );
+
+      // After admin approval: order received (client + sales) + due sheet pending
+      const approvedImmediately =
+        body.approve_immediately === true || body.approve_immediately === 'true';
+      if (approvedImmediately) {
+        await shootPostAdminApprovalEmails(plain._id).catch((err) => {
+          const { logger } = require('../../config/logger');
+          if (logger) {
+            logger.error(
+              `[create] Error queuing post-admin-approval emails for order ${plain._id}: ${err?.message}`,
+              { error: err },
+            );
+          }
+        });
+      }
     }
 
     const refreshed = await getModels().Order.findById(plain._id).lean();
@@ -1400,16 +1413,15 @@ async function submitOrder(id, body, user, reqMeta) {
   const orderApprovalService = require('../orderApproval/orderApproval.service');
   await orderApprovalService.syncOrderItemsForAdminApproval(id, body.order_items, user);
 
-  const workflowQueue = require('../../queues/workflow.queue');
-  await workflowQueue.enqueue({
-    type: 'submit_transition',
-    payload: {
-      orderId: id,
-      userId: user._id,
-      remarks: body.remarks,
-      ip_address: reqMeta.ip,
-      user_agent: reqMeta.ua,
-    },
+  // Perform workflow status transition synchronously so status changes to 'submitted' immediately
+  const workflowService = require('../workflow/workflow.service');
+  await workflowService.transitionOrderStatus({
+    orderId: id,
+    nextStatus: ORDER_STATUS.SUBMITTED,
+    userId: user._id,
+    remarks: body.remarks,
+    ip_address: reqMeta.ip,
+    user_agent: reqMeta.ua,
   });
 
   const approvalBody = {
@@ -1421,6 +1433,7 @@ async function submitOrder(id, body, user, reqMeta) {
     approval_items: body.approval_items,
     contact_number: body.contact_number,
     contact_name: body.contact_name,
+    order_items: body.order_items,
   };
 
   // Prefer synchronous approval creation so submit does not succeed without a batch.
@@ -1430,7 +1443,11 @@ async function submitOrder(id, body, user, reqMeta) {
     await orderApprovalService.create(approvalBody, user);
     approvalCreated = true;
   } catch (err) {
+    const { logger } = require('../../config/logger');
     approvalError = err?.message || 'Failed to create order approval';
+    if (logger) {
+      logger.error(`[submitOrder] Synchronous approval creation failed for order ${id}: ${err?.message}`, { error: err });
+    }
     // Background retry as a best-effort fallback.
     try {
       const orderApprovalQueue = require('../../queues/orderApproval.queue');
@@ -1440,6 +1457,105 @@ async function submitOrder(id, body, user, reqMeta) {
       });
     } catch (_queueErr) {
       // ignore queue failure; client can retry create
+    }
+  }
+
+  // Trigger Admin Approval Pending email in background queue
+  try {
+    const { Order, Party, User, Role } = getModels();
+    const orderDoc = await Order.findById(id).lean();
+    if (orderDoc) {
+      const partyDoc = orderDoc.party ? await Party.findById(orderDoc.party).lean() : null;
+
+      // Find recipient admin email (active admin user or fallback process.env.ADMIN_EMAIL / default)
+      let recipientEmail = process.env.ADMIN_EMAIL || process.env.SMTP_FROM || 'it@spspl.com';
+      // const adminRole = await Role.findOne({ name: 'admin', deletedAt: null }).lean();
+      // if (adminRole) {
+      //   const adminUser = await User.findOne({ roles: adminRole._id, deletedAt: null, is_active: true }).lean();
+      //   if (adminUser?.email) {
+      //     recipientEmail = adminUser.email;
+      //   }
+      // }
+
+      // Query total pending admin approvals count & list for email summary
+      const pendingApprovalOrderIds = await findOrderIdsWithPendingApproval('admin', getModels());
+      const totalPendingCount = pendingApprovalOrderIds.length;
+
+      let pendingOrdersRows = '';
+      if (totalPendingCount > 0) {
+        const otherPendingIds = pendingApprovalOrderIds.filter((oid) => String(oid) !== String(id));
+        const pendingDocs = await Order.find({ _id: { $in: otherPendingIds } })
+          .populate('party')
+          .limit(5)
+          .lean();
+
+        pendingOrdersRows = pendingDocs
+          .map((p, idx) => {
+            const pOrderNo = p.order_no || String(p._id);
+            const pCustName = p.party?.party_name || p.customer_name || 'N/A';
+            const pOrderDate = p.order_date
+              ? new Date(p.order_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+              : 'N/A';
+            const pExpDate = p.expected_delivery_date
+              ? new Date(p.expected_delivery_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+              : 'N/A';
+            const pPriority = String(p.priority || 'normal').toUpperCase();
+            const pPriorityClass = pPriority === 'URGENT' ? 'badge-priority-urgent' : pPriority === 'HIGH' ? 'badge-priority-high' : 'badge-priority-normal';
+
+            return `<tr>
+      <td class="text-center">${idx + 1}</td>
+      <td class="font-semibold" style="color: #1e40af;">#${pOrderNo}</td>
+      <td>${pCustName}</td>
+      <td class="text-center">${pOrderDate}</td>
+      <td class="text-center">${pExpDate}</td>
+      <td class="text-center"><span class="${pPriorityClass}">${pPriority}</span></td>
+    </tr>`;
+          })
+          .join('\n');
+      }
+
+      if (!pendingOrdersRows) {
+        pendingOrdersRows = `<tr><td colspan="6" class="text-center" style="padding: 12px; color: #64748b;">No other orders currently pending admin approval.</td></tr>`;
+      }
+
+      const autoEmailService = require('../autoEmails/autoEmail.service');
+      const { EMAIL_TEMPLATES } = require('../messages/templates/emails/emailTemplates.registry');
+
+      const formattedOrderDate = orderDoc.order_date
+        ? new Date(orderDoc.order_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        : 'N/A';
+      const formattedDeliveryDate = orderDoc.expected_delivery_date
+        ? new Date(orderDoc.expected_delivery_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        : 'N/A';
+
+      const priorityUpper = String(orderDoc.priority || 'normal').toUpperCase();
+      const priorityClass = priorityUpper === 'URGENT' ? 'badge-priority-urgent' : priorityUpper === 'HIGH' ? 'badge-priority-high' : 'badge-priority-normal';
+      const priorityBadge = `<span class="${priorityClass}">${priorityUpper}</span>`;
+
+      await autoEmailService.shootAutoEmail({
+        recipient: recipientEmail,
+        templateName: EMAIL_TEMPLATES.ADMIN_APPROVAL_PENDING,
+        templateParams: {
+          recipient: recipientEmail,
+          subject: `Action Required: Admin Approval Pending for Order #${orderDoc.order_no || id}`,
+          companyName: process.env.COMPANY_NAME || 'Medica Enterprises',
+          logoUrl: process.env.COMPANY_LOGO_URL || 'https://app.medica-opms.com/medica-logo.png',
+          adminPersonName: 'Admin Team',
+          orderNo: orderDoc.order_no || String(id),
+          customerName: partyDoc?.party_name || orderDoc.customer_name || 'N/A',
+          orderDate: formattedOrderDate,
+          expectedDeliveryDate: formattedDeliveryDate,
+          priorityBadge,
+          totalPendingCount: totalPendingCount > 0 ? totalPendingCount : 1,
+          pendingOrdersRows,
+          year: new Date().getFullYear(),
+        },
+      });
+    }
+  } catch (_emailErr) {
+    const { logger } = require('../../config/logger');
+    if (logger) {
+      logger.error(`[submitOrder] Error queuing admin approval pending email for order ${id}: ${_emailErr?.message}`, { error: _emailErr });
     }
   }
 
@@ -1780,6 +1896,236 @@ async function superSheetUpdate(id, body, user) {
   }).catch(() => undefined);
 
   return applyDerivedPriorityToOrder(toPlain(doc.toObject()));
+}
+
+function formatInr(amount) {
+  const n = Number(amount);
+  const safe = Number.isFinite(n) ? n : 0;
+  return `₹${safe.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatEmailDate(value) {
+  if (!value) return 'N/A';
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return 'N/A';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function formatPartyAddress(party, customerName) {
+  const addr = party?.shipping_address || party?.billing_address || null;
+  if (!addr || typeof addr !== 'object') {
+    return customerName || 'N/A';
+  }
+  const parts = [
+    customerName,
+    addr.address_line_1,
+    addr.address_line_2,
+    addr.city,
+    addr.state,
+    addr.pincode,
+    addr.country,
+  ]
+    .map((p) => (p != null ? String(p).trim() : ''))
+    .filter(Boolean);
+  return parts.length ? parts.join(', ') : customerName || 'N/A';
+}
+
+function buildClientItemsRows(orderItems = []) {
+  return (orderItems || [])
+    .map((item) => {
+      const name = item.product_name || 'Item';
+      const qty = Number(item.ordered_quantity ?? item.quantity ?? 0) || 0;
+      const free = Number(item.free_quantity ?? 0) || 0;
+      const rateType = item.applied_rate_type || 'MANUAL';
+      const price = formatInr(item.unit_price);
+      const disc = `${Number(item.discount_percent ?? 0) || 0}%`;
+      const gst = `${Number(item.gst_percent ?? 0) || 0}%`;
+      const total = formatInr(item.total_amount);
+      return `<tr>
+                <td class="font-semibold">${name}</td>
+                <td class="text-center">${qty}</td>
+                <td class="text-center">${free}</td>
+                <td class="text-center">${rateType}</td>
+                <td class="text-right">${price}</td>
+                <td class="text-right">${disc}</td>
+                <td class="text-right">${gst}</td>
+                <td class="text-right font-semibold">${total}</td>
+              </tr>`;
+    })
+    .join('\n');
+}
+
+function buildSalesItemsRows(orderItems = []) {
+  return (orderItems || [])
+    .map((item, idx) => {
+      const name = item.product_name || 'Item';
+      const qty = Number(item.ordered_quantity ?? item.quantity ?? 0) || 0;
+      const free = Number(item.free_quantity ?? 0) || 0;
+      const freeHtml =
+        free > 0
+          ? ` <span style="font-size: 11px; color: #0f766e;">(+${free} Free)</span>`
+          : '';
+      return `<tr>
+                <td class="text-center">${idx + 1}</td>
+                <td class="font-semibold">${name}</td>
+                <td class="text-center">${qty}${freeHtml}</td>
+              </tr>`;
+    })
+    .join('\n');
+}
+
+/**
+ * After admin approves on create: enqueue order_received (client),
+ * order_received_sales (sales), and due_sheet_pending (accounts custom email).
+ */
+async function shootPostAdminApprovalEmails(orderId) {
+  const { Order, Party, User } = getModels();
+  const autoEmailService = require('../autoEmails/autoEmail.service');
+  const { EMAIL_TEMPLATES } = require('../messages/templates/emails/emailTemplates.registry');
+
+  const orderDoc = await Order.findById(orderId).lean();
+  if (!orderDoc) return;
+
+  const partyDoc = orderDoc.party ? await Party.findById(orderDoc.party).lean() : null;
+  const salesUser = orderDoc.assigned_sales_user
+    ? await User.findById(orderDoc.assigned_sales_user).lean()
+    : null;
+
+  const customerName = partyDoc?.party_name || orderDoc.customer_name || 'N/A';
+  const orderNo = orderDoc.order_no || String(orderId);
+  const orderDate = formatEmailDate(orderDoc.order_date);
+  const expectedDeliveryDate = formatEmailDate(orderDoc.expected_delivery_date);
+  const shippingAddress = formatPartyAddress(partyDoc, customerName);
+  const companyName = process.env.COMPANY_NAME || 'Medica Enterprises';
+  const year = new Date().getFullYear();
+  const customEmail =
+    process.env.ADMIN_EMAIL || process.env.SMTP_FROM || 'it@spspl.com';
+
+  const clientEmail = customEmail;
+  const salesEmail =  customEmail;
+  // const clientEmail = partyDoc?.email || process.env.CLIENT_EMAIL || customEmail;
+  // const salesEmail = salesUser?.email || process.env.SALES_EMAIL || customEmail;
+  const dueSheetEmail =
+    process.env.ACCOUNT_EMAIL || process.env.DUE_SHEET_EMAIL || customEmail;
+
+  const clientItemsRows =
+    buildClientItemsRows(orderDoc.order_items) ||
+    `<tr><td colspan="8" class="text-center" style="padding: 12px; color: #64748b;">No items</td></tr>`;
+  const salesItemsRows =
+    buildSalesItemsRows(orderDoc.order_items) ||
+    `<tr><td colspan="3" class="text-center" style="padding: 12px; color: #64748b;">No items</td></tr>`;
+
+  // Due-sheet pending bucket (same filters as orders tab=due_sheet_pending):
+  // finance_review workflow + OrderApproval.is_due_sheet_uploaded is not true.
+  const dueSheetPendingIds = await findOrderIdsWithDueSheetPending(getModels());
+  const otherDueSheetPendingIds = dueSheetPendingIds.filter(
+    (id) => String(id) !== String(orderId),
+  );
+  const pendingDueSheetDocs = await Order.find({
+    _id: { $in: otherDueSheetPendingIds },
+    deletedAt: null,
+  })
+    .populate('party')
+    .sort({ order_date: -1 })
+    .limit(5)
+    .lean();
+
+  const totalPendingCount = dueSheetPendingIds.includes(String(orderId))
+    ? dueSheetPendingIds.length
+    : dueSheetPendingIds.length + 1;
+  let pendingOrdersRows = pendingDueSheetDocs
+    .map((p, idx) => {
+      const pOrderNo = p.order_no || String(p._id);
+      const pCustName = p.party?.party_name || p.customer_name || 'N/A';
+      const pOrderDate = formatEmailDate(p.order_date);
+      const pExpDate = formatEmailDate(p.expected_delivery_date);
+      const pPriority = String(p.priority || 'normal').toUpperCase();
+      const pPriorityClass =
+        pPriority === 'URGENT'
+          ? 'badge-priority-urgent'
+          : pPriority === 'HIGH'
+            ? 'badge-priority-high'
+            : 'badge-priority-normal';
+      return `<tr>
+      <td class="text-center">${idx + 1}</td>
+      <td class="font-semibold" style="color: #1e40af;">#${pOrderNo}</td>
+      <td>${pCustName}</td>
+      <td class="text-center">${pOrderDate}</td>
+      <td class="text-center">${pExpDate}</td>
+      <td class="text-center"><span class="${pPriorityClass}">${pPriority}</span></td>
+    </tr>`;
+    })
+    .join('\n');
+
+  if (!pendingOrdersRows) {
+    pendingOrdersRows = `<tr><td colspan="6" class="text-center" style="padding: 12px; color: #64748b;">No other orders currently pending due sheet.</td></tr>`;
+  }
+
+  const priorityUpper = String(orderDoc.priority || 'normal').toUpperCase();
+  const priorityClass =
+    priorityUpper === 'URGENT'
+      ? 'badge-priority-urgent'
+      : priorityUpper === 'HIGH'
+        ? 'badge-priority-high'
+        : 'badge-priority-normal';
+  const priorityBadge = `<span class="${priorityClass}">${priorityUpper}</span>`;
+
+  await autoEmailService.shootAutoEmail({
+    recipient: clientEmail,
+    templateName: EMAIL_TEMPLATES.ORDER_RECEIVED,
+    templateParams: {
+      recipient: clientEmail,
+      subject: `Order Confirmation - #${orderNo}`,
+      companyName,
+      customerName: partyDoc?.contact_person || customerName,
+      orderNo,
+      orderDate,
+      itemsRows: clientItemsRows,
+      subtotalAmount: formatInr(orderDoc.subtotal),
+      totalDiscount: formatInr(orderDoc.discount_amount),
+      totalGst: formatInr(orderDoc.gst_amount),
+      totalAmount: formatInr(orderDoc.grand_total),
+      shippingAddress,
+      year,
+    },
+  });
+
+  await autoEmailService.shootAutoEmail({
+    recipient: salesEmail,
+    templateName: EMAIL_TEMPLATES.ORDER_RECEIVED_SALES,
+    templateParams: {
+      recipient: salesEmail,
+      subject: `New Order Notification - #${orderNo}`,
+      companyName,
+      salesPersonName: salesUser?.name || 'Sales Team',
+      customerName,
+      orderNo,
+      orderDate,
+      itemsRows: salesItemsRows,
+      shippingAddress,
+      year,
+    },
+  });
+
+  await autoEmailService.shootAutoEmail({
+    recipient: dueSheetEmail,
+    templateName: EMAIL_TEMPLATES.DUE_SHEET_PENDING,
+    templateParams: {
+      recipient: dueSheetEmail,
+      subject: `Action Required: Due Sheet Pending for Approved Order #${orderNo}`,
+      companyName,
+      accountPersonName: 'Accounts Team',
+      approvedOrderNo: orderNo,
+      orderNo,
+      customerName,
+      orderDate,
+      expectedDeliveryDate,
+      priorityBadge,
+      totalPendingCount,
+      pendingOrdersRows,
+      year,
+    },
+  });
 }
 
 module.exports = {

@@ -22,6 +22,10 @@
  * - due_sheet_uploaded / is_due_sheet_uploaded (sheet OR approval flag)
  */
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import {
+  isKitShellOrderLine,
+  orderCommercialVolume,
+} from "@/components/portal/shared/orderLineQuantities";
 import { hasPendingReturns } from "@/components/portal/shared/returnSettlement";
 import { isReturnPending } from "@/constants/orderReturnStatus";
 
@@ -844,7 +848,10 @@ export function workflowTabQueryParams(
 
 export type OrderWorkflowTabStat = {
   count: number;
+  /** Individual + kit-bucket qty (excludes kit shells). */
   quantity: number;
+  /** Kit shell qty only — shown separately from item qty. */
+  kitQuantity: number;
   amount: number;
 };
 
@@ -857,14 +864,19 @@ export function createEmptyOrderWorkflowTabStats(): OrderWorkflowTabStats {
   return Object.fromEntries(
     ORDER_WORKFLOW_TABS.map((tab) => [
       tab.id,
-      { count: 0, quantity: 0, amount: 0 },
+      { count: 0, quantity: 0, kitQuantity: 0, amount: 0 },
     ]),
   ) as OrderWorkflowTabStats;
 }
 
-function orderLineQuantityForStats(order: unknown): number {
+function orderLineQuantitiesForStats(order: unknown): {
+  quantity: number;
+  kitQuantity: number;
+} {
   const row = order as { order_items?: unknown[]; status?: unknown };
-  const items = Array.isArray(row.order_items) ? row.order_items : [];
+  const items = (
+    Array.isArray(row.order_items) ? row.order_items : []
+  ) as Array<Record<string, unknown>>;
   const status = deriveOrderWorkflowStatus(row);
   const isApproved =
     status !== "draft" &&
@@ -874,22 +886,26 @@ function orderLineQuantityForStats(order: unknown): number {
     status !== "rejected" &&
     status !== "on_hold";
 
-  return items.reduce((sum: number, item) => {
-    const line = item as {
-      ordered_quantity?: unknown;
-      quantity?: unknown;
-      approved_quantity?: unknown;
-    };
+  let quantity = 0;
+  let kitQuantity = 0;
+  for (const line of items) {
     const q = isApproved
       ? Number(line.approved_quantity ?? 0)
       : Number(line.ordered_quantity ?? line.quantity ?? 0);
-    return sum + q;
-  }, 0);
+    if (!Number.isFinite(q) || q === 0) continue;
+    if (isKitShellOrderLine(line, items)) {
+      kitQuantity += q;
+    } else {
+      quantity += q;
+    }
+  }
+  return { quantity, kitQuantity };
 }
 
 function orderAmountForStats(order: unknown): number {
-  const row = order as { grand_total?: unknown; total?: unknown };
-  return Number(row.grand_total ?? row.total ?? 0);
+  // Same commercial definition as Product/Party/Sales leaderboard "Approved" volume:
+  // Σ (approved_qty × unit_price) excluding kit buckets — not order.grand_total.
+  return orderCommercialVolume(order, "approved");
 }
 
 /**
@@ -907,11 +923,12 @@ export function computeOrderWorkflowTabStats(
     const status = deriveOrderWorkflowStatus(order);
     if (status === "draft") continue;
 
-    const qty = orderLineQuantityForStats(order);
+    const { quantity: qty, kitQuantity } = orderLineQuantitiesForStats(order);
     const amount = orderAmountForStats(order);
 
     stats.all.count += 1;
     stats.all.quantity += qty;
+    stats.all.kitQuantity += kitQuantity;
     stats.all.amount += amount;
 
     const cat = getOrderWorkflowTabCategory(order, options);
@@ -919,6 +936,7 @@ export function computeOrderWorkflowTabStats(
 
     stats[cat].count += 1;
     stats[cat].quantity += qty;
+    stats[cat].kitQuantity += kitQuantity;
     stats[cat].amount += amount;
   }
 

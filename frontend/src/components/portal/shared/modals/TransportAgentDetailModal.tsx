@@ -77,6 +77,7 @@ export function TransportAgentDetailModal({
   const [pan_no, setPanNo] = useState("");
   const [status, setStatus] = useState("active");
   const [remarks, setRemarks] = useState("");
+  const [lr_number_required, setLrNumberRequired] = useState(false);
   const [is_active, setIsActive] = useState(true);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
 
@@ -117,6 +118,7 @@ export function TransportAgentDetailModal({
     setPanNo(stringField(detail.pan_no));
     setStatus(stringField(detail.status) || "active");
     setRemarks(stringField(detail.remarks));
+    setLrNumberRequired(detail.lr_number_required === true);
     setIsActive(detail.is_active !== false);
   }, [detail]);
 
@@ -131,6 +133,7 @@ export function TransportAgentDetailModal({
     setPanNo("");
     setStatus("active");
     setRemarks("");
+    setLrNumberRequired(false);
     setIsActive(true);
     setUploadFile(null);
   }, []);
@@ -166,6 +169,7 @@ export function TransportAgentDetailModal({
       pan_no: pan_no.trim().toUpperCase() || undefined,
       status,
       remarks: remarks.trim() || undefined,
+      lr_number_required,
       is_active,
     };
   }, [
@@ -179,6 +183,7 @@ export function TransportAgentDetailModal({
     pan_no,
     status,
     remarks,
+    lr_number_required,
     is_active,
   ]);
 
@@ -296,6 +301,16 @@ export function TransportAgentDetailModal({
               <div><dt className={labelClass}>Email</dt><dd>{stringField(detail.email) || "—"}</dd></div>
               <div><dt className={labelClass}>GST / PAN</dt><dd>{stringField(detail.gst_no) || "—"} / {stringField(detail.pan_no) || "—"}</dd></div>
               <div className="sm:col-span-2"><dt className={labelClass}>Remarks</dt><dd>{stringField(detail.remarks) || "—"}</dd></div>
+              <div>
+                <dt className={labelClass}>LR Number Required</dt>
+                <dd>
+                  {detail.lr_number_required ? (
+                    <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-950/30 dark:text-blue-400">Yes</span>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400">No</span>
+                  )}
+                </dd>
+              </div>
             </dl>
           ) : null}
 
@@ -343,9 +358,15 @@ export function TransportAgentDetailModal({
               <div><label className={labelClass}>GST No</label><input className={`${inputClass} uppercase`} value={gst_no} onChange={(e) => setGstNo(e.target.value.toUpperCase())} /></div>
               <div><label className={labelClass}>PAN No</label><input className={`${inputClass} uppercase`} value={pan_no} onChange={(e) => setPanNo(e.target.value.toUpperCase())} /></div>
               <div className="sm:col-span-2"><label className={labelClass}>Remarks</label><textarea className={inputClass} rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div>
-              <div className="sm:col-span-2 flex items-center gap-2">
-                <input id="agent-active" type="checkbox" checked={is_active} onChange={(e) => setIsActive(e.target.checked)} />
-                <label htmlFor="agent-active" className={labelClass}>Active</label>
+              <div className="sm:col-span-2 flex flex-wrap items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <input id="agent-lr-required" type="checkbox" checked={lr_number_required} onChange={(e) => setLrNumberRequired(e.target.checked)} />
+                  <label htmlFor="agent-lr-required" className={labelClass}>LR Number Required</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input id="agent-active" type="checkbox" checked={is_active} onChange={(e) => setIsActive(e.target.checked)} />
+                  <label htmlFor="agent-active" className={labelClass}>Active</label>
+                </div>
               </div>
             </div>
           ) : null}

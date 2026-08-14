@@ -529,6 +529,7 @@ function buildProductOptions(raw: unknown): ProductOption[] {
         hsn_code: String(o.hsn_code || ""),
         gst_percent: Number(o.gst_percent ?? 0) || 0,
         base_price: Number(o.base_price ?? o.mrp ?? 0) || 0,
+        product_type: String(o.product_type || "individual").toLowerCase(),
       } satisfies ProductOption;
     })
     .filter(Boolean) as ProductOption[];

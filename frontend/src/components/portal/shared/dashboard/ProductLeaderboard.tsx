@@ -28,6 +28,7 @@ import {
   itemMetricValue,
   formatMetricValue,
 } from "./leaderboardUtils";
+import { isKitShellOrderLine } from "@/components/portal/shared/orderLineQuantities";
 
 function resolveProductName(item: any): string {
   return (
@@ -60,15 +61,25 @@ export default function ProductLeaderboard({
 
   const displayOrders = disableInternalFilter ? orders : filteredOrders;
 
-  const productRows = useMemo(() => {
+  const { productRows, footerTotals } = useMemo(() => {
     const map = new Map<string, RateBucket>();
+    const footer = {
+      total: 0,
+      kitTotal: 0,
+      sr: 0,
+      sra: 0,
+      cr: 0,
+    };
+
     for (const o of displayOrders) {
       if (!shouldIncludeOrder(o, qtyBasis)) continue;
       const items = Array.isArray(o.order_items) ? o.order_items : [];
       for (const item of items) {
         const prodName = resolveProductName(item);
         if (!prodName) continue;
-        const value = itemMetricValue(item, metric, qtyBasis);
+        const value = itemMetricValue(item, metric, qtyBasis, items, {
+          countKitShellQuantity: true,
+        });
         const bucket = map.get(prodName) ?? { total: 0, sr: 0, sra: 0, cr: 0 };
         bucket.total += value;
         const rateType = normalizeRateType(item.applied_rate_type);
@@ -76,26 +87,28 @@ export default function ProductLeaderboard({
         else if (rateType === "SRA") bucket.sra += value;
         else if (rateType === "CR") bucket.cr += value;
         map.set(prodName, bucket);
+
+        const isKitShell =
+          metric === "quantity" &&
+          isKitShellOrderLine(item as Record<string, unknown>, items);
+        if (isKitShell) {
+          footer.kitTotal += value;
+        } else {
+          footer.total += value;
+          if (rateType === "SR") footer.sr += value;
+          else if (rateType === "SRA") footer.sra += value;
+          else if (rateType === "CR") footer.cr += value;
+        }
       }
     }
-    return Array.from(map.entries())
-      .map(([name, stats]) => ({ name, ...stats }))
-      .sort((a, b) => b.total - a.total);
-  }, [filteredOrders, metric, qtyBasis]);
 
-  const totals = useMemo(
-    () =>
-      productRows.reduce(
-        (acc, p) => ({
-          total: acc.total + p.total,
-          sr: acc.sr + p.sr,
-          sra: acc.sra + p.sra,
-          cr: acc.cr + p.cr,
-        }),
-        { total: 0, sr: 0, sra: 0, cr: 0 }
-      ),
-    [productRows]
-  );
+    return {
+      productRows: Array.from(map.entries())
+        .map(([name, stats]) => ({ name, ...stats }))
+        .sort((a, b) => b.total - a.total),
+      footerTotals: footer,
+    };
+  }, [displayOrders, metric, qtyBasis]);
 
   const valueLabel =
     qtyBasis === "dispatched"
@@ -172,16 +185,39 @@ export default function ProductLeaderboard({
     if (productRows.length === 0) return;
     const headers = ["Product", valueLabel, "SR", "SRA", "CR"];
     const rows = productRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
+    const meta = [
+      `Report: ProductLeaderboard`,
+      `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
+      `Metric: ${metric}`,
+      `Basis: ${qtyBasis}`,
+    ];
+    if (metric === "quantity") {
+      meta.push(
+        `Footer item qty (excl. kits): ${footerTotals.total}`,
+        `Footer kit qty: ${footerTotals.kitTotal}`,
+      );
+    }
     downloadCsvFile(
       reportFilename("product_leaderboard", selectedYears, selectedMonths),
       headers,
       rows,
-      [
-        `Report: ProductLeaderboard`,
-        `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
-        `Metric: ${metric}`,
-        `Basis: ${qtyBasis}`,
-      ],
+      meta,
+    );
+  };
+
+  const formatFooterTotal = () => {
+    const main = formatMetricValue(footerTotals.total, metric);
+    if (metric !== "quantity" || footerTotals.kitTotal <= 0) return main;
+    const kitLabel = `${footerTotals.kitTotal.toLocaleString()} ${
+      footerTotals.kitTotal === 1 ? "kit" : "kits"
+    }`;
+    return (
+      <>
+        {main}
+        <span className="mt-0.5 block text-2xs font-semibold text-violet-600 dark:text-violet-400">
+          · {kitLabel}
+        </span>
+      </>
     );
   };
 
@@ -381,18 +417,23 @@ export default function ProductLeaderboard({
                     <tr className="border-t-2 border-slate-200 bg-slate-50/80 dark:border-white/10 dark:bg-slate-800/50 divide-x divide-slate-100/70 dark:divide-white/5">
                       <td className="py-3 font-bold text-slate-900 dark:text-slate-100 pr-2">
                         Total
+                        {metric === "quantity" ? (
+                          <span className="mt-0.5 block text-2xs font-medium text-slate-500 dark:text-slate-400">
+                            Items (excl. kits)
+                          </span>
+                        ) : null}
                       </td>
                       <td className="py-3 px-2 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
-                        {formatMetricValue(totals.total, metric)}
+                        {formatFooterTotal()}
                       </td>
                       <td className="py-3 px-2 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
-                        {formatMetricValue(totals.sr, metric)}
+                        {formatMetricValue(footerTotals.sr, metric)}
                       </td>
                       <td className="py-3 px-2 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
-                        {formatMetricValue(totals.sra, metric)}
+                        {formatMetricValue(footerTotals.sra, metric)}
                       </td>
                       <td className="py-3 pl-2 text-right font-bold text-slate-900 dark:text-slate-50 tabular-nums">
-                        {formatMetricValue(totals.cr, metric)}
+                        {formatMetricValue(footerTotals.cr, metric)}
                       </td>
                     </tr>
                   </tfoot>

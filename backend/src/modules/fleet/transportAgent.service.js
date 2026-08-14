@@ -26,6 +26,7 @@ const PATCHABLE_KEYS = Object.freeze([
   'service_areas',
   'status',
   'remarks',
+  'lr_number_required',
   'is_active',
 ]);
 
@@ -46,6 +47,8 @@ function sanitizePatch(patch) {
     if (k === 'email' && typeof v === 'string') v = v.trim().toLowerCase();
     if (k === 'agent_type' && !AGENT_TYPES.has(v)) throw new ApiError(400, 'Invalid agent_type');
     if (k === 'status' && !AGENT_STATUSES.has(v)) throw new ApiError(400, 'Invalid status');
+    if (k === 'lr_number_required') v = v === true || v === 'true';
+    if (k === 'is_active') v = v !== false && v !== 'false';
     out[k] = v;
   }
   return out;
@@ -89,6 +92,7 @@ async function create(body, user) {
     service_areas: Array.isArray(body.service_areas) ? body.service_areas : [],
     status: body.status && AGENT_STATUSES.has(body.status) ? body.status : 'active',
     remarks: body.remarks != null ? String(body.remarks).trim() : '',
+    lr_number_required: body.lr_number_required === true,
     is_active: body.is_active !== false,
     created_by: user?._id,
     updated_by: user?._id,

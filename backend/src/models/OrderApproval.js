@@ -83,6 +83,8 @@ const orderApprovalSchema = new mongoose.Schema(
         gst_percent: { type: Number, default: 0 },
         free_quantity: { type: Number, default: 0 },
         remarks: String,
+        /** Present when this approval line is an expanded kit bucket individual. */
+        kit_parent_product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", default: null },
       }
     ],
 

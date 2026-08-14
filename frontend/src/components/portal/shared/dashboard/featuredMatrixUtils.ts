@@ -1,4 +1,5 @@
 import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import { isKitShellOrderLine } from "@/components/portal/shared/orderLineQuantities";
 
 export type MatrixMetric = "quantity" | "volume";
 export type MatrixQtyBasis = "net" | "approved" | "dispatched";
@@ -58,6 +59,13 @@ export function resolveEntityId(val: unknown): string {
   return "";
 }
 
+function isKitBucketLine(item: unknown): boolean {
+  if (!item || typeof item !== "object") return false;
+  return Boolean(
+    resolveEntityId((item as { kit_parent_product?: unknown }).kit_parent_product),
+  );
+}
+
 export function itemNetQty(item: any): number {
   const del = Number(item.delivered_quantity) || 0;
   const ret = Number(item.returned_quantity) || 0;
@@ -78,11 +86,24 @@ export function itemQty(item: any, basis: MatrixQtyBasis = "approved"): number {
   return itemNetQty(item);
 }
 
+/**
+ * Quantity KPIs exclude kit shells (commercial-only).
+ * Volume KPIs exclude kit buckets (fulfillment-only; money lives on the shell).
+ */
 export function itemMetricValue(
   item: any,
   metric: MatrixMetric,
   basis: MatrixQtyBasis = "approved",
+  allItems: any[] = [],
 ): number {
+  const peers = (allItems.length > 0 ? allItems : [item]) as Array<
+    Record<string, unknown>
+  >;
+  if (metric === "quantity") {
+    if (isKitShellOrderLine(item as Record<string, unknown>, peers)) return 0;
+  } else if (isKitBucketLine(item)) {
+    return 0;
+  }
   const qty = itemQty(item, basis);
   if (metric === "quantity") return qty;
   const unitPrice = Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;

@@ -27,6 +27,7 @@ const activityLogSchema = new mongoose.Schema(
         "product_subgroup",
         "product_brand",
         "product_manufacturer",
+        "product_kit_item",
         "work_plan",
         "transport_plan",
       ],

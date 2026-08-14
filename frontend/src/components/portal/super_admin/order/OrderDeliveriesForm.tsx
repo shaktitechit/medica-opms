@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { Fragment, useEffect, useMemo, useState, useCallback } from "react";
 import { RefreshCw, Save, X } from "lucide-react";
 import { toast } from "@/lib/toast";
+import {
+  nestDispatchLinesForDisplay,
+  type DispatchLineDisplay,
+} from "@/components/portal/shared/orderDetail/dispatchKitDisplay";
 import {
   refId,
   formatDateOnly,
@@ -23,7 +27,103 @@ type DeliveryItemDraft = {
   productName: string;
   dispatchedQty: number;
   deliveredQty: number;
+  order_item_id?: string;
+  kit_parent_product?: string;
 };
+
+function DeliveryNestRows({
+  groups,
+  mode,
+}: {
+  groups: ReturnType<typeof nestDispatchLinesForDisplay>;
+  mode: "create" | "view";
+}) {
+  const renderLine = (
+    line: DispatchLineDisplay,
+    opts?: { isBucket?: boolean },
+  ) => (
+    <tr
+      key={line.key}
+      className={
+        opts?.isBucket
+          ? "bg-slate-50/80 dark:bg-slate-950/60"
+          : line.isKitParent
+            ? "bg-violet-50/40 dark:bg-violet-950/20"
+            : "bg-white dark:bg-slate-900"
+      }
+    >
+      <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+        <div
+          className={
+            opts?.isBucket
+              ? "ml-3 border-l-2 border-violet-300 pl-2 dark:border-violet-700"
+              : undefined
+          }
+        >
+          {line.productName}
+          {line.isKitParent ? (
+            <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-950/50 px-1.5 py-0.5 rounded">
+              KIT
+            </span>
+          ) : null}
+          {opts?.isBucket || line.isKitBucket ? (
+            <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-950/50 px-1.5 py-0.5 rounded">
+              KIT BUCKET
+            </span>
+          ) : null}
+        </div>
+      </td>
+      {mode === "create" ? (
+        <td className="px-3 py-1.5 text-center font-semibold text-slate-500 dark:text-slate-400">
+          {line.dispatchedQty}
+        </td>
+      ) : null}
+      <td className="px-3 py-1.5 text-center font-bold tabular-nums text-slate-800 dark:text-slate-100">
+        {line.deliveredQty}
+      </td>
+    </tr>
+  );
+
+  return (
+    <>
+      {groups.map((group, gIdx) => {
+        if (group.line) {
+          return renderLine(group.line);
+        }
+        const headerLine: DispatchLineDisplay | null = group.parent
+          ? {
+              ...group.parent,
+              isKitParent: group.parent.isKitParent || group.buckets.length > 0,
+            }
+          : group.kitHeader
+            ? {
+                key: `kit-header-${group.kitHeader.productId}-${gIdx}`,
+                item: {},
+                productName: group.kitHeader.productName,
+                sku: group.kitHeader.sku,
+                orderedQty: group.kitHeader.orderedQty,
+                dispatchedQty: group.kitHeader.dispatchedQty,
+                deliveredQty: group.kitHeader.deliveredQty,
+                returnedQty: group.kitHeader.returnedQty,
+                remainingQty: group.kitHeader.remainingQty,
+                productId: group.kitHeader.productId,
+                kitParentProduct: "",
+                isKitBucket: false,
+                isKitParent: true,
+              }
+            : null;
+        return (
+          <Fragment key={headerLine?.key ?? `group-${gIdx}`}>
+            {headerLine ? renderLine(headerLine) : null}
+            {group.buckets.map((bucket) =>
+              renderLine(bucket, { isBucket: true }),
+            )}
+          </Fragment>
+        );
+      })}
+    </>
+  );
+}
 
 export function OrderDeliveriesForm({
   order,
@@ -112,16 +212,46 @@ export function OrderDeliveriesForm({
       );
       const prodName = matchOrderItem?.product_name || item.product_name || "—";
       const pId = refId(item.product || matchOrderItem?.product);
+      const kitParent = refId(
+        item.kit_parent_product || matchOrderItem?.kit_parent_product,
+      );
       const dispQty = Number(item.dispatched_quantity ?? item.dispatch_quantity ?? 0);
       return {
         product: pId,
-        productName: prodName,
+        productName: String(prodName || "—"),
         dispatchedQty: dispQty,
         deliveredQty: dispQty,
+        order_item_id: refId(item.order_item_id),
+        kit_parent_product: kitParent || undefined,
       };
     });
     setNewItems(draftItems);
   }, [linkedDispatchObj, isCreateMode, order.order_items]);
+
+  const orderItems = useMemo(
+    () => (order.order_items || []) as Record<string, unknown>[],
+    [order.order_items],
+  );
+
+  const createDisplayGroups = useMemo(() => {
+    const synthetic = newItems.map((item) => ({
+      product: item.product,
+      product_name: item.productName,
+      order_item_id: item.order_item_id,
+      kit_parent_product: item.kit_parent_product,
+      dispatched_quantity: item.dispatchedQty,
+      delivered_quantity: item.deliveredQty,
+    }));
+    return nestDispatchLinesForDisplay(synthetic, orderItems);
+  }, [newItems, orderItems]);
+
+  const viewDisplayGroups = useMemo(() => {
+    if (!selectedDelivery) return [];
+    const items = Array.isArray(selectedDelivery.delivery_items)
+      ? (selectedDelivery.delivery_items as Record<string, unknown>[])
+      : [];
+    return nestDispatchLinesForDisplay(items, orderItems);
+  }, [selectedDelivery, orderItems]);
 
   const resetForm = useCallback(() => {
     const defaultTransport = transports.find((t) => t.shipment_status !== "delivered") || transports[0];
@@ -291,19 +421,10 @@ export function OrderDeliveriesForm({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                          {newItems.map((item) => (
-                            <tr key={item.product} className="bg-white dark:bg-slate-900">
-                              <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
-                                {item.productName}
-                              </td>
-                              <td className="px-3 py-1.5 text-center font-semibold text-slate-500 dark:text-slate-400">
-                                {item.dispatchedQty}
-                              </td>
-                              <td className="px-3 py-1.5 text-center font-bold tabular-nums text-slate-800 dark:text-slate-100">
-                                {item.deliveredQty}
-                              </td>
-                            </tr>
-                          ))}
+                          <DeliveryNestRows
+                            groups={createDisplayGroups}
+                            mode="create"
+                          />
                         </tbody>
                       </table>
                     </div>
@@ -346,21 +467,10 @@ export function OrderDeliveriesForm({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                        {(selectedDelivery.delivery_items || []).map((item: any, i: number) => (
-                          <tr key={i} className="bg-white dark:bg-slate-900">
-                            <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
-                              {String(
-                                item.product_name ||
-                                (typeof item.product === "object" && item.product !== null
-                                  ? (item.product as any).product_name || (item.product as any).name || ""
-                                  : String(item.product ?? ""))
-                              ) || "—"}
-                            </td>
-                            <td className="px-3 py-1.5 text-center font-bold text-slate-700 dark:text-slate-300">
-                              {item.delivered_quantity}
-                            </td>
-                          </tr>
-                        ))}
+                        <DeliveryNestRows
+                          groups={viewDisplayGroups}
+                          mode="view"
+                        />
                       </tbody>
                     </table>
                   </div>

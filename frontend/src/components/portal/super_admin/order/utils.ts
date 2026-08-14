@@ -12,6 +12,7 @@ export type ProductOption = {
   hsn_code: string;
   gst_percent: number;
   base_price: number;
+  product_type?: string;
 };
 
 export type LineDraft = {
@@ -50,6 +51,8 @@ export type LineDraft = {
   gst_amount: number;
   total_amount: number;
   remarks: string;
+  /** When set, this row is a kit bucket component (not a commercial parent). */
+  kit_parent_product?: string;
 };
 
 export function refId(v: unknown): string {
@@ -133,6 +136,8 @@ export function calcOrderTotals(
   let subtotal = 0;
   let gstAmount = 0;
   for (const line of lines) {
+    // Kit bucket rows are zero-priced fulfillment components — skip from commercials.
+    if (line.kit_parent_product) continue;
     const c = calcLineAmounts(line);
     subtotal += c.taxable_amount;
     gstAmount += c.gst_amount;
@@ -230,6 +235,7 @@ export function lineFromRaw(line: any, idx: number, orderId: string): LineDraft 
     gst_amount: Number(line?.gst_amount ?? 0),
     total_amount: Number(line?.total_amount ?? 0),
     remarks: String(line?.remarks || ""),
+    kit_parent_product: refId(line?.kit_parent_product) || undefined,
   };
   return { ...base, ...calcLineAmounts(base) };
 }
@@ -312,6 +318,10 @@ export function linesToPayload(lines: LineDraft[]) {
       total_amount: calc.total_amount,
       remarks: line.remarks,
     };
+    if (line.kit_parent_product) {
+      row.kit_parent_product = line.kit_parent_product;
+      row.manual_price_override = true;
+    }
     if (line._id) row._id = line._id;
     return row;
   });

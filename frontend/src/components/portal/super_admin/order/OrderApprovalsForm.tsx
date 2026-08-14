@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, RefreshCw, Save, X } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { useListProductKitItemsQuery } from "@/store/api";
+import {
+  buildKitCompositionMap,
+  expandKitBucketLines,
+  hasKitParent,
+  isKitProductId,
+  previewKitBuckets,
+} from "@/components/portal/shared/kitBucketExpand";
 import {
   NamedOption,
   ProductOption,
@@ -31,6 +39,7 @@ type ApprovalItemDraft = {
   gst_percent: number;
   free_quantity: number;
   remarks: string;
+  kit_parent_product?: string;
 };
 
 type ApprovalHeaderDraft = {
@@ -84,6 +93,7 @@ function approvalItemFromRaw(item: any, idx: number): ApprovalItemDraft {
   const discPct = Number(item?.discount_percent ?? 0) || 0;
   const gstPct = Number(item?.gst_percent ?? 0) || 0;
   const calc = calcApprovalLineTotal(qty, price, discPct, gstPct);
+  const kitParent = refId(item?.kit_parent_product) || undefined;
   return {
     key: `${refId(item?.order_item_id) || "line"}-${idx}`,
     order_item_id: refId(item?.order_item_id),
@@ -105,7 +115,14 @@ function approvalItemFromRaw(item: any, idx: number): ApprovalItemDraft {
     gst_percent: gstPct,
     free_quantity: Number(item?.free_quantity ?? 0) || 0,
     remarks: String(item?.remarks ?? ""),
+    kit_parent_product: kitParent,
   };
+}
+
+function commercialApprovalLines(items: unknown[]): ApprovalItemDraft[] {
+  return items
+    .map((item, i) => approvalItemFromRaw(item, i))
+    .filter((line) => !hasKitParent(line.kit_parent_product));
 }
 
 function emptyApprovalLine(): ApprovalItemDraft {
@@ -173,6 +190,20 @@ export function OrderApprovalsForm({
   onSave: (approvalId: string, patch: Record<string, unknown>) => Promise<void>;
 }) {
   const orderId = refId(order._id || order.id);
+  const orderItems = (order.order_items || []) as Record<string, unknown>[];
+  const kitItemsQ = useListProductKitItemsQuery({ paginate: "false" });
+  const kitCompositionByProductId = useMemo(
+    () => buildKitCompositionMap(kitItemsQ.data),
+    [kitItemsQ.data],
+  );
+  const productTypeById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of products) {
+      if (p.id) map.set(p.id, String(p.product_type || "individual").toLowerCase());
+    }
+    return map;
+  }, [products]);
+
   const sortedApprovals = useMemo(
     () =>
       [...approvals].sort((a, b) => {
@@ -197,10 +228,11 @@ export function OrderApprovalsForm({
     headerFromApproval(sortedApprovals[0] || {}),
   );
   const [lines, setLines] = useState<ApprovalItemDraft[]>(() =>
-    (Array.isArray(sortedApprovals[0]?.approval_items)
-      ? (sortedApprovals[0].approval_items as unknown[])
-      : []
-    ).map((item, i) => approvalItemFromRaw(item, i)),
+    commercialApprovalLines(
+      Array.isArray(sortedApprovals[0]?.approval_items)
+        ? (sortedApprovals[0].approval_items as unknown[])
+        : [],
+    ),
   );
   const [totalsManual, setTotalsManual] = useState(false);
 
@@ -231,11 +263,13 @@ export function OrderApprovalsForm({
   useEffect(() => {
     if (!selectedApproval) return;
     setHeader(headerFromApproval(selectedApproval));
+    // Commercial-only edit surface — kit buckets expand on save (ApprovalModal).
     setLines(
-      (Array.isArray(selectedApproval.approval_items)
-        ? (selectedApproval.approval_items as unknown[])
-        : []
-      ).map((item, i) => approvalItemFromRaw(item, i)),
+      commercialApprovalLines(
+        Array.isArray(selectedApproval.approval_items)
+          ? (selectedApproval.approval_items as unknown[])
+          : [],
+      ),
     );
     setTotalsManual(false);
   }, [selectedApproval]);
@@ -361,31 +395,68 @@ export function OrderApprovalsForm({
       toast.error("No approval batch selected");
       return;
     }
-    for (const line of lines) {
+    const commercial = lines.filter(
+      (line) => !hasKitParent(line.kit_parent_product),
+    );
+    for (const line of commercial) {
       if (!line.product?.trim()) {
         toast.error("Every approval line needs a product");
         return;
       }
     }
-    const approval_items = lines.map((line) => ({
-      order_item_id: line.order_item_id || undefined,
-      product: line.product || undefined,
-      ordered_quantity: line.ordered_quantity,
-      ordered_unit_price: line.ordered_unit_price,
-      ordered_total_amount: line.ordered_total_amount,
-      approved_quantity: line.approved_quantity,
-      approved_unit_price: line.approved_unit_price,
-      approved_total_amount: line.approved_total_amount,
-      applied_rate_type: line.applied_rate_type,
-      pricing_reference: line.pricing_reference || undefined,
-      manual_price_override: line.manual_price_override,
-      rate_mapped: line.rate_mapped,
-      discount_percent: line.discount_percent,
-      discount_amount: line.discount_amount,
-      gst_percent: line.gst_percent,
-      free_quantity: line.free_quantity,
-      remarks: line.remarks,
-    }));
+
+    const kitBuckets = expandKitBucketLines(
+      commercial.map((line) => ({
+        product: line.product,
+        product_name: line.product_label,
+        ordered_quantity: line.ordered_quantity,
+        approved_quantity: line.approved_quantity,
+        free_quantity: line.free_quantity,
+      })),
+      kitCompositionByProductId,
+      { orderItems, productTypeById },
+    );
+
+    const approval_items = [
+      ...commercial.map((line) => ({
+        order_item_id: line.order_item_id || undefined,
+        product: line.product || undefined,
+        ordered_quantity: line.ordered_quantity,
+        ordered_unit_price: line.ordered_unit_price,
+        ordered_total_amount: line.ordered_total_amount,
+        approved_quantity: line.approved_quantity,
+        approved_unit_price: line.approved_unit_price,
+        approved_total_amount: line.approved_total_amount,
+        applied_rate_type: line.applied_rate_type,
+        pricing_reference: line.pricing_reference || undefined,
+        manual_price_override: line.manual_price_override,
+        rate_mapped: line.rate_mapped,
+        discount_percent: line.discount_percent,
+        discount_amount: line.discount_amount,
+        gst_percent: line.gst_percent,
+        free_quantity: line.free_quantity,
+        remarks: line.remarks,
+      })),
+      ...kitBuckets.map((bucket) => ({
+        order_item_id: bucket.order_item_id || undefined,
+        product: bucket.product,
+        ordered_quantity: bucket.ordered_quantity,
+        ordered_unit_price: 0,
+        ordered_total_amount: 0,
+        approved_quantity: bucket.approved_quantity,
+        approved_unit_price: 0,
+        approved_total_amount: 0,
+        applied_rate_type: "MANUAL",
+        manual_price_override: true,
+        rate_mapped: false,
+        discount_percent: 0,
+        discount_amount: 0,
+        gst_percent: 0,
+        free_quantity: bucket.free_quantity,
+        remarks: bucket.remarks,
+        kit_parent_product: bucket.kit_parent_product,
+      })),
+    ];
 
     await onSave(selectedId, {
       ...header,
@@ -657,14 +728,36 @@ export function OrderApprovalsForm({
                 ) : null}
                 {lines.map((line, idx) => {
                   const isNew = !line.order_item_id;
+                  const lineIsKit = isKitProductId(
+                    line.product,
+                    kitCompositionByProductId,
+                    productTypeById,
+                  );
+                  const kitPreview = lineIsKit
+                    ? previewKitBuckets(
+                        line.product,
+                        Number(line.approved_quantity) || 0,
+                        Number(line.free_quantity) || 0,
+                        kitCompositionByProductId,
+                      )
+                    : [];
                   return (
                     <div
                       key={line.key}
-                      className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-950/40"
+                      className={
+                        lineIsKit
+                          ? "rounded-lg border border-violet-200 bg-violet-50/40 p-3 dark:border-violet-800/40 dark:bg-violet-950/20"
+                          : "rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-950/40"
+                      }
                     >
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
                           Line {idx + 1}
+                          {lineIsKit ? (
+                            <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-950/50 px-1.5 py-0.5 rounded">
+                              KIT
+                            </span>
+                          ) : null}
                           {isNew ? (
                             <span className="ml-2 text-2xs font-normal text-amber-600">
                               new
@@ -849,6 +942,37 @@ export function OrderApprovalsForm({
                           />
                         </label>
                       </div>
+                      {lineIsKit ? (
+                        <div className="mt-3 rounded-md border border-violet-200/80 bg-white/80 px-2.5 py-2 dark:border-violet-800/40 dark:bg-slate-950/40">
+                          <p className="text-2xs font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-300">
+                            Kit buckets (auto-expanded on save)
+                          </p>
+                          {kitPreview.length === 0 ? (
+                            <p className="mt-1 text-2xs text-slate-500">
+                              No active kit composition mapped for this product.
+                            </p>
+                          ) : (
+                            <ul className="mt-1.5 space-y-1">
+                              {kitPreview.map((comp) => (
+                                <li
+                                  key={comp.productId}
+                                  className="ml-2 flex flex-wrap items-center gap-x-3 border-l-2 border-violet-300 pl-2 text-2xs text-slate-700 dark:border-violet-700 dark:text-slate-300"
+                                >
+                                  <span className="font-medium">{comp.name}</span>
+                                  {comp.sku ? (
+                                    <span className="font-mono text-slate-400">
+                                      {comp.sku}
+                                    </span>
+                                  ) : null}
+                                  <span className="text-violet-700 dark:text-violet-300">
+                                    {comp.percentage}% → qty {comp.quantity}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}

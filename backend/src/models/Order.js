@@ -205,6 +205,17 @@ const orderItemSchema = new mongoose.Schema(
       default: 0,
     },
 
+    /**
+     * When set, this line is a kit bucket individual expanded from a kit product.
+     * Commercial price should be 0; qty is derived from kit qty × percentage.
+     */
+    kit_parent_product: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+      default: null,
+      index: true,
+    },
+
     remarks: String,
   },
   {

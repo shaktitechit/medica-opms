@@ -1,13 +1,16 @@
 "use client";
 
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import {
   useCreateAttachmentMutation,
+  useListOrderApprovalsQuery,
 } from "@/store/api";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
+import { useAppSelector } from "@/store/hooks";
+import { CreateTransportModal } from "../modals/CreateTransportModal";
 import { OrderDeliveryModal } from "../modals/OrderDeliveryModal";
 
 /* ─── Status pipeline ─────────────────────────────────────────────────────── */
@@ -84,7 +87,27 @@ export function DispatchOpsTransportsTab({
   dispatches = [],
   orderItems = [],
 }: TransportsTabProps) {
+  const isSuperAdmin = useAppSelector(
+    (state) => state.auth.user?.department === "super_admin",
+  );
   const [createAttachment, { isLoading: isUploading }] = useCreateAttachmentMutation();
+  const [editingTransport, setEditingTransport] = useState<Record<string, unknown> | null>(
+    null,
+  );
+  const approvalsQ = useListOrderApprovalsQuery(
+    { order: orderId },
+    { skip: !orderId },
+  );
+  const approvals = useMemo(() => {
+    const raw = approvalsQ.data;
+    if (Array.isArray(raw)) return raw as Record<string, unknown>[];
+    if (raw && typeof raw === "object") {
+      const o = raw as Record<string, unknown>;
+      if (Array.isArray(o.items)) return o.items as Record<string, unknown>[];
+      if (Array.isArray(o.data)) return o.data as Record<string, unknown>[];
+    }
+    return [];
+  }, [approvalsQ.data]);
 
   /* confirmation dialog state */
   const [confirmPending, setConfirmPending] = useState<{
@@ -205,6 +228,15 @@ export function DispatchOpsTransportsTab({
 
                     {/* ── Action Buttons ── */}
                     <div className="flex flex-wrap items-center gap-2">
+                      {isSuperAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditingTransport(tr)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
+                        >
+                          Edit transport
+                        </button>
+                      ) : null}
                       {isTerminal ? (
                         <span
                           className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
@@ -757,6 +789,33 @@ export function DispatchOpsTransportsTab({
         </div>
         </LargeModalPortal>
       )}
+
+      <CreateTransportModal
+        open={editingTransport !== null}
+        onClose={() => setEditingTransport(null)}
+        orderId={orderId}
+        dispatchId={
+          editingTransport
+            ? typeof editingTransport.dispatch === "object" &&
+              editingTransport.dispatch !== null
+              ? String(
+                  (editingTransport.dispatch as Record<string, unknown>)._id ??
+                    (editingTransport.dispatch as Record<string, unknown>).id ??
+                    "",
+                )
+              : String(editingTransport.dispatch ?? "")
+            : ""
+        }
+        dispatches={dispatches}
+        transports={transports}
+        approvals={approvals}
+        orderItems={orderItems}
+        editingTransport={editingTransport}
+        onCreated={() => {
+          setEditingTransport(null);
+          onRefetch?.();
+        }}
+      />
 
       <OrderDeliveryModal
         open={deliveryModal !== null}

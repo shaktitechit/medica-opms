@@ -99,7 +99,7 @@ export default function FeaturedProductFeaturePartyTable({
         if (!productId || !productIdSet.has(productId)) continue;
         const row = map.get(productId);
         if (!row) continue;
-        row.set(partyId, (row.get(partyId) ?? 0) + itemMetricValue(item, metric, "approved"));
+        row.set(partyId, (row.get(partyId) ?? 0) + itemMetricValue(item, metric, "approved", items));
       }
     }
     return map;

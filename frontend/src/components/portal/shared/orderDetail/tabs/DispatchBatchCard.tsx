@@ -1,7 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { formatAgentType } from "@/components/portal/shared/fleetDisplay";
+import { nestDispatchLinesForDisplay } from "../dispatchKitDisplay";
 
 type DispatchBatchCardProps = {
   dispatch: Record<string, any>;
@@ -13,6 +14,43 @@ type DispatchBatchCardProps = {
   actions?: ReactNode;
   footer?: ReactNode;
 };
+
+function ProductCell({
+  name,
+  sku,
+  isKitParent,
+  isKitBucket,
+}: {
+  name: string;
+  sku?: string;
+  isKitParent?: boolean;
+  isKitBucket?: boolean;
+}) {
+  return (
+    <div
+      className={
+        isKitBucket
+          ? "ml-3 border-l-2 border-violet-300 pl-2 dark:border-violet-700"
+          : undefined
+      }
+    >
+      <span className="font-medium text-slate-800 dark:text-slate-200">{name}</span>
+      {isKitParent ? (
+        <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+          KIT
+        </span>
+      ) : null}
+      {isKitBucket ? (
+        <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+          KIT BUCKET
+        </span>
+      ) : null}
+      {sku ? (
+        <span className="mt-0.5 block text-2xs text-slate-400">SKU {sku}</span>
+      ) : null}
+    </div>
+  );
+}
 
 export function DispatchBatchCard({
   dispatch: disp,
@@ -31,6 +69,10 @@ export function DispatchBatchCard({
   const dispatchItems = Array.isArray(disp.dispatch_items)
     ? disp.dispatch_items
     : disp.items || [];
+  const nestedGroups = nestDispatchLinesForDisplay(
+    dispatchItems as Record<string, unknown>[],
+    orderItems as Record<string, unknown>[],
+  );
 
   const packedByVal = disp.packed_by;
   const dispatchedByVal = disp.dispatched_by;
@@ -106,42 +148,107 @@ export function DispatchBatchCard({
               <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-medium">
                 <tr>
                   <th className="px-3 py-2">Product</th>
-                  <th className="px-3 py-2 text-center w-24">Ordered</th>
-                  <th className="px-3 py-2 text-right w-24">This Batch</th>
+                  <th className="px-3 py-2 text-center w-20">Ordered</th>
+                  <th className="px-3 py-2 text-center w-22">This Batch</th>
+                  <th className="px-3 py-2 text-right w-24">Remaining kit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {dispatchItems.map((item: any, idx: number) => {
-                  const matchItem = orderItems.find(
-                    (oi: any) =>
-                      String(oi._id ?? oi.id ?? "") ===
-                      String(item.order_item_id),
-                  );
-                  const productName =
-                    matchItem?.product_name ||
-                    item.product_name ||
-                    item.product?.product_name ||
-                    "—";
-                  const orderedQty = matchItem
-                    ? (matchItem.ordered_quantity ?? matchItem.quantity ?? 0)
-                    : (item.ordered_quantity ?? "—");
+                {nestedGroups.map((group, gIdx) => {
+                  if (group.line) {
+                    const line = group.line;
+                    return (
+                      <tr key={line.key} className="bg-white dark:bg-slate-900">
+                        <td className="px-3 py-2">
+                          <ProductCell name={line.productName} sku={line.sku} />
+                        </td>
+                        <td className="px-3 py-2 text-center text-slate-600 dark:text-slate-400">
+                          {line.orderedQty}
+                        </td>
+                        <td className="px-3 py-2 text-center font-semibold text-blue-600 dark:text-blue-400">
+                          {line.dispatchedQty}
+                        </td>
+                        <td className="px-3 py-2 text-right text-2xs text-slate-400">
+                          —
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  const header = group.parent
+                    ? {
+                        key: group.parent.key,
+                        name: group.parent.productName,
+                        sku: group.parent.sku,
+                        orderedQty: group.parent.orderedQty,
+                        dispatchedQty: group.parent.dispatchedQty,
+                        remainingQty: group.parent.remainingQty,
+                        isKitParent: group.parent.isKitParent || group.buckets.length > 0,
+                      }
+                    : group.kitHeader
+                      ? {
+                          key: `kit-header-${group.kitHeader.productId}-${gIdx}`,
+                          name: group.kitHeader.productName,
+                          sku: group.kitHeader.sku,
+                          orderedQty: group.kitHeader.orderedQty,
+                          dispatchedQty: group.kitHeader.dispatchedQty,
+                          remainingQty: group.kitHeader.remainingQty,
+                          isKitParent: true,
+                        }
+                      : null;
+
                   return (
-                    <tr
-                      key={String(item.order_item_id || idx)}
-                      className="bg-white dark:bg-slate-900"
-                    >
-                      <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
-                        {productName}
-                      </td>
-                      <td className="px-3 py-2 text-center text-slate-600 dark:text-slate-400">
-                        {orderedQty}
-                      </td>
-                      <td className="px-3 py-2 text-right font-semibold text-blue-600 dark:text-blue-400">
-                        {item.dispatched_quantity ??
-                          item.dispatch_quantity ??
-                          "—"}
-                      </td>
-                    </tr>
+                    <Fragment key={header?.key ?? `group-${gIdx}`}>
+                      {header ? (
+                        <tr
+                          className={
+                            header.isKitParent
+                              ? "bg-violet-50/40 dark:bg-violet-950/20"
+                              : "bg-white dark:bg-slate-900"
+                          }
+                        >
+                          <td className="px-3 py-2">
+                            <ProductCell
+                              name={header.name}
+                              sku={header.sku}
+                              isKitParent={header.isKitParent}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-center text-slate-600 dark:text-slate-400">
+                            {header.orderedQty}
+                          </td>
+                          <td className="px-3 py-2 text-center font-semibold text-blue-600 dark:text-blue-400">
+                            {header.dispatchedQty}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold text-indigo-700 dark:text-indigo-300">
+                            {header.isKitParent ? header.remainingQty : "—"}
+                          </td>
+                        </tr>
+                      ) : null}
+                      {group.buckets.map((bucket) => (
+                        <tr
+                          key={bucket.key}
+                          className="bg-slate-50/80 dark:bg-slate-950/60"
+                        >
+                          <td className="px-3 py-2">
+                            <ProductCell
+                              name={bucket.productName}
+                              sku={bucket.sku}
+                              isKitBucket
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-center text-slate-600 dark:text-slate-400">
+                            {bucket.orderedQty}
+                          </td>
+                          <td className="px-3 py-2 text-center font-semibold text-blue-600 dark:text-blue-400">
+                            {bucket.dispatchedQty}
+                          </td>
+                          <td className="px-3 py-2 text-right text-2xs text-slate-400">
+                            —
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
                   );
                 })}
               </tbody>

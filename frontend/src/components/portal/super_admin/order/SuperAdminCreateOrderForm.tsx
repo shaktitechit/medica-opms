@@ -51,7 +51,15 @@ import {
   useCreateOrderReturnMutation,
   useCheckPartyLineRatesQuery,
   useGetOrderQuery,
+  useListProductKitItemsQuery,
 } from "@/store/api";
+import {
+  buildKitCompositionMap,
+  expandKitBucketLines,
+  hasKitParent,
+  isKitProductId,
+  previewKitBuckets,
+} from "@/components/portal/shared/kitBucketExpand";
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage, mutationSuccessCopy } from "@/lib/mutationMessages";
 import { useAppSelector } from "@/store";
@@ -197,6 +205,7 @@ function buildProductOptions(raw: unknown): ProductOption[] {
         hsn_code: String(o.hsn_code || ""),
         gst_percent: Number(o.gst_percent ?? 0) || 0,
         base_price: Number(o.base_price ?? o.mrp ?? 0) || 0,
+        product_type: String(o.product_type || "individual").toLowerCase(),
       } satisfies ProductOption;
     })
     .filter(Boolean) as ProductOption[];
@@ -410,6 +419,10 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
   // Data queries (only load when we have an orderId)
   const partiesQ = useListPartiesQuery({ status: "active" });
   const productsQ = useListProductsQuery({});
+  const kitItemsQ = useListProductKitItemsQuery(
+    { paginate: "false" },
+    { skip: !isOpen },
+  );
   const salesUsersQ = useListUsersQuery({ department: "sales" });
   const allUsersQ = useListUsersQuery({});
 
@@ -499,25 +512,33 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
     setRemarks(o.remarks || "");
     setAssignedSales(refId(o.assigned_sales_user));
     if (Array.isArray(o.order_items) && o.order_items.length > 0) {
-      setLines(o.order_items.map((item: any, i: number) => ({
-        key: item._id || item.id || `line-${i}-${Math.random()}`,
-        productId: refId(item.product),
-        product_name: String(item.product_name || ""),
-        sku: String(item.sku || ""),
-        brand: String(item.brand || ""),
-        manufacturer: String(item.manufacturer || ""),
-        product_group: String(item.product_group || ""),
-        product_subgroup: String(item.product_subgroup || ""),
-        unit: String(item.unit || "pcs"),
-        quantity: Number(item.ordered_quantity ?? item.quantity ?? 1),
-        free_qty: Number(item.free_quantity ?? item.free_qty ?? 0),
-        unit_price: Number(item.unit_price ?? 0),
-        discount_percent: Number(item.discount_percent ?? 0),
-        discount_amount: Number(item.discount_amount ?? 0),
-        gst_percent: Number(item.gst_percent ?? 18),
-        applied_rate_type: String(item.applied_rate_type || "SR"),
-        remarks: String(item.remarks || ""),
-      })));
+      // Kit bucket expansion rows are not editable commercial lines.
+      const commercial = o.order_items.filter(
+        (item: any) => !hasKitParent(item.kit_parent_product),
+      );
+      setLines(
+        (commercial.length > 0 ? commercial : o.order_items).map(
+          (item: any, i: number) => ({
+            key: item._id || item.id || `line-${i}-${Math.random()}`,
+            productId: refId(item.product),
+            product_name: String(item.product_name || ""),
+            sku: String(item.sku || ""),
+            brand: String(item.brand || ""),
+            manufacturer: String(item.manufacturer || ""),
+            product_group: String(item.product_group || ""),
+            product_subgroup: String(item.product_subgroup || ""),
+            unit: String(item.unit || "pcs"),
+            quantity: Number(item.ordered_quantity ?? item.quantity ?? 1),
+            free_qty: Number(item.free_quantity ?? item.free_qty ?? 0),
+            unit_price: Number(item.unit_price ?? 0),
+            discount_percent: Number(item.discount_percent ?? 0),
+            discount_amount: Number(item.discount_amount ?? 0),
+            gst_percent: Number(item.gst_percent ?? 18),
+            applied_rate_type: String(item.applied_rate_type || "SR"),
+            remarks: String(item.remarks || ""),
+          }),
+        ),
+      );
     }
   }, [isOpen, orderId, orderData]);
   const [mapTarget, setMapTarget] = useState<MapOrderLinePriceTarget | null>(null);
@@ -533,6 +554,18 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
   const salesUsers = useMemo(() => pickList(salesUsersQ.data) as Record<string, any>[], [salesUsersQ.data]);
   const productOptions = useMemo(() => buildProductOptions(productsQ.data), [productsQ.data]);
   const userOptions = useMemo(() => buildNamedUserOptions(allUsersQ.data), [allUsersQ.data]);
+  const kitCompositionByProductId = useMemo(
+    () => buildKitCompositionMap(kitItemsQ.data),
+    [kitItemsQ.data],
+  );
+  const productTypeById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of products) {
+      const id = String(p._id ?? p.id ?? "");
+      if (id) map.set(id, String(p.product_type || "individual").toLowerCase());
+    }
+    return map;
+  }, [products]);
 
   const approvals = useMemo(() => pickList(approvalsQ.data) as Record<string, any>[], [approvalsQ.data]);
   const dispatches = useMemo(() => pickList(dispatchesQ.data) as Record<string, any>[], [dispatchesQ.data]);
@@ -744,12 +777,61 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
     if (!prepared.length) { toast.error("Add at least one line item with a product."); return; }
     if (prepared.some((l) => l.ordered_quantity < 1)) { toast.error("Each line needs quantity ≥ 1."); return; }
 
+    // Expand kit shells → individual bucket lines (fulfillment qty lives on buckets).
+    const kitBuckets = expandKitBucketLines(
+      prepared.map((l) => ({
+        product: l.product,
+        product_name: l.product_name,
+        ordered_quantity: l.ordered_quantity,
+        approved_quantity: l.ordered_quantity,
+        free_quantity: l.free_quantity,
+      })),
+      kitCompositionByProductId,
+      {
+        orderItems: Array.isArray(orderData?.order_items)
+          ? (orderData.order_items as Record<string, unknown>[])
+          : [],
+        productTypeById,
+      },
+    );
+    const orderItemsWithKits = [
+      ...prepared,
+      ...kitBuckets.map((b) => ({
+        product: b.product,
+        product_name: b.product_name,
+        sku: b.sku || "",
+        brand: "",
+        manufacturer: "",
+        product_group: "",
+        product_subgroup: "",
+        unit: "",
+        ordered_quantity: b.ordered_quantity,
+        free_quantity: b.free_quantity,
+        allocated_quantity: 0,
+        dispatched_quantity: 0,
+        delivered_quantity: 0,
+        cancelled_quantity: 0,
+        unit_price: 0,
+        discount_percent: 0,
+        discount_amount: 0,
+        gst_percent: 0,
+        applied_rate_type: "MANUAL",
+        taxable_amount: 0,
+        gst_amount: 0,
+        total_amount: 0,
+        remarks: b.remarks,
+        kit_parent_product: b.kit_parent_product,
+        manual_price_override: true,
+        ...(b.order_item_id ? { _id: b.order_item_id } : {}),
+      })),
+    ];
+
     try {
       if (createdOrderId) {
         // UPDATE
         const body: Record<string, any> = {
           party: partyId,
-          order_items: prepared,
+          order_items: orderItemsWithKits,
           remarks: remarks.trim() || "",
           order_date: orderDate,
           expected_delivery_date: expectedDate,
@@ -762,21 +844,41 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
         setActiveStep("approvals");
       } else {
         // CREATE
-        const approvalItems = prepared.map((l) => ({
-          product: l.product,
-          ordered_quantity: l.ordered_quantity,
-          approved_quantity: l.ordered_quantity,
-          approved_unit_price: l.unit_price,
-          ordered_unit_price: l.unit_price,
-          free_quantity: l.free_quantity,
-          discount_percent: l.discount_percent,
-          discount_amount: l.discount_amount,
-          gst_percent: l.gst_percent,
-          applied_rate_type: l.applied_rate_type,
-          approved_total_amount: l.total_amount,
-          approval_status: "fully_approved",
-          remarks: l.remarks,
-        }));
+        const approvalItems = [
+          ...prepared.map((l) => ({
+            product: l.product,
+            ordered_quantity: l.ordered_quantity,
+            approved_quantity: l.ordered_quantity,
+            approved_unit_price: l.unit_price,
+            ordered_unit_price: l.unit_price,
+            free_quantity: l.free_quantity,
+            discount_percent: l.discount_percent,
+            discount_amount: l.discount_amount,
+            gst_percent: l.gst_percent,
+            applied_rate_type: l.applied_rate_type,
+            approved_total_amount: l.total_amount,
+            approval_status: "fully_approved",
+            remarks: l.remarks,
+          })),
+          ...kitBuckets.map((b) => ({
+            product: b.product,
+            ordered_quantity: b.ordered_quantity,
+            approved_quantity: b.approved_quantity,
+            approved_unit_price: 0,
+            ordered_unit_price: 0,
+            free_quantity: b.free_quantity,
+            discount_percent: 0,
+            discount_amount: 0,
+            gst_percent: 0,
+            applied_rate_type: "MANUAL",
+            approved_total_amount: 0,
+            approval_status: "fully_approved",
+            remarks: b.remarks,
+            kit_parent_product: b.kit_parent_product,
+            manual_price_override: true,
+            rate_mapped: true,
+          })),
+        ];
 
         const partyContacts = contactsFromParty(selectedParty);
         const firstWithPhone = partyContacts.find((c) => c.phone.trim());
@@ -784,7 +886,7 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
 
         const body: Record<string, unknown> = {
           party: partyId,
-          order_items: prepared,
+          order_items: orderItemsWithKits,
           discount_amount: 0,
           priority,
           remarks: remarks.trim() || "",
@@ -1194,11 +1296,41 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
                         {lines.map((row, idx) => {
                           const rateItem = row.productId ? rateItemByLine.get(rateLookupKey(row.productId, row.applied_rate_type)) : undefined;
                           const displayStatus = resolveRateDisplayStatus(rateItem);
+                          const rowIsKit = Boolean(
+                            row.productId &&
+                              isKitProductId(
+                                row.productId,
+                                kitCompositionByProductId,
+                                productTypeById,
+                              ),
+                          );
+                          const kitPreview = rowIsKit
+                            ? previewKitBuckets(
+                                row.productId,
+                                Number(row.quantity) || 0,
+                                Number(row.free_qty) || 0,
+                                kitCompositionByProductId,
+                              )
+                            : [];
 
                           return (
-                            <div key={row.key} className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-950/30">
+                            <div
+                              key={row.key}
+                              className={
+                                rowIsKit
+                                  ? "rounded-xl border border-violet-200 bg-violet-50/40 p-4 dark:border-violet-800/40 dark:bg-violet-950/20"
+                                  : "rounded-xl border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-950/30"
+                              }
+                            >
                               <div className="mb-3 flex items-center justify-between">
-                                <span className="text-xs font-bold text-slate-600 dark:text-slate-400">Line {idx + 1}</span>
+                                <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                                  Line {idx + 1}
+                                  {rowIsKit ? (
+                                    <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-950/50 px-1.5 py-0.5 rounded">
+                                      KIT
+                                    </span>
+                                  ) : null}
+                                </span>
                                 <button type="button" disabled={lines.length <= 1} onClick={() => setLines((p) => p.filter((l) => l.key !== row.key))} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-2xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 dark:hover:bg-rose-950/30">
                                   <Trash2 className="h-3 w-3" /> Remove
                                 </button>
@@ -1288,6 +1420,41 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
                                 <span>GST: <strong className="font-mono">₹{formatMoney(lineGst(row))}</strong></span>
                                 <span>Total: <strong className="font-mono text-amber-700 dark:text-amber-400">₹{formatMoney(lineTotal(row))}</strong></span>
                               </div>
+
+                              {rowIsKit ? (
+                                <div className="mt-3 rounded-lg border border-violet-200/80 bg-white/80 px-3 py-2 dark:border-violet-800/40 dark:bg-slate-950/40">
+                                  <p className="text-2xs font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-300">
+                                    Kit buckets (auto-expanded on save)
+                                  </p>
+                                  {kitPreview.length === 0 ? (
+                                    <p className="mt-1 text-2xs text-slate-500">
+                                      No active kit composition mapped for this product.
+                                    </p>
+                                  ) : (
+                                    <ul className="mt-1.5 space-y-1">
+                                      {kitPreview.map((comp) => (
+                                        <li
+                                          key={comp.productId}
+                                          className="ml-2 flex flex-wrap items-center gap-x-3 border-l-2 border-violet-300 pl-2 text-2xs text-slate-700 dark:border-violet-700 dark:text-slate-300"
+                                        >
+                                          <span className="font-medium">{comp.name}</span>
+                                          {comp.sku ? (
+                                            <span className="font-mono text-slate-400">
+                                              {comp.sku}
+                                            </span>
+                                          ) : null}
+                                          <span className="text-violet-700 dark:text-violet-300">
+                                            {comp.percentage}% → qty {comp.quantity}
+                                            {comp.free_quantity > 0
+                                              ? ` (+${comp.free_quantity} free)`
+                                              : ""}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              ) : null}
                             </div>
                           );
                         })}
@@ -1390,6 +1557,7 @@ export function SuperAdminCreateOrderForm({ isOpen, onClose, onOrderCreated, ord
                     order={orderData}
                     dispatches={dispatches}
                     transports={transports}
+                    approvals={approvals}
                     users={userOptions}
                     saving={isCreatingTransport || isPatchingTransport}
                     onClose={() => setActiveStep("deliveries")}

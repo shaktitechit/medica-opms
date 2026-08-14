@@ -110,6 +110,11 @@ const transportAgentSchema = new mongoose.Schema(
       trim: true,
     },
 
+    lr_number_required: {
+      type: Boolean,
+      default: false,
+    },
+
     is_active: {
       type: Boolean,
       default: true,

@@ -7,6 +7,7 @@ import ReportDownloadButton from "./ReportDownloadButton";
 import { formatPeriodLabel } from "./periodFilterUtils";
 import { downloadCsvFile, reportFilename } from "./reportDownloadUtils";
 import { shouldIncludeOrder } from "./featuredMatrixUtils";
+import { isKitShellOrderLine } from "@/components/portal/shared/orderLineQuantities";
 
 interface MonthlyPerformanceChartProps {
   orders: any[];
@@ -41,6 +42,23 @@ const YEAR_COLORS = [
   { fill: "fill-cyan-500", hover: "fill-cyan-400", swatch: "bg-cyan-500" },
 ] as const;
 
+function idFromRef(ref: unknown): string {
+  if (ref == null || ref === "") return "";
+  if (typeof ref === "string") return ref.trim();
+  if (typeof ref === "object") {
+    const o = ref as { _id?: unknown; id?: unknown };
+    return String(o._id ?? o.id ?? "").trim();
+  }
+  return "";
+}
+
+function isKitBucketLine(item: unknown): boolean {
+  if (!item || typeof item !== "object") return false;
+  return Boolean(
+    idFromRef((item as { kit_parent_product?: unknown }).kit_parent_product),
+  );
+}
+
 function itemNetQty(item: any): number {
   const del = Number(item.delivered_quantity) || 0;
   const ret = Number(item.returned_quantity) || 0;
@@ -64,6 +82,11 @@ function orderMetricValue(order: any, metric: Metric, basis: QtyBasis): number {
   const items = Array.isArray(order?.order_items) ? order.order_items : [];
   let total = 0;
   for (const item of items) {
+    if (metric === "quantity") {
+      if (isKitShellOrderLine(item as Record<string, unknown>, items)) continue;
+    } else if (isKitBucketLine(item)) {
+      continue;
+    }
     const qty = itemQty(item, basis);
     total += metric === "quantity" ? qty : qty * itemUnitPrice(item);
   }

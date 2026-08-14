@@ -77,8 +77,8 @@ export function ListEntitySearchPanel({
                 aria-label={f.ariaLabel}
                 className={`${dateFilterSelectClass} min-w-0 flex-1 ${f.className ?? ""}`}
               >
-                {f.options.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
+                {f.options.map((opt, i) => (
+                  <option key={`${f.id}:${opt.value}:${i}`} value={opt.value}>
                     {opt.label}
                   </option>
                 ))}
@@ -126,8 +126,8 @@ export function ListEntitySearchPanel({
                 aria-label={f.ariaLabel}
                 className={`${dateFilterSelectClass} min-w-[9rem] ${selectPy} ${f.className ?? ""}`}
               >
-                {f.options.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
+                {f.options.map((opt, i) => (
+                  <option key={`${f.id}:${opt.value}:${i}`} value={opt.value}>
                     {opt.label}
                   </option>
                 ))}

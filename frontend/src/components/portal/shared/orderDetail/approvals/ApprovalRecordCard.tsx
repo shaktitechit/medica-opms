@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, Fragment } from "react";
 import { CheckCircle2, Download, Pencil, Send } from "lucide-react";
 import { useAppSelector } from "@/store";
 
@@ -102,6 +102,35 @@ function approvalItemsList(approval: Record<string, unknown>): Record<string, un
     : [];
 }
 
+function idFromRef(ref: unknown): string {
+  if (typeof ref === "string") return ref.trim();
+  if (ref && typeof ref === "object" && "_id" in ref) {
+    return String((ref as { _id: unknown })._id ?? "").trim();
+  }
+  if (ref && typeof ref === "object" && "id" in ref) {
+    return String((ref as { id: unknown }).id ?? "").trim();
+  }
+  return "";
+}
+
+function productLabel(it: Record<string, unknown>): { name: string; sku: string } {
+  const product = it.product as Record<string, unknown> | string | undefined;
+  if (typeof product === "object" && product) {
+    return {
+      name: String(product.product_name ?? "—"),
+      sku: typeof product.sku === "string" ? product.sku : "",
+    };
+  }
+  return {
+    name: String(it.product_name ?? "—"),
+    sku: typeof it.sku === "string" ? it.sku : "",
+  };
+}
+
+function isKitBucketItem(it: Record<string, unknown>): boolean {
+  return Boolean(idFromRef(it.kit_parent_product));
+}
+
 export function ApprovalRecordCard({
   approval,
   orderNo,
@@ -148,6 +177,43 @@ export function ApprovalRecordCard({
   const pdfTemplateRef = useRef<HTMLDivElement>(null);
 
   const items = useMemo(() => approvalItemsList(approval), [approval]);
+
+  /** Top-level approval lines (kits + individuals); kit bucket rows nest under parents. */
+  const parentItems = useMemo(
+    () => items.filter((it) => !isKitBucketItem(it)),
+    [items],
+  );
+
+  const kitBucketsByParent = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>[]>();
+    for (const it of items) {
+      if (!isKitBucketItem(it)) continue;
+      const parentId = idFromRef(it.kit_parent_product);
+      if (!parentId) continue;
+      const list = map.get(parentId) ?? [];
+      list.push(it);
+      map.set(parentId, list);
+    }
+    return map;
+  }, [items]);
+
+  const parentProductIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of parentItems) {
+      const pid = idFromRef(it.product);
+      if (pid) set.add(pid);
+    }
+    return set;
+  }, [parentItems]);
+
+  /** Orphan kit buckets whose parent kit is not in this batch (still show flat). */
+  const orphanKitBuckets = useMemo(() => {
+    const out: Record<string, unknown>[] = [];
+    for (const [parentId, rows] of kitBucketsByParent) {
+      if (!parentProductIds.has(parentId)) out.push(...rows);
+    }
+    return out;
+  }, [kitBucketsByParent, parentProductIds]);
 
   const approvedByLabel = resolveUserDisplay(
     approval.admin_approved_by ?? approval.approved_by,
@@ -227,14 +293,16 @@ export function ApprovalRecordCard({
   const isFinanceApproved = Boolean(approval.is_finance_approved);
   const isAccountApproved = Boolean(approval.is_account_approved);
 
+  const amendLocked = isAmendBlocked && !isSuperAdmin;
+
   const showAdminApprove = !isAdminApproved && isUserAdmin;
-  const showAdminAmend = isAdminApproved && isUserAdmin && !isAmendBlocked;
+  const showAdminAmend = isAdminApproved && isUserAdmin && !amendLocked;
 
-  const showFinanceApprove = isAdminApproved && !isFinanceApproved && isUserFinance && !isAmendBlocked;
-  const showFinanceAmend = isFinanceApproved && isUserFinance && !isAmendBlocked;
+  const showFinanceApprove = isAdminApproved && !isFinanceApproved && isUserFinance && !amendLocked;
+  const showFinanceAmend = isFinanceApproved && isUserFinance && !amendLocked;
 
-  const showAccountApprove = isFinanceApproved && !isAccountApproved && isUserAccount && !isAmendBlocked;
-  const showAccountAmend = isAccountApproved && isUserAccount && !isAmendBlocked;
+  const showAccountApprove = isFinanceApproved && !isAccountApproved && isUserAccount && !amendLocked;
+  const showAccountAmend = isAccountApproved && isUserAccount && !amendLocked;
 
   const canSendToFinance = isAdminApproved && !approval.assigned_finance_user && !isFinanceApproved && isUserAdmin;
   const canSendToAccount = isFinanceApproved && !approval.assigned_account_user && !isAccountApproved && isUserFinance;
@@ -242,37 +310,56 @@ export function ApprovalRecordCard({
   const isAmendingThis = amendBusy && amendingApprovalId === approvalId;
 
   const pdfLines = useMemo((): OrderItemsPdfLine[] => {
-    return items
-      .filter((it) => Number(it.approved_quantity ?? 0) > 0)
-      .map((it) => {
-        const product = it.product as Record<string, unknown> | undefined;
-        const qty = Number(it.approved_quantity ?? 0);
-        const unitPrice = Number(it.approved_unit_price ?? it.ordered_unit_price ?? 0);
-        const discountPercent = Number(it.discount_percent ?? 0);
-        const discountAmt = Number(it.discount_amount ?? 0);
-        const gstPercent = Number(it.gst_percent ?? 0);
-        const freeQtyVal = Number(it.free_quantity ?? 0);
-        const gross = qty * unitPrice;
-        const actualDiscount = discountPercent > 0 ? (gross * discountPercent) / 100 : discountAmt;
-        const taxable = Math.max(0, gross - actualDiscount);
-        const actualGst = (taxable * gstPercent) / 100;
-        const lineTotal = Number(
-          it.approved_total_amount ?? taxable + actualGst,
-        );
+    const toPdfLine = (
+      it: Record<string, unknown>,
+      opts?: { nested?: boolean },
+    ): OrderItemsPdfLine => {
+      const label = productLabel(it);
+      const qty = Number(it.approved_quantity ?? 0);
+      const unitPrice = Number(it.approved_unit_price ?? it.ordered_unit_price ?? 0);
+      const discountPercent = Number(it.discount_percent ?? 0);
+      const discountAmt = Number(it.discount_amount ?? 0);
+      const gstPercent = Number(it.gst_percent ?? 0);
+      const freeQtyVal = Number(it.free_quantity ?? 0);
+      const gross = qty * unitPrice;
+      const actualDiscount = discountPercent > 0 ? (gross * discountPercent) / 100 : discountAmt;
+      const taxable = Math.max(0, gross - actualDiscount);
+      const actualGst = (taxable * gstPercent) / 100;
+      const lineTotal = Number(it.approved_total_amount ?? taxable + actualGst);
+      const name = opts?.nested ? `↳ ${label.name}` : label.name;
 
-        return {
-          productName: String(product?.product_name ?? "—"),
-          sku: typeof product?.sku === "string" ? product.sku : undefined,
-          quantity: String(qty),
-          freeQty: String(freeQtyVal),
-          rateType: String(it.applied_rate_type ?? "MANUAL"),
-          unitPrice: pdfMoney(unitPrice),
-          discount: pdfMoney(actualDiscount),
-          gst: pdfMoney(actualGst),
-          lineTotal: pdfMoney(lineTotal),
-        };
-      });
-  }, [items]);
+      return {
+        productName: name,
+        sku: label.sku || undefined,
+        quantity: String(qty),
+        freeQty: String(freeQtyVal),
+        rateType: opts?.nested
+          ? "KIT"
+          : String(it.applied_rate_type ?? "MANUAL"),
+        unitPrice: pdfMoney(unitPrice),
+        discount: pdfMoney(actualDiscount),
+        gst: pdfMoney(actualGst),
+        lineTotal: pdfMoney(lineTotal),
+      };
+    };
+
+    const lines: OrderItemsPdfLine[] = [];
+    for (const it of parentItems) {
+      if (Number(it.approved_quantity ?? 0) <= 0) continue;
+      lines.push(toPdfLine(it));
+      const parentId = idFromRef(it.product);
+      const buckets = parentId ? kitBucketsByParent.get(parentId) ?? [] : [];
+      for (const bucket of buckets) {
+        if (Number(bucket.approved_quantity ?? 0) <= 0) continue;
+        lines.push(toPdfLine(bucket, { nested: true }));
+      }
+    }
+    for (const it of orphanKitBuckets) {
+      if (Number(it.approved_quantity ?? 0) <= 0) continue;
+      lines.push(toPdfLine(it, { nested: true }));
+    }
+    return lines;
+  }, [parentItems, kitBucketsByParent, orphanKitBuckets]);
 
   const orderedTotal = Number(approval.ordered_total_amount ?? 0);
   const approvedTotal = Number(approval.approved_total_amount ?? 0);
@@ -768,49 +855,96 @@ export function ApprovalRecordCard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80 dark:divide-white/10">
-                {items.map((it) => {
-                  const rateType = String(it.applied_rate_type ?? "MANUAL");
-                  const rateMapped = Boolean(it.rate_mapped);
-                  const qty = Number(it.approved_quantity ?? 0);
-                  const unitPrice = Number(it.approved_unit_price ?? it.ordered_unit_price ?? 0);
-                  const freeQty = Number(it.free_quantity ?? 0);
-                  const discountPercent = Number(it.discount_percent ?? 0);
-                  const discountAmount = Number(it.discount_amount ?? 0);
-                  const gstPercent = Number(it.gst_percent ?? 0);
+                {[...parentItems, ...orphanKitBuckets.map((it) => ({ ...it, __orphan: true }))].map(
+                  (it) => {
+                  const isOrphan = Boolean((it as { __orphan?: boolean }).__orphan);
+                  const isBucketOnly = isOrphan || isKitBucketItem(it);
+                  const parentId = idFromRef(it.product);
+                  const buckets =
+                    !isBucketOnly && parentId
+                      ? kitBucketsByParent.get(parentId) ?? []
+                      : [];
+
+                  const renderRow = (
+                    row: Record<string, unknown>,
+                    opts: { nested?: boolean; key: string },
+                  ) => {
+                  const rateType = String(row.applied_rate_type ?? "MANUAL");
+                  const rateMapped = Boolean(row.rate_mapped);
+                  const qty = Number(row.approved_quantity ?? 0);
+                  const unitPrice = Number(row.approved_unit_price ?? row.ordered_unit_price ?? 0);
+                  const freeQty = Number(row.free_quantity ?? 0);
+                  const discountPercent = Number(row.discount_percent ?? 0);
+                  const discountAmount = Number(row.discount_amount ?? 0);
+                  const gstPercent = Number(row.gst_percent ?? 0);
+                  const label = productLabel(row);
+                  const nested = Boolean(opts.nested);
+                  const isKitParent = !nested && buckets.length > 0;
 
                   const gross = qty * unitPrice;
                   const lineDiscount = discountPercent > 0 ? (gross * discountPercent) / 100 : discountAmount;
                   const lineTaxable = Math.max(0, gross - lineDiscount);
                   const lineGst = (lineTaxable * gstPercent) / 100;
-                  const lineTotal = Number(it.approved_total_amount ?? (lineTaxable + lineGst));
+                  const lineTotal = Number(row.approved_total_amount ?? (lineTaxable + lineGst));
 
                   return (
                     <tr
-                      key={String(it._id ?? it.order_item_id)}
-                      className="bg-white dark:bg-slate-900"
+                      key={opts.key}
+                      className={
+                        nested
+                          ? "bg-slate-50/80 dark:bg-slate-950/60"
+                          : "bg-white dark:bg-slate-900"
+                      }
                     >
                       <td className="px-3 py-2 font-medium text-slate-900 dark:text-slate-200">
-                        {String(
-                          (it.product as Record<string, unknown> | undefined)
-                            ?.product_name ?? "—",
+                        {nested ? (
+                          <div className="ml-4 border-l-2 border-violet-300 pl-3 dark:border-violet-700">
+                            <span>{label.name}</span>
+                            <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                              KIT BUCKET
+                            </span>
+                            {label.sku ? (
+                              <span className="mt-0.5 block text-2xs font-mono text-slate-500">
+                                {label.sku}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div>
+                            <span>{label.name}</span>
+                            {isKitParent ? (
+                              <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                KIT
+                              </span>
+                            ) : null}
+                            {label.sku ? (
+                              <span className="mt-0.5 block text-2xs font-mono text-slate-500">
+                                {label.sku}
+                              </span>
+                            ) : null}
+                          </div>
                         )}
                       </td>
                       <td className="px-3 py-2 font-sans">
-                        <div className="flex flex-col">
-                          <span className="font-semibold">{rateType}</span>
-                          {rateMapped ? (
-                            <span className="text-2xs text-emerald-600 font-semibold dark:text-emerald-400 leading-none">
-                              Negotiated
-                            </span>
-                          ) : (
-                            <span className="text-2xs text-slate-400 font-medium dark:text-slate-500 leading-none">
-                              Manual
-                            </span>
-                          )}
-                        </div>
+                        {nested ? (
+                          <span className="text-2xs text-slate-500">—</span>
+                        ) : (
+                          <div className="flex flex-col">
+                            <span className="font-semibold">{rateType}</span>
+                            {rateMapped ? (
+                              <span className="text-2xs text-emerald-600 font-semibold dark:text-emerald-400 leading-none">
+                                Negotiated
+                              </span>
+                            ) : (
+                              <span className="text-2xs text-slate-400 font-medium dark:text-slate-500 leading-none">
+                                Manual
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-600 dark:text-slate-400">
-                        {Number(it.ordered_quantity ?? 0)}
+                        {Number(row.ordered_quantity ?? 0)}
                       </td>
                       <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-800 dark:text-slate-100">
                         <div className="flex flex-col">
@@ -826,35 +960,66 @@ export function ApprovalRecordCard({
                         {unitPrice.toFixed(2)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">
-                        <div className="flex flex-col">
-                          <span>{discountPercent > 0 ? `${discountPercent}%` : "—"}</span>
-                          {lineDiscount > 0 ? (
-                            <span className="text-2xs text-slate-500 leading-none">
-                              (-{lineDiscount.toFixed(2)})
-                            </span>
-                          ) : null}
-                        </div>
+                        {nested ? (
+                          <span className="text-2xs text-slate-500">—</span>
+                        ) : (
+                          <div className="flex flex-col">
+                            <span>{discountPercent > 0 ? `${discountPercent}%` : "—"}</span>
+                            {lineDiscount > 0 ? (
+                              <span className="text-2xs text-slate-500 leading-none">
+                                (-{lineDiscount.toFixed(2)})
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">
-                        <div className="flex flex-col">
-                          <span>{gstPercent > 0 ? `${gstPercent}%` : "0%"}</span>
-                          {lineGst > 0 ? (
-                            <span className="text-2xs text-slate-500 leading-none">
-                              (+{lineGst.toFixed(2)})
-                            </span>
-                          ) : null}
-                        </div>
+                        {nested ? (
+                          <span className="text-2xs text-slate-500">—</span>
+                        ) : (
+                          <div className="flex flex-col">
+                            <span>{gstPercent > 0 ? `${gstPercent}%` : "0%"}</span>
+                            {lineGst > 0 ? (
+                              <span className="text-2xs text-slate-500 leading-none">
+                                (+{lineGst.toFixed(2)})
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-right font-bold tabular-nums text-slate-900 dark:text-slate-100 bg-slate-50/20 dark:bg-slate-950/20">
-                        {lineTotal.toFixed(2)}
+                        {nested ? "0.00" : lineTotal.toFixed(2)}
                       </td>
                       <td
                         className="max-w-[150px] truncate px-3 py-2 italic text-slate-500"
-                        title={String(it.remarks ?? it.rejection_reason ?? "")}
+                        title={String(row.remarks ?? row.rejection_reason ?? "")}
                       >
-                        {String(it.remarks ?? it.rejection_reason ?? "—")}
+                        {String(row.remarks ?? row.rejection_reason ?? "—")}
                       </td>
                     </tr>
+                  );
+                  };
+
+                  if (isBucketOnly) {
+                    return renderRow(it, {
+                      nested: true,
+                      key: `orphan-${String(it._id ?? it.order_item_id)}`,
+                    });
+                  }
+
+                  return (
+                    <Fragment key={String(it._id ?? it.order_item_id)}>
+                      {renderRow(it, {
+                        nested: false,
+                        key: `parent-${String(it._id ?? it.order_item_id)}`,
+                      })}
+                      {buckets.map((bucket, idx) =>
+                        renderRow(bucket, {
+                          nested: true,
+                          key: `bucket-${String(bucket._id ?? bucket.order_item_id ?? idx)}`,
+                        }),
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>

@@ -11,10 +11,11 @@ const activityService = require('../activity/activity.service');
 const { isObjectId, findProductsLean } = require('./productRefs');
 
 const nf = 'Product not found';
-const { PRODUCT_UNITS } = require('./product.validation');
+const { PRODUCT_UNITS, PRODUCT_TYPES } = require('./product.validation');
 
 const PATCHABLE_KEYS = Object.freeze([
   'product_name',
+  'product_type',
   'generic_name',
   'aliases',
   'sku',
@@ -252,6 +253,13 @@ function sanitizePatch(patch) {
       continue;
     }
 
+    if (k === 'product_type') {
+      const t = typeof v === 'string' ? v.trim() : String(v ?? '').trim();
+      if (!PRODUCT_TYPES.has(t)) throw new ApiError(400, 'Invalid product_type');
+      out[k] = t;
+      continue;
+    }
+
     if (k === 'base_price' || k === 'minimum_sale_rate' || k === 'mrp') {
       if (v === null || v === '') continue;
       out[k] = coerceNonNegNumber(v, k);
@@ -341,6 +349,18 @@ async function list(query = {}) {
     }
   }
 
+  if (query.product_type != null && query.product_type !== '' && query.product_type !== 'all') {
+    const typeRaw = String(query.product_type).trim().toLowerCase();
+    if (PRODUCT_TYPES.has(typeRaw)) {
+      // Legacy rows may omit product_type; treat missing/null as "individual".
+      if (typeRaw === 'individual') {
+        mongoFilter.product_type = { $in: ['individual', null] };
+      } else {
+        mongoFilter.product_type = typeRaw;
+      }
+    }
+  }
+
   if (paginate) {
     const [total, rows, distinctGroupIds] = await Promise.all([
       Product.countDocuments(mongoFilter),
@@ -371,14 +391,20 @@ async function list(query = {}) {
         groupsList = [];
       }
     }
-    const groups = [...groupsList.map((g) => g.name), ...legacyGroupNames];
+    const groups = [
+      ...new Set(
+        [...groupsList.map((g) => g.name), ...legacyGroupNames]
+          .map((n) => String(n || '').trim())
+          .filter(Boolean),
+      ),
+    ].sort((a, b) => a.localeCompare(b));
 
     return {
       total,
       page,
       limit,
       pages: Math.ceil(total / limit),
-      groups: groups.filter(Boolean).sort(),
+      groups,
       data: rows.map(toPlain),
     };
   }
@@ -414,8 +440,15 @@ async function create(body, user) {
   const unitRaw = body.unit != null && String(body.unit).trim() ? String(body.unit).trim() : 'pcs';
   if (!PRODUCT_UNITS.has(unitRaw)) throw new ApiError(400, 'Invalid unit');
 
+  const typeRaw =
+    body.product_type != null && String(body.product_type).trim()
+      ? String(body.product_type).trim()
+      : 'individual';
+  if (!PRODUCT_TYPES.has(typeRaw)) throw new ApiError(400, 'Invalid product_type');
+
   const payload = {
     product_name: String(body.product_name).trim(),
+    product_type: typeRaw,
     generic_name: body.generic_name != null ? String(body.generic_name).trim() : '',
     aliases: Array.isArray(body.aliases) ? body.aliases.map(x => String(x ?? '').trim().toLowerCase()).filter(Boolean) : [],
     sku: skuTrim || undefined,
@@ -553,12 +586,17 @@ async function bulkCreate(items, user) {
     const skuTrim = item.sku != null ? String(item.sku).trim().toUpperCase() : '';
     const gstPercent = Number(item.gst_percent ?? item.default_gst_rate ?? item.gst_rate ?? 18);
     const unitRaw = item.unit != null && String(item.unit).trim() ? String(item.unit).trim() : 'pcs';
+    const typeRaw =
+      item.product_type != null && String(item.product_type).trim()
+        ? String(item.product_type).trim().toLowerCase()
+        : 'individual';
 
     const brandName = item.brand != null ? String(item.brand).trim() : '';
     const mfrName = item.manufacturer != null ? String(item.manufacturer).trim() : '';
 
     const payload = {
       product_name: name,
+      product_type: PRODUCT_TYPES.has(typeRaw) ? typeRaw : 'individual',
       generic_name: item.generic_name != null ? String(item.generic_name).trim() : '',
       aliases: Array.isArray(item.aliases) ? item.aliases.map(x => String(x ?? '').trim().toLowerCase()).filter(Boolean) : [],
       sku: skuTrim || undefined,
@@ -682,6 +720,9 @@ async function syncFromGoogleSheet(row) {
   const warrantyMonths = wmRaw !== undefined && wmRaw !== '' ? Math.floor(Number(wmRaw)) : undefined;
 
   const unitRaw = row.unit ? String(row.unit).trim().toLowerCase() : undefined;
+  const typeRaw = row.product_type
+    ? String(row.product_type).trim().toLowerCase()
+    : undefined;
   const activeRaw = row.is_active ?? row.active;
   const isActive = activeRaw !== undefined ? (String(activeRaw).toLowerCase() === 'true' || activeRaw === true || activeRaw === '1' || activeRaw === 1) : undefined;
   const featuredRaw = row.is_featured ?? row.featured;
@@ -711,6 +752,10 @@ async function syncFromGoogleSheet(row) {
 
   if (unitRaw && ['pcs', 'box', 'kg', 'ltr', 'meter', 'set', 'kit', 'bottle'].includes(unitRaw)) {
     payload.unit = unitRaw;
+  }
+
+  if (typeRaw && PRODUCT_TYPES.has(typeRaw)) {
+    payload.product_type = typeRaw;
   }
 
   if (basePrice !== undefined && Number.isFinite(basePrice) && basePrice >= 0) payload.base_price = basePrice;
@@ -745,6 +790,7 @@ async function syncFromGoogleSheet(row) {
   if (payload.base_price === undefined) payload.base_price = 0;
   if (payload.minimum_sale_rate === undefined) payload.minimum_sale_rate = payload.base_price;
   if (payload.unit === undefined) payload.unit = 'pcs';
+  if (payload.product_type === undefined) payload.product_type = 'individual';
   if (payload.gst_percent === undefined) payload.gst_percent = 18;
 
   const newDoc = await Product.create(payload);

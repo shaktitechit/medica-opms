@@ -1,13 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw, Save, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import {
+  applyKitDispatchQtyToBuckets,
+  buildAccountDispatchPreviewRows,
+  buildDispatchItemsPayload,
+  computeReleaseDispatchedByLine,
   getReleaseDispatches,
+  inferKitQtyFromBucketQuantities,
   isDispatchReleaseResolved,
+  kitBucketsForParent,
+  resolveOrderItemIdForLine,
   summarizeReleaseDispatchState,
+  type AccountDispatchPreviewRow,
 } from "@/components/portal/shared/orderDetail/accountDispatchAvailability";
+import { isKitShellDispatchSource } from "@/components/portal/shared/orderDetail/dispatchKitDisplay";
 import {
   NamedOption,
   refId,
@@ -24,6 +33,11 @@ type DispatchItemDraft = {
   dispatched_quantity: number;
   delivered_quantity: number;
   returned_quantity: number;
+  kit_parent_product?: string;
+  is_kit_parent?: boolean;
+  is_kit_bucket?: boolean;
+  dispatchable?: number;
+  kit_base_cleared?: number;
 };
 
 type DispatchHeaderDraft = {
@@ -44,6 +58,19 @@ function dispatchItemFromRaw(item: any, idx: number, orderItems: any[] = []): Di
   const pName = typeof pObj === "object" && pObj ? String(pObj.product_name || pObj.name || "") : String(item?.product_name || "");
   const orderItemId = refId(item?.order_item_id);
   const match = orderItems.find((o: any) => refId(o._id || o.id) === orderItemId);
+  const kitParent =
+    refId(item?.kit_parent_product) ||
+    refId(match?.kit_parent_product) ||
+    undefined;
+  const productId = pId;
+  const isKitParent =
+    !kitParent &&
+    Boolean(
+      productId &&
+        orderItems.some(
+          (o: any) => refId(o?.kit_parent_product) === productId,
+        ),
+    );
   return {
     key: `di-${idx}-${Date.now()}-${Math.random()}`,
     order_item_id: orderItemId,
@@ -53,24 +80,229 @@ function dispatchItemFromRaw(item: any, idx: number, orderItems: any[] = []): Di
     dispatched_quantity: Number(item?.dispatched_quantity ?? item?.dispatch_quantity ?? 0),
     delivered_quantity: Number(item?.delivered_quantity ?? 0),
     returned_quantity: Number(item?.returned_quantity ?? 0),
+    kit_parent_product: kitParent,
+    is_kit_parent: isKitParent,
+    is_kit_bucket: Boolean(kitParent),
   };
 }
 
-function dispatchItemsFromOrder(orderItems: any[]): DispatchItemDraft[] {
-  return (orderItems || []).map((item: any, i: number) => {
-    const pObj = item?.product;
-    const pId = typeof pObj === "object" && pObj ? refId(pObj._id || pObj.id) : refId(pObj || item?.product_id);
-    const pName = typeof pObj === "object" && pObj ? String(pObj.product_name || pObj.name || "") : String(item?.product_name || "");
+function seedKitQuantities(
+  rows: AccountDispatchPreviewRow[],
+  init: Record<string, number>,
+): Record<string, number> {
+  for (const row of rows) {
+    if (!row.isKitParent || !row.productId) continue;
+    const kitCleared = Number(row.kitBaseCleared || row.clearedQty || 0);
+    const buckets = kitBucketsForParent(rows, row.productId);
+    if (buckets.length === 0 || kitCleared <= 0) continue;
+    const kitQty = Math.min(
+      row.dispatchable,
+      Math.max(0, Number(init[row.orderItemId] ?? row.dispatchable) || 0),
+    );
+    init[row.orderItemId] = kitQty;
+    Object.assign(init, applyKitDispatchQtyToBuckets(kitQty, kitCleared, buckets));
+  }
+  return init;
+}
+
+function draftsFromPreviewRows(
+  rows: AccountDispatchPreviewRow[],
+  quantities: Record<string, number>,
+  savedByLine: Record<
+    string,
+    { delivered: number; returned: number }
+  > = {},
+): DispatchItemDraft[] {
+  return rows.map((row, i) => {
+    const saved = savedByLine[row.orderItemId];
     return {
-      key: `di-new-${i}-${Date.now()}-${Math.random()}`,
-      order_item_id: refId(item?._id || item?.id),
-      product: pId,
-      product_label: pName,
-      ordered_quantity: Number(item?.ordered_quantity ?? item?.quantity ?? item?.qty ?? 0),
-      dispatched_quantity: 0,
-      delivered_quantity: 0,
-      returned_quantity: 0,
+      key: `di-${row.orderItemId}-${i}`,
+      order_item_id: row.orderItemId,
+      product: row.productId || "",
+      product_label: row.productName,
+      ordered_quantity: row.clearedQty,
+      dispatched_quantity: quantities[row.orderItemId] ?? 0,
+      delivered_quantity: saved?.delivered ?? 0,
+      returned_quantity: saved?.returned ?? 0,
+      kit_parent_product: row.kitParentProduct,
+      is_kit_parent:
+        Boolean(row.isKitParent) || row.orderItemId.startsWith("__kit__"),
+      is_kit_bucket: Boolean(row.isKitBucket),
+      dispatchable: row.dispatchable,
+      kit_base_cleared: row.kitBaseCleared,
     };
+  });
+}
+
+/** Seed create-mode lines from approval clearance (kit headers + bucket cascade). */
+function dispatchItemsFromApproval(
+  approval: Record<string, unknown> | null,
+  orderItems: Record<string, unknown>[],
+  dispatches: Record<string, unknown>[],
+): DispatchItemDraft[] {
+  if (!approval) return [];
+  const appId = refId(approval._id || approval.id);
+  const dispatchedMap = computeReleaseDispatchedByLine(
+    dispatches,
+    appId,
+    orderItems,
+    approval,
+  );
+  const rows = buildAccountDispatchPreviewRows(
+    approval,
+    orderItems,
+    dispatchedMap,
+    {},
+    { skipClearanceCheck: true },
+  );
+  const init: Record<string, number> = {};
+  for (const row of rows) {
+    if (row.isKitParent || row.orderItemId.startsWith("__kit__")) continue;
+    if (row.dispatchable > 0) init[row.orderItemId] = row.dispatchable;
+  }
+  seedKitQuantities(rows, init);
+  return draftsFromPreviewRows(rows, init);
+}
+
+/** Map a saved dispatch line onto a preview-row order_item_id (avoid orphan duplicates). */
+function resolveSavedDispatchLineId(
+  item: Record<string, unknown>,
+  orderItems: Record<string, unknown>[],
+  previewRows: AccountDispatchPreviewRow[],
+): string {
+  const resolved = resolveOrderItemIdForLine(item, orderItems);
+  if (resolved && previewRows.some((row) => row.orderItemId === resolved)) {
+    return resolved;
+  }
+
+  const productId = refId(item.product);
+  if (productId) {
+    const kitParent = refId(item.kit_parent_product);
+    const byProduct = previewRows.find((row) => {
+      if (row.isKitParent || row.orderItemId.startsWith("__kit__")) return false;
+      if (row.productId !== productId) return false;
+      if (kitParent) return row.kitParentProduct === kitParent;
+      // Prefer non-bucket individual when kit_parent is absent on the saved line.
+      return !row.isKitBucket;
+    });
+    if (byProduct) return byProduct.orderItemId;
+
+    // Fallback: any matching product row (bucket) when individual match missing.
+    const anyProduct = previewRows.find(
+      (row) =>
+        !row.isKitParent &&
+        !row.orderItemId.startsWith("__kit__") &&
+        row.productId === productId,
+    );
+    if (anyProduct) return anyProduct.orderItemId;
+  }
+
+  return resolved;
+}
+
+/**
+ * Edit-mode seed — mirrors CreateAccountDispatchModal.buildQuantitiesFromDispatch:
+ * exclude this batch from "already dispatched", nest kit headers, infer kit qty from buckets.
+ * Only preview rows are shown (no orphan extras — those caused "—" duplicates).
+ */
+function dispatchItemsFromExistingDispatch(
+  disp: Record<string, unknown>,
+  approval: Record<string, unknown> | null,
+  orderItems: Record<string, unknown>[],
+  allDispatches: Record<string, unknown>[],
+): DispatchItemDraft[] {
+  const dispId = refId(disp._id || disp.id);
+  const rawItems = (
+    Array.isArray(disp.dispatch_items)
+      ? disp.dispatch_items
+      : Array.isArray(disp.items)
+        ? disp.items
+        : []
+  ) as Record<string, unknown>[];
+
+  if (!approval) {
+    return rawItems.map((item, i) => dispatchItemFromRaw(item, i, orderItems));
+  }
+
+  // Exclude this dispatch so its qty counts as still-editable (same as create modal).
+  const otherDispatches = allDispatches.filter(
+    (d) => refId(d._id || d.id) !== dispId,
+  );
+  const appId = refId(approval._id || approval.id);
+  const dispatchedMap = computeReleaseDispatchedByLine(
+    otherDispatches,
+    appId,
+    orderItems,
+    approval,
+  );
+  const rows = buildAccountDispatchPreviewRows(
+    approval,
+    orderItems,
+    dispatchedMap,
+    {},
+    { skipClearanceCheck: true },
+  );
+
+  const savedByLine: Record<
+    string,
+    { delivered: number; returned: number }
+  > = {};
+  const init: Record<string, number> = {};
+
+  for (const item of rawItems) {
+    const dispatched = Number(
+      item.dispatched_quantity ?? item.dispatch_quantity ?? 0,
+    );
+
+    // Kit shells seed the synthetic UI key; buckets/individuals seed real line ids.
+    if (isKitShellDispatchSource(item, rawItems, orderItems)) {
+      const productId =
+        refId(item.product) ||
+        refId(
+          orderItems.find(
+            (line) => refId(line._id || line.id) === refId(item.order_item_id),
+          )?.product,
+        );
+      if (productId && dispatched > 0) {
+        init[`__kit__${productId}`] = dispatched;
+      }
+      continue;
+    }
+
+    const lineId = resolveSavedDispatchLineId(item, orderItems, rows);
+    if (!lineId || lineId.startsWith("__kit__")) continue;
+
+    if (dispatched > 0) {
+      init[lineId] = (init[lineId] || 0) + dispatched;
+    }
+    const prev = savedByLine[lineId] || { delivered: 0, returned: 0 };
+    savedByLine[lineId] = {
+      delivered: prev.delivered + Number(item.delivered_quantity ?? 0),
+      returned: prev.returned + Number(item.returned_quantity ?? 0),
+    };
+  }
+
+  for (const row of rows) {
+    if (!row.isKitParent || !row.productId) continue;
+    const kitCleared = Number(row.kitBaseCleared || row.clearedQty || 0);
+    const buckets = kitBucketsForParent(rows, row.productId);
+    if (kitCleared <= 0 || buckets.length === 0) continue;
+    const savedKit = Number(init[row.orderItemId] || 0);
+    init[row.orderItemId] = Math.min(
+      row.dispatchable,
+      savedKit > 0
+        ? savedKit
+        : inferKitQtyFromBucketQuantities(kitCleared, buckets, init),
+    );
+  }
+
+  // Only nested preview rows — same surface as CreateAccountDispatchModal.
+  // Drop blank orphan drafts (no product / no label) if any slip through.
+  return draftsFromPreviewRows(rows, init, savedByLine).filter((line) => {
+    if (line.order_item_id.startsWith("__kit__") || line.is_kit_parent) {
+      return true;
+    }
+    return Boolean(line.product || (line.product_label && line.product_label !== "—"));
   });
 }
 
@@ -157,14 +389,21 @@ export function OrderDispatchesForm({
           dispatched_at: new Date().toISOString().split("T")[0],
         },
   );
-  const [lines, setLines] = useState<DispatchItemDraft[]>(() =>
-    sortedDispatches[0]
-      ? (Array.isArray(sortedDispatches[0]?.dispatch_items ?? sortedDispatches[0]?.items)
-          ? ((sortedDispatches[0]?.dispatch_items ?? sortedDispatches[0]?.items ?? []) as any[])
-          : []
-        ).map((item: any, i: number) => dispatchItemFromRaw(item, i, order.order_items))
-      : dispatchItemsFromOrder(order.order_items),
-  );
+  const [lines, setLines] = useState<DispatchItemDraft[]>(() => {
+    if (sortedDispatches[0]) {
+      const appId = refId(sortedDispatches[0].finance_approval);
+      const approval =
+        approvals.find((app) => refId(app._id || app.id) === appId) || null;
+      return dispatchItemsFromExistingDispatch(
+        sortedDispatches[0] as Record<string, unknown>,
+        approval,
+        orderItems,
+        dispatches,
+      );
+    }
+    const seedApproval = approvals[0] || null;
+    return dispatchItemsFromApproval(seedApproval, orderItems, dispatches);
+  });
 
   const selectedDispatch = useMemo(
     () =>
@@ -185,23 +424,33 @@ export function OrderDispatchesForm({
     }
   }, [isCreateMode, sortedDispatches, selectedId]);
 
+  const selectedApprovalObj = useMemo(() => {
+    const appId = selectedId === "new" ? header.finance_approval : refId(selectedDispatch?.finance_approval);
+    return approvals.find(app => refId(app._id || app.id) === appId) || null;
+  }, [selectedId, header.finance_approval, selectedDispatch, approvals]);
+
   useEffect(() => {
     if (selectedId === "new") return;
     if (!selectedDispatch) return;
     setHeader(headerFromDispatch(selectedDispatch));
     setLines(
-      (Array.isArray(selectedDispatch.dispatch_items ?? selectedDispatch.items)
-        ? ((selectedDispatch.dispatch_items ?? selectedDispatch.items ?? []) as any[])
-        : []
-      ).map((item: any, i: number) => dispatchItemFromRaw(item, i, order.order_items)),
+      dispatchItemsFromExistingDispatch(
+        selectedDispatch as Record<string, unknown>,
+        selectedApprovalObj,
+        orderItems,
+        dispatches,
+      ),
     );
     setBillDocumentFile(null);
-  }, [selectedDispatch, selectedId]);
+  }, [selectedDispatch, selectedId, selectedApprovalObj, orderItems, dispatches]);
 
-  const selectedApprovalObj = useMemo(() => {
-    const appId = selectedId === "new" ? header.finance_approval : refId(selectedDispatch?.finance_approval);
-    return approvals.find(app => refId(app._id || app.id) === appId) || null;
-  }, [selectedId, header.finance_approval, selectedDispatch, approvals]);
+  // Create mode: reseed items when linked approval changes (kit nest + cascade defaults).
+  useEffect(() => {
+    if (selectedId !== "new") return;
+    setLines(
+      dispatchItemsFromApproval(selectedApprovalObj, orderItems, dispatches),
+    );
+  }, [selectedId, selectedApprovalObj, orderItems, dispatches]);
 
   const releaseSummary = useMemo(() => {
     if (!selectedApprovalObj) return null;
@@ -216,6 +465,30 @@ export function OrderDispatchesForm({
     return items.reduce((sum, item) => sum + Number(item.approved_quantity || 0), 0);
   }, [selectedApprovalObj]);
 
+  /** Stable kit cascade rows from approval (not derived from draft lines). */
+  const kitCascadeRows = useMemo((): AccountDispatchPreviewRow[] => {
+    if (!selectedApprovalObj) return [];
+    const editingId =
+      selectedId !== "new" ? refId(selectedDispatch?._id || selectedDispatch?.id) : "";
+    const dispatchesForAvailability = editingId
+      ? dispatches.filter((d) => refId(d._id || d.id) !== editingId)
+      : dispatches;
+    const appId = refId(selectedApprovalObj._id || selectedApprovalObj.id);
+    const dispatchedMap = computeReleaseDispatchedByLine(
+      dispatchesForAvailability,
+      appId,
+      orderItems,
+      selectedApprovalObj,
+    );
+    return buildAccountDispatchPreviewRows(
+      selectedApprovalObj,
+      orderItems,
+      dispatchedMap,
+      {},
+      { skipClearanceCheck: true },
+    );
+  }, [selectedApprovalObj, selectedId, selectedDispatch, dispatches, orderItems]);
+
   const updateLine = (
     key: string,
     field: keyof DispatchItemDraft,
@@ -229,18 +502,76 @@ export function OrderDispatchesForm({
     );
   };
 
+  const handleKitQtyChange = useCallback(
+    (kitLine: DispatchItemDraft, nextKitQty: number) => {
+      const kitProductId = kitLine.product || "";
+      const kitRow =
+        kitCascadeRows.find(
+          (row) =>
+            (row.isKitParent || row.orderItemId.startsWith("__kit__")) &&
+            row.productId === kitProductId,
+        ) || null;
+      const kitCleared = Number(
+        kitRow?.kitBaseCleared ||
+          kitRow?.clearedQty ||
+          kitLine.kit_base_cleared ||
+          kitLine.ordered_quantity ||
+          0,
+      );
+      const maxQty = Number(
+        kitRow?.dispatchable ??
+          kitLine.dispatchable ??
+          kitLine.ordered_quantity ??
+          0,
+      );
+      const kitQty = Math.min(maxQty, Math.max(0, Number(nextKitQty) || 0));
+      const buckets = kitBucketsForParent(kitCascadeRows, kitProductId);
+      const bucketQtys = applyKitDispatchQtyToBuckets(kitQty, kitCleared, buckets);
+      setLines((prev) =>
+        prev.map((line) => {
+          if (line.key === kitLine.key || line.order_item_id === kitLine.order_item_id) {
+            return {
+              ...line,
+              dispatched_quantity: kitQty,
+              dispatchable: maxQty,
+              kit_base_cleared: kitCleared,
+            };
+          }
+          if (line.order_item_id in bucketQtys) {
+            return {
+              ...line,
+              dispatched_quantity: bucketQtys[line.order_item_id] ?? 0,
+            };
+          }
+          return line;
+        }),
+      );
+    },
+    [kitCascadeRows],
+  );
+
   const handleSave = async () => {
     if (!selectedId) {
       toast.error("No dispatch batch selected");
       return;
     }
-    const dispatch_items = lines.map((line) => ({
-      order_item_id: line.order_item_id || undefined,
-      product: line.product || undefined,
-      dispatched_quantity: line.dispatched_quantity,
-      delivered_quantity: line.delivered_quantity,
-      returned_quantity: line.returned_quantity,
-    }));
+    // Kit shells + buckets + individuals (`__kit__*` → commercial kit order line).
+    const physicalLines = lines.filter((line) => Number(line.dispatched_quantity) > 0);
+    const qtyByLine: Record<string, number> = {};
+    for (const line of physicalLines) {
+      qtyByLine[line.order_item_id] = Number(line.dispatched_quantity) || 0;
+    }
+    const payloadItems = buildDispatchItemsPayload(
+      qtyByLine,
+      orderItems,
+      approvals.find((app) => refId(app._id || app.id) === header.finance_approval) ||
+        null,
+    );
+
+    if (payloadItems.length === 0) {
+      toast.error("Please enter a dispatch quantity for at least one item");
+      return;
+    }
 
     if (selectedId === "new") {
       if (!isCreateMode) {
@@ -273,19 +604,7 @@ export function OrderDispatchesForm({
       );
       formData.append("bill_number", header.bill_number.trim());
       formData.append("billing_date", new Date(header.billing_date).toISOString());
-      
-      const creationItems = lines.map((line) => ({
-        order_item_id: line.order_item_id,
-        product: line.product,
-        dispatch_quantity: line.dispatched_quantity,
-      })).filter((item) => item.dispatch_quantity > 0);
-
-      if (creationItems.length === 0) {
-        toast.error("Please enter a dispatch quantity for at least one item");
-        return;
-      }
-
-      formData.append("items", JSON.stringify(creationItems));
+      formData.append("items", JSON.stringify(payloadItems));
       if (header.warehouse_location.trim()) {
         formData.append("warehouse_location", header.warehouse_location.trim());
       }
@@ -317,10 +636,40 @@ export function OrderDispatchesForm({
         );
       }
     } else {
+      const draftMetaByKey = new Map(
+        lines.map((line) => [
+          line.order_item_id,
+          {
+            delivered: Number(line.delivered_quantity || 0),
+            returned: Number(line.returned_quantity || 0),
+            product: line.product,
+          },
+        ]),
+      );
+      const items = payloadItems.map((item) => {
+        const byId = draftMetaByKey.get(item.order_item_id);
+        const byKitKey = draftMetaByKey.get(`__kit__${item.product}`);
+        const meta = byId || byKitKey;
+        return {
+          order_item_id: item.order_item_id,
+          product: item.product,
+          dispatch_quantity: item.dispatch_quantity,
+          delivered_quantity: meta?.delivered ?? 0,
+          returned_quantity: meta?.returned ?? 0,
+        };
+      });
+
       await onSave(selectedId, {
         ...header,
         dispatch_assignee_user: header.dispatch_assignee_user || null,
-        dispatch_items,
+        items,
+        dispatch_items: items.map((item) => ({
+          order_item_id: item.order_item_id,
+          product: item.product,
+          dispatched_quantity: item.dispatch_quantity,
+          delivered_quantity: item.delivered_quantity,
+          returned_quantity: item.returned_quantity,
+        })),
       });
     }
   };
@@ -598,62 +947,125 @@ export function OrderDispatchesForm({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                      {lines.map((line) => (
-                        <tr key={line.key} className="bg-white dark:bg-slate-900">
-                          <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
-                            {line.product_label || line.product || "—"}
-                          </td>
-                          <td className="px-3 py-1.5 text-center font-semibold text-slate-500 dark:text-slate-400">
-                            {line.ordered_quantity}
-                          </td>
-                          <td className="px-3 py-1.5 text-center">
-                            <input
-                              type="number"
-                              value={line.dispatched_quantity}
-                              onChange={(e) =>
-                                updateLine(
-                                  line.key,
-                                  "dispatched_quantity",
-                                  Math.max(0, Number(e.target.value) || 0),
-                                )
-                              }
-                              className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-center font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                            />
-                          </td>
-                          {!isCreateMode && (
-                            <>
-                              <td className="px-3 py-1.5 text-center">
+                      {lines.map((line) => {
+                        const isBucket = Boolean(line.is_kit_bucket);
+                        const isKitParent =
+                          Boolean(line.is_kit_parent) ||
+                          line.order_item_id.startsWith("__kit__");
+                        const maxQty = Number(
+                          line.dispatchable ?? line.ordered_quantity ?? 0,
+                        );
+                        return (
+                          <tr
+                            key={line.key}
+                            className={
+                              isBucket
+                                ? "bg-slate-50/80 dark:bg-slate-950/60"
+                                : isKitParent
+                                  ? "bg-violet-50/40 dark:bg-violet-950/20"
+                                  : "bg-white dark:bg-slate-900"
+                            }
+                          >
+                            <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                              <div
+                                className={
+                                  isBucket
+                                    ? "ml-3 border-l-2 border-violet-300 pl-2 dark:border-violet-700"
+                                    : undefined
+                                }
+                              >
+                                {line.product_label || line.product || "—"}
+                                {isKitParent ? (
+                                  <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-950/50 px-1.5 py-0.5 rounded">
+                                    KIT
+                                  </span>
+                                ) : null}
+                                {isBucket ? (
+                                  <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-950/50 px-1.5 py-0.5 rounded">
+                                    KIT BUCKET
+                                  </span>
+                                ) : null}
+                                {isKitParent ? (
+                                  <span className="mt-0.5 block text-2xs text-violet-600/80 dark:text-violet-300/80">
+                                    Edit kit qty — buckets update automatically
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="px-3 py-1.5 text-center font-semibold text-slate-500 dark:text-slate-400">
+                              {line.ordered_quantity}
+                            </td>
+                            <td className="px-3 py-1.5 text-center">
+                              {isBucket ? (
+                                <span className="inline-block w-20 tabular-nums font-semibold text-slate-700 dark:text-slate-300">
+                                  {line.dispatched_quantity}
+                                </span>
+                              ) : (
                                 <input
                                   type="number"
-                                  value={line.delivered_quantity}
-                                  onChange={(e) =>
+                                  min={0}
+                                  max={maxQty || undefined}
+                                  value={line.dispatched_quantity}
+                                  onChange={(e) => {
+                                    const val = Math.max(
+                                      0,
+                                      Number(e.target.value) || 0,
+                                    );
+                                    const capped =
+                                      maxQty > 0 ? Math.min(maxQty, val) : val;
+                                    if (isKitParent) {
+                                      handleKitQtyChange(line, capped);
+                                      return;
+                                    }
                                     updateLine(
                                       line.key,
-                                      "delivered_quantity",
-                                      Math.max(0, Number(e.target.value) || 0),
-                                    )
-                                  }
-                                  className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-center font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                                      "dispatched_quantity",
+                                      capped,
+                                    );
+                                  }}
+                                  className={`w-20 rounded border bg-white px-2 py-1 text-center font-semibold text-slate-800 outline-none focus:border-blue-500 dark:bg-slate-950 dark:text-slate-100 ${
+                                    isKitParent
+                                      ? "border-violet-300 dark:border-violet-700"
+                                      : "border-slate-200 dark:border-slate-700"
+                                  }`}
                                 />
-                              </td>
-                              <td className="px-3 py-1.5 text-center">
-                                <input
-                                  type="number"
-                                  value={line.returned_quantity}
-                                  onChange={(e) =>
-                                    updateLine(
-                                      line.key,
-                                      "returned_quantity",
-                                      Math.max(0, Number(e.target.value) || 0),
-                                    )
-                                  }
-                                  className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-center font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                                />
-                              </td>
-                            </>
-                          )}
-                        </tr>
-                      ))}
+                              )}
+                            </td>
+                            {!isCreateMode && (
+                              <>
+                                <td className="px-3 py-1.5 text-center">
+                                  <input
+                                    type="number"
+                                    value={line.delivered_quantity}
+                                    onChange={(e) =>
+                                      updateLine(
+                                        line.key,
+                                        "delivered_quantity",
+                                        Math.max(0, Number(e.target.value) || 0),
+                                      )
+                                    }
+                                    className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-center font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                                  />
+                                </td>
+                                <td className="px-3 py-1.5 text-center">
+                                  <input
+                                    type="number"
+                                    value={line.returned_quantity}
+                                    onChange={(e) =>
+                                      updateLine(
+                                        line.key,
+                                        "returned_quantity",
+                                        Math.max(0, Number(e.target.value) || 0),
+                                      )
+                                    }
+                                    className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-center font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                                  />
+                                </td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -6,6 +6,8 @@ export type FinalOrderStatementPdfLine = {
   productName: string;
   sku?: string;
   hsnCode?: string;
+  isKitShell?: boolean;
+  isKitBucket?: boolean;
   ordered: string;
   approved: string;
   dispatched: string;
@@ -141,6 +143,7 @@ function lineHeight(line: FinalOrderStatementPdfLine): number {
   let h = H_ROW_BASE;
   if (line.sku) h += 10;
   if (line.hsnCode) h += 10;
+  if (line.isKitShell || line.isKitBucket) h += 4;
   return h;
 }
 
@@ -461,18 +464,51 @@ function LinesTableHead() {
 }
 
 function LineRow({ line, idx }: { line: FinalOrderStatementPdfLine; idx: number }) {
+  const kitBadge =
+    line.isKitShell || line.isKitBucket ? (
+      <span
+        style={{
+          marginLeft: 6,
+          fontSize: "7px",
+          fontWeight: 700,
+          color: "#6d28d9",
+          backgroundColor: "#f5f3ff",
+          padding: "1px 4px",
+          borderRadius: 3,
+          letterSpacing: "0.02em",
+        }}
+      >
+        {line.isKitShell ? "KIT" : "KIT BUCKET"}
+      </span>
+    ) : null;
+
   return (
     <tr key={`${line.productName}-${idx}`}>
       <td style={tdStyle}>
-        <div style={{ fontWeight: 600 }}>{line.productName}</div>
-        {line.sku ? (
-          <div style={{ fontSize: "8px", color: "#64748b" }}>SKU {line.sku}</div>
-        ) : null}
-        {line.hsnCode ? (
-          <div style={{ fontSize: "8px", color: "#64748b" }}>
-            HSN {line.hsnCode}
+        <div
+          style={
+            line.isKitBucket
+              ? {
+                  marginLeft: 10,
+                  paddingLeft: 8,
+                  borderLeft: "2px solid #c4b5fd",
+                }
+              : undefined
+          }
+        >
+          <div style={{ fontWeight: 600 }}>
+            {line.productName}
+            {kitBadge}
           </div>
-        ) : null}
+          {line.sku ? (
+            <div style={{ fontSize: "8px", color: "#64748b" }}>SKU {line.sku}</div>
+          ) : null}
+          {line.hsnCode ? (
+            <div style={{ fontSize: "8px", color: "#64748b" }}>
+              HSN {line.hsnCode}
+            </div>
+          ) : null}
+        </div>
       </td>
       <td style={{ ...tdStyle, textAlign: "right" }}>{line.ordered}</td>
       <td style={{ ...tdStyle, textAlign: "right" }}>{line.approved}</td>
@@ -480,12 +516,20 @@ function LineRow({ line, idx }: { line: FinalOrderStatementPdfLine; idx: number 
       <td style={{ ...tdStyle, textAlign: "right" }}>{line.delivered}</td>
       <td style={{ ...tdStyle, textAlign: "right" }}>{line.returned}</td>
       <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{line.net}</td>
-      <td style={{ ...tdStyle, textAlign: "right" }}>{line.unitPrice}</td>
-      <td style={{ ...tdStyle, textAlign: "center" }}>{line.rateType}</td>
-      <td style={{ ...tdStyle, textAlign: "right" }}>{line.gstPercent}</td>
-      <td style={{ ...tdStyle, textAlign: "right" }}>{line.gstAmount}</td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>
+        {line.isKitBucket ? "—" : line.unitPrice}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "center" }}>
+        {line.isKitBucket ? "—" : line.rateType}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>
+        {line.isKitBucket ? "—" : line.gstPercent}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>
+        {line.isKitBucket ? "—" : line.gstAmount}
+      </td>
       <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>
-        {line.lineTotal}
+        {line.isKitBucket ? "—" : line.lineTotal}
       </td>
     </tr>
   );

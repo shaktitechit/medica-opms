@@ -7,20 +7,29 @@ import { toast } from "@/lib/toast";
 import {
   useListTransportAgentsQuery,
   useListOrderApprovalsQuery,
+  useListOrderReturnsQuery,
 } from "@/store/api";
 import { formatAgentType } from "@/components/portal/shared/fleetDisplay";
-import { groupAccountDispatchesByRelease } from "../accountDispatchAvailability";
+import {
+  filterAccountApprovalsForUser,
+  findFirstSettleableRelease,
+  groupAccountDispatchesByRelease,
+  summarizeReleaseDispatchState,
+} from "../accountDispatchAvailability";
 import { useAppSelector } from "@/store/hooks";
 import { publicApiOrigin } from "@/lib/env";
+import { CreateAccountDispatchModal } from "../modals/CreateAccountDispatchModal";
 import {
   CreateTransportModal,
   type CreateTransportFormDefaults,
 } from "../modals/CreateTransportModal";
+import { SettleRestOrderModal } from "../modals/SettleRestOrderModal";
 import {
   FilePreviewModal,
   useFilePreview,
   type PreviewFile,
 } from "@/components/portal/shared/FilePreviewModal";
+import { DispatchItemsKitTable } from "./DispatchItemsKitTable";
 
 function pickList(raw: unknown): Record<string, unknown>[] {
   if (Array.isArray(raw)) return raw as Record<string, unknown>[];
@@ -100,6 +109,8 @@ interface DispatchesTabProps {
   onRefetch?: () => void;
   transportFormDefaults?: CreateTransportFormDefaults;
   disableTransportAgent?: boolean;
+  detail?: Record<string, unknown> | null;
+  partyLabel?: string;
 }
 
 export function DispatchOpsDispatchesTab({
@@ -118,13 +129,23 @@ export function DispatchOpsDispatchesTab({
   onRefetch,
   transportFormDefaults,
   disableTransportAgent,
+  detail = null,
+  partyLabel = "—",
 }: DispatchesTabProps) {
   const [createTransportDispatchId, setCreateTransportDispatchId] = useState<string | null>(null);
   const [confirmCancelDispatchId, setConfirmCancelDispatchId] = useState<string | null>(null);
+  const [editingDispatch, setEditingDispatch] = useState<Record<string, unknown> | null>(null);
+  const [settleModalContext, setSettleModalContext] = useState<{
+    approval: Record<string, unknown>;
+    releaseNo: string;
+  } | null>(null);
 
   const transportAgentsQ = useListTransportAgentsQuery({ is_active: "true" });
 
   const token = useAppSelector((state) => state.auth.token);
+  const isSuperAdmin = useAppSelector(
+    (state) => state.auth.user?.department === "super_admin",
+  );
   const {
     previewDoc,
     previewBlobUrl,
@@ -136,11 +157,46 @@ export function DispatchOpsDispatchesTab({
     { order: orderId },
     { skip: !orderId },
   );
+  const returnsQ = useListOrderReturnsQuery(
+    { order: orderId },
+    { skip: !orderId || !isSuperAdmin },
+  );
   const approvals = useMemo(() => pickList(approvalsQ.data), [approvalsQ.data]);
+  const accountApprovals = useMemo(
+    () => filterAccountApprovalsForUser(approvals),
+    [approvals],
+  );
+  const orderReturns = useMemo(() => pickList(returnsQ.data), [returnsQ.data]);
 
   const releaseGroups = useMemo(
     () => groupAccountDispatchesByRelease(dispatches, approvals),
     [dispatches, approvals],
+  );
+
+  const firstSettleableRelease = useMemo(() => {
+    if (!isSuperAdmin) return null;
+    if (["cancelled", "on_hold"].includes(String(orderStatus || ""))) return null;
+    return findFirstSettleableRelease(
+      accountApprovals,
+      dispatches,
+      orderItems as Record<string, unknown>[],
+      orderReturns,
+      { includeWarehouseReturns: true },
+    );
+  }, [
+    isSuperAdmin,
+    orderStatus,
+    accountApprovals,
+    dispatches,
+    orderItems,
+    orderReturns,
+  ]);
+
+  const openSettleRestOrder = useCallback(
+    (approval: Record<string, unknown>, releaseNo: string) => {
+      setSettleModalContext({ approval, releaseNo });
+    },
+    [],
   );
 
 
@@ -213,6 +269,29 @@ export function DispatchOpsDispatchesTab({
         title="Recorded Dispatch Batches"
         description="View dispatch details, dispatched items list, and manage dispatch status."
       >
+        {isSuperAdmin ? (
+          <div className="mb-4 flex flex-wrap items-center justify-end gap-2 border-b border-slate-100 pb-4 dark:border-white/5">
+            <button
+              type="button"
+              disabled={!firstSettleableRelease}
+              title={
+                firstSettleableRelease
+                  ? "Move undispatched approval qty to Unbilled Order"
+                  : "Available when dispatched qty is less than approved qty on a release"
+              }
+              onClick={() => {
+                if (!firstSettleableRelease) return;
+                openSettleRestOrder(
+                  firstSettleableRelease.approval,
+                  firstSettleableRelease.releaseNo,
+                );
+              }}
+              className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+            >
+              Settle & Unbilled Order
+            </button>
+          </div>
+        ) : null}
         {isFetching || approvalsQ.isLoading ? (
           <p className="text-sm text-slate-500 font-sans">Loading dispatches...</p>
         ) : !hasVisibleDispatches ? (
@@ -231,6 +310,13 @@ export function DispatchOpsDispatchesTab({
                 const status = normalizeDispatchBatchStatus(disp.dispatch_status ?? disp.status);
                 return status !== "cancelled";
               });
+              const releaseSummary = summarizeReleaseDispatchState(
+                group.approval,
+                dispatches,
+                orderItems as Record<string, unknown>[],
+                orderReturns,
+                { includeWarehouseReturns: true },
+              );
               return (
                 <div key={group.releaseId} className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 pb-3 dark:border-white/10">
@@ -241,8 +327,32 @@ export function DispatchOpsDispatchesTab({
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                         {activeReleaseDispatches.length} submitted dispatch batch
                         {activeReleaseDispatches.length === 1 ? "" : "es"}
+                        {releaseSummary.isReleaseResolved ? (
+                          <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                            {" "}
+                            · Release resolved
+                          </span>
+                        ) : releaseSummary.remainingTotal > 0 ? (
+                          ` · ${releaseSummary.remainingTotal} unit${releaseSummary.remainingTotal === 1 ? "" : "s"} remaining`
+                        ) : null}
                       </p>
                     </div>
+                    {isSuperAdmin &&
+                    releaseSummary.canResolveRelease &&
+                    group.approval ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openSettleRestOrder(
+                            group.approval as Record<string, unknown>,
+                            group.releaseNo,
+                          )
+                        }
+                        className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                      >
+                        Settle & Unbilled
+                      </button>
+                    ) : null}
                   </div>
 
                   <div className="space-y-6">
@@ -316,7 +426,16 @@ export function DispatchOpsDispatchesTab({
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isSuperAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditingDispatch(disp)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
+                        >
+                          Edit dispatch
+                        </button>
+                      ) : null}
                       {dispatchStatus === "cancelled" ? (
                         <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400">
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -368,106 +487,10 @@ export function DispatchOpsDispatchesTab({
                         Dispatched Items
                       </h5>
                       <div className="overflow-x-auto rounded-lg border border-slate-200/60 dark:border-white/5">
-                        {(() => {
-                          const hasDelivered = dispatchItems.some(
-                            (item: any) => Number(item.delivered_quantity ?? 0) > 0,
-                          );
-                          const hasReturned = dispatchItems.some(
-                            (item: any) => Number(item.returned_quantity ?? 0) > 0,
-                          );
-                          return (
-                            <table className="w-full text-left text-xs">
-                              <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-medium">
-                                <tr>
-                                  <th className="px-3 py-2">Product</th>
-                                  <th className="px-3 py-2 text-center w-20">Ordered</th>
-                                  <th className="px-3 py-2 text-center w-22">Dispatched</th>
-                                  {hasDelivered && (
-                                    <th className="px-3 py-2 text-center w-22 text-emerald-600 dark:text-emerald-400">
-                                      Delivered
-                                    </th>
-                                  )}
-                                  {hasReturned && (
-                                    <th className="px-3 py-2 text-center w-22 text-rose-600 dark:text-rose-400">
-                                      Returned
-                                    </th>
-                                  )}
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                                {dispatchItems.map((item: any, idx: number) => {
-                                  const matchItem = orderItems.find(
-                                    (oi: any) =>
-                                      String(oi._id ?? oi.id ?? "") === String(item.order_item_id),
-                                  );
-                                  const productName =
-                                    matchItem?.product_name ||
-                                    item.product_name ||
-                                    item.product?.product_name ||
-                                    "—";
-                                  const orderedQty = matchItem
-                                    ? (matchItem.ordered_quantity ?? matchItem.quantity ?? 0)
-                                    : (item.ordered_quantity ?? "—");
-                                  const dispatchedQty =
-                                    item.dispatched_quantity ?? item.dispatch_quantity ?? "—";
-                                  const deliveredQty = Number(item.delivered_quantity ?? 0);
-                                  const returnedQty = Number(item.returned_quantity ?? 0);
-
-                                  return (
-                                    <tr
-                                      key={String(item.order_item_id || idx)}
-                                      className="bg-white dark:bg-slate-900"
-                                    >
-                                      <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
-                                        {productName}
-                                      </td>
-                                      <td className="px-3 py-2 text-center text-slate-600 dark:text-slate-400">
-                                        {orderedQty}
-                                      </td>
-                                      <td className="px-3 py-2 text-center font-semibold text-blue-600 dark:text-blue-400">
-                                        {dispatchedQty}
-                                      </td>
-                                      {hasDelivered && (
-                                        <td className="px-3 py-2 text-center">
-                                          {deliveredQty > 0 ? (
-                                            <span className="inline-flex items-center justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
-                                              {deliveredQty}
-                                            </span>
-                                          ) : (
-                                            <span className="text-slate-350 dark:text-slate-600">—</span>
-                                          )}
-                                        </td>
-                                      )}
-                                      {hasReturned && (
-                                        <td className="px-3 py-2 text-center">
-                                          {returnedQty > 0 ? (
-                                            <span className="inline-flex items-center justify-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-400">
-                                              <svg
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                className="h-2.5 w-2.5 shrink-0"
-                                                viewBox="0 0 20 20"
-                                                fill="currentColor"
-                                              >
-                                                <path
-                                                  fillRule="evenodd"
-                                                  d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 017 7v2a1 1 0 11-2 0v-2a5 5 0 00-5-5H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-                                                  clipRule="evenodd"
-                                                />
-                                              </svg>
-                                              {returnedQty}
-                                            </span>
-                                          ) : (
-                                            <span className="text-slate-350 dark:text-slate-600">—</span>
-                                          )}
-                                        </td>
-                                      )}
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          );
-                        })()}
+                        <DispatchItemsKitTable
+                          dispatchItems={dispatchItems as Record<string, unknown>[]}
+                          orderItems={(orderItems ?? []) as Record<string, unknown>[]}
+                        />
                       </div>
                     </div>
 
@@ -680,6 +703,22 @@ export function DispatchOpsDispatchesTab({
         )}
       </DashboardCard>
 
+      <CreateAccountDispatchModal
+        open={editingDispatch !== null}
+        onClose={() => setEditingDispatch(null)}
+        orderId={orderId}
+        detail={detail}
+        partyLabel={partyLabel}
+        orderItems={(orderItems ?? []) as Record<string, unknown>[]}
+        dispatches={dispatches as Record<string, unknown>[]}
+        approvals={approvals as Record<string, unknown>[]}
+        editingDispatch={editingDispatch}
+        onCreated={() => {
+          setEditingDispatch(null);
+          onRefetch?.();
+        }}
+      />
+
       <CreateTransportModal
         open={createTransportDispatchId !== null}
         onClose={() => setCreateTransportDispatchId(null)}
@@ -687,6 +726,8 @@ export function DispatchOpsDispatchesTab({
         dispatchId={createTransportDispatchId ?? ""}
         dispatches={dispatches}
         transports={transports}
+        approvals={approvals as Record<string, unknown>[]}
+        orderItems={(orderItems ?? []) as Record<string, unknown>[]}
         expectedDeliveryDate={expectedDeliveryDate}
         shippingAddress={shippingAddress}
         defaultTransportAgentId={transportFormDefaults?.transportAgentId}
@@ -763,6 +804,24 @@ export function DispatchOpsDispatchesTab({
         </div>
         </LargeModalPortal>
       )}
+
+      {isSuperAdmin ? (
+        <SettleRestOrderModal
+          open={settleModalContext !== null}
+          onClose={() => setSettleModalContext(null)}
+          orderId={orderId}
+          approval={settleModalContext?.approval ?? null}
+          dispatches={dispatches as Record<string, unknown>[]}
+          orderItems={(orderItems ?? []) as Record<string, unknown>[]}
+          releaseNo={settleModalContext?.releaseNo}
+          onSettled={() => {
+            setSettleModalContext(null);
+            onRefetch?.();
+            if (!returnsQ.isUninitialized) void returnsQ.refetch();
+            if (!approvalsQ.isUninitialized) void approvalsQ.refetch();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

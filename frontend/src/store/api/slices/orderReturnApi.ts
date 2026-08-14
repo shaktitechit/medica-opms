@@ -27,7 +27,12 @@ export const orderReturnApi = medicaApi.injectEndpoints({
         body: patch,
       }),
       transformResponse: (raw: ApiEnvelope<any>) => unwrapEnvelope(raw),
-      invalidatesTags: ["Order", "Orders", "Transport"],
+      invalidatesTags: [
+        "Order",
+        "Orders",
+        "Transport",
+        { type: "Order", id: "RETURN_LIST" },
+      ],
     }),
   }),
 });

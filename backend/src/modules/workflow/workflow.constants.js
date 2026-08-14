@@ -50,7 +50,8 @@ const STATUS_TO_WORKFLOW = Object.freeze({
   },
   [ORDER_STATUS.FINANCE_APPROVED]: {
     lifecycle_status: ORDER_LIFECYCLE_STATUS.ACTIVE,
-    workflow_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
+    // After finance approve, order waits on account clearance.
+    workflow_stage: ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW,
     current_action: 'finance_approved',
   },
   [ORDER_STATUS.FINANCE_REJECTED]: {
@@ -132,6 +133,11 @@ function deriveOrderPatches(requestedStatus, canonicalStatus) {
   if (canonicalStatus === ORDER_STATUS.FINANCE_APPROVED) {
     patches.finance_approval_status = APPROVAL_STATUS.APPROVED;
     patches.current_action = 'finance_approved';
+    patches.pending_with_role = 'account';
+    patches.current_department = 'account';
+    if (!patches.account_approval_status) {
+      patches.account_approval_status = APPROVAL_STATUS.PENDING;
+    }
   }
 
   if (canonicalStatus === ORDER_STATUS.FINANCE_REJECTED) {

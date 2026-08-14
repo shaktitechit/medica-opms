@@ -218,9 +218,9 @@ async function assertDispatchReleaseEligible(approvalId) {
   }
 }
 
-async function validateDispatchItems(order, rawItems, excludeDispatchId = null, financeApprovalId = null) {
+async function validateDispatchItems(order, rawItems, excludeDispatchId = null, financeApprovalId = null, options = {}) {
   const { OrderDispatch, OrderApproval } = getModels();
-  if (financeApprovalId) {
+  if (financeApprovalId && !options.skipReleaseEligibility) {
     await assertDispatchReleaseEligible(financeApprovalId);
   }
   const dispatches = await OrderDispatch.find({
@@ -426,6 +426,12 @@ function allocateNetDispatchedAcrossReleaseItems(dispatchDocs, netSettledByLine)
   }
 
   for (const lineId of lineIds) {
+    // Missing key ⇒ leave physical dispatch qty alone.
+    // (Settle-rest / kit payloads often resolve line ids differently than the
+    // server-side netSettled map; treating missing as 0 was wiping dispatch qty.)
+    if (!(netSettledByLine instanceof Map) || !netSettledByLine.has(lineId)) {
+      continue;
+    }
     let remaining = Number(netSettledByLine.get(lineId) || 0);
     for (const doc of dispatchDocs) {
       for (const item of doc.dispatch_items || []) {
@@ -646,11 +652,13 @@ async function patch(id, patchBody, user) {
   if (patch.dispatch_items || patch.items) {
     const order = await getModels().Order.findById(existing.order).lean();
     if (!order) throw new ApiError(404, 'Order not found');
+    const isSuperAdmin = String(user?.department || '').toLowerCase() === 'super_admin';
     existing.dispatch_items = await validateDispatchItems(
       toPlain(order),
       patch.dispatch_items || patch.items,
       existing._id,
       existing.finance_approval || patch.finance_approval || null,
+      { skipReleaseEligibility: isSuperAdmin },
     );
   }
   if (patch.finance_approval !== undefined) {

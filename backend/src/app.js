@@ -22,6 +22,7 @@ const productSubgroupRoutes = require('./modules/productSubgroups/productSubgrou
 const productBrandRoutes = require('./modules/productBrands/productBrand.routes');
 const productManufacturerRoutes = require('./modules/productManufacturers/productManufacturer.routes');
 const partyProductRoutes = require('./modules/partyProducts/partyProduct.routes');
+const productKitItemRoutes = require('./modules/productKitItems/productKitItem.routes');
 const orderRoutes = require('./modules/orders/order.routes');
 const approvalRoutes = require('./modules/approvals/approval.routes');
 const financeRoutes = require('./modules/finance/finance.routes');
@@ -92,6 +93,7 @@ app.use('/api/product-subgroups', productSubgroupRoutes);
 app.use('/api/product-brands', productBrandRoutes);
 app.use('/api/product-manufacturers', productManufacturerRoutes);
 app.use('/api/party-products', partyProductRoutes);
+app.use('/api/product-kit-items', productKitItemRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/approvals', approvalRoutes);
 app.use('/api/finance', financeRoutes);

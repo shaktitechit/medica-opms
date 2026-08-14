@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, RefreshCw, Save, X } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { useListProductKitItemsQuery } from "@/store/api";
+import {
+  buildKitCompositionMap,
+  expandKitBucketLines,
+  hasKitParent,
+  isKitProductId,
+  previewKitBuckets,
+} from "@/components/portal/shared/kitBucketExpand";
 import {
   LineDraft,
   ProductOption,
@@ -17,6 +25,15 @@ import {
   LINE_STATUSES,
   RATE_TYPES,
 } from "./utils";
+
+function commercialLinesFromOrder(order: any, orderId: string): LineDraft[] {
+  const raw = Array.isArray(order.order_items) ? order.order_items : [];
+  const commercial = raw.filter(
+    (l: any) => !hasKitParent(l?.kit_parent_product),
+  );
+  const source = commercial.length > 0 ? commercial : raw;
+  return source.map((l: any, i: number) => lineFromRaw(l, i, orderId));
+}
 
 export function OrderItemsForm({
   order,
@@ -34,10 +51,21 @@ export function OrderItemsForm({
   products: ProductOption[];
 }) {
   const orderId = refId(order._id || order.id);
+  const kitItemsQ = useListProductKitItemsQuery({ paginate: "false" });
+  const kitCompositionByProductId = useMemo(
+    () => buildKitCompositionMap(kitItemsQ.data),
+    [kitItemsQ.data],
+  );
+  const productTypeById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of products) {
+      if (p.id) map.set(p.id, String(p.product_type || "individual").toLowerCase());
+    }
+    return map;
+  }, [products]);
+
   const [lines, setLines] = useState<LineDraft[]>(() =>
-    (Array.isArray(order.order_items) ? order.order_items : []).map(
-      (l: any, i: number) => lineFromRaw(l, i, orderId),
-    ),
+    commercialLinesFromOrder(order, orderId),
   );
   const [headerDiscount, setHeaderDiscount] = useState(
     Number(order.discount_amount ?? 0) || 0,
@@ -53,11 +81,7 @@ export function OrderItemsForm({
   );
 
   useEffect(() => {
-    setLines(
-      (Array.isArray(order.order_items) ? order.order_items : []).map(
-        (l: any, i: number) => lineFromRaw(l, i, orderId),
-      ),
-    );
+    setLines(commercialLinesFromOrder(order, orderId));
     setHeaderDiscount(Number(order.discount_amount ?? 0) || 0);
     setExtraCharges(Number(order.extra_charges ?? 0) || 0);
     setPenaltyAmount(Number(order.penalty_amount ?? 0) || 0);
@@ -151,8 +175,46 @@ export function OrderItemsForm({
         return;
       }
     }
+    const commercialPayload = linesToPayload(lines);
+    const kitBuckets = expandKitBucketLines(
+      lines.map((l) => ({
+        product: l.product,
+        product_name: l.product_name,
+        ordered_quantity: Number(l.ordered_quantity) || 0,
+        approved_quantity: Number(l.approved_quantity || l.ordered_quantity) || 0,
+        free_quantity: Number(l.free_quantity) || 0,
+      })),
+      kitCompositionByProductId,
+      {
+        orderItems: Array.isArray(order.order_items)
+          ? (order.order_items as Record<string, unknown>[])
+          : [],
+        productTypeById,
+      },
+    );
+    const bucketPayload = kitBuckets.map((b) => ({
+      product: b.product,
+      product_name: b.product_name,
+      sku: b.sku,
+      ordered_quantity: b.ordered_quantity,
+      approved_quantity: b.approved_quantity,
+      free_quantity: b.free_quantity,
+      unit_price: 0,
+      gst_percent: 0,
+      discount_percent: 0,
+      discount_amount: 0,
+      applied_rate_type: "MANUAL",
+      kit_parent_product: b.kit_parent_product,
+      remarks: b.remarks,
+      manual_price_override: true,
+      taxable_amount: 0,
+      gst_amount: 0,
+      total_amount: 0,
+      ...(b.order_item_id ? { _id: b.order_item_id } : {}),
+    }));
+
     await onSave({
-      order_items: linesToPayload(lines),
+      order_items: [...commercialPayload, ...bucketPayload],
       discount_amount: headerDiscount,
       extra_charges: extraCharges,
       penalty_amount: penaltyAmount,
@@ -190,14 +252,41 @@ export function OrderItemsForm({
         </div>
 
         <div className="flex-1 overflow-auto p-4 space-y-4">
-          {lines.map((line, idx) => (
+          {lines.map((line, idx) => {
+            const lineIsKit = Boolean(
+              line.product &&
+                isKitProductId(
+                  line.product,
+                  kitCompositionByProductId,
+                  productTypeById,
+                ),
+            );
+            const kitPreview = lineIsKit
+              ? previewKitBuckets(
+                  line.product,
+                  Number(line.ordered_quantity) || 0,
+                  Number(line.free_quantity) || 0,
+                  kitCompositionByProductId,
+                )
+              : [];
+
+            return (
             <div
               key={line.key}
-              className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-950/40"
+              className={
+                lineIsKit
+                  ? "rounded-lg border border-violet-200 bg-violet-50/40 p-3 dark:border-violet-800/40 dark:bg-violet-950/20"
+                  : "rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-950/40"
+              }
             >
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
                   Line {idx + 1}
+                  {lineIsKit ? (
+                    <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-950/50 px-1.5 py-0.5 rounded">
+                      KIT
+                    </span>
+                  ) : null}
                   {!line._id ? (
                     <span className="ml-2 text-2xs font-normal text-amber-600">
                       new
@@ -525,8 +614,41 @@ export function OrderItemsForm({
                   />
                 </label>
               </div>
+
+              {lineIsKit ? (
+                <div className="mt-3 rounded-md border border-violet-200/80 bg-white/80 px-2.5 py-2 dark:border-violet-800/40 dark:bg-slate-950/40">
+                  <p className="text-2xs font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-300">
+                    Kit buckets (auto-expanded on save)
+                  </p>
+                  {kitPreview.length === 0 ? (
+                    <p className="mt-1 text-2xs text-slate-500">
+                      No active kit composition mapped for this product.
+                    </p>
+                  ) : (
+                    <ul className="mt-1.5 space-y-1">
+                      {kitPreview.map((comp) => (
+                        <li
+                          key={comp.productId}
+                          className="ml-2 flex flex-wrap items-center gap-x-3 border-l-2 border-violet-300 pl-2 text-2xs text-slate-700 dark:border-violet-700 dark:text-slate-300"
+                        >
+                          <span className="font-medium">{comp.name}</span>
+                          {comp.sku ? (
+                            <span className="font-mono text-slate-400">
+                              {comp.sku}
+                            </span>
+                          ) : null}
+                          <span className="text-violet-700 dark:text-violet-300">
+                            {comp.percentage}% → qty {comp.quantity}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
             </div>
-          ))}
+            );
+          })}
 
           <button
             type="button"

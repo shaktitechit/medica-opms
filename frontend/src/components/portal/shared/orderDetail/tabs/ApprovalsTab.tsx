@@ -206,6 +206,8 @@ export function ApprovalsTab({
   const allRatesMapped = useMemo(() => {
     if (!isAdmin || readOnlyItems.length === 0) return true;
     return readOnlyItems.every((line) => {
+      // Kit bucket individuals are saved at zero price and do not need negotiated rates.
+      if (idFromRef(line.kit_parent_product)) return true;
       const productId = idFromRef(line.product);
       const rateType = String(line.applied_rate_type ?? "MANUAL");
       const rateItem = rateItemByLine.get(rateLookupKey(productId, rateType));
@@ -222,7 +224,7 @@ export function ApprovalsTab({
         <div className="rounded-xl border border-amber-250 bg-amber-50/50 px-4 py-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-955/20 dark:text-amber-300">
           <b>Rate Mapping Needed:</b> Some items do not have negotiated rates
           mapped yet. Click{" "}
-          <b>{canCreateApproval ? "Create Approval" : "Approve Order"}</b> and
+          <b>{canCreateApproval ? "Create Approval" : "Admin Approve"}</b> and
           map them inline in the modal before final sign-off.
         </div>
       )}
@@ -243,7 +245,7 @@ export function ApprovalsTab({
           ) : undefined
         }
       >
-        {hasActiveDispatch && (
+        {hasActiveDispatch && !isSuperAdmin && (
           <div className="mb-4 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-500/30">
             Amendment is locked because a dispatch execution has already been
             initiated for this order.
@@ -304,7 +306,7 @@ export function ApprovalsTab({
                 userNameById={userNameById}
                 onAmend={openAmendModal}
                 amendingApprovalId={amendApprovalId}
-                isAmendBlocked={hasActiveDispatch}
+                isAmendBlocked={hasActiveDispatch && !isSuperAdmin}
               />
             ))}
           </div>

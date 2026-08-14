@@ -1,9 +1,10 @@
 "use client";
 
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { DashboardCard } from "@/components/widgets";
 import {
+  useListDispatchesQuery,
   useListOrderReturnsQuery,
   useListUsersQuery,
   usePatchOrderReturnMutation,
@@ -22,6 +23,12 @@ import { useAppSelector } from "@/store/hooks";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import { CreateReturnModal } from "../modals/CreateReturnModal";
+import { EditReturnModal } from "../modals/EditReturnModal";
+import {
+  idFromRef,
+  nestDispatchLinesForDisplay,
+  type DispatchLineDisplay,
+} from "../dispatchKitDisplay";
 import { formatDate as formatDateUtil, pickList as pickListUtil } from "../orderDetailUtils";
 
 export type ReturnsTabMode = "readonly" | "account" | "dispatch";
@@ -39,13 +46,176 @@ type ReturnsTabProps = {
   onRefetch?: () => void;
 };
 
-function productIdFromRef(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    return String(o._id ?? o.id ?? "");
+function matchOrderLine(
+  item: Record<string, unknown>,
+  orderItems: Record<string, unknown>[],
+): Record<string, unknown> | undefined {
+  const orderItemId = idFromRef(item.order_item_id);
+  if (orderItemId) {
+    const byId = orderItems.find(
+      (oi) => idFromRef(oi._id ?? oi.id) === orderItemId,
+    );
+    if (byId) return byId;
   }
-  return String(value);
+  const productId = idFromRef(item.product);
+  if (!productId) return undefined;
+  const matches = orderItems.filter(
+    (oi) => idFromRef(oi.product) === productId,
+  );
+  if (matches.length === 0) return undefined;
+  const buckets = matches.filter((oi) => idFromRef(oi.kit_parent_product));
+  if (buckets.length > 0) return buckets[0];
+  return matches.find((oi) => !idFromRef(oi.kit_parent_product)) || matches[0];
+}
+
+function normalizeReturnItemsForDisplay(
+  items: Record<string, unknown>[],
+  orderItems: Record<string, unknown>[],
+  linkedDispatch?: Record<string, unknown> | null,
+): Record<string, unknown>[] {
+  const dispatchItems = Array.isArray(linkedDispatch?.dispatch_items)
+    ? (linkedDispatch!.dispatch_items as Record<string, unknown>[])
+    : Array.isArray(linkedDispatch?.items)
+      ? (linkedDispatch!.items as Record<string, unknown>[])
+      : [];
+
+  const returnedByProduct = new Map<string, Record<string, unknown>>();
+  for (const item of items) {
+    const productId = idFromRef(item.product);
+    if (productId) returnedByProduct.set(productId, item);
+  }
+
+  const source =
+    dispatchItems.length > 0
+      ? dispatchItems.filter((di) => {
+          const pid = idFromRef(di.product);
+          return pid && returnedByProduct.has(pid);
+        })
+      : items;
+
+  return source.map((item) => {
+    const matchItem = matchOrderLine(item, orderItems);
+    const productId =
+      idFromRef(item.product) || idFromRef(matchItem?.product);
+    const saved = productId ? returnedByProduct.get(productId) : undefined;
+    const returnedQty = Number(
+      saved?.returned_quantity ?? item.returned_quantity ?? 0,
+    );
+    return {
+      ...item,
+      ...(saved || {}),
+      order_item_id:
+        idFromRef(item.order_item_id) ||
+        idFromRef(matchItem?._id ?? matchItem?.id),
+      product: productId,
+      product_name:
+        matchItem?.product_name ||
+        saved?.product_name ||
+        item.product_name ||
+        (typeof item.product === "object" && item.product
+          ? (item.product as Record<string, unknown>).product_name
+          : undefined),
+      sku: matchItem?.sku ?? item.sku,
+      kit_parent_product:
+        idFromRef(item.kit_parent_product) ||
+        idFromRef(matchItem?.kit_parent_product) ||
+        undefined,
+      dispatched_quantity: Number(
+        item.dispatched_quantity ?? item.dispatch_quantity ?? returnedQty,
+      ),
+      delivered_quantity: returnedQty,
+      returned_quantity: returnedQty,
+      return_reason: saved?.return_reason ?? item.return_reason,
+      remarks: saved?.remarks ?? item.remarks,
+    };
+  });
+}
+
+function ProductCell({
+  name,
+  sku,
+  isKitParent,
+  isKitBucket,
+}: {
+  name: string;
+  sku?: string;
+  isKitParent?: boolean;
+  isKitBucket?: boolean;
+}) {
+  return (
+    <div
+      className={
+        isKitBucket
+          ? "ml-3 border-l-2 border-violet-300 pl-2 dark:border-violet-700"
+          : undefined
+      }
+    >
+      <span className="font-medium text-slate-900 dark:text-slate-100">{name}</span>
+      {isKitParent ? (
+        <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+          KIT
+        </span>
+      ) : null}
+      {isKitBucket ? (
+        <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+          KIT BUCKET
+        </span>
+      ) : null}
+      {sku ? (
+        <span className="mt-0.5 block text-2xs text-slate-400">SKU {sku}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function ReturnLineRow({
+  line,
+  isBucket,
+}: {
+  line: DispatchLineDisplay;
+  isBucket?: boolean;
+}) {
+  const isKitParent = Boolean(line.isKitParent) && !isBucket;
+  const returnedQty = Number(line.deliveredQty || 0);
+  return (
+    <tr
+      className={
+        isBucket
+          ? "bg-slate-50/80 dark:bg-slate-950/60"
+          : isKitParent
+            ? "bg-violet-50/40 dark:bg-violet-950/20"
+            : "hover:bg-slate-50/20 dark:hover:bg-white/5 transition bg-white dark:bg-slate-900"
+      }
+    >
+      <td className="px-3 py-2">
+        <ProductCell
+          name={line.productName}
+          sku={line.sku || undefined}
+          isKitParent={isKitParent}
+          isKitBucket={isBucket}
+        />
+      </td>
+      <td className="px-3 py-2 text-center font-bold text-rose-600 dark:text-rose-400">
+        {returnedQty > 0 ? returnedQty : "—"}
+      </td>
+      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+        {isKitParent ? (
+          "—"
+        ) : (
+          <>
+            <div className="font-semibold text-slate-700 dark:text-slate-300">
+              {String(line.item.return_reason || "Rejection")}
+            </div>
+            {line.item.remarks ? (
+              <div className="text-2xs italic mt-0.5">
+                Note: {String(line.item.remarks)}
+              </div>
+            ) : null}
+          </>
+        )}
+      </td>
+    </tr>
+  );
 }
 
 export function ReturnsTab({
@@ -67,19 +237,31 @@ export function ReturnsTab({
     { skip: !orderId || !selfFetch },
   );
   const usersQ = useListUsersQuery({}, { skip: Boolean(userNameByIdProp) });
+  const dispatchesQ = useListDispatchesQuery(
+    { order: orderId },
+    { skip: !orderId },
+  );
   const [patchOrderReturn, { isLoading: isPatching }] = usePatchOrderReturnMutation();
   const currentUser = useAppSelector((state) => state.auth.user);
   const currentUserId = String(currentUser?._id ?? currentUser?.id ?? "");
+  const isSuperAdmin = currentUser?.department === "super_admin";
 
   const [confirmReturnId, setConfirmReturnId] = useState<string | null>(null);
   const [returningPerson, setReturningPerson] = useState("");
   const [returnRemarks, setReturnRemarks] = useState("");
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+  const [editingReturn, setEditingReturn] = useState<Record<string, any> | null>(
+    null,
+  );
 
   const formatDate = formatDateProp ?? formatDateUtil;
   const returns = useMemo(
     () => (returnsProp != null ? returnsProp : pickListUtil(returnsQ.data)),
     [returnsProp, returnsQ.data],
+  );
+  const dispatches = useMemo(
+    () => pickListUtil(dispatchesQ.data) as Record<string, unknown>[],
+    [dispatchesQ.data],
   );
   const isFetching = isFetchingProp ?? returnsQ.isFetching;
   const userNameById = useMemo(
@@ -97,6 +279,15 @@ export function ReturnsTab({
     if (!detail || !Array.isArray(detail.order_items)) return [];
     return detail.order_items as Record<string, unknown>[];
   }, [orderItemsProp, detail]);
+
+  const dispatchById = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>>();
+    for (const d of dispatches) {
+      const id = idFromRef(d._id ?? d.id);
+      if (id) map.set(id, d);
+    }
+    return map;
+  }, [dispatches]);
 
   const canReceive = (status: string) =>
     canManageReceive &&
@@ -140,7 +331,25 @@ export function ReturnsTab({
               const retId = String(ret._id ?? ret.id ?? "");
               const returnNo = ret.return_no || "Return Record";
               const status = normalizeReturnStatus(ret.return_status);
-              const items = Array.isArray(ret.return_items) ? ret.return_items : [];
+              const items = Array.isArray(ret.return_items)
+                ? (ret.return_items as Record<string, unknown>[])
+                : [];
+              const linkedDispatchId = idFromRef(ret.dispatch);
+              const linkedDispatch =
+                (typeof ret.dispatch === "object" && ret.dispatch !== null
+                  ? (ret.dispatch as Record<string, unknown>)
+                  : null) ||
+                (linkedDispatchId
+                  ? dispatchById.get(linkedDispatchId) ?? null
+                  : null);
+              const groups = nestDispatchLinesForDisplay(
+                normalizeReturnItemsForDisplay(
+                  items,
+                  orderItems,
+                  linkedDispatch,
+                ),
+                orderItems,
+              );
 
               const dispatchNo =
                 ret.dispatch && typeof ret.dispatch === "object"
@@ -186,6 +395,15 @@ export function ReturnsTab({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                      {isSuperAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditingReturn(ret)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
+                        >
+                          Edit return
+                        </button>
+                      ) : null}
                       {canReceive(status) && (
                         <button
                           type="button"
@@ -237,47 +455,74 @@ export function ReturnsTab({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-white/5 bg-white dark:bg-slate-900">
-                            {items.map((item: Record<string, any>, idx: number) => {
-                              const itemProductId = productIdFromRef(item.product);
-                              const matchItem = orderItems.find((oi) => {
-                                const oiProductId = productIdFromRef(oi.product);
-                                const lineId = String(oi._id ?? oi.id ?? "");
-                                return (
-                                  oiProductId === itemProductId ||
-                                  lineId === String(item.order_item_id ?? "")
-                                );
-                              });
-                              const productName =
-                                matchItem?.product_name ||
-                                (typeof item.product === "object"
-                                  ? item.product?.product_name
-                                  : null) ||
-                                "—";
-
-                              return (
-                                <tr
-                                  key={idx}
-                                  className="hover:bg-slate-50/20 dark:hover:bg-white/5 transition"
+                            {groups.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={3}
+                                  className="px-3 py-4 text-center text-slate-500"
                                 >
-                                  <td className="px-3 py-2 font-medium text-slate-900 dark:text-slate-100">
-                                    {String(productName)}
-                                  </td>
-                                  <td className="px-3 py-2 text-center font-bold text-rose-600 dark:text-rose-400">
-                                    {item.returned_quantity}
-                                  </td>
-                                  <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                                    <div className="font-semibold text-slate-700 dark:text-slate-300">
-                                      {item.return_reason || "Rejection"}
-                                    </div>
-                                    {item.remarks ? (
-                                      <div className="text-2xs italic mt-0.5">
-                                        Note: {item.remarks}
-                                      </div>
+                                  No return items on this record.
+                                </td>
+                              </tr>
+                            ) : (
+                              groups.map((group, gIdx) => {
+                                if (group.line) {
+                                  return (
+                                    <ReturnLineRow
+                                      key={group.line.key}
+                                      line={group.line}
+                                    />
+                                  );
+                                }
+
+                                const headerLine: DispatchLineDisplay | null =
+                                  group.parent
+                                    ? {
+                                        ...group.parent,
+                                        isKitParent:
+                                          group.parent.isKitParent ||
+                                          group.buckets.length > 0,
+                                      }
+                                    : group.kitHeader
+                                      ? {
+                                          key: `kit-header-${group.kitHeader.productId}-${gIdx}`,
+                                          item: {},
+                                          productName: group.kitHeader.productName,
+                                          sku: group.kitHeader.sku,
+                                          orderedQty: group.kitHeader.orderedQty,
+                                          dispatchedQty:
+                                            group.kitHeader.dispatchedQty,
+                                          deliveredQty:
+                                            group.kitHeader.deliveredQty,
+                                          returnedQty:
+                                            group.kitHeader.returnedQty,
+                                          remainingQty:
+                                            group.kitHeader.remainingQty,
+                                          productId: group.kitHeader.productId,
+                                          kitParentProduct: "",
+                                          isKitBucket: false,
+                                          isKitParent: true,
+                                        }
+                                      : null;
+
+                                return (
+                                  <Fragment
+                                    key={headerLine?.key ?? `group-${gIdx}`}
+                                  >
+                                    {headerLine ? (
+                                      <ReturnLineRow line={headerLine} />
                                     ) : null}
-                                  </td>
-                                </tr>
-                              );
-                            })}
+                                    {group.buckets.map((bucket) => (
+                                      <ReturnLineRow
+                                        key={bucket.key}
+                                        line={bucket}
+                                        isBucket
+                                      />
+                                    ))}
+                                  </Fragment>
+                                );
+                              })
+                            )}
                           </tbody>
                         </table>
                       </div>
@@ -444,6 +689,15 @@ export function ReturnsTab({
           onCreated={handleRefetch}
         />
       )}
+
+      <EditReturnModal
+        open={editingReturn !== null}
+        onClose={() => setEditingReturn(null)}
+        returnRecord={editingReturn}
+        dispatches={dispatches}
+        orderItems={orderItems}
+        onSuccess={handleRefetch}
+      />
     </div>
   );
 }

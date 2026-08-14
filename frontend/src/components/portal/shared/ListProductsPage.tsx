@@ -70,6 +70,7 @@ type ProductRow = {
   _id?: string;
   id?: string;
   product_name?: string;
+  product_type?: "individual" | "kit";
   generic_name?: string;
   aliases?: string[];
   sku?: string;
@@ -141,6 +142,7 @@ export default function ListProductsPage({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
 
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -161,6 +163,7 @@ export default function ListProductsPage({
     search: debouncedSearch,
     group: groupFilter,
     status: statusFilter,
+    product_type: typeFilter,
   });
 
   const products = useMemo(() => pickList(data) as ProductRow[], [data]);
@@ -277,10 +280,21 @@ export default function ListProductsPage({
   }, [bulkDeleteProducts, bulkDeleteTarget]);
 
   const uniqueGroups = useMemo(() => {
-    if (data && typeof data === "object" && "groups" in data && Array.isArray((data as { groups?: unknown }).groups)) {
-      return (data as { groups: string[] }).groups;
+    const raw =
+      data && typeof data === "object" && "groups" in data && Array.isArray((data as { groups?: unknown }).groups)
+        ? ((data as { groups: unknown[] }).groups)
+        : [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const g of raw) {
+      const name = String(g ?? "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
     }
-    return [];
+    return out.sort((a, b) => a.localeCompare(b));
   }, [data]);
 
   const totalMatching = useMemo(() => {
@@ -315,15 +329,24 @@ export default function ListProductsPage({
     setCurrentPage(1);
   }, []);
 
+  const handleTypeChange = useCallback((val: string) => {
+    setTypeFilter(val);
+    setCurrentPage(1);
+  }, []);
+
   const handleResetFilters = useCallback(() => {
     setSearch("");
     setGroupFilter("all");
     setStatusFilter("all");
+    setTypeFilter("all");
     setCurrentPage(1);
   }, []);
 
   const showReset =
-    search.trim() !== "" || groupFilter !== "all" || statusFilter !== "all";
+    search.trim() !== "" ||
+    groupFilter !== "all" ||
+    statusFilter !== "all" ||
+    typeFilter !== "all";
 
   const groupFilterOptions = useMemo(
     () => [
@@ -344,6 +367,18 @@ export default function ListProductsPage({
         options: groupFilterOptions,
       },
       {
+        id: "type",
+        value: typeFilter,
+        onChange: handleTypeChange,
+        ariaLabel: "Product type",
+        label: "Type",
+        options: [
+          { value: "all", label: "All Types" },
+          { value: "individual", label: "Individual" },
+          { value: "kit", label: "Kit" },
+        ],
+      },
+      {
         id: "status",
         value: statusFilter,
         onChange: handleStatusChange,
@@ -356,7 +391,15 @@ export default function ListProductsPage({
         ],
       },
     ],
-    [groupFilter, groupFilterOptions, handleGroupChange, handleStatusChange, statusFilter],
+    [
+      groupFilter,
+      groupFilterOptions,
+      handleGroupChange,
+      handleStatusChange,
+      handleTypeChange,
+      statusFilter,
+      typeFilter,
+    ],
   );
 
   const bottomStripGroupOptions = useMemo(
@@ -582,7 +625,7 @@ export default function ListProductsPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                  {products.map((p) => {
+                  {products.map((p, rowIdx) => {
                     const id = rowKey(p);
                     const label = rowLabel(p, id);
                     const name = p.product_name || "—";
@@ -598,6 +641,8 @@ export default function ListProductsPage({
                     const sku = p.sku?.trim() || "";
 
                     const unit = p.unit || "pcs";
+                    const productType =
+                      p.product_type === "kit" ? "kit" : "individual";
                     const basePrice = formatMoney(p.base_price);
                     const mrpPrice = formatMoney(p.mrp);
                     const gst = Number(p.gst_percent ?? 18);
@@ -606,7 +651,7 @@ export default function ListProductsPage({
 
                     return (
                       <tr
-                        key={id || label}
+                        key={id || `product:${label}:${rowIdx}`}
                         className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors"
                       >
                         <td className="px-4 py-3 align-top">
@@ -634,6 +679,15 @@ export default function ListProductsPage({
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="font-bold text-slate-900 dark:text-slate-50 break-words">
                                   {name}
+                                </span>
+                                <span
+                                  className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-2xs font-semibold ring-1 ring-inset capitalize ${
+                                    productType === "kit"
+                                      ? "bg-violet-50 text-violet-700 ring-violet-600/10 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/20"
+                                      : "bg-sky-50 text-sky-700 ring-sky-600/10 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/20"
+                                  }`}
+                                >
+                                  {productType}
                                 </span>
                                 <span className="inline-flex items-center rounded-md bg-slate-50 px-1.5 py-0.5 text-2xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400 dark:ring-white/10 capitalize">
                                   {unit}

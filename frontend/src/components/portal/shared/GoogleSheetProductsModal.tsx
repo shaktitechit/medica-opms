@@ -21,7 +21,8 @@ import {
   SlidersHorizontal,
   ArrowUp,
   ArrowDown,
-  ArrowUpDown
+  ArrowUpDown,
+  Package,
 } from "lucide-react";
 import {
   useListProductsQuery,
@@ -29,10 +30,16 @@ import {
   useCreateProductMutation,
   useDeleteProductMutation,
   useBulkDeleteProductsMutation,
-  useGetProductMetaOptionsQuery
+  useGetProductMetaOptionsQuery,
+  useListProductKitItemsQuery,
 } from "@/store/api";
 import { toast } from "@/lib/toast";
 import { productRefLabel } from "./productRefLabel";
+import { ProductKitItemsMapping } from "./ProductKitItemsMapping";
+import {
+  buildKitCompositionMap,
+  kitComponentLabel,
+} from "./kitBucketExpand";
 
 export type GoogleSheetProductsModalProps = {
   isOpen: boolean;
@@ -45,6 +52,7 @@ type ProductRef = string | { _id?: string; name?: string } | null | undefined;
 type ProductRow = {
   _id: string;
   product_name: string;
+  product_type?: "individual" | "kit";
   generic_name?: string;
   sku?: string;
   product_group?: ProductRef;
@@ -76,23 +84,24 @@ type SelectedCell = {
 
 const COLUMNS: { key: keyof ProductRow; label: string; headerLetter: string; readonly?: boolean; type?: "text" | "number" | "select" | "boolean"; options?: string[] }[] = [
   { key: "product_name", label: "Product Name*", headerLetter: "A", type: "text" },
-  { key: "sku", label: "SKU", headerLetter: "B", type: "text" },
-  { key: "generic_name", label: "Generic Name", headerLetter: "C", type: "text" },
-  { key: "brand", label: "Brand", headerLetter: "D", type: "text" },
-  { key: "manufacturer", label: "Manufacturer", headerLetter: "E", type: "text" },
-  { key: "product_group", label: "Product Group", headerLetter: "F", type: "text" },
-  { key: "product_subgroup", label: "Product Subgroup", headerLetter: "G", type: "text" },
-  { key: "base_price", label: "Base Price*", headerLetter: "H", type: "number" },
-  { key: "minimum_sale_rate", label: "Min Sale Rate*", headerLetter: "I", type: "number" },
-  { key: "mrp", label: "MRP", headerLetter: "J", type: "number" },
-  { key: "gst_percent", label: "GST %", headerLetter: "K", type: "number" },
-  { key: "unit", label: "Unit", headerLetter: "L", type: "select", options: ["pcs", "box", "kg", "ltr", "meter", "set", "kit", "bottle"] },
-  { key: "warranty_months", label: "Warranty Months", headerLetter: "M", type: "number" },
-  { key: "aliases", label: "Aliases", headerLetter: "N", type: "text" },
-  { key: "tags", label: "Tags", headerLetter: "O", type: "text" },
-  { key: "description", label: "Description", headerLetter: "P", type: "text" },
-  { key: "is_active", label: "Active", headerLetter: "Q", type: "boolean" },
-  { key: "is_featured", label: "Featured", headerLetter: "R", type: "boolean" },
+  { key: "product_type", label: "Product Type", headerLetter: "B", type: "select", options: ["individual", "kit"] },
+  { key: "sku", label: "SKU", headerLetter: "C", type: "text" },
+  { key: "generic_name", label: "Generic Name", headerLetter: "D", type: "text" },
+  { key: "brand", label: "Brand", headerLetter: "E", type: "text" },
+  { key: "manufacturer", label: "Manufacturer", headerLetter: "F", type: "text" },
+  { key: "product_group", label: "Product Group", headerLetter: "G", type: "text" },
+  { key: "product_subgroup", label: "Product Subgroup", headerLetter: "H", type: "text" },
+  { key: "base_price", label: "Base Price*", headerLetter: "I", type: "number" },
+  { key: "minimum_sale_rate", label: "Min Sale Rate*", headerLetter: "J", type: "number" },
+  { key: "mrp", label: "MRP", headerLetter: "K", type: "number" },
+  { key: "gst_percent", label: "GST %", headerLetter: "L", type: "number" },
+  { key: "unit", label: "Unit", headerLetter: "M", type: "select", options: ["pcs", "box", "kg", "ltr", "meter", "set", "kit", "bottle"] },
+  { key: "warranty_months", label: "Warranty Months", headerLetter: "N", type: "number" },
+  { key: "aliases", label: "Aliases", headerLetter: "O", type: "text" },
+  { key: "tags", label: "Tags", headerLetter: "P", type: "text" },
+  { key: "description", label: "Description", headerLetter: "Q", type: "text" },
+  { key: "is_active", label: "Active", headerLetter: "R", type: "boolean" },
+  { key: "is_featured", label: "Featured", headerLetter: "S", type: "boolean" },
 ];
 
 function pickList(raw: unknown): unknown[] {
@@ -103,6 +112,30 @@ function pickList(raw: unknown): unknown[] {
     if (Array.isArray(o.data)) return o.data;
   }
   return [];
+}
+
+type MetaOption = { _id?: string; name?: string };
+
+/** Stable unique React keys when meta rows may share names or lack `_id`. */
+function metaOptionKey(prefix: string, opt: MetaOption, idx: number): string {
+  const id = String(opt?._id ?? "").trim();
+  const name = String(opt?.name ?? "").trim();
+  return `${prefix}:${id || name || "opt"}:${idx}`;
+}
+
+/** Keep first occurrence of each option name (case-insensitive). */
+function dedupeMetaOptionsByName(options: MetaOption[] | undefined): MetaOption[] {
+  if (!options?.length) return [];
+  const seen = new Set<string>();
+  const out: MetaOption[] = [];
+  for (const opt of options) {
+    const name = String(opt?.name ?? "").trim().toLowerCase();
+    const key = name || String(opt?._id ?? "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(opt);
+  }
+  return out;
 }
 
 export function GoogleSheetProductsModal({
@@ -123,11 +156,14 @@ export function GoogleSheetProductsModal({
     key: keyof ProductRow;
     direction: "asc" | "desc";
   } | null>(null);
+  /** When set, opens kit-bucket mapping panel for this kit product id. */
+  const [kitBucketsKitId, setKitBucketsKitId] = useState<string | null>(null);
 
   // Filter panel toggle & criteria states
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [filterActiveStatus, setFilterActiveStatus] = useState<"all" | "active" | "inactive">("all");
   const [filterFeaturedStatus, setFilterFeaturedStatus] = useState<"all" | "featured" | "not_featured">("all");
+  const [filterProductType, setFilterProductType] = useState<"all" | "individual" | "kit">("all");
   const [filterGstRate, setFilterGstRate] = useState<string>("all");
   const [filterUnit, setFilterUnit] = useState<string>("all");
   const [filterMinPrice, setFilterMinPrice] = useState<string>("");
@@ -205,6 +241,7 @@ export function GoogleSheetProductsModal({
     return (
       filterActiveStatus !== "all" ||
       filterFeaturedStatus !== "all" ||
+      filterProductType !== "all" ||
       filterGstRate !== "all" ||
       filterUnit !== "all" ||
       filterMinPrice.trim() !== "" ||
@@ -218,6 +255,7 @@ export function GoogleSheetProductsModal({
   }, [
     filterActiveStatus,
     filterFeaturedStatus,
+    filterProductType,
     filterGstRate,
     filterUnit,
     filterMinPrice,
@@ -232,6 +270,7 @@ export function GoogleSheetProductsModal({
   const handleClearFilters = () => {
     setFilterActiveStatus("all");
     setFilterFeaturedStatus("all");
+    setFilterProductType("all");
     setFilterGstRate("all");
     setFilterUnit("all");
     setFilterMinPrice("");
@@ -247,6 +286,7 @@ export function GoogleSheetProductsModal({
   // Resizable columns width state
   const [colWidths, setColWidths] = useState<Record<string, number>>({
     product_name: 180,
+    product_type: 110,
     sku: 120,
     generic_name: 150,
     brand: 120,
@@ -291,7 +331,8 @@ export function GoogleSheetProductsModal({
 
   const totalWidth = useMemo(() => {
     const columnsSum = COLUMNS.reduce((sum, col) => sum + (colWidths[col.key] || 120), 0);
-    return 48 + 48 + 64 + columnsSum; // 48px row numbers, 48px checkbox, 64px delete column
+    // row# + checkbox + delete + kit-buckets action + data columns
+    return 48 + 48 + 64 + 56 + columnsSum;
   }, [colWidths]);
 
   // RTK Queries & Mutations
@@ -300,7 +341,40 @@ export function GoogleSheetProductsModal({
     { skip: !isOpen }
   );
 
+  const { data: kitItemsRaw } = useListProductKitItemsQuery(
+    { paginate: "false" },
+    { skip: !isOpen },
+  );
+
+  const kitCompositionByKitId = useMemo(
+    () => buildKitCompositionMap(kitItemsRaw),
+    [kitItemsRaw],
+  );
+
+  const kitBucketsKitName = useMemo(() => {
+    if (!kitBucketsKitId) return "";
+    const row = localRows.find((r) => r._id === kitBucketsKitId);
+    return row?.product_name || kitBucketsKitId;
+  }, [kitBucketsKitId, localRows]);
+
   const { data: metaOptions } = useGetProductMetaOptionsQuery(undefined, { skip: !isOpen });
+
+  const metaGroups = useMemo(
+    () => dedupeMetaOptionsByName(metaOptions?.groups),
+    [metaOptions?.groups],
+  );
+  const metaSubgroups = useMemo(
+    () => dedupeMetaOptionsByName(metaOptions?.subgroups),
+    [metaOptions?.subgroups],
+  );
+  const metaBrands = useMemo(
+    () => dedupeMetaOptionsByName(metaOptions?.brands),
+    [metaOptions?.brands],
+  );
+  const metaManufacturers = useMemo(
+    () => dedupeMetaOptionsByName(metaOptions?.manufacturers),
+    [metaOptions?.manufacturers],
+  );
   const [patchProduct] = usePatchProductMutation();
   const [createProduct, { isLoading: isCreating }] = useCreateProductMutation();
   const [deleteProduct, { isLoading: isDeleting }] = useDeleteProductMutation();
@@ -356,11 +430,16 @@ export function GoogleSheetProductsModal({
     }
   }, [selectedCell, localRows]);
 
-  // Close modal with escape key
+  // Close kit panel or modal with escape key
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (kitBucketsKitId) {
+        setKitBucketsKitId(null);
+        return;
+      }
+      onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     const originalStyle = document.body.style.overflow;
@@ -369,7 +448,11 @@ export function GoogleSheetProductsModal({
       window.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = originalStyle;
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, kitBucketsKitId]);
+
+  useEffect(() => {
+    if (!isOpen) setKitBucketsKitId(null);
+  }, [isOpen]);
 
   // Helper to extract sheet ID for embedding
   const googleSheetEmbedUrl = useMemo(() => {
@@ -453,6 +536,7 @@ export function GoogleSheetProductsModal({
     try {
       const result = await createProduct({
         product_name: "New Product",
+        product_type: "individual",
         base_price: 0,
         minimum_sale_rate: 0,
         unit: "pcs"
@@ -511,6 +595,11 @@ export function GoogleSheetProductsModal({
     if (filterFeaturedStatus !== "all") {
       const wantFeatured = filterFeaturedStatus === "featured";
       rows = rows.filter(r => (r.is_featured === true) === wantFeatured);
+    }
+
+    // 2c. Product Type Filter
+    if (filterProductType !== "all") {
+      rows = rows.filter(r => (r.product_type || "individual") === filterProductType);
     }
 
     // 3. GST Rate Filter
@@ -599,6 +688,7 @@ export function GoogleSheetProductsModal({
     searchQuery,
     filterActiveStatus,
     filterFeaturedStatus,
+    filterProductType,
     filterGstRate,
     filterUnit,
     filterMinPrice,
@@ -688,6 +778,7 @@ function onEdit(e) {
     // Handle mapping standard field names
     if (key === "product_id" || key === "id") key = "_id";
     if (key === "product_name" || key === "name") key = "product_name";
+    if (key === "product_type" || key === "type") key = "product_type";
     if (key === "generic_name" || key === "generic") key = "generic_name";
     if (key === "base_price" || key === "price") key = "base_price";
     if (key === "gst_" || key === "gst_rate") key = "gst_percent";
@@ -960,6 +1051,20 @@ function onEdit(e) {
                         </select>
                       </div>
 
+                      {/* Product Type select */}
+                      <div>
+                        <label className="block font-medium text-slate-500 dark:text-slate-400 mb-1">Product Type</label>
+                        <select
+                          value={filterProductType}
+                          onChange={e => setFilterProductType(e.target.value as "all" | "individual" | "kit")}
+                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                        >
+                          <option value="all">All types</option>
+                          <option value="individual">Individual</option>
+                          <option value="kit">Kit</option>
+                        </select>
+                      </div>
+
                       {/* GST select */}
                       <div>
                         <label className="block font-medium text-slate-550 dark:text-slate-400 mb-1">GST Rate</label>
@@ -999,8 +1104,8 @@ function onEdit(e) {
                           className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
                         >
                           <option value="all">All brands</option>
-                          {uniqueBrands.map(b => (
-                            <option key={b} value={b}>{b}</option>
+                          {uniqueBrands.map((b, i) => (
+                            <option key={`filter-brand:${b}:${i}`} value={b}>{b}</option>
                           ))}
                         </select>
                       </div>
@@ -1014,8 +1119,8 @@ function onEdit(e) {
                           className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
                         >
                           <option value="all">All manufacturers</option>
-                          {uniqueManufacturers.map(m => (
-                            <option key={m} value={m}>{m}</option>
+                          {uniqueManufacturers.map((m, i) => (
+                            <option key={`filter-mfr:${m}:${i}`} value={m}>{m}</option>
                           ))}
                         </select>
                       </div>
@@ -1029,8 +1134,8 @@ function onEdit(e) {
                           className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
                         >
                           <option value="all">All groups</option>
-                          {uniqueProductGroups.map(pg => (
-                            <option key={pg} value={pg}>{pg}</option>
+                          {uniqueProductGroups.map((pg, i) => (
+                            <option key={`filter-group:${pg}:${i}`} value={pg}>{pg}</option>
                           ))}
                         </select>
                       </div>
@@ -1044,8 +1149,8 @@ function onEdit(e) {
                           className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
                         >
                           <option value="all">All subgroups</option>
-                          {uniqueProductSubgroups.map(psg => (
-                            <option key={psg} value={psg}>{psg}</option>
+                          {uniqueProductSubgroups.map((psg, i) => (
+                            <option key={`filter-subgroup:${psg}:${i}`} value={psg}>{psg}</option>
                           ))}
                         </select>
                       </div>
@@ -1059,8 +1164,8 @@ function onEdit(e) {
                           className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 px-2.5 py-1.5 text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 font-mono text-xs"
                         >
                           <option value="all">All tags</option>
-                          {uniqueTags.map(t => (
-                            <option key={t} value={t}>{t}</option>
+                          {uniqueTags.map((t, i) => (
+                            <option key={`filter-tag:${t}:${i}`} value={t}>{t}</option>
                           ))}
                         </select>
                       </div>
@@ -1156,6 +1261,15 @@ function onEdit(e) {
                     />
                   </th>
                   <th className="w-16 px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850" style={{ width: 64, minWidth: 64, maxWidth: 64 }}>Del</th>
+                  <th
+                    className="px-1 py-1.5 border-r border-slate-200 dark:border-slate-700 text-center select-none bg-slate-150 dark:bg-slate-850"
+                    style={{ width: 56, minWidth: 56, maxWidth: 56 }}
+                    title="Kit buckets"
+                  >
+                    <span className="block text-2xs uppercase font-sans text-violet-500 dark:text-violet-400 font-bold tracking-wider">
+                      Kit
+                    </span>
+                  </th>
                   {COLUMNS.map(col => {
                     const isSortable = col.key === "product_name";
                     const isSorted = sortConfig?.key === col.key;
@@ -1216,12 +1330,19 @@ function onEdit(e) {
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                 {filteredRows.map((row, rowIdx) => {
                   const isSavingRow = !!savingRows[row._id];
+                  const isKit =
+                    String(row.product_type || "individual").toLowerCase() ===
+                    "kit";
+                  const composition = kitCompositionByKitId.get(row._id);
+                  const bucketItems = composition?.items ?? [];
+                  const colSpanBuckets = COLUMNS.length;
+
                   return (
+                    <React.Fragment key={row._id || `product-row:${rowIdx}`}>
                     <tr
-                      key={row._id}
                       className={`bg-white dark:bg-slate-900/60 hover:bg-slate-50 dark:hover:bg-slate-900/40 transition group ${
                         isSavingRow ? "bg-emerald-500/5 dark:bg-emerald-950/10" : ""
-                      }`}
+                      } ${isKit ? "bg-violet-50/20 dark:bg-violet-950/10" : ""}`}
                     >
                       {/* Left Header Row Number */}
                       <td className="w-12 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 font-mono text-center text-slate-450 dark:text-slate-500 select-none font-bold py-1.5 sticky left-0 z-10" style={{ width: 48, minWidth: 48, maxWidth: 48 }}>
@@ -1253,6 +1374,25 @@ function onEdit(e) {
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
+                      </td>
+
+                      {/* Kit buckets action */}
+                      <td
+                        className="border-r border-slate-200 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/40 text-center py-1"
+                        style={{ width: 56, minWidth: 56, maxWidth: 56 }}
+                      >
+                        {isKit ? (
+                          <button
+                            type="button"
+                            onClick={() => setKitBucketsKitId(row._id)}
+                            className="inline-flex items-center justify-center rounded p-1 text-violet-600 hover:bg-violet-500/15 dark:text-violet-300 dark:hover:bg-violet-500/20 transition"
+                            title={`Manage kit buckets (${bucketItems.length})`}
+                          >
+                            <Package className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <span className="text-slate-300 dark:text-slate-700">—</span>
+                        )}
                       </td>
 
                       {/* Spreadsheet Columns */}
@@ -1287,7 +1427,33 @@ function onEdit(e) {
                             ) : (
                               /* Editable Cells */
                               <div className="w-full h-full flex items-center justify-between">
-                                {col.type === "boolean" ? (
+                                {col.key === "product_name" ? (
+                                  <div className="flex w-full items-center gap-1.5 px-2 py-1.5 min-w-0">
+                                    <input
+                                      type="text"
+                                      value={cellVal !== undefined && cellVal !== null ? String(cellVal) : ""}
+                                      onChange={e => {
+                                        const rawVal = e.target.value;
+                                        setLocalRows(prev =>
+                                          prev.map(r => r._id === row._id ? { ...r, product_name: rawVal } : r)
+                                        );
+                                      }}
+                                      onBlur={e => saveCell(row._id, "product_name", e.target.value)}
+                                      onKeyDown={e => {
+                                        if (e.key === "Enter") {
+                                          saveCell(row._id, "product_name", (e.target as HTMLInputElement).value);
+                                          (e.target as HTMLInputElement).blur();
+                                        }
+                                      }}
+                                      className="min-w-0 flex-1 h-full bg-transparent border-none outline-none focus:ring-0 text-xs text-slate-800 dark:text-slate-200"
+                                    />
+                                    {isKit ? (
+                                      <span className="shrink-0 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                        KIT
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                ) : col.type === "boolean" ? (
                                   <div className="w-full flex justify-center py-2">
                                     <input
                                       type="checkbox"
@@ -1315,36 +1481,42 @@ function onEdit(e) {
                                     className="w-full bg-transparent border-none outline-none focus:ring-0 text-xs px-3 py-2 text-slate-800 dark:text-slate-100 cursor-pointer"
                                   >
                                     <option value="" className="bg-white dark:bg-slate-900 text-slate-400">-- None --</option>
-                                    {col.key === "product_group" && metaOptions?.groups?.map(g => (
-                                      <option key={g._id} value={g.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                                    {col.key === "product_group" && metaGroups.map((g, gi) => (
+                                      <option key={metaOptionKey("group", g, gi)} value={g.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
                                         {g.name}
                                       </option>
                                     ))}
-                                    {col.key === "product_subgroup" && metaOptions?.subgroups?.map(sg => (
-                                      <option key={sg._id} value={sg.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                                    {col.key === "product_subgroup" && metaSubgroups.map((sg, sgi) => (
+                                      <option key={metaOptionKey("subgroup", sg, sgi)} value={sg.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
                                         {sg.name}
                                       </option>
                                     ))}
-                                    {col.key === "brand" && metaOptions?.brands?.map(b => (
-                                      <option key={b._id} value={b.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                                    {col.key === "brand" && metaBrands.map((b, bi) => (
+                                      <option key={metaOptionKey("brand", b, bi)} value={b.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
                                         {b.name}
                                       </option>
                                     ))}
-                                    {col.key === "manufacturer" && metaOptions?.manufacturers?.map(m => (
-                                      <option key={m._id} value={m.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                                    {col.key === "manufacturer" && metaManufacturers.map((m, mi) => (
+                                      <option key={metaOptionKey("mfr", m, mi)} value={m.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
                                         {m.name}
                                       </option>
                                     ))}
                                   </select>
                                 ) : col.type === "select" ? (
                                   <select
-                                    value={String(cellVal || "pcs")}
+                                    value={
+                                      col.key === "product_type"
+                                        ? String(cellVal || "individual")
+                                        : String(cellVal || "pcs")
+                                    }
                                     onChange={e => {
-                                      const newVal = e.target.value as any;
+                                      const newVal = e.target.value as ProductRow[typeof col.key];
                                       setLocalRows(prev =>
-                                        prev.map(r => r._id === row._id ? { ...r, unit: newVal } : r)
+                                        prev.map(r =>
+                                          r._id === row._id ? { ...r, [col.key]: newVal } : r,
+                                        ),
                                       );
-                                      saveCell(row._id, "unit", newVal);
+                                      saveCell(row._id, col.key, newVal);
                                     }}
                                     className="w-full bg-transparent border-none outline-none focus:ring-0 text-xs px-3 py-2 text-slate-800 dark:text-slate-100 cursor-pointer capitalize"
                                   >
@@ -1374,7 +1546,6 @@ function onEdit(e) {
                                     onKeyDown={e => {
                                       if (e.key === "Enter") {
                                         saveCell(row._id, col.key, (e.target as HTMLInputElement).value);
-                                        // Move focus down or blur
                                         (e.target as HTMLInputElement).blur();
                                       }
                                     }}
@@ -1387,6 +1558,88 @@ function onEdit(e) {
                         );
                       })}
                     </tr>
+
+                    {isKit
+                      ? bucketItems.length > 0
+                        ? bucketItems.map((line, bucketIdx) => {
+                            const label = kitComponentLabel(line.individual);
+                            const pct = Number(line.percentage) || 0;
+                            const qty =
+                              line.quantity === null || line.quantity === undefined
+                                ? null
+                                : Number(line.quantity);
+                            return (
+                              <tr
+                                key={`${row._id}-bucket-${line._id || bucketIdx}`}
+                                className="bg-violet-50/50 dark:bg-violet-950/20"
+                              >
+                                <td
+                                  className="border-r border-slate-200 dark:border-slate-800 bg-violet-50/80 dark:bg-violet-950/30 text-center text-2xs text-violet-400 sticky left-0 z-10"
+                                  style={{ width: 48, minWidth: 48, maxWidth: 48 }}
+                                >
+                                  ↳
+                                </td>
+                                <td
+                                  className="border-r border-slate-200 dark:border-slate-800"
+                                  style={{ width: 48, minWidth: 48, maxWidth: 48 }}
+                                />
+                                <td
+                                  className="border-r border-slate-200 dark:border-slate-800"
+                                  style={{ width: 64, minWidth: 64, maxWidth: 64 }}
+                                />
+                                <td
+                                  className="border-r border-slate-200 dark:border-slate-800"
+                                  style={{ width: 56, minWidth: 56, maxWidth: 56 }}
+                                />
+                                <td
+                                  colSpan={colSpanBuckets}
+                                  className="border-r border-slate-200 dark:border-slate-800 px-3 py-1.5"
+                                >
+                                  <div className="ml-2 flex flex-wrap items-center gap-2 border-l-2 border-violet-300 pl-2 dark:border-violet-700">
+                                    <span className="text-2xs font-semibold text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-950/50 px-1 py-0.5 rounded">
+                                      KIT BUCKET
+                                    </span>
+                                    <span className="font-medium text-slate-800 dark:text-slate-200">
+                                      {label.name}
+                                    </span>
+                                    {label.sku ? (
+                                      <span className="font-mono text-2xs text-slate-400">
+                                        SKU {label.sku}
+                                      </span>
+                                    ) : null}
+                                    <span className="text-2xs tabular-nums text-slate-500 dark:text-slate-400">
+                                      {pct}%
+                                      {qty != null && Number.isFinite(qty)
+                                        ? ` · qty ${qty}`
+                                        : ""}
+                                    </span>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        : (
+                          <tr className="bg-violet-50/30 dark:bg-violet-950/10">
+                            <td
+                              className="border-r border-slate-200 dark:border-slate-800 sticky left-0 z-10 bg-violet-50/60 dark:bg-violet-950/20"
+                              style={{ width: 48, minWidth: 48, maxWidth: 48 }}
+                            />
+                            <td
+                              colSpan={3 + colSpanBuckets}
+                              className="px-3 py-1.5 text-2xs text-violet-600/80 dark:text-violet-300/80"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setKitBucketsKitId(row._id)}
+                                className="ml-2 underline-offset-2 hover:underline"
+                              >
+                                No kit buckets mapped — click to add individuals
+                              </button>
+                            </td>
+                          </tr>
+                          )
+                      : null}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -1484,6 +1737,7 @@ function onEdit(e) {
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 pt-1.5 font-mono text-2xs">
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Product ID</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Product Name*</div>
+                    <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Product Type</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">SKU</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Generic Name</div>
                     <div className="bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-850 p-1.5 rounded text-center text-slate-700 dark:text-slate-300">Brand</div>
@@ -1543,6 +1797,7 @@ function onEdit(e) {
     
     if (key === "product_id" || key === "id") key = "_id";
     if (key === "product_name" || key === "name") key = "product_name";
+    if (key === "product_type" || key === "type") key = "product_type";
     if (key === "generic_name" || key === "generic") key = "generic_name";
     if (key === "base_price" || key === "price") key = "base_price";
     if (key === "gst_" || key === "gst_rate") key = "gst_percent";
@@ -1599,6 +1854,43 @@ function onEdit(e) {
           </div>
         </div>
       )}
+
+      {kitBucketsKitId ? (
+        <div className="fixed inset-0 z-[120] flex justify-end bg-black/40 backdrop-blur-[1px]">
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            aria-label="Close kit buckets panel"
+            onClick={() => setKitBucketsKitId(null)}
+          />
+          <div className="relative z-[121] flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-white/5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-50">
+                    Kit buckets
+                  </h3>
+                </div>
+                <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
+                  {kitBucketsKitName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setKitBucketsKitId(null)}
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+              <ProductKitItemsMapping kitId={kitBucketsKitId} />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
     </LargeModalPortal>
   );

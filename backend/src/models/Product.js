@@ -16,6 +16,8 @@ const PRODUCT_UNIT_ENUM = [
   "bottle",
 ];
 
+const PRODUCT_TYPE_ENUM = ["individual", "kit"];
+
 const productSchema = new mongoose.Schema(
   {
     /* -------------------------------------------------------
@@ -26,6 +28,17 @@ const productSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      index: true,
+    },
+
+    /**
+     * Product type: sold as a single item or as a kit.
+     * Kit composition (multiple individuals) lives in ProductKitItem.items.
+     */
+    product_type: {
+      type: String,
+      enum: PRODUCT_TYPE_ENUM,
+      default: "individual",
       index: true,
     },
 

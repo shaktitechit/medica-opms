@@ -155,7 +155,7 @@ export default function FeaturedProductGroupSalesUserTable({
       for (const item of items) {
         const productId = resolveProductId(item);
         if (!productId) continue;
-        const val = itemMetricValue(item, metric, qtyBasis);
+        const val = itemMetricValue(item, metric, qtyBasis, items);
 
         const gId = productToGroupMap.get(productId);
         if (!gId || !groupIdSet.has(gId)) continue;

@@ -46,6 +46,7 @@ export const medicaApi = createApi({
     "ProductSubgroups",
     "ProductBrands",
     "ProductManufacturers",
+    "ProductKitItems",
     "Transport",
     "TransportAgents",
     "Users",

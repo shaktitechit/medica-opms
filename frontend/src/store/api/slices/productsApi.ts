@@ -1,9 +1,12 @@
 import { medicaApi } from "../baseApi";
 import { unwrapEnvelope, type ApiEnvelope } from "../unwrap";
 
+export type ProductType = "individual" | "kit";
+
 /** Common write fields for create/patch/bulk product payloads. */
 export type ProductWriteBody = {
   product_name?: string;
+  product_type?: ProductType;
   generic_name?: string | null;
   aliases?: string[];
   sku?: string | null;
@@ -30,6 +33,8 @@ export type ProductListParams = {
   status?: string;
   /** Filter featured products: `"true"` | `"false"` | `"all"` */
   is_featured?: string;
+  /** Filter by product type: `"individual"` | `"kit"` | `"all"` */
+  product_type?: string;
   paginate?: string;
   page?: string;
   limit?: string;

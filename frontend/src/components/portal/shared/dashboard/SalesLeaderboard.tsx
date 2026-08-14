@@ -67,7 +67,7 @@ export default function SalesLeaderboard({
       const items = Array.isArray(o.order_items) ? o.order_items : [];
       const bucket = map.get(salesLabel) ?? { total: 0, sr: 0, sra: 0, cr: 0 };
       for (const item of items) {
-        const value = itemMetricValue(item, metric, qtyBasis);
+        const value = itemMetricValue(item, metric, qtyBasis, items);
         bucket.total += value;
         const rateType = normalizeRateType(item.applied_rate_type);
         if (rateType === "SR") bucket.sr += value;

@@ -28,10 +28,30 @@ export const orderDeliveryApi = medicaApi.injectEndpoints({
       transformResponse: (raw: ApiEnvelope<any>) => unwrapEnvelope(raw),
       invalidatesTags: ["Order", "Orders", "Transport", "TransportPlans", "Dispatch"],
     }),
+    patchOrderDelivery: build.mutation<
+      unknown,
+      { id: string; patch: Record<string, unknown> }
+    >({
+      query: ({ id, patch }) => ({
+        url: `order-deliveries/${id}`,
+        method: "PATCH",
+        body: patch,
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: [
+        "Order",
+        "Orders",
+        "Transport",
+        "TransportPlans",
+        "Dispatch",
+        { type: "Order", id: "DELIVERY_LIST" },
+      ],
+    }),
   }),
 });
 
 export const {
   useListOrderDeliveriesQuery,
   useLogShipmentDeliveryMutation,
+  usePatchOrderDeliveryMutation,
 } = orderDeliveryApi;

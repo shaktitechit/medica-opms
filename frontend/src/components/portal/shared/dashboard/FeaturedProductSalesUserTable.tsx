@@ -115,7 +115,7 @@ export default function FeaturedProductSalesUserTable({
         if (!productId || !productIdSet.has(productId)) continue;
         const row = map.get(productId);
         if (!row) continue;
-        row.set(salesId, (row.get(salesId) ?? 0) + itemMetricValue(item, metric, "approved"));
+        row.set(salesId, (row.get(salesId) ?? 0) + itemMetricValue(item, metric, "approved", items));
       }
     }
     return map;

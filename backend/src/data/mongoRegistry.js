@@ -175,6 +175,12 @@ function registerModels() {
         trim: true,
         index: true,
       },
+      product_type: {
+        type: String,
+        enum: ["individual", "kit"],
+        default: "individual",
+        index: true,
+      },
       generic_name: {
         type: String,
         trim: true,
@@ -321,6 +327,104 @@ function registerModels() {
   productSchema.plugin(softDeletePlugin);
 
   mongoose.model("Product", productSchema);
+
+  // --- Schemas from ProductKitItem.js ---
+  /**
+   * Kit bill-of-materials: one kit product contains many individual items.
+   * @module models/ProductKitItem
+   */
+  const kitComponentSchema = new mongoose.Schema(
+    {
+      individual: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product",
+        required: true,
+      },
+      percentage: {
+        type: Number,
+        required: true,
+        default: 0,
+        min: 0,
+        max: 1000,
+      },
+      quantity: {
+        type: Number,
+        min: 0,
+        default: null,
+      },
+      sort_order: {
+        type: Number,
+        default: 0,
+      },
+      is_active: {
+        type: Boolean,
+        default: true,
+      },
+      remarks: {
+        type: String,
+        trim: true,
+      },
+    },
+    { _id: true }
+  );
+
+  const productKitItemSchema = new mongoose.Schema(
+    {
+      kit: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product",
+        required: true,
+        unique: true,
+        index: true,
+      },
+      items: {
+        type: [kitComponentSchema],
+        default: [],
+        validate: {
+          validator(items) {
+            if (!Array.isArray(items) || items.length === 0) return true;
+            const ids = items.map((i) => String(i.individual));
+            return ids.length === new Set(ids).size;
+          },
+          message: "Duplicate individual products are not allowed in the same kit",
+        },
+      },
+      is_active: {
+        type: Boolean,
+        default: true,
+        index: true,
+      },
+      remarks: {
+        type: String,
+        trim: true,
+      },
+      created_by: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+      updated_by: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+      deletedAt: {
+        type: Date,
+        default: null,
+        index: true,
+      },
+    },
+    {
+      timestamps: true,
+      collection: "product_kit_items",
+    }
+  );
+  productKitItemSchema.index({
+    kit: 1,
+    is_active: 1,
+    deletedAt: 1,
+  });
+  productKitItemSchema.index({ "items.individual": 1 });
+  productKitItemSchema.plugin(softDeletePlugin);
+  mongoose.model("ProductKitItem", productKitItemSchema);
 
   // --- Schemas from ProductGroup.js ---
   const productGroupSchema = new mongoose.Schema(
@@ -749,6 +853,7 @@ function registerModels() {
         index: true,
       },
       remarks: { type: String, trim: true },
+      lr_number_required: { type: Boolean, default: false },
       is_active: { type: Boolean, default: true, index: true },
       deletedAt: { type: Date, default: null, index: true },
       created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -955,6 +1060,12 @@ function registerModels() {
       total_amount: {
         type: Number,
         default: 0,
+      },
+      kit_parent_product: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product",
+        default: null,
+        index: true,
       },
       remarks: String,
     },
@@ -1303,6 +1414,7 @@ function registerModels() {
           gst_percent: { type: Number, default: 0 },
           free_quantity: { type: Number, default: 0 },
           remarks: String,
+          kit_parent_product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", default: null },
         }
       ],
 
@@ -1801,6 +1913,7 @@ function registerModels() {
           "product_subgroup",
           "product_brand",
           "product_manufacturer",
+          "product_kit_item",
           "work_plan",
           "transport_plan",
         ],
@@ -2313,6 +2426,8 @@ function registerModels() {
     PartyProductLastRate:
       mongoose.models.PartyProductLastRate || mongoose.model('PartyProductLastRate', partyProductLastRateSchema),
     Product: mongoose.models.Product || mongoose.model('Product', productSchema),
+    ProductKitItem:
+      mongoose.models.ProductKitItem || mongoose.model('ProductKitItem', productKitItemSchema),
     ProductGroup: mongoose.models.ProductGroup || mongoose.model('ProductGroup', productGroupSchema),
     Zone: mongoose.models.Zone || mongoose.model('Zone', zoneSchema),
     ProductSubgroup: mongoose.models.ProductSubgroup || mongoose.model('ProductSubgroup', productSubgroupSchema),

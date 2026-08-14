@@ -297,6 +297,19 @@ async function patch(id, patchBody, user) {
     }
   }
 
+  if (Array.isArray(patch.delivery_items)) {
+    const isSuperAdmin = String(user?.department || '').toLowerCase() === 'super_admin';
+    if (!isSuperAdmin) {
+      throw new ApiError(403, 'Only super_admin can edit delivery items');
+    }
+    doc.delivery_items = patch.delivery_items.map((item) => ({
+      product: item?.product?._id || item?.product,
+      delivered_quantity: Number(item?.delivered_quantity || 0),
+      remarks: item?.remarks || '',
+    }));
+    doc.markModified('delivery_items');
+  }
+
   await doc.save();
 
   await activityService.create({

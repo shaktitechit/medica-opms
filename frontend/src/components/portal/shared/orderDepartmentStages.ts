@@ -51,8 +51,11 @@ import { deriveOrderWorkflowStatus } from "./orderLifecycle";
 
 export type FulfillmentLine = {
   order_item_id: string;
+  product: string;
   product_name: string;
   sku: string;
+  /** When set, this line is an expanded kit bucket individual. */
+  kit_parent_product: string;
   ordered: number;
   salesApproved: number;
   approved: number;
@@ -225,6 +228,8 @@ function totalsFromSources(
   }
 
   const base = items.reduce<FulfillmentTotals>((acc, line) => {
+    // Kit bucket individuals are expansion rows — do not inflate department totals.
+    if (isKitBucketLine(line)) return acc;
     const q = lineApprovalQuantities(line, { accountApprovalStatus });
     acc.ordered += q.ordered;
     acc.salesApproved += q.salesApproved;
@@ -254,6 +259,21 @@ function totalsFromSources(
   base.pendingAdmin = salesResolved.pendingAdmin;
 
   return base;
+}
+
+function idFromRef(ref: unknown): string {
+  if (typeof ref === "string") return ref.trim();
+  if (ref && typeof ref === "object" && "_id" in ref) {
+    return String((ref as { _id: unknown })._id ?? "").trim();
+  }
+  if (ref && typeof ref === "object" && "id" in ref) {
+    return String((ref as { id: unknown }).id ?? "").trim();
+  }
+  return "";
+}
+
+function isKitBucketLine(line: { kit_parent_product?: unknown }): boolean {
+  return Boolean(idFromRef(line.kit_parent_product));
 }
 
 export function fulfillmentLinesFromSnapshot(
@@ -302,8 +322,10 @@ export function fulfillmentLinesFromSnapshot(
         (pendingByLine && orderItemId ? pendingByLine[orderItemId] ?? 0 : 0);
       return {
         order_item_id: orderItemId,
+        product: idFromRef(line.product),
         product_name: String(line.product_name || "—"),
         sku: String(line.sku || ""),
+        kit_parent_product: idFromRef(line.kit_parent_product),
         ordered,
         salesApproved,
         approved: financeApproved,
@@ -337,8 +359,10 @@ export function fulfillmentLinesFromSnapshot(
     const pendingReturn = pendingByLine ? pendingByLine[orderItemId] ?? 0 : 0;
     return {
       order_item_id: orderItemId,
+      product: idFromRef(line.product),
       product_name: String(line.product_name || "—"),
       sku: String(line.sku || ""),
+      kit_parent_product: idFromRef(line.kit_parent_product),
       ordered: q.ordered,
       salesApproved: q.salesApproved,
       approved: q.financeApproved,

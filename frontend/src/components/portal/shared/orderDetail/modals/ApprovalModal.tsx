@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Search, Trash2, X, Plus, Pencil } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Search, Trash2, X, Plus, Pencil, Check } from "lucide-react";
 
 import {
   LineRateStatusBadge,
@@ -16,11 +16,18 @@ import { toast } from "@/lib/toast";
 import {
   useCheckPartyLineRatesQuery,
   useCreateOrderApprovalMutation,
+  useApproveOrderApprovalMutation,
   useAmendOrderApprovalMutation,
   useFinanceAmendOrderApprovalMutation,
   usePatchOrderMutation,
   useListProductsQuery,
+  useListProductKitItemsQuery,
+  useCreateProductKitItemMutation,
+  useAddProductKitItemLineMutation,
+  usePatchProductKitItemLineMutation,
+  useDeleteProductKitItemLineMutation,
   useGetPartyQuery,
+  type ProductKitItemRecord,
 } from "@/store/api";
 import type { CheckOrderRatesItem } from "@/store/api/slices/partyOrderProductsRateApi";
 import { contactsFromParty } from "@/lib/partyContacts";
@@ -34,6 +41,7 @@ import {
   largeModalPanelClass,
 } from "@/components/portal/shared/modalLayout";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
+import { ConfirmRemoveKitItemModal } from "@/components/portal/shared/ConfirmRemoveKitItemModal";
 
 type ApprovalLineStatus =
   | "fully_approved"
@@ -88,6 +96,50 @@ function idFromRef(ref: unknown): string {
 
 function formatMoney(v: number): string {
   return Number.isFinite(v) ? v.toFixed(2) : "0.00";
+}
+
+function pickList(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    if (Array.isArray(o.items)) return o.items;
+    if (Array.isArray(o.data)) return o.data;
+  }
+  return [];
+}
+
+/** Kit component qty from kit line qty using percentage scale (÷ 100). */
+function kitBucketItemQty(kitQty: number, percentage: number): number {
+  const k = Number(kitQty);
+  const pct = Number(percentage);
+  if (!Number.isFinite(k) || k <= 0 || !Number.isFinite(pct) || pct <= 0) {
+    return 0;
+  }
+  return Math.round((k * pct) / 100);
+}
+
+function kitComponentLabel(ref: unknown): {
+  name: string;
+  sku: string;
+} {
+  if (!ref) return { name: "—", sku: "" };
+  if (typeof ref === "string") return { name: ref, sku: "" };
+  if (typeof ref === "object") {
+    const o = ref as {
+      product_name?: string;
+      _id?: string;
+      sku?: string;
+    };
+    return {
+      name: String(o.product_name || o._id || "—"),
+      sku: String(o.sku || ""),
+    };
+  }
+  return { name: "—", sku: "" };
+}
+
+function hasKitParent(ref: unknown): boolean {
+  return Boolean(idFromRef(ref));
 }
 
 const inputClass =
@@ -151,9 +203,37 @@ export function ApprovalModal({
   });
 
   const productsQ = useListProductsQuery({}, { skip: !open });
+  const kitItemsQ = useListProductKitItemsQuery(
+    { paginate: "false" },
+    { skip: !open },
+  );
+  const [createKitComposition, { isLoading: isCreatingKit }] =
+    useCreateProductKitItemMutation();
+  const [addKitLine, { isLoading: isAddingKitLine }] =
+    useAddProductKitItemLineMutation();
+  const [patchKitLine, { isLoading: isPatchingKitLine }] =
+    usePatchProductKitItemLineMutation();
+  const [deleteKitLine, { isLoading: isDeletingKitLine }] =
+    useDeleteProductKitItemLineMutation();
+  const kitBusy =
+    isCreatingKit || isAddingKitLine || isPatchingKitLine || isDeletingKitLine;
+
+  const [bucketAddKitId, setBucketAddKitId] = useState<string | null>(null);
+  const [bucketSearch, setBucketSearch] = useState("");
+  const [bucketAddPct, setBucketAddPct] = useState("100");
+  const [bucketPctDrafts, setBucketPctDrafts] = useState<Record<string, string>>(
+    {},
+  );
+  const [removeKitItem, setRemoveKitItem] = useState<{
+    compositionId: string;
+    itemId: string;
+    label: string;
+  } | null>(null);
 
   const [createAdminApproval, { isLoading: isCreating }] =
     useCreateOrderApprovalMutation();
+  const [approveAdminApproval, { isLoading: isApproving }] =
+    useApproveOrderApprovalMutation();
   const [amendApproval, { isLoading: isAmendingStandard }] =
     useAmendOrderApprovalMutation();
   const [financeAmend, { isLoading: isAmendingFinance }] =
@@ -210,6 +290,165 @@ export function ApprovalModal({
     return [];
   }, [productsQ.data]);
 
+  const productTypeById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of products) {
+      const id = String(p._id ?? p.id ?? "");
+      if (id) {
+        map.set(id, String(p.product_type || "individual").toLowerCase());
+      }
+    }
+    return map;
+  }, [products]);
+
+  /** kit product id → composition doc (items + composition _id) */
+  const kitCompositionByProductId = useMemo(() => {
+    const map = new Map<string, ProductKitItemRecord>();
+    for (const row of pickList(kitItemsQ.data) as ProductKitItemRecord[]) {
+      const kitId = idFromRef(row.kit);
+      if (!kitId) continue;
+      map.set(kitId, {
+        ...row,
+        items: Array.isArray(row.items)
+          ? [...row.items].sort(
+              (a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0),
+            )
+          : [],
+      });
+    }
+    return map;
+  }, [kitItemsQ.data]);
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const row of kitCompositionByProductId.values()) {
+      for (const item of row.items ?? []) {
+        const id = String(item._id ?? "");
+        if (id) next[id] = String(item.percentage ?? 0);
+      }
+    }
+    setBucketPctDrafts(next);
+  }, [kitCompositionByProductId]);
+
+  useEffect(() => {
+    if (!open) {
+      setBucketAddKitId(null);
+      setBucketSearch("");
+      setBucketAddPct("100");
+      setRemoveKitItem(null);
+    }
+  }, [open]);
+
+  const isKitProduct = useCallback(
+    (productId: string) => {
+      if (!productId) return false;
+      if (productTypeById.get(productId) === "kit") return true;
+      return kitCompositionByProductId.has(productId);
+    },
+    [productTypeById, kitCompositionByProductId],
+  );
+
+  const bucketAddCandidates = useMemo(() => {
+    if (!bucketAddKitId || !bucketSearch.trim()) return [];
+    const q = bucketSearch.toLowerCase().trim();
+    const composition = kitCompositionByProductId.get(bucketAddKitId);
+    const mapped = new Set(
+      (composition?.items ?? []).map((c) => idFromRef(c.individual)),
+    );
+    return products.filter((p) => {
+      const id = String(p._id ?? p.id ?? "");
+      if (!id || mapped.has(id) || id === bucketAddKitId) return false;
+      if (String(p.product_type || "individual").toLowerCase() === "kit") {
+        return false;
+      }
+      const name = String(p.product_name || "").toLowerCase();
+      const sku = String(p.sku || "").toLowerCase();
+      return name.includes(q) || sku.includes(q);
+    }).slice(0, 12);
+  }, [
+    bucketAddKitId,
+    bucketSearch,
+    products,
+    kitCompositionByProductId,
+  ]);
+
+  const handleSaveKitBucketPct = useCallback(
+    async (kitProductId: string, itemId: string) => {
+      const composition = kitCompositionByProductId.get(kitProductId);
+      if (!composition?._id || !itemId) return;
+      const draft = bucketPctDrafts[itemId];
+      const pct = Number(draft);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 1000) {
+        toast.error("Percentage must be between 0 and 1000");
+        return;
+      }
+      const current = composition.items.find((i) => String(i._id) === itemId);
+      if (current && Number(current.percentage) === pct) return;
+      try {
+        await patchKitLine({
+          id: composition._id,
+          itemId,
+          patch: { percentage: pct },
+        }).unwrap();
+        toast.success("Kit bucket item updated");
+      } catch (err) {
+        toast.error(mutationRejectedMessage(err));
+      }
+    },
+    [kitCompositionByProductId, bucketPctDrafts, patchKitLine],
+  );
+
+  const handleAddKitBucketItem = useCallback(
+    async (kitProductId: string, individualId: string) => {
+      if (!kitProductId || !individualId) return;
+      const pct = Number(bucketAddPct);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 1000) {
+        toast.error("Percentage must be between 0 and 1000");
+        return;
+      }
+      const lineBody = { individual: individualId, percentage: pct };
+      try {
+        const composition = kitCompositionByProductId.get(kitProductId);
+        if (!composition?._id) {
+          await createKitComposition({
+            kit: kitProductId,
+            items: [lineBody],
+          }).unwrap();
+        } else {
+          await addKitLine({
+            id: composition._id,
+            body: lineBody,
+          }).unwrap();
+        }
+        toast.success("Item added to kit bucket");
+        setBucketSearch("");
+        setBucketAddPct("100");
+      } catch (err) {
+        toast.error(mutationRejectedMessage(err));
+      }
+    },
+    [
+      bucketAddPct,
+      kitCompositionByProductId,
+      createKitComposition,
+      addKitLine,
+    ],
+  );
+
+  const handleConfirmRemoveKitItem = useCallback(async () => {
+    if (!removeKitItem) return;
+    try {
+      await deleteKitLine({
+        id: removeKitItem.compositionId,
+        itemId: removeKitItem.itemId,
+      }).unwrap();
+      toast.success("Item removed from kit bucket");
+      setRemoveKitItem(null);
+    } catch (err) {
+      toast.error(mutationRejectedMessage(err));
+    }
+  }, [removeKitItem, deleteKitLine]);
+
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return [];
     const q = searchQuery.toLowerCase().trim();
@@ -226,17 +465,85 @@ export function ApprovalModal({
       approvalItems(approval).map((it) => String(it.order_item_id ?? "")),
     );
     return readOnlyItems.filter((line) => {
+      if (hasKitParent(line.kit_parent_product)) return false;
       const id = String(line._id ?? line.id ?? "");
       return id && !inBatch.has(id);
     });
   }, [approval, readOnlyItems]);
 
+  const expandKitBucketLines = useCallback(
+    (lines: EditableLine[]) => {
+      const orderItems = Array.isArray(detail?.order_items)
+        ? (detail.order_items as Record<string, unknown>[])
+        : [];
+      const expanded: Array<{
+        product: string;
+        product_name: string;
+        sku: string;
+        ordered_quantity: number;
+        approved_quantity: number;
+        free_quantity: number;
+        kit_parent_product: string;
+        remarks: string;
+        order_item_id?: string;
+      }> = [];
+
+      for (const line of lines) {
+        if (!line.product || line.approved_quantity <= 0) continue;
+        if (!isKitProduct(line.product)) continue;
+        const composition = kitCompositionByProductId.get(line.product);
+        const comps = (composition?.items ?? []).filter((c) => c.is_active !== false);
+        for (const comp of comps) {
+          const individualId = idFromRef(comp.individual);
+          if (!individualId) continue;
+          const itemId = String(comp._id ?? "");
+          const pct =
+            itemId && bucketPctDrafts[itemId] != null
+              ? Number(bucketPctDrafts[itemId])
+              : Number(comp.percentage) || 0;
+          const qty = kitBucketItemQty(line.approved_quantity, pct);
+          if (qty < 1) continue;
+          const freeQty = kitBucketItemQty(line.free_quantity, pct);
+          const label = kitComponentLabel(comp.individual);
+          const existing = orderItems.find((oi) => {
+            return (
+              idFromRef(oi.product) === individualId &&
+              idFromRef(oi.kit_parent_product) === line.product
+            );
+          });
+          expanded.push({
+            product: individualId,
+            product_name: label.name,
+            sku: label.sku,
+            ordered_quantity: qty,
+            approved_quantity: qty,
+            free_quantity: freeQty,
+            kit_parent_product: line.product,
+            remarks: `Kit bucket of ${line.product_name}`,
+            order_item_id: existing
+              ? String(existing._id ?? existing.id ?? "")
+              : undefined,
+          });
+        }
+      }
+      return expanded;
+    },
+    [
+      detail,
+      isKitProduct,
+      kitCompositionByProductId,
+      bucketPctDrafts,
+    ],
+  );
+
   const initFormLines = useCallback(() => {
     if (approval) {
-      // Seed from existing approval batch
+      // Seed from existing approval batch (exclude expanded kit bucket lines)
       setFormLines(
-        approvalItems(approval).map((it) => {
-          const orderItemId = String(it.order_item_id ?? "");
+        approvalItems(approval)
+          .filter((it) => !hasKitParent(it.kit_parent_product))
+          .map((it) => {
+          const orderItemId = idFromRef(it.order_item_id) || String(it.order_item_id ?? "").trim();
           const orderItems = Array.isArray(detail?.order_items) ? (detail.order_items as any[]) : [];
           const orderLine = orderItems.find((x: any) => String(x._id ?? x.id) === orderItemId) || {};
 
@@ -278,9 +585,11 @@ export function ApprovalModal({
       setMappedRateOverrides(new Map());
       setPriceTouchedIds(new Set());
     } else {
-      // Seed from order items
+      // Seed from order items (exclude expanded kit bucket lines)
       setFormLines(
-        readOnlyItems.map((line) => {
+        readOnlyItems
+          .filter((line) => !hasKitParent(line.kit_parent_product))
+          .map((line) => {
           const unitPrice = Number(line.unit_price ?? 0);
           const orderedQty = Number(line.ordered_quantity ?? line.quantity ?? 0);
           return {
@@ -613,46 +922,99 @@ export function ApprovalModal({
     }
 
     try {
+      const kitBuckets = expandKitBucketLines(activeLines);
+
       if (!approval) {
         // --- CREATE MODE ---
-        const orderItemsPayload = formLines.map((line) => {
-          const item: Record<string, unknown> = {
-            product: line.product,
-            product_name: line.product_name,
-            sku: line.sku || "",
-            ordered_quantity: line.ordered_quantity,
-            free_quantity: line.free_quantity,
-            unit_price: line.approved_unit_price,
-            discount_percent: line.discount_percent,
-            discount_amount: line.discount_amount,
-            gst_percent: line.gst_percent,
-            applied_rate_type: line.applied_rate_type,
-            remarks: line.remarks.trim() || "",
-          };
-          if (line.order_item_id && !line.order_item_id.startsWith("new-line-")) {
-            item._id = line.order_item_id;
-          }
-          return item;
-        });
+        const orderItemsPayload = [
+          ...formLines.map((line) => {
+            const approvedQty = Math.max(0, Number(line.approved_quantity) || 0);
+            const orderedQty = syncOrderedToApproved
+              ? approvedQty
+              : Math.max(0, Number(line.ordered_quantity) || 0);
+            const item: Record<string, unknown> = {
+              product: line.product,
+              product_name: line.product_name,
+              sku: line.sku || "",
+              ordered_quantity: Math.max(orderedQty, approvedQty > 0 ? approvedQty : orderedQty),
+              approved_quantity: approvedQty,
+              free_quantity: line.free_quantity,
+              unit_price: line.approved_unit_price,
+              discount_percent: line.discount_percent,
+              discount_amount: line.discount_amount,
+              gst_percent: line.gst_percent,
+              applied_rate_type: line.applied_rate_type,
+              remarks: line.remarks.trim() || "",
+            };
+            if (line.order_item_id && !line.order_item_id.startsWith("new-line-")) {
+              item._id = line.order_item_id;
+            }
+            return item;
+          }),
+          ...kitBuckets.map((bucket) => ({
+            product: bucket.product,
+            product_name: bucket.product_name,
+            sku: bucket.sku || "",
+            ordered_quantity: bucket.ordered_quantity,
+            approved_quantity: bucket.approved_quantity,
+            free_quantity: bucket.free_quantity,
+            unit_price: 0,
+            discount_percent: 0,
+            discount_amount: 0,
+            gst_percent: 0,
+            applied_rate_type: "MANUAL",
+            manual_price_override: true,
+            kit_parent_product: bucket.kit_parent_product,
+            remarks: bucket.remarks,
+            ...(bucket.order_item_id ? { _id: bucket.order_item_id } : {}),
+          })),
+        ];
 
-        const approvalItemsPayload = formLines.map((line) => ({
-          product: line.product,
-          ...(line.order_item_id.startsWith("new-line-")
-            ? {}
-            : { order_item_id: line.order_item_id }),
-          ordered_quantity: line.ordered_quantity,
-          approved_quantity: line.ordered_quantity,
-          approved_unit_price: line.approved_unit_price,
-          ordered_unit_price: line.approved_unit_price,
-          free_quantity: line.free_quantity,
-          discount_percent: line.discount_percent,
-          discount_amount: line.discount_amount,
-          gst_percent: line.gst_percent,
-          applied_rate_type: line.applied_rate_type,
-          approved_total_amount: approvedTotal,
-          approval_status: "fully_approved" as ApprovalLineStatus,
-          remarks: line.remarks.trim() || "",
-        }));
+        const approvalItemsPayload = [
+          ...formLines.map((line) => {
+            const approvedQty = Math.max(0, Number(line.approved_quantity) || 0);
+            const orderedQty = syncOrderedToApproved
+              ? approvedQty
+              : Math.max(0, Number(line.ordered_quantity) || 0);
+            return {
+              product: line.product,
+              ...(line.order_item_id.startsWith("new-line-")
+                ? {}
+                : { order_item_id: line.order_item_id }),
+              ordered_quantity: Math.max(orderedQty, approvedQty > 0 ? approvedQty : orderedQty),
+              approved_quantity: approvedQty,
+              approved_unit_price: line.approved_unit_price,
+              ordered_unit_price: line.approved_unit_price,
+              free_quantity: line.free_quantity,
+              discount_percent: line.discount_percent,
+              discount_amount: line.discount_amount,
+              gst_percent: line.gst_percent,
+              applied_rate_type: line.applied_rate_type,
+              approved_total_amount: approvedTotal,
+              approval_status: "fully_approved" as ApprovalLineStatus,
+              remarks: line.remarks.trim() || "",
+            };
+          }),
+          ...kitBuckets.map((bucket) => ({
+            product: bucket.product,
+            ...(bucket.order_item_id ? { order_item_id: bucket.order_item_id } : {}),
+            ordered_quantity: bucket.ordered_quantity,
+            approved_quantity: bucket.approved_quantity,
+            approved_unit_price: 0,
+            ordered_unit_price: 0,
+            free_quantity: bucket.free_quantity,
+            discount_percent: 0,
+            discount_amount: 0,
+            gst_percent: 0,
+            applied_rate_type: "MANUAL",
+            manual_price_override: true,
+            rate_mapped: true,
+            approved_total_amount: 0,
+            approval_status: "fully_approved" as ApprovalLineStatus,
+            kit_parent_product: bucket.kit_parent_product,
+            remarks: bucket.remarks,
+          })),
+        ];
 
         const selectedContactNames = selectedContacts.map((phone) => {
           const found = contacts.find((c) => c.phone.trim() === phone);
@@ -673,84 +1035,245 @@ export function ApprovalModal({
 
         toast.success("Order and approval updated successfully.");
       } else {
-        // --- AMEND/APPROVE MODE ---
+        // --- APPROVE (pending stage) or AMEND (already cleared) ---
         const approvalId = String(approval._id ?? approval.id ?? "");
-        const existingLines = activeLines.filter((line) => !line.isNew);
-        const newLines = activeLines.filter((line) => line.isNew);
-
-        const body = {
-          mode, // Pass to let backend identify account vs admin amend for super_admin
-          amendment_notes: approvalNotes.trim() || undefined,
-          approval_notes: approvalNotes.trim() || undefined,
-          approval_items: existingLines.map((line) => {
-            const gross = line.approved_quantity * line.approved_unit_price;
-            const disc = line.discount_percent > 0 ? (gross * line.discount_percent) / 100 : line.discount_amount;
-            const taxable = Math.max(0, gross - disc);
-            const lineTotal = taxable + (taxable * line.gst_percent) / 100;
-
-            return {
-              order_item_id: line.order_item_id,
-              product: line.product,
-              ordered_quantity: syncOrderedToApproved ? line.approved_quantity : line.ordered_quantity,
-              approved_quantity: line.approved_quantity,
-              approved_unit_price: line.approved_unit_price,
-              free_quantity: line.free_quantity,
-              discount_percent: line.discount_percent,
-              discount_amount: disc,
-              gst_percent: line.gst_percent,
-              approved_total_amount: lineTotal,
-              approval_status: "fully_approved" as ApprovalLineStatus,
-              rate_mapped: true,
-              remarks: line.remarks.trim(),
-            };
-          }),
-          new_items: newLines.map((line) => {
-            const gross = line.approved_quantity * line.approved_unit_price;
-            const disc = line.discount_percent > 0 ? (gross * line.discount_percent) / 100 : line.discount_amount;
-
-            return {
-              order_item_id:
-                line.order_item_id.startsWith("new-line-")
-                  ? undefined
-                  : line.order_item_id,
-              product: line.product,
-              approved_quantity: line.approved_quantity,
-              approved_unit_price: line.approved_unit_price,
-              free_quantity: line.free_quantity,
-              discount_percent: line.discount_percent,
-              discount_amount: disc,
-              gst_percent: line.gst_percent,
-              approval_status: "fully_approved" as ApprovalLineStatus,
-              rate_mapped: true,
-              remarks: line.remarks.trim(),
-            };
-          }),
-        };
-
-        if (mode === "finance") {
-          await financeAmend({ id: approvalId, body }).unwrap();
-        } else {
-          await amendApproval({ id: approvalId, body }).unwrap();
-        }
-
-        const isAlreadyApproved =
+        const stageAlreadyCleared =
           mode === "admin"
-            ? true
+            ? Boolean(approval.is_admin_approved)
             : mode === "finance"
               ? Boolean(approval.is_finance_approved)
               : Boolean(approval.is_account_approved);
 
-        toast.success(
-          mode === "admin"
-            ? "Admin approval amended successfully."
-            : mode === "finance"
-              ? isAlreadyApproved
-                ? "Finance clearance amended successfully."
-                : "Order finance-approved successfully."
-              : isAlreadyApproved
-                ? "Account clearance amended successfully."
-                : "Order account-approved successfully."
-        );
+        const existingLines = activeLines.filter((line) => !line.isNew);
+        const newLines = activeLines.filter((line) => line.isNew);
+        const existingBuckets = kitBuckets.filter((b) => Boolean(b.order_item_id));
+        const newBuckets = kitBuckets.filter((b) => !b.order_item_id);
+
+        // First admin sign-off on a sales-submitted / pending batch uses /approve
+        // (sets is_admin_approved + workflow). Amend is only for post-approval edits.
+        if (mode === "admin" && !stageAlreadyCleared) {
+          const orderItemsPayload = [
+            ...formLines.map((line) => {
+              const approvedQty = Math.max(0, Number(line.approved_quantity) || 0);
+              const orderedQty = syncOrderedToApproved
+                ? approvedQty
+                : Math.max(0, Number(line.ordered_quantity) || 0);
+              const item: Record<string, unknown> = {
+                product: line.product,
+                product_name: line.product_name,
+                sku: line.sku || "",
+                ordered_quantity: Math.max(
+                  orderedQty,
+                  approvedQty > 0 ? approvedQty : orderedQty,
+                ),
+                approved_quantity: approvedQty,
+                free_quantity: line.free_quantity,
+                unit_price: line.approved_unit_price,
+                discount_percent: line.discount_percent,
+                discount_amount: line.discount_amount,
+                gst_percent: line.gst_percent,
+                applied_rate_type: line.applied_rate_type,
+                remarks: line.remarks.trim() || "",
+              };
+              if (line.order_item_id && !line.order_item_id.startsWith("new-line-")) {
+                item._id = line.order_item_id;
+              }
+              return item;
+            }),
+            ...kitBuckets.map((bucket) => ({
+              product: bucket.product,
+              product_name: bucket.product_name,
+              sku: bucket.sku || "",
+              ordered_quantity: bucket.ordered_quantity,
+              approved_quantity: bucket.approved_quantity,
+              free_quantity: bucket.free_quantity,
+              unit_price: 0,
+              discount_percent: 0,
+              discount_amount: 0,
+              gst_percent: 0,
+              applied_rate_type: "MANUAL",
+              manual_price_override: true,
+              kit_parent_product: bucket.kit_parent_product,
+              remarks: bucket.remarks,
+              ...(bucket.order_item_id ? { _id: bucket.order_item_id } : {}),
+            })),
+          ];
+
+          const approvalItemsPayload = [
+            ...formLines.map((line) => {
+              const approvedQty = Math.max(0, Number(line.approved_quantity) || 0);
+              const orderedQty = syncOrderedToApproved
+                ? approvedQty
+                : Math.max(0, Number(line.ordered_quantity) || 0);
+              return {
+                product: line.product,
+                ...(line.order_item_id.startsWith("new-line-")
+                  ? {}
+                  : { order_item_id: line.order_item_id }),
+                ordered_quantity: Math.max(
+                  orderedQty,
+                  approvedQty > 0 ? approvedQty : orderedQty,
+                ),
+                approved_quantity: approvedQty,
+                approved_unit_price: line.approved_unit_price,
+                ordered_unit_price: line.approved_unit_price,
+                free_quantity: line.free_quantity,
+                discount_percent: line.discount_percent,
+                discount_amount: line.discount_amount,
+                gst_percent: line.gst_percent,
+                applied_rate_type: line.applied_rate_type,
+                approved_total_amount: 0,
+                approval_status: "fully_approved" as ApprovalLineStatus,
+                rate_mapped: true,
+                remarks: line.remarks.trim() || "",
+              };
+            }),
+            ...kitBuckets.map((bucket) => ({
+              product: bucket.product,
+              ...(bucket.order_item_id ? { order_item_id: bucket.order_item_id } : {}),
+              ordered_quantity: bucket.ordered_quantity,
+              approved_quantity: bucket.approved_quantity,
+              approved_unit_price: 0,
+              ordered_unit_price: 0,
+              free_quantity: bucket.free_quantity,
+              discount_percent: 0,
+              discount_amount: 0,
+              gst_percent: 0,
+              applied_rate_type: "MANUAL",
+              manual_price_override: true,
+              rate_mapped: true,
+              approved_total_amount: 0,
+              approval_status: "fully_approved" as ApprovalLineStatus,
+              kit_parent_product: bucket.kit_parent_product,
+              remarks: bucket.remarks,
+            })),
+          ];
+
+          await approveAdminApproval({
+            id: approvalId,
+            body: {
+              order_items: orderItemsPayload,
+              approval_items: approvalItemsPayload,
+              approval_notes: approvalNotes.trim() || undefined,
+              approved_total_amount: approvedTotal,
+            },
+          }).unwrap();
+
+          toast.success("Order admin-approved successfully.");
+        } else {
+          const body = {
+            mode, // Pass to let backend identify account vs admin amend for super_admin
+            amendment_notes: approvalNotes.trim() || undefined,
+            approval_notes: approvalNotes.trim() || undefined,
+            approval_items: [
+              ...existingLines.map((line) => {
+                const gross = line.approved_quantity * line.approved_unit_price;
+                const disc =
+                  line.discount_percent > 0
+                    ? (gross * line.discount_percent) / 100
+                    : line.discount_amount;
+                const taxable = Math.max(0, gross - disc);
+                const lineTotal = taxable + (taxable * line.gst_percent) / 100;
+
+                return {
+                  order_item_id: line.order_item_id,
+                  product: line.product,
+                  ordered_quantity: syncOrderedToApproved
+                    ? line.approved_quantity
+                    : line.ordered_quantity,
+                  approved_quantity: line.approved_quantity,
+                  approved_unit_price: line.approved_unit_price,
+                  free_quantity: line.free_quantity,
+                  discount_percent: line.discount_percent,
+                  discount_amount: disc,
+                  gst_percent: line.gst_percent,
+                  approved_total_amount: lineTotal,
+                  approval_status: "fully_approved" as ApprovalLineStatus,
+                  rate_mapped: true,
+                  remarks: line.remarks.trim(),
+                };
+              }),
+              ...existingBuckets.map((bucket) => ({
+                order_item_id: bucket.order_item_id!,
+                product: bucket.product,
+                ordered_quantity: bucket.ordered_quantity,
+                approved_quantity: bucket.approved_quantity,
+                approved_unit_price: 0,
+                free_quantity: bucket.free_quantity,
+                discount_percent: 0,
+                discount_amount: 0,
+                gst_percent: 0,
+                approved_total_amount: 0,
+                approval_status: "fully_approved" as ApprovalLineStatus,
+                rate_mapped: true,
+                applied_rate_type: "MANUAL",
+                manual_price_override: true,
+                kit_parent_product: bucket.kit_parent_product,
+                remarks: bucket.remarks,
+              })),
+            ],
+            new_items: [
+              ...newLines.map((line) => {
+                const gross = line.approved_quantity * line.approved_unit_price;
+                const disc =
+                  line.discount_percent > 0
+                    ? (gross * line.discount_percent) / 100
+                    : line.discount_amount;
+
+                return {
+                  order_item_id: line.order_item_id.startsWith("new-line-")
+                    ? undefined
+                    : line.order_item_id,
+                  product: line.product,
+                  approved_quantity: line.approved_quantity,
+                  approved_unit_price: line.approved_unit_price,
+                  free_quantity: line.free_quantity,
+                  discount_percent: line.discount_percent,
+                  discount_amount: disc,
+                  gst_percent: line.gst_percent,
+                  approval_status: "fully_approved" as ApprovalLineStatus,
+                  rate_mapped: true,
+                  remarks: line.remarks.trim(),
+                };
+              }),
+              ...newBuckets.map((bucket) => ({
+                product: bucket.product,
+                product_name: bucket.product_name,
+                sku: bucket.sku,
+                approved_quantity: bucket.approved_quantity,
+                approved_unit_price: 0,
+                free_quantity: bucket.free_quantity,
+                discount_percent: 0,
+                discount_amount: 0,
+                gst_percent: 0,
+                applied_rate_type: "MANUAL",
+                manual_price_override: true,
+                rate_mapped: true,
+                approval_status: "fully_approved" as ApprovalLineStatus,
+                kit_parent_product: bucket.kit_parent_product,
+                remarks: bucket.remarks,
+              })),
+            ],
+          };
+
+          if (mode === "finance") {
+            await financeAmend({ id: approvalId, body }).unwrap();
+          } else {
+            await amendApproval({ id: approvalId, body }).unwrap();
+          }
+
+          toast.success(
+            mode === "admin"
+              ? "Admin approval amended successfully."
+              : mode === "finance"
+                ? stageAlreadyCleared
+                  ? "Finance clearance amended successfully."
+                  : "Order finance-approved successfully."
+                : stageAlreadyCleared
+                  ? "Account clearance amended successfully."
+                  : "Order account-approved successfully.",
+          );
+        }
       }
 
       onClose();
@@ -774,6 +1297,7 @@ export function ApprovalModal({
     approvalNotes,
     approvedTotal,
     createAdminApproval,
+    approveAdminApproval,
     amendApproval,
     financeAmend,
     onClose,
@@ -782,16 +1306,18 @@ export function ApprovalModal({
     refetchOrder,
     selectedContacts,
     contacts,
+    expandKitBucketLines,
   ]);
 
-  const busy = isCreating || isAmending || isPatching;
+  const busy = isCreating || isApproving || isAmending || isPatching;
 
   if (!open) return null;
 
+  // Match ApprovalsTab / ApprovalRecordCard: amend only after that stage has signed off.
   const isAlreadyApproved =
     approval
       ? mode === "admin"
-        ? true
+        ? Boolean(approval.is_admin_approved)
         : mode === "finance"
           ? Boolean(approval.is_finance_approved)
           : Boolean(approval.is_account_approved)
@@ -801,7 +1327,9 @@ export function ApprovalModal({
 
   const modalTitle = approval
     ? mode === "admin"
-      ? "Amend admin approval"
+      ? isAlreadyApproved
+        ? "Amend admin approval"
+        : "Approve order"
       : mode === "finance"
         ? isAlreadyApproved
           ? "Amend finance clearance"
@@ -812,10 +1340,10 @@ export function ApprovalModal({
     : "Create and Modify Approval";
 
   const modalDescription = approval
-    ? mode === "admin"
+    ? isAlreadyApproved
       ? `${approvalNo} — update quantities, rates, or items. Changes sync to the approval batch and order.`
-      : isAlreadyApproved
-        ? `${approvalNo} — update quantities, rates, or items. Changes sync to the approval batch and order.`
+      : mode === "admin"
+        ? `${approvalNo} — review sales-submitted items, map rates, then approve. Order and workflow update after submission.`
         : mode === "finance"
           ? `${approvalNo} — review admin-cleared items, then approve. Order and workflow update after submission.`
           : `${approvalNo} — review finance-cleared items, then approve. Order and workflow update after submission.`
@@ -829,9 +1357,11 @@ export function ApprovalModal({
         : mode === "finance"
           ? "Reason for finance amendment…"
           : "Reason for account amendment…"
-      : mode === "finance"
-        ? "Optional notes for this finance approval…"
-        : "Optional notes for this account approval…"
+      : mode === "admin"
+        ? "Optional notes for this admin approval…"
+        : mode === "finance"
+          ? "Optional notes for this finance approval…"
+          : "Optional notes for this account approval…"
     : "Describe changes or review context for this approval…";
 
   const submitLabel = approval
@@ -972,9 +1502,19 @@ export function ApprovalModal({
                       const gstAmt = (taxable * line.gst_percent) / 100;
                       const lineTotalVal = taxable + gstAmt;
 
+                      const lineIsKit = isKitProduct(line.product);
+                      const kitComposition = lineIsKit
+                        ? kitCompositionByProductId.get(line.product)
+                        : undefined;
+                      const kitBucket = (kitComposition?.items ?? []).filter(
+                        (c) => c.is_active !== false,
+                      );
+                      const showBucketAdd =
+                        lineIsKit && bucketAddKitId === line.product;
+
                       return (
+                        <Fragment key={line.order_item_id}>
                         <tr
-                          key={line.order_item_id}
                           className="bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-900/50"
                         >
                           <td className="px-2 py-2 text-center">
@@ -991,6 +1531,11 @@ export function ApprovalModal({
                           <td className="px-3 py-2">
                             <span className="font-medium text-slate-900 dark:text-slate-100">
                               {line.product_name}
+                              {lineIsKit ? (
+                                <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                  KIT
+                                </span>
+                              ) : null}
                               {line.isNew && (
                                 <span className="ml-1.5 text-2xs font-semibold text-blue-600 bg-blue-50 dark:bg-blue-955/40 px-1 py-0.5 rounded">
                                   NEW
@@ -1001,6 +1546,23 @@ export function ApprovalModal({
                               <span className="mt-0.5 block text-2xs text-slate-500 font-mono">
                                 {line.sku}
                               </span>
+                            ) : null}
+                            {lineIsKit ? (
+                              <button
+                                type="button"
+                                disabled={busy || kitBusy}
+                                onClick={() => {
+                                  setBucketAddKitId((prev) =>
+                                    prev === line.product ? null : line.product,
+                                  );
+                                  setBucketSearch("");
+                                  setBucketAddPct("100");
+                                }}
+                                className="mt-1 inline-flex items-center gap-1 text-2xs font-medium text-violet-700 hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100 cursor-pointer disabled:opacity-50"
+                              >
+                                <Plus className="h-3 w-3" />
+                                {showBucketAdd ? "Hide add item" : "Add bucket item"}
+                              </button>
                             ) : null}
                           </td>
                           <td className="px-3 py-2">
@@ -1129,6 +1691,217 @@ export function ApprovalModal({
                             />
                           </td>
                         </tr>
+                        {kitBucket.map((comp, idx) => {
+                          const label = kitComponentLabel(comp.individual);
+                          const itemId = String(comp._id ?? "");
+                          const compKey =
+                            itemId ||
+                            idFromRef(comp.individual) ||
+                            String(idx);
+                          const pctDraft =
+                            itemId && bucketPctDrafts[itemId] != null
+                              ? bucketPctDrafts[itemId]
+                              : String(comp.percentage ?? 0);
+                          const pctNum = Number(pctDraft) || 0;
+                          const bucketQty = kitBucketItemQty(
+                            line.approved_quantity,
+                            pctNum,
+                          );
+                          const bucketFreeQty = kitBucketItemQty(
+                            line.free_quantity,
+                            pctNum,
+                          );
+                          const pctDirty =
+                            itemId &&
+                            Number(comp.percentage) !== Number(pctDraft);
+                          return (
+                            <tr
+                              key={`${line.order_item_id}-kit-${compKey}`}
+                              className="bg-slate-50/80 dark:bg-slate-950/60"
+                            >
+                              <td className="px-2 py-1.5 text-center">
+                                {kitComposition?._id && itemId ? (
+                                  <button
+                                    type="button"
+                                    disabled={busy || kitBusy}
+                                    onClick={() =>
+                                      setRemoveKitItem({
+                                        compositionId: kitComposition._id,
+                                        itemId,
+                                        label: label.name,
+                                      })
+                                    }
+                                    className="text-slate-400 hover:text-red-600 p-1 rounded transition-colors cursor-pointer disabled:opacity-50"
+                                    title="Remove from kit bucket"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                ) : null}
+                              </td>
+                              <td className="px-3 py-1.5">
+                                <div className="ml-4 border-l-2 border-violet-300 pl-3 dark:border-violet-700">
+                                  <span className="text-slate-800 dark:text-slate-200">
+                                    {label.name}
+                                  </span>
+                                  {label.sku ? (
+                                    <span className="mt-0.5 block text-2xs text-slate-500 font-mono">
+                                      {label.sku}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                                {bucketQty}
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                                {bucketFreeQty}
+                              </td>
+                              <td className="px-3 py-1.5" colSpan={2}>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={1000}
+                                    step="0.1"
+                                    value={pctDraft}
+                                    disabled={busy || kitBusy || !itemId}
+                                    onChange={(e) => {
+                                      if (!itemId) return;
+                                      const v = e.target.value;
+                                      setBucketPctDrafts((prev) => ({
+                                        ...prev,
+                                        [itemId]: v,
+                                      }));
+                                    }}
+                                    onBlur={() => {
+                                      if (itemId && pctDirty) {
+                                        void handleSaveKitBucketPct(
+                                          line.product,
+                                          itemId,
+                                        );
+                                      }
+                                    }}
+                                    className={`${inputClass} w-20`}
+                                    title="Percentage"
+                                  />
+                                  <span className="text-2xs text-slate-500">%</span>
+                                  {pctDirty && itemId ? (
+                                    <button
+                                      type="button"
+                                      disabled={busy || kitBusy}
+                                      onClick={() =>
+                                        void handleSaveKitBucketPct(
+                                          line.product,
+                                          itemId,
+                                        )
+                                      }
+                                      className="rounded p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer disabled:opacity-50"
+                                      title="Save percentage"
+                                    >
+                                      <Check className="h-3.5 w-3.5" />
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </td>
+                              <td colSpan={6} className="px-3 py-1.5 text-2xs text-slate-500">
+                                Kit bucket · qty = kit qty × % / 100
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {showBucketAdd ? (
+                          <tr className="bg-violet-50/50 dark:bg-violet-950/20">
+                            <td className="px-2 py-2" />
+                            <td className="px-3 py-2" colSpan={4}>
+                              <div className="ml-4 space-y-2 border-l-2 border-dashed border-violet-300 pl-3 dark:border-violet-700">
+                                <div className="relative">
+                                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                                  <input
+                                    type="text"
+                                    value={bucketSearch}
+                                    disabled={busy || kitBusy}
+                                    onChange={(e) =>
+                                      setBucketSearch(e.target.value)
+                                    }
+                                    placeholder="Search individual product…"
+                                    className={`${inputClass} pl-8`}
+                                  />
+                                  {bucketSearch.trim() ? (
+                                    <div className="absolute z-20 mt-1 max-h-44 w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-slate-900">
+                                      {bucketAddCandidates.length === 0 ? (
+                                        <p className="px-3 py-2 text-2xs text-slate-500">
+                                          No matching individual products
+                                        </p>
+                                      ) : (
+                                        bucketAddCandidates.map((p) => {
+                                          const id = String(p._id ?? p.id ?? "");
+                                          return (
+                                            <button
+                                              key={id}
+                                              type="button"
+                                              disabled={busy || kitBusy}
+                                              onClick={() =>
+                                                void handleAddKitBucketItem(
+                                                  line.product,
+                                                  id,
+                                                )
+                                              }
+                                              className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                                            >
+                                              <span className="font-medium text-slate-800 dark:text-slate-100">
+                                                {String(p.product_name || "—")}
+                                              </span>
+                                              {p.sku ? (
+                                                <span className="font-mono text-2xs text-slate-500">
+                                                  {String(p.sku)}
+                                                </span>
+                                              ) : null}
+                                            </button>
+                                          );
+                                        })
+                                      )}
+                                    </div>
+                                  ) : null}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <label className="text-2xs text-slate-500">
+                                    %
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={1000}
+                                    step="0.1"
+                                    value={bucketAddPct}
+                                    disabled={busy || kitBusy}
+                                    onChange={(e) =>
+                                      setBucketAddPct(e.target.value)
+                                    }
+                                    className={`${inputClass} w-24`}
+                                  />
+                                  <span className="text-2xs text-slate-500">
+                                    Select a product above to add
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                            <td colSpan={7} />
+                          </tr>
+                        ) : null}
+                        {lineIsKit && kitBucket.length === 0 && !showBucketAdd ? (
+                          <tr className="bg-slate-50/60 dark:bg-slate-950/40">
+                            <td className="px-2 py-1.5" />
+                            <td
+                              className="px-3 py-1.5 text-2xs text-slate-500"
+                              colSpan={11}
+                            >
+                              <span className="ml-4">
+                                No kit bucket items mapped yet. Use “Add bucket item”.
+                              </span>
+                            </td>
+                          </tr>
+                        ) : null}
+                        </Fragment>
                       );
                     })}
                   </tbody>
@@ -1258,6 +2031,16 @@ export function ApprovalModal({
           onSuccess={handleMapPriceSuccess}
         />
       )}
+
+      <ConfirmRemoveKitItemModal
+        itemId={removeKitItem?.itemId ?? null}
+        itemLabel={removeKitItem?.label ?? ""}
+        isRemoving={isDeletingKitLine}
+        onClose={() => {
+          if (!isDeletingKitLine) setRemoveKitItem(null);
+        }}
+        onConfirm={handleConfirmRemoveKitItem}
+      />
     </LargeModalPortal>
   );
 }

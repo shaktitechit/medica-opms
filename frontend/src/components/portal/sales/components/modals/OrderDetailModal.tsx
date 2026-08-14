@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import { resolveOrderCounterparty } from "../../partyDisplay";
 import {
@@ -110,18 +110,43 @@ function isLikelyObjectId(s: string): boolean {
   return /^[a-f0-9]{24}$/i.test(s);
 }
 
+function idFromRef(ref: unknown): string {
+  if (typeof ref === "string") return ref.trim();
+  if (ref && typeof ref === "object" && "_id" in ref) {
+    return String((ref as { _id: unknown })._id ?? "").trim();
+  }
+  if (ref && typeof ref === "object" && "id" in ref) {
+    return String((ref as { id: unknown }).id ?? "").trim();
+  }
+  return "";
+}
+
+function hasKitParent(ref: unknown): boolean {
+  return Boolean(idFromRef(ref));
+}
+
+type ReadOnlyLine = {
+  product_name: string;
+  sku: string;
+  quantity: number;
+  applied_rate_type: string;
+  _id?: unknown;
+  product: string;
+  kit_parent_product: string;
+  unit_price?: number;
+  approved_quantity?: number;
+};
+
 function linesFromDetail(raw: unknown): LineRow[] {
   const items = Array.isArray(raw) ? raw : [];
-  if (items.length === 0) return [newLine()];
-  return items.map((item, idx) => {
+  // Draft edit should not treat kit bucket expansion rows as editable commercial lines.
+  const editable = items.filter(
+    (item) => !hasKitParent((item as Record<string, unknown>).kit_parent_product),
+  );
+  if (editable.length === 0) return [newLine()];
+  return editable.map((item, idx) => {
     const l = item as Record<string, unknown>;
-    const prod = l.product;
-    const productId =
-      typeof prod === "string"
-        ? prod
-        : prod && typeof prod === "object" && (prod as { _id?: unknown })._id != null
-          ? String((prod as { _id: unknown })._id)
-          : "";
+    const productId = idFromRef(l.product);
     const key =
       l._id != null
         ? String(l._id)
@@ -138,7 +163,7 @@ function linesFromDetail(raw: unknown): LineRow[] {
       product_group: String(l.product_group ?? ""),
       product_subgroup: String(l.product_subgroup ?? ""),
       unit: String(l.unit ?? ""),
-      quantity: Number(l.quantity ?? 1),
+      quantity: Number(l.ordered_quantity ?? l.quantity ?? 1),
       unit_price: Number(l.unit_price ?? 0),
       discount_amount: Number(l.discount_amount ?? 0),
       gst_percent: Number(l.gst_percent ?? 18),
@@ -169,6 +194,7 @@ function buildPatchItems(lines: LineRow[]): Record<string, unknown>[] {
         product_subgroup: l.product_subgroup || "",
         unit: l.unit || "",
         quantity: Number(l.quantity),
+        ordered_quantity: Number(l.quantity),
         unit_price: Number(l.unit_price),
         discount_amount: 0,
         gst_percent: Number(l.gst_percent ?? 18),
@@ -177,6 +203,43 @@ function buildPatchItems(lines: LineRow[]): Record<string, unknown>[] {
       if (isLikelyObjectId(l.key)) o._id = l.key;
       return o;
     });
+}
+
+/** Keep existing kit bucket expansion rows when rewriting draft order_items. */
+function preserveKitBucketItems(
+  detail: Record<string, unknown> | null,
+  commercialItems: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  if (!detail || !Array.isArray(detail.order_items)) return commercialItems;
+  const buckets = (detail.order_items as Record<string, unknown>[])
+    .filter((item) => hasKitParent(item.kit_parent_product))
+    .map((item) => {
+      const o: Record<string, unknown> = {
+        product: idFromRef(item.product),
+        product_name: String(item.product_name ?? ""),
+        sku: String(item.sku ?? ""),
+        brand: String(item.brand ?? ""),
+        manufacturer: String(item.manufacturer ?? ""),
+        product_group: String(item.product_group ?? ""),
+        product_subgroup: String(item.product_subgroup ?? ""),
+        unit: String(item.unit ?? ""),
+        quantity: Number(item.ordered_quantity ?? item.quantity ?? 0),
+        ordered_quantity: Number(item.ordered_quantity ?? item.quantity ?? 0),
+        approved_quantity: Number(item.approved_quantity ?? 0),
+        unit_price: Number(item.unit_price ?? 0),
+        discount_amount: Number(item.discount_amount ?? 0),
+        gst_percent: Number(item.gst_percent ?? 0),
+        applied_rate_type: item.applied_rate_type || "MANUAL",
+        kit_parent_product: idFromRef(item.kit_parent_product),
+        remarks: String(item.remarks ?? ""),
+        manual_price_override: true,
+      };
+      const id = idFromRef(item._id);
+      if (id) o._id = id;
+      return o;
+    })
+    .filter((item) => item.product && Number(item.ordered_quantity) >= 1);
+  return [...commercialItems, ...buckets];
 }
 
 export function OrderDetailModal({
@@ -225,19 +288,55 @@ export function OrderDetailModal({
   );
   const products = useMemo(() => pickList(productsQ.data), [productsQ.data]);
 
-  const readOnlyItems = useMemo(() => {
+  const readOnlyItems = useMemo((): ReadOnlyLine[] => {
     if (!detail || !Array.isArray(detail.order_items)) return [];
     return (detail.order_items as Record<string, any>[]).map((item) => {
       const prod = item.product && typeof item.product === "object" ? item.product : {};
       return {
-        product_name: prod.product_name ?? item.product_name ?? "—",
-        sku: prod.sku ?? item.sku ?? "",
-        quantity: item.ordered_quantity ?? item.quantity ?? 0,
-        applied_rate_type: item.applied_rate_type ?? "SR",
+        product_name: String(prod.product_name ?? item.product_name ?? "—"),
+        sku: String(prod.sku ?? item.sku ?? ""),
+        quantity: Number(item.ordered_quantity ?? item.quantity ?? 0),
+        approved_quantity: Number(item.approved_quantity ?? 0),
+        applied_rate_type: String(item.applied_rate_type ?? "SR"),
+        unit_price: Number(item.unit_price ?? 0),
         _id: item._id,
+        product: idFromRef(item.product),
+        kit_parent_product: idFromRef(item.kit_parent_product),
       };
     });
   }, [detail]);
+
+  const parentReadOnlyItems = useMemo(
+    () => readOnlyItems.filter((line) => !line.kit_parent_product),
+    [readOnlyItems],
+  );
+
+  const kitBucketsByParent = useMemo(() => {
+    const map = new Map<string, ReadOnlyLine[]>();
+    for (const line of readOnlyItems) {
+      if (!line.kit_parent_product) continue;
+      const list = map.get(line.kit_parent_product) ?? [];
+      list.push(line);
+      map.set(line.kit_parent_product, list);
+    }
+    return map;
+  }, [readOnlyItems]);
+
+  const parentProductIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const line of parentReadOnlyItems) {
+      if (line.product) set.add(line.product);
+    }
+    return set;
+  }, [parentReadOnlyItems]);
+
+  const orphanKitBuckets = useMemo(() => {
+    const out: ReadOnlyLine[] = [];
+    for (const [parentId, rows] of kitBucketsByParent) {
+      if (!parentProductIds.has(parentId)) out.push(...rows);
+    }
+    return out;
+  }, [kitBucketsByParent, parentProductIds]);
 
   useEffect(() => {
     setEditing(false);
@@ -368,7 +467,7 @@ export function OrderDetailModal({
     if (!validateForm()) return false;
     const patch = {
       party: partyId,
-      order_items: buildPatchItems(lines),
+      order_items: preserveKitBucketItems(detail, buildPatchItems(lines)),
       discount_amount: Number(headerDiscount || 0),
       priority,
       remarks: remarks.trim() || "",
@@ -387,6 +486,7 @@ export function OrderDetailModal({
       return false;
     }
   }, [
+    detail,
     partyId,
     expectedDate,
     isDraft,
@@ -413,7 +513,7 @@ export function OrderDetailModal({
       if (!validateForm()) return;
       const patch = {
         party: partyId,
-        order_items: buildPatchItems(lines),
+        order_items: preserveKitBucketItems(detail, buildPatchItems(lines)),
         discount_amount: Number(headerDiscount || 0),
         priority,
         remarks: remarks.trim() || "",
@@ -643,7 +743,7 @@ export function OrderDetailModal({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200/80 dark:divide-white/10">
-                        {readOnlyItems.map((line, idx) => {
+                        {parentReadOnlyItems.map((line, idx) => {
                           const name =
                             typeof line.product_name === "string"
                               ? line.product_name
@@ -654,19 +754,99 @@ export function OrderDetailModal({
                             line._id != null
                               ? String(line._id)
                               : `line-${idx}`;
+                          const buckets = line.product
+                            ? kitBucketsByParent.get(line.product) ?? []
+                            : [];
                           return (
-                            <tr key={key}>
-                              <td className="max-w-[200px] px-2 py-1.5">
-                                <span className="line-clamp-2">{name}</span>
-                                {typeof line.sku === "string" && line.sku ? (
-                                  <span className="mt-0.5 block text-2xs text-slate-500 dark:text-slate-400">
-                                    SKU {line.sku}
+                            <Fragment key={key}>
+                              <tr className="bg-white dark:bg-slate-900">
+                                <td className="max-w-[200px] px-2 py-1.5">
+                                  <span className="line-clamp-2 font-medium text-slate-900 dark:text-slate-100">
+                                    {name}
                                   </span>
-                                ) : null}
+                                  {buckets.length > 0 ? (
+                                    <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                      KIT
+                                    </span>
+                                  ) : null}
+                                  {typeof line.sku === "string" && line.sku ? (
+                                    <span className="mt-0.5 block text-2xs text-slate-500 dark:text-slate-400">
+                                      SKU {line.sku}
+                                    </span>
+                                  ) : null}
+                                </td>
+                                <td className="px-2 py-1.5 tabular-nums">{String(qty ?? "—")}</td>
+                                <td className="px-2 py-1.5 text-right">
+                                  {rateType}
+                                </td>
+                              </tr>
+                              {buckets.map((bucket, bIdx) => {
+                                const bKey =
+                                  bucket._id != null
+                                    ? String(bucket._id)
+                                    : `${key}-bucket-${bIdx}`;
+                                return (
+                                  <tr
+                                    key={bKey}
+                                    className="bg-slate-50/80 dark:bg-slate-950/60"
+                                  >
+                                    <td className="max-w-[200px] px-2 py-1.5">
+                                      <div className="ml-3 border-l-2 border-violet-300 pl-2 dark:border-violet-700">
+                                        <span className="line-clamp-2 text-slate-800 dark:text-slate-200">
+                                          {bucket.product_name}
+                                        </span>
+                                        <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                          KIT BUCKET
+                                        </span>
+                                        {bucket.sku ? (
+                                          <span className="mt-0.5 block text-2xs text-slate-500 dark:text-slate-400">
+                                            SKU {bucket.sku}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </td>
+                                    <td className="px-2 py-1.5 tabular-nums text-slate-700 dark:text-slate-300">
+                                      {String(bucket.quantity ?? "—")}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right text-2xs text-slate-500">
+                                      —
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </Fragment>
+                          );
+                        })}
+                        {orphanKitBuckets.map((bucket, idx) => {
+                          const bKey =
+                            bucket._id != null
+                              ? String(bucket._id)
+                              : `orphan-bucket-${idx}`;
+                          return (
+                            <tr
+                              key={bKey}
+                              className="bg-slate-50/80 dark:bg-slate-950/60"
+                            >
+                              <td className="max-w-[200px] px-2 py-1.5">
+                                <div className="ml-3 border-l-2 border-violet-300 pl-2 dark:border-violet-700">
+                                  <span className="line-clamp-2 text-slate-800 dark:text-slate-200">
+                                    {bucket.product_name}
+                                  </span>
+                                  <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                    KIT BUCKET
+                                  </span>
+                                  {bucket.sku ? (
+                                    <span className="mt-0.5 block text-2xs text-slate-500 dark:text-slate-400">
+                                      SKU {bucket.sku}
+                                    </span>
+                                  ) : null}
+                                </div>
                               </td>
-                              <td className="px-2 py-1.5 tabular-nums">{String(qty ?? "—")}</td>
-                              <td className="px-2 py-1.5 text-right">
-                                {rateType}
+                              <td className="px-2 py-1.5 tabular-nums">
+                                {String(bucket.quantity ?? "—")}
+                              </td>
+                              <td className="px-2 py-1.5 text-right text-2xs text-slate-500">
+                                —
                               </td>
                             </tr>
                           );

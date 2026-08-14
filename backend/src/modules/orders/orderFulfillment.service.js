@@ -40,11 +40,83 @@ function lineQuantities(line) {
     pendingDispatch: Math.max(0, approved - dispatched),
     pendingDelivery: Math.max(0, dispatched - delivered),
     // Snapshot compatibility for existing API consumers
-    salesApproved: approved > 0 ? approved : ordered,
+    salesApproved: approved,
     allocated: 0,
     cancelled: 0,
     financeApproved: approved,
   };
+}
+
+function lineProductId(line) {
+  return String(line?.product?._id || line?.product || '').trim();
+}
+
+function lineKitParentId(line) {
+  return String(line?.kit_parent_product?._id || line?.kit_parent_product || '').trim();
+}
+
+/** Commercial kit parent line (not a nested bucket component). */
+function isKitShellOrderLine(line, allLines = []) {
+  if (lineKitParentId(line)) return false;
+  const productId = lineProductId(line);
+  if (!productId) return false;
+  if (String(line.product_type || '').toLowerCase() === 'kit') return true;
+  return (allLines || []).some((other) => lineKitParentId(other) === productId);
+}
+
+/**
+ * Infer kit units from nested bucket qtys (BOM reverse: floor so we never overstate).
+ * Order-line kit shell rollups are inferred from buckets; dispatch batches may also
+ * store the commercial kit shell line alongside bucket lines.
+ */
+function inferKitUnitsFromBucketLines(kitCleared, buckets, field) {
+  if (!(kitCleared > 0) || !Array.isArray(buckets) || buckets.length === 0) return 0;
+  let min = Number.POSITIVE_INFINITY;
+  for (const bucket of buckets) {
+    const cleared = Number(
+      bucket.approved_quantity ?? bucket.ordered_quantity ?? bucket.quantity ?? 0,
+    );
+    if (!(cleared > 0)) continue;
+    const raw = Number(bucket[field] || 0);
+    if (!Number.isFinite(raw)) continue;
+    const units = Math.floor((raw * kitCleared) / cleared);
+    if (Number.isFinite(units)) min = Math.min(min, units);
+  }
+  return Number.isFinite(min) ? Math.max(0, min) : 0;
+}
+
+/** Stamp kit shell dispatched/delivered from nested bucket lines. */
+function applyInferredKitShellFulfillment(items) {
+  const lines = Array.isArray(items) ? items : [];
+  for (const item of lines) {
+    if (!isKitShellOrderLine(item, lines)) continue;
+    const productId = lineProductId(item);
+    const buckets = lines.filter((other) => lineKitParentId(other) === productId);
+    if (buckets.length === 0) continue;
+
+    const kitCleared = Number(
+      item.approved_quantity ?? item.ordered_quantity ?? item.quantity ?? 0,
+    );
+    item.dispatched_quantity = inferKitUnitsFromBucketLines(
+      kitCleared,
+      buckets,
+      'dispatched_quantity',
+    );
+    item.delivered_quantity = inferKitUnitsFromBucketLines(
+      kitCleared,
+      buckets,
+      'delivered_quantity',
+    );
+
+    const q = lineQuantities(item);
+    item.line_status = deriveLineStatus({
+      ...q,
+      dispatched: item.dispatched_quantity,
+      delivered: item.delivered_quantity,
+      returned: item.returned_quantity,
+    });
+  }
+  return lines;
 }
 
 function deriveFinanceApprovalStatus(items) {
@@ -132,9 +204,11 @@ function applyFinanceWorkflowAction(orderDoc) {
   if (fas === APPROVAL_STATUS.APPROVED) {
     orderDoc.current_action = 'finance_approved';
     if (orderDoc.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW) {
-      orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
+      orderDoc.workflow_stage = ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW;
     }
     orderDoc.status = ORDER_STATUS.FINANCE_APPROVED;
+    orderDoc.pending_with_role = 'account';
+    orderDoc.current_department = 'account';
   } else if (fas === APPROVAL_STATUS.REJECTED) {
     orderDoc.current_action = 'rejected';
     orderDoc.status = ORDER_STATUS.FINANCE_REJECTED;
@@ -405,6 +479,7 @@ function buildLineSnapshot(line, accountApprovalStatus) {
     product: line.product,
     product_name: line.product_name,
     sku: line.sku,
+    kit_parent_product: line.kit_parent_product || null,
     ...q,
     accountCleared,
     account_cleared: accountCleared,
@@ -420,6 +495,8 @@ function buildOrderSnapshot(orderPlain, dispatches, shipments) {
   const lines = (orderPlain.order_items || []).map((line) => buildLineSnapshot(line, accountApprovalStatus));
   const totals = lines.reduce(
     (acc, line) => {
+      // Kit bucket expansion rows — do not inflate rollup totals.
+      if (line.kit_parent_product) return acc;
       acc.ordered += line.ordered;
       acc.salesApproved += line.salesApproved;
       acc.approved += line.approved;
@@ -632,32 +709,40 @@ async function recomputeApprovedQuantitiesFromFinance(orderId) {
     .sort({ revision_number: -1, createdAt: -1 })
     .lean();
 
+  const latestApproval = approvals[0];
+  // No finance-approved batch yet — do not wipe admin-approved line quantities.
+  if (!latestApproval) {
+    orderDoc.finance_approval_status = deriveFinanceApprovalStatus(orderDoc.order_items);
+    normalizeOrderWorkflowFields(orderDoc);
+    await orderDoc.save();
+    return toPlain(orderDoc.toObject());
+  }
+
   const approvedByLine = {};
   const priceByLine = {};
-  const latestApproval = approvals[0];
-  if (latestApproval) {
-    for (const item of latestApproval.approval_items || []) {
-      const key = String(item.order_item_id);
-      approvedByLine[key] = Number(item.approved_quantity || 0);
-      if (item.approved_unit_price != null) {
-        priceByLine[key] = Number(item.approved_unit_price);
-      }
+  for (const item of latestApproval.approval_items || []) {
+    const key = String(item.order_item_id);
+    approvedByLine[key] = Number(item.approved_quantity || 0);
+    if (item.approved_unit_price != null) {
+      priceByLine[key] = Number(item.approved_unit_price);
     }
   }
 
   for (const line of orderDoc.order_items || []) {
     const key = String(line._id);
+    if (!Object.prototype.hasOwnProperty.call(approvedByLine, key)) continue;
     const ordered = Number(line.ordered_quantity ?? line.quantity ?? 0);
-    const cap = ordered;
-    line.approved_quantity = Math.min(cap, approvedByLine[key] || 0);
+    const fromApproval = Number(approvedByLine[key] || 0);
+    if (fromApproval > ordered) {
+      line.ordered_quantity = fromApproval;
+    }
+    line.approved_quantity = fromApproval;
     if (priceByLine[key] != null && line.approved_quantity > 0) {
       line.unit_price = priceByLine[key];
     }
   }
 
-  if (approvals.length > 0) {
-    orderDoc.last_finance_approval = approvals[0]._id;
-  }
+  orderDoc.last_finance_approval = latestApproval._id;
   orderDoc.finance_approval_status = deriveFinanceApprovalStatus(orderDoc.order_items);
   orderDoc.markModified('order_items');
   normalizeOrderWorkflowFields(orderDoc);
@@ -682,7 +767,12 @@ function assertDispatchItemQuantities(order, dispatchItems, alreadyDispatchedByL
 
     if (approval) {
       const approvalItem = findApprovalItemForOrderLine(approval, line);
-      const approvedOnRelease = Number(approvalItem?.approved_quantity || 0);
+      const isKitShell = isKitShellOrderLine(line, order.order_items || []);
+      const approvedOnRelease = Number(
+        approvalItem?.approved_quantity
+          || (isKitShell ? (q.approved > 0 ? q.approved : q.ordered) : 0)
+          || 0,
+      );
       const atWarehouse = approvalOnly
         ? 0
         : lineAtWarehouseQty(orderItemId, approvalItem, line, returnsByLine);
@@ -774,7 +864,13 @@ async function recalculateFromExecutionsOnce(orderId, user) {
     const returnAtWarehouse = Number(returnedByLine[key] || 0) || Number(item.returned_quantity ?? 0);
     const returnPoolUsed = Math.max(0, item.dispatched_quantity - (q.dispatchCap > 0 ? q.dispatchCap : q.ordered));
     const dispatchCap = (q.dispatchCap > 0 ? q.dispatchCap : q.ordered) + returnAtWarehouse + returnPoolUsed;
-    if (item.dispatched_quantity > dispatchCap && dispatchCap > 0) {
+    // Kit shells are commercial-only on the order — over-dispatch is validated on buckets.
+    if (
+      !lineKitParentId(item)
+      && item.dispatched_quantity > dispatchCap
+      && dispatchCap > 0
+      && !isKitShellOrderLine(item, orderDoc.order_items || [])
+    ) {
       throw new ApiError(
         400,
         `Dispatched quantity exceeds available quantity (${dispatchCap}) for line ${item.sku || key}`,
@@ -789,22 +885,40 @@ async function recalculateFromExecutionsOnce(orderId, user) {
     return item;
   });
 
-  const totalDispatched = nextItems.reduce((sum, item) => sum + Number(item.dispatched_quantity || 0), 0);
-  const totalDelivered = nextItems.reduce((sum, item) => sum + Number(item.delivered_quantity || 0), 0);
-  const totalApproved = nextItems.reduce((sum, item) => sum + Number(item.approved_quantity || 0), 0);
+  // Kit shells never appear on dispatch batches — stamp fulfilled kit qty from buckets.
+  applyInferredKitShellFulfillment(nextItems);
+
+  const totalDispatched = nextItems.reduce((sum, item) => {
+    // Bucket components are excluded from commercial rollups (kit shell carries qty).
+    if (lineKitParentId(item)) return sum;
+    return sum + Number(item.dispatched_quantity || 0);
+  }, 0);
+  const totalDelivered = nextItems.reduce((sum, item) => {
+    if (lineKitParentId(item)) return sum;
+    return sum + Number(item.delivered_quantity || 0);
+  }, 0);
+  const totalApproved = nextItems.reduce((sum, item) => {
+    if (lineKitParentId(item)) return sum;
+    return sum + Number(item.approved_quantity || 0);
+  }, 0);
 
   const fullyDispatched =
     nextItems.length > 0 &&
     nextItems.every((item) => {
+      // Bucket lines follow the kit shell for order-level completion.
+      if (lineKitParentId(item)) return true;
       const q = lineQuantities(item);
-      return Number(item.dispatched_quantity || 0) >= q.ordered && q.ordered > 0;
+      if (!(q.ordered > 0)) return true;
+      return Number(item.dispatched_quantity || 0) >= q.ordered;
     });
 
   const fullyDelivered =
     nextItems.length > 0 &&
     nextItems.every((item) => {
+      if (lineKitParentId(item)) return true;
       const q = lineQuantities(item);
-      return Number(item.delivered_quantity || 0) >= q.ordered && q.ordered > 0;
+      if (!(q.ordered > 0)) return true;
+      return Number(item.delivered_quantity || 0) >= q.ordered;
     });
 
   orderDoc.order_items = nextItems;
@@ -814,7 +928,20 @@ async function recalculateFromExecutionsOnce(orderId, user) {
   orderDoc.delivery_status = fullyDelivered
     ? FULFILLMENT_STATUS.COMPLETED
     : FULFILLMENT_STATUS.PENDING;
-  orderDoc.finance_approval_status = deriveFinanceApprovalStatus(nextItems);
+
+  // Admin clearance also writes line.approved_quantity. Finance status / workflow
+  // must only advance when an OrderApproval is actually finance-approved — otherwise
+  // post-admin recalculate incorrectly jumps sales_approved → finance_approved.
+  const hasFinanceApproval = (approvals || []).some((a) => Boolean(a.is_finance_approved));
+  const existingFas = normalizeFinanceApprovalStatus(orderDoc.finance_approval_status);
+  if (hasFinanceApproval) {
+    orderDoc.finance_approval_status = deriveFinanceApprovalStatus(nextItems);
+  } else if (existingFas === APPROVAL_STATUS.REJECTED
+    || String(orderDoc.status || '') === ORDER_STATUS.FINANCE_REJECTED) {
+    orderDoc.finance_approval_status = APPROVAL_STATUS.REJECTED;
+  } else {
+    orderDoc.finance_approval_status = APPROVAL_STATUS.PENDING;
+  }
 
   const latestApproval = (approvals || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
   const isSettled = latestApproval ? latestApproval.dispatch_release_resolved === true : false;
@@ -855,9 +982,10 @@ async function recalculateFromExecutionsOnce(orderId, user) {
       const aas = normalizeAccountApprovalStatus(orderDoc.account_approval_status);
       if (aas === APPROVAL_STATUS.APPROVED) {
         applyAccountWorkflowAction(orderDoc);
-      } else {
+      } else if (hasFinanceApproval) {
         applyFinanceWorkflowAction(orderDoc);
       }
+      // Admin-only clearance: keep status at sales_approved / finance_review.
     }
   }
 

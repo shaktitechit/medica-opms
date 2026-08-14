@@ -47,6 +47,11 @@ type TransportMutationBody = LooseRecord & {
   packed_boxes?: number;
   open_boxes?: number;
   total_quantity?: number;
+  settle_approval_items?: unknown[];
+  settle_rest_items?: unknown[];
+  settle_amendment_notes?: string;
+  approval_items?: unknown[];
+  settled_rest_items?: unknown[];
 };
 
 const LEGACY_STATUS_TO_SHIPMENT_STATUS: Record<string, string> = {
@@ -135,6 +140,9 @@ export const transportApi = medicaApi.injectEndpoints({
         "Orders",
         "Dispatch",
         "TransportPlans",
+        "UnbilledOrders",
+        "OrderApprovals",
+        "Approvals",
         { type: "Transport", id: arg.id },
       ],
     }),

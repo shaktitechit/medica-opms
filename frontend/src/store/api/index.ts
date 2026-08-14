@@ -26,6 +26,7 @@ export * from "./slices/productGroupsApi";
 export * from "./slices/productSubgroupsApi";
 export * from "./slices/productBrandsApi";
 export * from "./slices/productManufacturersApi";
+export * from "./slices/productKitItemsApi";
 export * from "./slices/transportApi";
 export * from "./slices/usersApi";
 export * from "./slices/vehiclesApi";

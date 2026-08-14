@@ -250,18 +250,23 @@ function workflowRoleForUser(user) {
 }
 
 /**
- * When transport is created for a dispatch batch, auto-settle any remaining
- * clearance on that release (same path as Settle & Unbilled Order):
+ * Auto-settle remaining release clearance after transport create/update
+ * (same path as Settle & Unbilled Order):
  * shrink approval + main order to net dispatched qty and write the rest onto UnbilledOrder.
+ * Client may pass kit-aware settle_approval_items / settle_rest_items (kit shells only on unbilled).
  */
-async function settleReleaseAfterTransportCreated(dispatchId, user) {
+async function settleReleaseAfterTransportCreated(dispatchId, user, settleBody = {}) {
   if (!dispatchId) return null;
   try {
     const { OrderDispatch, OrderApproval } = getModels();
     const dispatch = await OrderDispatch.findById(dispatchId)
       .select('finance_approval order')
       .lean();
-    if (!dispatch?.finance_approval) return null;
+    if (!dispatch?.finance_approval) {
+      // eslint-disable-next-line no-console
+      console.warn('[transport] auto-settle skipped: dispatch has no finance_approval', String(dispatchId));
+      return null;
+    }
 
     const approval = await OrderApproval.findOne({
       _id: dispatch.finance_approval,
@@ -270,17 +275,35 @@ async function settleReleaseAfterTransportCreated(dispatchId, user) {
       .select('_id dispatch_release_resolved is_account_approved is_finance_approved approval_no')
       .lean();
 
-    if (!approval) return null;
-    if (approval.dispatch_release_resolved) return null;
-    if (!approval.is_finance_approved || !approval.is_account_approved) return null;
+    if (!approval) {
+      // eslint-disable-next-line no-console
+      console.warn('[transport] auto-settle skipped: approval not found', String(dispatch.finance_approval));
+      return null;
+    }
+    // Do not bail on dispatch_release_resolved — resolvePartialDispatchByAccount
+    // reopens the release when remaining clearance / returns still exist.
+    if (!approval.is_finance_approved || !approval.is_account_approved) {
+      // eslint-disable-next-line no-console
+      console.warn('[transport] auto-settle skipped: approval not fully cleared', String(approval._id));
+      return null;
+    }
+
+    const resolveBody = {
+      amendment_notes:
+        settleBody.amendment_notes
+        || 'Auto-settled when transport was saved — remaining clearance moved to Unbilled Order',
+    };
+    if (Array.isArray(settleBody.approval_items) && settleBody.approval_items.length > 0) {
+      resolveBody.approval_items = settleBody.approval_items;
+    }
+    if (Array.isArray(settleBody.settled_rest_items)) {
+      resolveBody.settled_rest_items = settleBody.settled_rest_items;
+    }
 
     const orderApprovalService = require('../orderApproval/orderApproval.service');
     return await orderApprovalService.resolvePartialDispatchByAccount(
       approval._id,
-      {
-        amendment_notes:
-          'Auto-settled when transport was created — remaining clearance moved to Unbilled Order',
-      },
+      resolveBody,
       user,
       { skipAsyncJobs: true },
     );
@@ -444,23 +467,31 @@ async function syncTransportPlanLineFromShipment(shipment, user, { event = 'crea
 }
 
 async function create(body, user) {
-  const { Order, OrderDispatch, TransportShipment } = getModels();
+  const { Order, OrderDispatch, TransportShipment, TransportAgent } = getModels();
   const order = await Order.findById(body.order).lean();
   if (!order) throw new ApiError(404, 'Order not found');
 
   const dispatchExists = await OrderDispatch.exists({ _id: body.dispatch, order: body.order });
   if (!dispatchExists) throw new ApiError(404, 'Order dispatch not found');
 
-  const lr = String(body.lr_number || '').trim();
-  if (!lr) {
-    throw new ApiError(400, 'LR number is required');
+  let lrRequired = false;
+  if (body.transport_agent) {
+    const agent = await TransportAgent.findById(body.transport_agent).select('lr_number_required').lean();
+    lrRequired = agent?.lr_number_required === true;
   }
-  const existingShipment = await TransportShipment.findOne({
-    lr_number: lr,
-    deletedAt: null,
-  }).lean();
-  if (existingShipment) {
-    throw new ApiError(400, `LR number "${lr}" is already in use by transport shipment ${existingShipment.shipment_no}`);
+
+  const lr = String(body.lr_number || '').trim();
+  if (lrRequired && !lr) {
+    throw new ApiError(400, 'LR number is required for this transport agent');
+  }
+  if (lr) {
+    const existingShipment = await TransportShipment.findOne({
+      lr_number: lr,
+      deletedAt: null,
+    }).lean();
+    if (existingShipment) {
+      throw new ApiError(400, `LR number "${lr}" is already in use by transport shipment ${existingShipment.shipment_no}`);
+    }
   }
 
   const doc = await TransportShipment.create({
@@ -479,7 +510,7 @@ async function create(body, user) {
     vehicle_number: body.vehicle_number || body.vehicle_no || '',
     driver_name: body.driver_name || '',
     driver_mobile: body.driver_mobile || body.driver_phone || '',
-    lr_number: body.lr_number || '',
+    lr_number: lr,
     tracking_number: body.tracking_number || '',
     eway_bill_no: body.eway_bill_no || '',
     dispatch_date: body.dispatch_date ? new Date(body.dispatch_date) : undefined,
@@ -505,7 +536,12 @@ async function create(body, user) {
   await syncTransportPlanLineFromShipment(doc, user, { event: 'created' });
 
   // Auto settle remaining release clearance → approval + order + UnbilledOrder.
-  await settleReleaseAfterTransportCreated(body.dispatch, user);
+  // Prefer kit-aware settle payload from create-transport client when present.
+  await settleReleaseAfterTransportCreated(body.dispatch, user, {
+    approval_items: body.settle_approval_items || body.approval_items,
+    settled_rest_items: body.settle_rest_items || body.settled_rest_items,
+    amendment_notes: body.settle_amendment_notes,
+  });
 
   await enqueuePostTransportJobs(body.order, user._id, {
     remarks: body.remarks || `Shipment ${doc.shipment_no} created`,
@@ -537,16 +573,25 @@ async function patch(id, patchBody, user) {
 
   if (patch.lr_number !== undefined) {
     const lr = String(patch.lr_number || '').trim();
-    if (!lr) {
-      throw new ApiError(400, 'LR number is required');
+    let lrRequired = false;
+    const agentId = patch.transport_agent || doc.transport_agent;
+    if (agentId) {
+      const { TransportAgent } = getModels();
+      const agent = await TransportAgent.findById(agentId).select('lr_number_required').lean();
+      lrRequired = agent?.lr_number_required === true;
     }
-    const existingShipment = await TransportShipment.findOne({
-      lr_number: lr,
-      _id: { $ne: id },
-      deletedAt: null,
-    }).lean();
-    if (existingShipment) {
-      throw new ApiError(400, `LR number "${lr}" is already in use by transport shipment ${existingShipment.shipment_no}`);
+    if (lrRequired && !lr) {
+      throw new ApiError(400, 'LR number is required for this transport agent');
+    }
+    if (lr) {
+      const existingShipment = await TransportShipment.findOne({
+        lr_number: lr,
+        _id: { $ne: id },
+        deletedAt: null,
+      }).lean();
+      if (existingShipment) {
+        throw new ApiError(400, `LR number "${lr}" is already in use by transport shipment ${existingShipment.shipment_no}`);
+      }
     }
   }
 
@@ -621,6 +666,19 @@ async function patch(id, patchBody, user) {
   await syncTransportPlanLineFromShipment(doc, user, {
     event: doc.shipment_status === 'delivered' ? 'delivered' : 'updated',
   });
+
+  // Same auto-settle path as create — remaining clearance → approval/order + UnbilledOrder.
+  // Prefer kit-aware settle payload from the client when present.
+  const settleDispatchId = patch.dispatch || doc.dispatch;
+  if (settleDispatchId) {
+    await settleReleaseAfterTransportCreated(settleDispatchId, user, {
+      approval_items: patch.settle_approval_items || patch.approval_items,
+      settled_rest_items: patch.settle_rest_items || patch.settled_rest_items,
+      amendment_notes:
+        patch.settle_amendment_notes
+        || 'Auto-settled when transport was updated — remaining clearance moved to Unbilled Order',
+    });
+  }
 
   await enqueuePostTransportJobs(doc.order, user._id, {
     remarks: patch.remarks || '',

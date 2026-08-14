@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, Fragment } from "react";
 import {
   computeDepartmentStageBoxes,
   computeOrderStatusDimensions,
@@ -132,11 +132,118 @@ function ItemsFulfillmentTable({
   lines: FulfillmentLine[];
   gates: WorkflowGates;
 }) {
+  const parentLines = useMemo(
+    () => lines.filter((line) => !line.kit_parent_product),
+    [lines],
+  );
+
+  const bucketsByParent = useMemo(() => {
+    const map = new Map<string, FulfillmentLine[]>();
+    for (const line of lines) {
+      if (!line.kit_parent_product) continue;
+      const list = map.get(line.kit_parent_product) ?? [];
+      list.push(line);
+      map.set(line.kit_parent_product, list);
+    }
+    return map;
+  }, [lines]);
+
+  const parentProductIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const line of parentLines) {
+      if (line.product) set.add(line.product);
+    }
+    return set;
+  }, [parentLines]);
+
+  const orphanBuckets = useMemo(() => {
+    const out: FulfillmentLine[] = [];
+    for (const [parentId, rows] of bucketsByParent) {
+      if (!parentProductIds.has(parentId)) out.push(...rows);
+    }
+    return out;
+  }, [bucketsByParent, parentProductIds]);
+
   if (lines.length === 0) {
     return (
       <p className="text-xs text-slate-500 dark:text-slate-400">No order lines to display.</p>
     );
   }
+
+  const renderRow = (
+    line: FulfillmentLine,
+    opts: { nested?: boolean; isKitParent?: boolean; key: string },
+  ) => {
+    const financeQty = gates.dueSheetUploaded ? line.approved : 0;
+    const accountQty = gates.financeCleared ? line.accountCleared : 0;
+    const pendingDispatch = gates.accountCleared ? line.pendingDispatch : 0;
+    const pendingDelivery = gates.accountCleared ? line.pendingDelivery : 0;
+    const nested = Boolean(opts.nested);
+
+    return (
+      <tr
+        key={opts.key}
+        className={
+          nested
+            ? "bg-slate-50/80 dark:bg-slate-950/60"
+            : "bg-white dark:bg-slate-900"
+        }
+      >
+        <td className="px-3 py-2">
+          {nested ? (
+            <div className="ml-4 border-l-2 border-violet-300 pl-3 dark:border-violet-700">
+              <span className="font-semibold text-slate-800 dark:text-slate-200">
+                {line.product_name}
+              </span>
+              <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                KIT BUCKET
+              </span>
+              {line.sku ? (
+                <span className="mt-0.5 block font-mono text-2xs text-slate-400">
+                  {line.sku}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <div>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">
+                {line.product_name}
+              </span>
+              {opts.isKitParent ? (
+                <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                  KIT
+                </span>
+              ) : null}
+              {line.sku ? (
+                <span className="mt-0.5 block font-mono text-2xs text-slate-400">
+                  {line.sku}
+                </span>
+              ) : null}
+            </div>
+          )}
+        </td>
+        <td className="px-3 py-2 text-right tabular-nums">{line.salesApproved}</td>
+        <td className="px-3 py-2 text-right tabular-nums">{financeQty}</td>
+        <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-700 dark:text-emerald-400">
+          {accountQty}
+        </td>
+        <td className="px-3 py-2 text-right tabular-nums">{line.dispatched}</td>
+        <td className="px-3 py-2 text-right tabular-nums">{line.delivered}</td>
+        <td className="px-3 py-2 text-right tabular-nums font-medium text-rose-700 dark:text-rose-400">
+          {line.returned}
+        </td>
+        <td className="px-3 py-2 text-right tabular-nums font-medium text-blue-700 dark:text-blue-400">
+          {pendingDispatch}
+        </td>
+        <td className="px-3 py-2 text-right tabular-nums font-medium text-violet-700 dark:text-violet-400">
+          {pendingDelivery}
+        </td>
+        <td className="px-3 py-2 text-right tabular-nums font-medium text-orange-700 dark:text-orange-400">
+          {line.pendingReturn}
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-white/10">
@@ -158,45 +265,31 @@ function ItemsFulfillmentTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-          {lines.map((line) => {
-            const financeQty = gates.dueSheetUploaded ? line.approved : 0;
-            const accountQty = gates.financeCleared ? line.accountCleared : 0;
-            const pendingDispatch = gates.accountCleared ? line.pendingDispatch : 0;
-            const pendingDelivery = gates.accountCleared ? line.pendingDelivery : 0;
+          {parentLines.map((line) => {
+            const buckets = line.product
+              ? bucketsByParent.get(line.product) ?? []
+              : [];
             return (
-              <tr key={line.order_item_id} className="bg-white dark:bg-slate-900">
-                <td className="px-3 py-2">
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    {line.product_name}
-                  </span>
-                  {line.sku ? (
-                    <span className="mt-0.5 block font-mono text-2xs text-slate-400">
-                      {line.sku}
-                    </span>
-                  ) : null}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{line.salesApproved}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{financeQty}</td>
-                <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-700 dark:text-emerald-400">
-                  {accountQty}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{line.dispatched}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{line.delivered}</td>
-                <td className="px-3 py-2 text-right tabular-nums font-medium text-rose-700 dark:text-rose-400">
-                  {line.returned}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums font-medium text-blue-700 dark:text-blue-400">
-                  {pendingDispatch}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums font-medium text-violet-700 dark:text-violet-400">
-                  {pendingDelivery}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums font-medium text-orange-700 dark:text-orange-400">
-                  {line.pendingReturn}
-                </td>
-              </tr>
+              <Fragment key={line.order_item_id}>
+                {renderRow(line, {
+                  key: `parent-${line.order_item_id}`,
+                  isKitParent: buckets.length > 0,
+                })}
+                {buckets.map((bucket) =>
+                  renderRow(bucket, {
+                    nested: true,
+                    key: `bucket-${bucket.order_item_id}`,
+                  }),
+                )}
+              </Fragment>
             );
           })}
+          {orphanBuckets.map((line) =>
+            renderRow(line, {
+              nested: true,
+              key: `orphan-${line.order_item_id}`,
+            }),
+          )}
         </tbody>
       </table>
     </div>

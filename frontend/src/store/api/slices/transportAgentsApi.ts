@@ -16,6 +16,7 @@ export type TransportAgentRecord = {
   payment_terms?: string;
   status?: "active" | "inactive" | "blacklisted";
   remarks?: string;
+  lr_number_required?: boolean;
   is_active?: boolean;
 };
 

@@ -9,6 +9,10 @@ import {
   useListVehiclesQuery,
 } from "@/store/api";
 import {
+  buildReleaseSettlePayload,
+  idFromRef,
+} from "@/components/portal/shared/orderDetail/accountDispatchAvailability";
+import {
   NamedOption,
   refId,
   toDateInput,
@@ -19,6 +23,8 @@ type OrderTransportsFormProps = {
   order: any;
   dispatches: any[];
   transports: any[];
+  /** Approval batches — used to attach kit-aware settle payload on create. */
+  approvals?: Record<string, unknown>[];
   users: NamedOption[];
   saving: boolean;
   onClose: () => void;
@@ -48,6 +54,7 @@ export function OrderTransportsForm({
   order,
   dispatches,
   transports,
+  approvals = [],
   users,
   saving,
   onClose,
@@ -55,6 +62,7 @@ export function OrderTransportsForm({
   onSave,
 }: OrderTransportsFormProps) {
   const orderId = refId(order._id || order.id);
+  const orderItems = (order.order_items || []) as Record<string, unknown>[];
   const sortedTransports = useMemo(
     () =>
       [...transports].sort((a, b) => {
@@ -231,6 +239,36 @@ export function OrderTransportsForm({
     }
   }, [driverId, drivers]);
 
+  const releaseApproval = useMemo(() => {
+    if (!dispatchId) return null;
+    const disp = dispatches.find(
+      (d: any) => refId(d._id || d.id) === dispatchId,
+    ) as Record<string, unknown> | undefined;
+    if (!disp) return null;
+    const approvalRef = disp.finance_approval;
+    const approvalId =
+      typeof approvalRef === "object" && approvalRef !== null
+        ? idFromRef(
+            (approvalRef as Record<string, unknown>)._id ??
+              (approvalRef as Record<string, unknown>).id,
+          )
+        : idFromRef(approvalRef);
+    if (!approvalId) return null;
+    return (
+      approvals.find((a) => idFromRef(a._id ?? a.id) === approvalId) ?? null
+    );
+  }, [dispatchId, dispatches, approvals]);
+
+  const settlePayload = useMemo(
+    () =>
+      buildReleaseSettlePayload(
+        releaseApproval,
+        orderItems,
+        dispatches as Record<string, unknown>[],
+      ),
+    [releaseApproval, orderItems, dispatches],
+  );
+
   const handleSave = async () => {
     if (selectedId === "new" && !isCreateMode) {
       toast.error("A transport already exists for this order.");
@@ -282,6 +320,11 @@ export function OrderTransportsForm({
     }
 
     if (selectedId === "new") {
+      // Match CreateTransportModal: kit-aware settle (buckets amend; unbilled = shells).
+      if (settlePayload.hasSettleWork) {
+        payload.settle_approval_items = settlePayload.approvalItems;
+        payload.settle_rest_items = settlePayload.settledRestItems;
+      }
       await onCreate(payload);
     } else {
       await onSave(selectedId, payload);

@@ -177,14 +177,24 @@ async function patch(id, patchBody, user) {
   }
 
   if (Array.isArray(patch.return_items)) {
-    doc.return_items = patch.return_items.map(item => ({
-      product: item.product,
-      returned_quantity: item.returned_quantity,
-      return_reason: item.return_reason || '',
-      remarks: item.remarks || '',
-      expiry_type: item.expiry_type || 'other',
-      expiry_date: item.expiry_date ? new Date(item.expiry_date) : undefined,
-    }));
+    const isSuperAdmin = String(user?.department || '').toLowerCase() === 'super_admin';
+    if (!isSuperAdmin) {
+      throw new ApiError(403, 'Only super_admin can edit return items');
+    }
+    doc.return_items = patch.return_items
+      .map((item) => ({
+        product: item?.product?._id || item?.product,
+        returned_quantity: Number(item?.returned_quantity || 0),
+        return_reason: item?.return_reason || '',
+        remarks: item?.remarks || '',
+        expiry_type: item?.expiry_type || 'other',
+        expiry_date: item?.expiry_date ? new Date(item.expiry_date) : undefined,
+      }))
+      .filter((item) => item.product && item.returned_quantity >= 1);
+    if (doc.return_items.length === 0) {
+      throw new ApiError(400, 'At least one return item with quantity 1 or more is required');
+    }
+    doc.markModified('return_items');
   }
 
   await doc.save();
@@ -196,6 +206,17 @@ async function patch(id, patchBody, user) {
     action: 'updated',
     message: `Return record ${doc.return_no} updated`,
   });
+
+  try {
+    const fulfillmentService = require('../orders/orderFulfillment.service');
+    const orderId = String(doc.order);
+    await fulfillmentService.syncOrderLineReturnedQuantitiesFromReturns(orderId);
+    await fulfillmentService.syncDispatchDeliveredQuantities(orderId);
+  } catch (syncErr) {
+    require('../../config/logger').logger.warn(
+      `[orderReturn.patch] quantity sync failed: ${syncErr.message}`,
+    );
+  }
 
   return toPlain(doc.toObject());
 }

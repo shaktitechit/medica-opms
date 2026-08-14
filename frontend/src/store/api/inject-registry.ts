@@ -29,6 +29,7 @@ import "./slices/productGroupsApi";
 import "./slices/productSubgroupsApi";
 import "./slices/productBrandsApi";
 import "./slices/productManufacturersApi";
+import "./slices/productKitItemsApi";
 import "./slices/transportApi";
 import "./slices/usersApi";
 import "./slices/vehiclesApi";

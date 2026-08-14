@@ -152,9 +152,9 @@ function alignWorkflowStagesFromStatus(doc) {
       break;
     case 'finance_approved':
       doc.lifecycle_status = 'active';
-      doc.workflow_stage = 'dispatch';
-      doc.pending_with_role = 'dispatch';
-      doc.current_department = 'dispatch';
+      doc.workflow_stage = 'account_review';
+      doc.pending_with_role = 'account';
+      doc.current_department = 'account';
       break;
     case 'finance_rejected':
       doc.lifecycle_status = 'active';

@@ -5,12 +5,21 @@ import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
 import {
   useCreateTransportMutation,
+  usePatchTransportMutation,
   useListDriversQuery,
   useListTransportAgentsQuery,
   useListVehiclesQuery,
+  useListOrderApprovalsQuery,
+  useResolvePartialDispatchReleaseMutation,
 } from "@/store/api";
 import { LargeModalBackdrop } from "@/components/portal/shared/LargeModalBackdrop";
 import { largeModalPanelScrollClass } from "@/components/portal/shared/modalLayout";
+import {
+  buildReleaseSettlePayload,
+  idFromRef,
+  type AccountResolvePreviewRow,
+} from "../accountDispatchAvailability";
+import { isKitShellDispatchSource } from "../dispatchKitDisplay";
 
 /** Optional prefills (e.g. from a transport plan). */
 export type CreateTransportFormDefaults = {
@@ -36,11 +45,16 @@ type CreateTransportModalProps = {
   transports?: any[];
   expectedDeliveryDate?: string;
   shippingAddress?: any;
+  /** Finance / account approvals used for kit-aware auto-settle on create. */
+  approvals?: Record<string, unknown>[];
+  orderItems?: Record<string, unknown>[];
   /** @deprecated Prefer `formDefaults.transportAgentId` */
   defaultTransportAgentId?: string;
   formDefaults?: CreateTransportFormDefaults;
   /** When true, transport agent select input is locked/disabled. */
   disableTransportAgent?: boolean;
+  /** When set, modal patches this shipment instead of creating. */
+  editingTransport?: Record<string, unknown> | null;
   onCreated?: () => void;
 };
 
@@ -72,6 +86,14 @@ function pickList(raw: unknown): Record<string, unknown>[] {
   return [];
 }
 
+function isKitHeaderSettleRow(row: AccountResolvePreviewRow): boolean {
+  return Boolean(row.isKitParent) || row.orderItemId.startsWith("__kit__");
+}
+
+function isSettleQtyRow(row: AccountResolvePreviewRow): boolean {
+  return !isKitHeaderSettleRow(row);
+}
+
 function optionalWholeNumber(value: string): number | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
@@ -80,14 +102,18 @@ function optionalWholeNumber(value: string): number | undefined {
   return Math.floor(n);
 }
 
-function sumDispatchItemQuantities(dispatch: Record<string, unknown>): number {
+function sumDispatchItemQuantities(
+  dispatch: Record<string, unknown>,
+  orderItems: Record<string, unknown>[] = [],
+): number {
   const items = Array.isArray(dispatch.dispatch_items)
-    ? dispatch.dispatch_items
+    ? (dispatch.dispatch_items as Record<string, unknown>[])
     : Array.isArray(dispatch.items)
-      ? dispatch.items
+      ? (dispatch.items as Record<string, unknown>[])
       : [];
-  return items.reduce((sum, item) => {
-    const row = item as Record<string, unknown>;
+  return items.reduce((sum, row) => {
+    // Kit shells are commercial-only — qty lives on kit bucket lines.
+    if (isKitShellDispatchSource(row, items, orderItems)) return sum;
     return sum + Number(row.dispatched_quantity ?? row.dispatch_quantity ?? 0);
   }, 0);
 }
@@ -101,9 +127,12 @@ export function CreateTransportModal({
   transports = [],
   expectedDeliveryDate,
   shippingAddress,
+  approvals = [],
+  orderItems = [],
   defaultTransportAgentId,
   formDefaults,
   disableTransportAgent = false,
+  editingTransport = null,
   onCreated,
 }: CreateTransportModalProps) {
   const [transportAgentId, setTransportAgentId] = useState("");
@@ -130,6 +159,28 @@ export function CreateTransportModal({
   const [totalQuantity, setTotalQuantity] = useState("");
 
   const [createTransport, { isLoading: isCreatingTransport }] = useCreateTransportMutation();
+  const [patchTransport, { isLoading: isPatchingTransport }] = usePatchTransportMutation();
+  const [resolvePartialDispatchRelease, { isLoading: isSettlingRelease }] =
+    useResolvePartialDispatchReleaseMutation();
+  const isSavingTransport =
+    isCreatingTransport || isPatchingTransport || isSettlingRelease;
+  const isEditMode = Boolean(editingTransport);
+  const editingTransportId = editingTransport
+    ? idFromRef(editingTransport._id ?? editingTransport.id)
+    : "";
+
+  // Self-fetch approvals so settle summary/work on edit does not depend on parent props.
+  const approvalsQ = useListOrderApprovalsQuery(
+    { order: orderId },
+    { skip: !orderId || !open },
+  );
+  const resolvedApprovals = useMemo(() => {
+    const fromQuery = pickList(approvalsQ.data);
+    if (fromQuery.length > 0) return fromQuery;
+    return approvals;
+  }, [approvalsQ.data, approvals]);
+  const resolvedDispatchId =
+    dispatchId || idFromRef(editingTransport?.dispatch);
   const transportAgentsQ = useListTransportAgentsQuery(
     { is_active: "true" },
     { skip: !open },
@@ -157,6 +208,7 @@ export function CreateTransportModal({
     selectedTransportAgent?.agent_type ?? "third_party",
   );
   const isInternalFleet = transportAgentType === "internal_fleet";
+  const isLrNumberRequired = selectedTransportAgent?.lr_number_required === true;
 
   const filteredVehicles = useMemo(() => {
     if (!transportAgentId) return [];
@@ -181,6 +233,42 @@ export function CreateTransportModal({
       return aid === transportAgentId;
     });
   }, [drivers, transportAgentId]);
+
+  useEffect(() => {
+    if (!open || !isEditMode || !isInternalFleet) return;
+    const vNo = optionalString(
+      editingTransport?.vehicle_number ?? editingTransport?.vehicle_no,
+    );
+    if (vNo && !vehicleId) {
+      const match = filteredVehicles.find(
+        (v: any) => String(v.vehicle_no ?? "") === vNo,
+      );
+      if (match) setVehicleId(idFromRef(match._id ?? match.id));
+    }
+    const dName = optionalString(editingTransport?.driver_name);
+    const dPhone = optionalString(
+      editingTransport?.driver_mobile ?? editingTransport?.driver_phone,
+    );
+    if ((dName || dPhone) && !driverId) {
+      const match = filteredDrivers.find((d: any) => {
+        const nameMatch = dName && String(d.name ?? "") === dName;
+        const phoneMatch =
+          dPhone &&
+          (String(d.phone ?? "") === dPhone || String(d.mobile ?? "") === dPhone);
+        return Boolean(nameMatch || phoneMatch);
+      });
+      if (match) setDriverId(idFromRef(match._id ?? match.id));
+    }
+  }, [
+    open,
+    isEditMode,
+    isInternalFleet,
+    editingTransport,
+    filteredVehicles,
+    filteredDrivers,
+    vehicleId,
+    driverId,
+  ]);
 
   const resetForm = useCallback(() => {
     setTransportAgentId("");
@@ -212,9 +300,45 @@ export function CreateTransportModal({
     onClose();
   }, [onClose, resetForm]);
 
-  // Prefill once whenever the modal opens (plan / order defaults).
+  // Prefill once whenever the modal opens (edit snapshot, or plan / order defaults).
   useEffect(() => {
     if (!open) return;
+
+    if (editingTransport) {
+      setTransportAgentId(idFromRef(editingTransport.transport_agent));
+      setTransporterName(optionalString(editingTransport.transporter_name));
+      setTransporterPhone(optionalString(editingTransport.transporter_phone));
+      setVehicleId("");
+      setDriverId("");
+      setVehicleNo(
+        optionalString(
+          editingTransport.vehicle_number ?? editingTransport.vehicle_no,
+        ),
+      );
+      setDriverName(optionalString(editingTransport.driver_name));
+      setDriverPhone(
+        optionalString(
+          editingTransport.driver_mobile ?? editingTransport.driver_phone,
+        ),
+      );
+      setSourceLocation(optionalString(editingTransport.source_location));
+      setDestinationLocation(optionalString(editingTransport.destination_location));
+      setRouteDetails(optionalString(editingTransport.route_details));
+      setTransportDispatchDate(toDateInputValue(editingTransport.dispatch_date));
+      setExpectedDelivDate(
+        toDateInputValue(editingTransport.expected_delivery_date),
+      );
+      setTransportRemarks(optionalString(editingTransport.remarks));
+      setLrNumber(optionalString(editingTransport.lr_number));
+      setEwayBillNo(optionalString(editingTransport.eway_bill_no));
+      setTrackingNumber(optionalString(editingTransport.tracking_number));
+      setWeight(optionalString(editingTransport.weight));
+      setWeightUnit(optionalString(editingTransport.weight_unit) || "Kg");
+      setPackedBoxes(optionalString(editingTransport.packed_boxes));
+      setOpenBoxes(optionalString(editingTransport.open_boxes));
+      setTotalQuantity(optionalString(editingTransport.total_quantity));
+      return;
+    }
 
     const agentId =
       formDefaults?.transportAgentId || defaultTransportAgentId || "";
@@ -260,12 +384,12 @@ export function CreateTransportModal({
       if (dest) setDestinationLocation(dest);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- apply snapshot of defaults when modal opens
-  }, [open]);
+  }, [open, editingTransport]);
 
   useEffect(() => {
-    if (!open || !dispatchId) return;
+    if (!open || !resolvedDispatchId || isEditMode) return;
 
-    const disp = dispatches.find((d: any) => String(d._id ?? d.id) === dispatchId);
+    const disp = dispatches.find((d: any) => String(d._id ?? d.id) === resolvedDispatchId);
     if (!disp) return;
 
     setSourceLocation((prev) => {
@@ -287,28 +411,94 @@ export function CreateTransportModal({
 
     setTotalQuantity((prev) => {
       if (prev.trim()) return prev;
-      const qtyTotal = sumDispatchItemQuantities(disp as Record<string, unknown>);
+      const qtyTotal = sumDispatchItemQuantities(
+        disp as Record<string, unknown>,
+        orderItems,
+      );
       return qtyTotal > 0 ? String(qtyTotal) : prev;
     });
-  }, [open, dispatchId, dispatches]);
+  }, [open, resolvedDispatchId, dispatches, orderItems, isEditMode]);
+
+  const releaseApproval = useMemo(() => {
+    if (!resolvedDispatchId) return null;
+    const disp = dispatches.find(
+      (d: any) => String(d._id ?? d.id) === resolvedDispatchId,
+    ) as Record<string, unknown> | undefined;
+    if (!disp) return null;
+    const approvalRef = disp.finance_approval;
+    const approvalId =
+      typeof approvalRef === "object" && approvalRef !== null
+        ? idFromRef(
+            (approvalRef as Record<string, unknown>)._id ??
+              (approvalRef as Record<string, unknown>).id,
+          )
+        : idFromRef(approvalRef);
+    if (!approvalId) return null;
+    return (
+      resolvedApprovals.find(
+        (a) => idFromRef(a._id ?? a.id) === approvalId,
+      ) ?? null
+    );
+  }, [resolvedDispatchId, dispatches, resolvedApprovals]);
+
+  const settlePayload = useMemo(
+    () =>
+      buildReleaseSettlePayload(
+        releaseApproval,
+        orderItems,
+        dispatches as Record<string, unknown>[],
+      ),
+    [releaseApproval, orderItems, dispatches],
+  );
+
+  const settleTotals = useMemo(() => {
+    return settlePayload.settleRows.reduce(
+      (acc, row) => {
+        if (!isSettleQtyRow(row)) return acc;
+        acc.remainingClearance += row.remainingClearance;
+        acc.settledReturnsQty += row.settledReturnsQty;
+        acc.removedQty += row.removedQty;
+        acc.settledQty += row.settledQty;
+        acc.clearedQty += row.clearedQty;
+        acc.dispatchedQty += row.dispatchedQty;
+        return acc;
+      },
+      {
+        remainingClearance: 0,
+        settledReturnsQty: 0,
+        removedQty: 0,
+        settledQty: 0,
+        clearedQty: 0,
+        dispatchedQty: 0,
+      },
+    );
+  }, [settlePayload.settleRows]);
+
+  const settleHasReturns = useMemo(
+    () =>
+      settlePayload.settleRows.some(
+        (row) => isSettleQtyRow(row) && row.settledReturnsQty > 0,
+      ),
+    [settlePayload.settleRows],
+  );
 
   const hasSelectedDispatchTransport = useMemo(() => {
-    if (!dispatchId) return false;
+    if (isEditMode || !resolvedDispatchId) return false;
     return transports.some((tr: any) => {
       const trDispatchId =
         typeof tr.dispatch === "object" && tr.dispatch !== null
           ? String(tr.dispatch._id ?? tr.dispatch.id ?? "")
           : String(tr.dispatch ?? "");
       const isReturned = String(tr.shipment_status ?? tr.status ?? "") === "returned";
-      return trDispatchId === dispatchId && !isReturned;
+      return trDispatchId === resolvedDispatchId && !isReturned;
     });
-  }, [dispatchId, transports]);
+  }, [isEditMode, resolvedDispatchId, transports]);
 
   const handleCreateTransport = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       if (!orderId) return;
-      if (!dispatchId) {
+      if (!resolvedDispatchId) {
         toast.error("Please select a dispatch reference.");
         return;
       }
@@ -316,15 +506,15 @@ export function CreateTransportModal({
         toast.error("Please select a transport agent.");
         return;
       }
-      if (!lrNumber.trim()) {
-        toast.error("LR number is required.");
+      if (isLrNumberRequired && !lrNumber.trim()) {
+        toast.error("LR number is required for this transport agent.");
         return;
       }
 
       try {
         const payload: Record<string, any> = {
           order: orderId,
-          dispatch: dispatchId,
+          dispatch: resolvedDispatchId,
           transport_agent: transportAgentId,
           transporter_type: isInternalFleet ? "internal" : "external",
           transporter_name:
@@ -352,6 +542,17 @@ export function CreateTransportModal({
           packed_boxes: optionalWholeNumber(packedBoxes),
           open_boxes: optionalWholeNumber(openBoxes),
           total_quantity: optionalWholeNumber(totalQuantity),
+          // Kit-aware settle on create and edit: buckets amend order/approval;
+          // unbilled gets kit shells (+ individuals) only.
+          ...(settlePayload.hasSettleWork
+            ? {
+                settle_approval_items: settlePayload.approvalItems,
+                settle_rest_items: settlePayload.settledRestItems,
+                settle_amendment_notes: isEditMode
+                  ? "Auto-settled when transport was updated — remaining clearance moved to Unbilled Order"
+                  : "Auto-settled when transport was created — remaining clearance moved to Unbilled Order",
+              }
+            : {}),
         };
 
         if (isInternalFleet) {
@@ -403,11 +604,83 @@ export function CreateTransportModal({
           }
         }
 
-        await createTransport(payload).unwrap();
+        let settledOnSave = false;
+        if (isEditMode) {
+          if (!editingTransportId) return;
+          // Keep dispatch on patch so backend settle can resolve the release.
+          const { order: _order, ...patch } = payload;
+          await patchTransport({ id: editingTransportId, patch }).unwrap();
+        } else {
+          await createTransport(payload).unwrap();
+          // Create path auto-settles in transport.service; treat client settle work as done.
+          settledOnSave = settlePayload.hasSettleWork;
+        }
 
-        toast.success(
-          "Transport recorded — remaining clearance settled to Unbilled Order.",
-        );
+        // Edit must settle explicitly — backend auto-settle was silently skipping/failing.
+        const dispatchForSettle = dispatches.find(
+          (d: any) => String(d._id ?? d.id) === resolvedDispatchId,
+        ) as Record<string, unknown> | undefined;
+        const approvalRef = dispatchForSettle?.finance_approval;
+        const approvalIdForSettle =
+          (releaseApproval
+            ? idFromRef(releaseApproval._id ?? releaseApproval.id)
+            : "") ||
+          (typeof approvalRef === "object" && approvalRef !== null
+            ? idFromRef(
+                (approvalRef as Record<string, unknown>)._id ??
+                  (approvalRef as Record<string, unknown>).id,
+              )
+            : idFromRef(approvalRef));
+
+        if (isEditMode && approvalIdForSettle) {
+          try {
+            await resolvePartialDispatchRelease({
+              id: approvalIdForSettle,
+              body: {
+                amendment_notes:
+                  "Settled when transport was updated — remaining clearance moved to Unbilled Order",
+                ...(settlePayload.hasSettleWork
+                  ? {
+                      approval_items: settlePayload.approvalItems,
+                      settled_rest_items: settlePayload.settledRestItems,
+                    }
+                  : {}),
+              },
+            }).unwrap();
+            settledOnSave = true;
+          } catch (settleErr) {
+            const settleMsg = mutationRejectedMessage(settleErr);
+            // Nothing left to settle / already done — transport save still succeeded.
+            if (
+              /already been resolved|no remaining clearance|no remaining/i.test(
+                settleMsg,
+              )
+            ) {
+              settledOnSave = settlePayload.hasSettleWork;
+            } else {
+              toast.error(
+                `Transport saved, but settle & unbilled failed: ${settleMsg}`,
+              );
+              handleClose();
+              onCreated?.();
+              return;
+            }
+          }
+        }
+
+        if (settledOnSave) {
+          toast.success(
+            settlePayload.unbilledUnits > 0
+              ? `Transport ${isEditMode ? "updated" : "recorded"} — settled to Unbilled Order (${settlePayload.unbilledUnits} unit${settlePayload.unbilledUnits === 1 ? "" : "s"}; kit shells only for kits).`
+              : `Transport ${isEditMode ? "updated" : "recorded"} — remaining clearance settled on approval/order.`,
+          );
+        } else {
+          toast.success(
+            isEditMode
+              ? "Transport updated successfully."
+              : "Transport recorded successfully.",
+          );
+        }
         handleClose();
         onCreated?.();
       } catch (err) {
@@ -416,9 +689,10 @@ export function CreateTransportModal({
     },
     [
       orderId,
-      dispatchId,
+      resolvedDispatchId,
       transportAgentId,
       isInternalFleet,
+      isLrNumberRequired,
       selectedTransportAgent,
       sourceLocation,
       destinationLocation,
@@ -444,8 +718,15 @@ export function CreateTransportModal({
       vehicles,
       drivers,
       createTransport,
+      patchTransport,
+      resolvePartialDispatchRelease,
+      releaseApproval,
+      dispatches,
+      isEditMode,
+      editingTransportId,
       handleClose,
       onCreated,
+      settlePayload,
     ],
   );
 
@@ -457,7 +738,7 @@ export function CreateTransportModal({
         <div className="flex flex-col gap-1.5 border-b border-slate-100 pb-3 dark:border-white/5">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 font-sans">
-              Plan & Transport Details
+              {isEditMode ? "Edit Transport Details" : "Plan & Transport Details"}
             </h3>
             <button
               type="button"
@@ -476,13 +757,196 @@ export function CreateTransportModal({
             </button>
           </div>
           <div className="flex flex-col gap-1 text-xs font-sans text-slate-500 dark:text-slate-400">
-            <span>Configure transport details for this shipment dispatch batch.</span>
             <span>
-              Creating transport will also settle any remaining clearance on this release
-              (approval + order) and move the rest to the Unbilled Order.
+              {isEditMode
+                ? "Update transporter, vehicle, driver, and shipment details for this transport."
+                : "Configure transport details for this shipment dispatch batch."}
             </span>
           </div>
         </div>
+
+        {releaseApproval ? (
+          <div className="mt-4 space-y-3 rounded-xl border border-indigo-200/80 bg-indigo-50/50 p-4 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+            <div>
+              <h4 className="text-sm font-bold text-indigo-950 dark:text-indigo-100">
+                Settlement & Unbilled summary
+              </h4>
+              <p className="mt-0.5 text-xs text-indigo-800/80 dark:text-indigo-200/80">
+                {isEditMode ? "Saving this transport" : "Creating transport"} will
+                settle remaining clearance on release{" "}
+                <span className="font-semibold">
+                  {String(releaseApproval.approval_no ?? "—")}
+                </span>
+                . Kit buckets stay on the order; kit shells and individuals move to
+                Unbilled Order.
+              </p>
+            </div>
+
+            {settlePayload.hasSettleWork ? (
+              <>
+                <div className="grid gap-2 sm:grid-cols-4 text-xs font-sans">
+                  <div className="rounded-lg border border-indigo-200/60 bg-white/70 px-3 py-2 dark:border-indigo-900/30 dark:bg-slate-950/40">
+                    <div className="text-2xs font-semibold uppercase tracking-wide text-slate-500">
+                      Cleared
+                    </div>
+                    <div className="mt-0.5 text-sm font-bold tabular-nums text-slate-900 dark:text-slate-50">
+                      {settleTotals.clearedQty}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-indigo-200/60 bg-white/70 px-3 py-2 dark:border-indigo-900/30 dark:bg-slate-950/40">
+                    <div className="text-2xs font-semibold uppercase tracking-wide text-slate-500">
+                      Dispatched
+                    </div>
+                    <div className="mt-0.5 text-sm font-bold tabular-nums text-blue-600 dark:text-blue-400">
+                      {settleTotals.dispatchedQty}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-indigo-200/60 bg-white/70 px-3 py-2 dark:border-indigo-900/30 dark:bg-slate-950/40">
+                    <div className="text-2xs font-semibold uppercase tracking-wide text-slate-500">
+                      After settle
+                    </div>
+                    <div className="mt-0.5 text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                      {settleTotals.settledQty}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-indigo-200/60 bg-white/70 px-3 py-2 dark:border-indigo-900/30 dark:bg-slate-950/40">
+                    <div className="text-2xs font-semibold uppercase tracking-wide text-slate-500">
+                      To unbilled
+                    </div>
+                    <div className="mt-0.5 text-sm font-bold tabular-nums text-indigo-600 dark:text-indigo-300">
+                      {settlePayload.unbilledUnits}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto rounded-lg border border-indigo-200/70 bg-white dark:border-indigo-900/40 dark:bg-slate-950">
+                  <table className="w-full min-w-[720px] text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-500 font-medium dark:bg-slate-900">
+                      <tr>
+                        <th className="px-3 py-2">Product</th>
+                        <th className="px-3 py-2 text-center">Cleared</th>
+                        <th className="px-3 py-2 text-center">Dispatched</th>
+                        {settleHasReturns ? (
+                          <th className="px-3 py-2 text-center text-rose-600 dark:text-rose-400">
+                            Returned
+                          </th>
+                        ) : null}
+                        <th className="px-3 py-2 text-center">Remaining</th>
+                        <th className="px-3 py-2 text-center text-emerald-700 dark:text-emerald-300">
+                          After settle
+                        </th>
+                        <th className="px-3 py-2 text-center text-indigo-600 dark:text-indigo-400">
+                          To unbilled
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                      {settlePayload.settleRows.map((row) => {
+                        const isKitParent = isKitHeaderSettleRow(row);
+                        const isBucket = Boolean(row.isKitBucket);
+                        return (
+                          <tr
+                            key={row.orderItemId}
+                            className={
+                              isBucket
+                                ? "bg-slate-50/80 dark:bg-slate-950/60"
+                                : isKitParent
+                                  ? "bg-violet-50/40 dark:bg-violet-950/20"
+                                  : "bg-white dark:bg-slate-900"
+                            }
+                          >
+                            <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                              <div
+                                className={
+                                  isBucket
+                                    ? "ml-3 border-l-2 border-violet-300 pl-2 dark:border-violet-700"
+                                    : undefined
+                                }
+                              >
+                                <div>
+                                  {row.productName}
+                                  {isKitParent ? (
+                                    <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                      KIT
+                                    </span>
+                                  ) : null}
+                                  {isBucket ? (
+                                    <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                      KIT BUCKET
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {row.sku ? (
+                                  <div className="mt-0.5 font-mono text-2xs font-normal text-slate-500 dark:text-slate-400">
+                                    {row.sku}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-center tabular-nums">
+                              {row.clearedQty}
+                            </td>
+                            <td className="px-3 py-2 text-center tabular-nums text-blue-600 dark:text-blue-400">
+                              {row.dispatchedQty}
+                            </td>
+                            {settleHasReturns ? (
+                              <td className="px-3 py-2 text-center tabular-nums text-rose-600 dark:text-rose-400">
+                                {row.settledReturnsQty > 0
+                                  ? row.settledReturnsQty
+                                  : "—"}
+                              </td>
+                            ) : null}
+                            <td className="px-3 py-2 text-center tabular-nums text-amber-700 dark:text-amber-300">
+                              {isBucket ? "—" : row.remainingClearance}
+                            </td>
+                            <td className="px-3 py-2 text-center tabular-nums font-semibold text-emerald-700 dark:text-emerald-300">
+                              {row.settledQty}
+                            </td>
+                            <td className="px-3 py-2 text-center tabular-nums font-semibold text-indigo-600 dark:text-indigo-400">
+                              {isBucket ? "—" : row.removedQty}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-slate-50/80 text-xs font-semibold dark:bg-slate-900/80">
+                      <tr>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
+                          Total
+                        </td>
+                        <td className="px-3 py-2 text-center tabular-nums">
+                          {settleTotals.clearedQty}
+                        </td>
+                        <td className="px-3 py-2 text-center tabular-nums text-blue-600 dark:text-blue-400">
+                          {settleTotals.dispatchedQty}
+                        </td>
+                        {settleHasReturns ? (
+                          <td className="px-3 py-2 text-center tabular-nums text-rose-600 dark:text-rose-400">
+                            {settleTotals.settledReturnsQty}
+                          </td>
+                        ) : null}
+                        <td className="px-3 py-2 text-center tabular-nums text-amber-700 dark:text-amber-300">
+                          {settleTotals.remainingClearance}
+                        </td>
+                        <td className="px-3 py-2 text-center tabular-nums text-emerald-700 dark:text-emerald-300">
+                          {settleTotals.settledQty}
+                        </td>
+                        <td className="px-3 py-2 text-center tabular-nums text-indigo-600 dark:text-indigo-400">
+                          {settlePayload.unbilledUnits}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-indigo-800/90 dark:text-indigo-200/90">
+                No remaining clearance to settle on this release — saving transport
+                will not change Unbilled Order quantities.
+              </p>
+            )}
+          </div>
+        ) : null}
 
         {dispatches.length === 0 ? (
           <div className="mt-4 p-4 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-955/20 dark:border-amber-900/30 text-amber-800 dark:text-amber-300 text-sm font-sans">
@@ -498,7 +962,7 @@ export function CreateTransportModal({
                 </label>
                 <select
                   id="transport-dispatch-ref"
-                  value={dispatchId}
+                  value={resolvedDispatchId}
                   className={`${inputClass} bg-slate-50/50 dark:bg-slate-900/50 cursor-not-allowed opacity-90`}
                   disabled
                   required
@@ -724,7 +1188,7 @@ export function CreateTransportModal({
             <div className="grid gap-4 sm:grid-cols-3 font-sans">
               <div className="space-y-1.5">
                 <label htmlFor="lr-number-input" className={labelClass}>
-                  LR Number *
+                  LR Number{isLrNumberRequired ? " *" : ""}
                 </label>
                 <input
                   id="lr-number-input"
@@ -733,6 +1197,7 @@ export function CreateTransportModal({
                   onChange={(e) => setLrNumber(e.target.value)}
                   className={inputClass}
                   placeholder="LR Shipment Number"
+                  required={isLrNumberRequired}
                 />
               </div>
               <div className="space-y-1.5">
@@ -942,22 +1407,26 @@ export function CreateTransportModal({
                   type="button"
                   onClick={handleClose}
                   className={btnSecondaryClass}
-                  disabled={isCreatingTransport}
+                  disabled={isSavingTransport}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={
-                    isCreatingTransport || hasSelectedDispatchTransport
+                    isSavingTransport || hasSelectedDispatchTransport
                   }
                   className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
                 >
-                  {isCreatingTransport
-                    ? "Planning Transport..."
-                    : hasSelectedDispatchTransport
-                      ? "Transport Created"
-                      : "Plan & Transport"}
+                  {isSavingTransport
+                    ? isEditMode
+                      ? "Saving Transport..."
+                      : "Planning Transport..."
+                    : isEditMode
+                      ? "Save Transport"
+                      : hasSelectedDispatchTransport
+                        ? "Transport Created"
+                        : "Plan & Transport"}
                 </button>
               </div>
             </div>

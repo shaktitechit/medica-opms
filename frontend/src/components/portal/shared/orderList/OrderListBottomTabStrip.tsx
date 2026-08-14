@@ -137,8 +137,8 @@ export function OrderListBottomTabStrip({
             className="cursor-pointer rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100"
           >
             {filterOptions ? (
-              filterOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
+              filterOptions.map((opt, i) => (
+                <option key={`${opt.value}:${i}`} value={opt.value}>
                   {opt.label}
                 </option>
               ))

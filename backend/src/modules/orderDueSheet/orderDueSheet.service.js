@@ -16,8 +16,119 @@ const {
   DUE_SHEET_STATUS_VALUES,
   normalizeDueSheetStatus,
 } = require('./orderDueSheet.constants');
+const {
+  findOrderIdsWithFinancePending,
+} = require('../orders/orderApprovalPending.util');
+const {
+  ORDER_STATUS,
+  ORDER_WORKFLOW_STAGE,
+} = require('../orders/order.constants');
 
 const SHEET_NF = 'Order due sheet not found';
+
+function formatEmailDate(value) {
+  if (!value) return 'N/A';
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return 'N/A';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function priorityBadgeHtml(priority) {
+  const upper = String(priority || 'normal').toUpperCase();
+  const cls =
+    upper === 'URGENT'
+      ? 'badge-priority-urgent'
+      : upper === 'HIGH'
+        ? 'badge-priority-high'
+        : 'badge-priority-normal';
+  return `<span class="${cls}">${upper}</span>`;
+}
+
+function isFinanceReviewOrder(orderDoc) {
+  if (!orderDoc) return false;
+  return (
+    orderDoc.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW
+    || orderDoc.status === ORDER_STATUS.FINANCE_REVIEW
+  );
+}
+
+/**
+ * After due sheet upload: notify finance for orders in finance review
+ * with OrderApproval.is_due_sheet_uploaded = true.
+ */
+async function shootFinanceApprovalPendingEmail(orderId) {
+  const { Order, Party } = getModels();
+  const autoEmailService = require('../autoEmails/autoEmail.service');
+  const { EMAIL_TEMPLATES } = require('../messages/templates/emails/emailTemplates.registry');
+
+  const orderDoc = await Order.findOne({ _id: orderId, deletedAt: null }).lean();
+  if (!orderDoc || !isFinanceReviewOrder(orderDoc)) return;
+
+  const partyDoc = orderDoc.party ? await Party.findById(orderDoc.party).lean() : null;
+  const customerName = partyDoc?.party_name || orderDoc.customer_name || 'N/A';
+  const orderNo = orderDoc.order_no || String(orderId);
+  const orderDate = formatEmailDate(orderDoc.order_date);
+  const expectedDeliveryDate = formatEmailDate(orderDoc.expected_delivery_date);
+  const companyName = process.env.COMPANY_NAME || 'Medica Enterprises';
+  const year = new Date().getFullYear();
+  const customEmail =
+    process.env.ADMIN_EMAIL || process.env.SMTP_FROM || 'it@spspl.com';
+  const financeEmail =
+    process.env.FINANCE_EMAIL || process.env.SMTP_FROM || customEmail;
+
+  const financePendingIds = await findOrderIdsWithFinancePending(getModels());
+  const otherIds = financePendingIds.filter((id) => String(id) !== String(orderId));
+  const pendingDocs = await Order.find({
+    _id: { $in: otherIds },
+    deletedAt: null,
+  })
+    .populate('party')
+    .sort({ order_date: -1 })
+    .limit(5)
+    .lean();
+
+  let pendingOrdersRows = pendingDocs
+    .map((p, idx) => {
+      const pOrderNo = p.order_no || String(p._id);
+      const pCustName = p.party?.party_name || p.customer_name || 'N/A';
+      return `<tr>
+      <td class="text-center">${idx + 1}</td>
+      <td class="font-semibold" style="color: #1e40af;">#${pOrderNo}</td>
+      <td>${pCustName}</td>
+      <td class="text-center">${formatEmailDate(p.order_date)}</td>
+      <td class="text-center">${formatEmailDate(p.expected_delivery_date)}</td>
+      <td class="text-center">${priorityBadgeHtml(p.priority)}</td>
+    </tr>`;
+    })
+    .join('\n');
+
+  if (!pendingOrdersRows) {
+    pendingOrdersRows = `<tr><td colspan="6" class="text-center" style="padding: 12px; color: #64748b;">No other orders currently pending finance approval.</td></tr>`;
+  }
+
+  const totalPendingCount = financePendingIds.includes(String(orderId))
+    ? financePendingIds.length
+    : financePendingIds.length + 1;
+
+  await autoEmailService.shootAutoEmail({
+    recipient: financeEmail,
+    templateName: EMAIL_TEMPLATES.FINANCE_APPROVAL_PENDING,
+    templateParams: {
+      recipient: financeEmail,
+      subject: `Action Required: Finance Approval Pending for Order #${orderNo}`,
+      companyName,
+      financePersonName: 'Finance Team',
+      orderNo,
+      customerName,
+      orderDate,
+      expectedDeliveryDate,
+      priorityBadge: priorityBadgeHtml(orderDoc.priority),
+      totalPendingCount,
+      pendingOrdersRows,
+      year,
+    },
+  });
+}
 
 function dueSheetQuery() {
   return getModels().OrderDueSheet.find()
@@ -84,6 +195,16 @@ async function supersedePreviousCurrentSheets(orderId, excludeId = null) {
       status: DUE_SHEET_STATUS.SUPERSEDED,
     },
   });
+}
+
+/** Mark related OrderApproval rows when a current due sheet exists for the order. */
+async function markOrderApprovalDueSheetUploaded(orderId) {
+  if (!orderId) return;
+  const { OrderApproval } = getModels();
+  await OrderApproval.updateMany(
+    { order: orderId, deletedAt: null },
+    { $set: { is_due_sheet_uploaded: true } },
+  );
 }
 
 async function list({ order, status, is_current } = {}) {
@@ -176,6 +297,21 @@ async function create(body, user, options = {}) {
     { $set: { entity_id: String(doc._id) } },
   );
 
+  if (isCurrent && doc.status === DUE_SHEET_STATUS.ACTIVE) {
+    await markOrderApprovalDueSheetUploaded(body.order);
+    try {
+      await shootFinanceApprovalPendingEmail(body.order);
+    } catch (_emailErr) {
+      const { logger } = require('../../config/logger');
+      if (logger) {
+        logger.error(
+          `[orderDueSheet.create] Error queuing finance approval pending email for order ${body.order}: ${_emailErr?.message}`,
+          { error: _emailErr },
+        );
+      }
+    }
+  }
+
   await activityService.create({
     actor: user._id,
     entity_type: 'order_due_sheet',
@@ -220,6 +356,10 @@ async function patch(id, patchBody, user) {
   doc.updated_by = user._id;
   await doc.save();
 
+  if (doc.is_current && doc.status === DUE_SHEET_STATUS.ACTIVE) {
+    await markOrderApprovalDueSheetUploaded(doc.order);
+  }
+
   await activityService.create({
     actor: user._id,
     entity_type: 'order_due_sheet',
@@ -249,6 +389,10 @@ async function replaceDocument(id, file, user, body = {}) {
   if (body.sheet_date) doc.sheet_date = new Date(body.sheet_date);
   if (body.remarks !== undefined) doc.remarks = String(body.remarks || '');
   await doc.save();
+
+  if (doc.is_current && doc.status === DUE_SHEET_STATUS.ACTIVE) {
+    await markOrderApprovalDueSheetUploaded(doc.order);
+  }
 
   await activityService.create({
     actor: user._id,
@@ -295,6 +439,10 @@ async function restore(id, user) {
     notFoundMessage: SHEET_NF,
   });
   const plain = toPlain(doc.toObject());
+
+  if (doc.is_current && doc.status === DUE_SHEET_STATUS.ACTIVE) {
+    await markOrderApprovalDueSheetUploaded(doc.order);
+  }
 
   await activityService.create({
     actor: user._id,

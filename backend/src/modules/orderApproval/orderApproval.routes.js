@@ -28,7 +28,7 @@ router.post('/:id/finance-amend', requireDepartment('finance', 'super_admin'), c
 router.post('/:id/amend', requireDepartment('account', 'finance', 'admin', 'super_admin'), controller.amend);
 router.post(
   '/:id/resolve-dispatch',
-  requireDepartment('account', 'super_admin'),
+  requireDepartment('account', 'super_admin', 'dispatch'),
   controller.resolvePartialDispatch,
 );
 router.delete('/:id', requireDepartment('admin', 'super_admin', 'finance'), requireSoftDeletePermission, controller.softDelete);

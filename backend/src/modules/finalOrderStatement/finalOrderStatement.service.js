@@ -23,6 +23,117 @@ function refId(value) {
   return String(value);
 }
 
+function isKitBucketLine(line) {
+  return Boolean(refId(line.kit_parent_product));
+}
+
+function isKitShellLine(line, allLines = []) {
+  if (isKitBucketLine(line)) return false;
+  if (String(line.product_type || '').toLowerCase() === 'kit') return true;
+  const productId = refId(line.product);
+  if (!productId) return false;
+  return (allLines || []).some(
+    (other) => refId(other.kit_parent_product) === productId,
+  );
+}
+
+function buildLineStatement(line, allLines = []) {
+  const ordered = num(line.ordered_quantity ?? line.quantity);
+  const salesApproved = num(line.sales_approved_quantity);
+  const approved = num(line.approved_quantity);
+  const dispatched = num(line.dispatched_quantity);
+  const returned = num(line.returned_quantity);
+  const delivered = num(line.delivered_quantity);
+  const netDelivered = Math.max(0, delivered - returned);
+  const cancelled = num(line.cancelled_quantity);
+  const kitParentProduct = refId(line.kit_parent_product) || undefined;
+  const isKitBucket = Boolean(kitParentProduct);
+  const isKitShell = isKitShellLine(line, allLines);
+
+  // Amounts are settled on the net delivered quantity (delivered minus returns).
+  const unitPrice = num(line.unit_price);
+  const discountPercent = num(line.discount_percent);
+  const gstPercent = num(line.gst_percent);
+  const grossAmount = round2(netDelivered * unitPrice);
+  const discountAmount = round2((grossAmount * discountPercent) / 100);
+  const taxableAmount = round2(grossAmount - discountAmount);
+  const gstAmount = round2((taxableAmount * gstPercent) / 100);
+  const totalAmount = round2(taxableAmount + gstAmount);
+
+  return {
+    order_item_id: refId(line._id),
+    product: refId(line.product),
+    product_name: line.product_name || '',
+    sku: line.sku || '',
+    brand: line.brand || '',
+    unit: line.unit || '',
+    hsn_code: line.hsn_code || '',
+    product_type: line.product_type || '',
+    kit_parent_product: kitParentProduct,
+    is_kit_bucket: isKitBucket,
+    is_kit_shell: isKitShell,
+    gst_percent: num(line.gst_percent),
+    ordered_quantity: ordered,
+    sales_approved_quantity: salesApproved,
+    approved_quantity: approved,
+    dispatched_quantity: dispatched,
+    delivered_quantity: delivered,
+    returned_quantity: returned,
+    net_delivered_quantity: netDelivered,
+    cancelled_quantity: cancelled,
+    unit_price: unitPrice,
+    applied_rate_type: line.applied_rate_type || 'MANUAL',
+    discount_percent: discountPercent,
+    discount_amount: discountAmount,
+    gross_amount: grossAmount,
+    taxable_amount: taxableAmount,
+    gst_amount: gstAmount,
+    total_amount: totalAmount,
+    line_status: line.line_status || 'active',
+    remarks: line.remarks || '',
+  };
+}
+
+/** Nest kit buckets under kit shells; plain individuals stay flat. */
+function nestStatementLines(lines) {
+  const shells = [];
+  const individuals = [];
+  const bucketsByParent = new Map();
+
+  for (const line of lines) {
+    if (line.is_kit_bucket && line.kit_parent_product) {
+      const list = bucketsByParent.get(line.kit_parent_product) || [];
+      list.push(line);
+      bucketsByParent.set(line.kit_parent_product, list);
+      continue;
+    }
+    if (line.is_kit_shell) {
+      shells.push(line);
+      continue;
+    }
+    individuals.push(line);
+  }
+
+  const out = [];
+  const seenParents = new Set();
+
+  for (const shell of shells) {
+    const productId = String(shell.product || '');
+    out.push(shell);
+    seenParents.add(productId);
+    const buckets = bucketsByParent.get(productId) || [];
+    out.push(...buckets);
+  }
+
+  for (const [parentId, buckets] of bucketsByParent) {
+    if (seenParents.has(parentId)) continue;
+    out.push(...buckets);
+  }
+
+  out.push(...individuals);
+  return out;
+}
+
 function partySnapshot(party) {
   if (!party || typeof party !== 'object') return null;
   return {
@@ -47,59 +158,11 @@ function userSnapshot(user) {
   };
 }
 
-function buildLineStatement(line) {
-  const ordered = num(line.ordered_quantity ?? line.quantity);
-  const salesApproved = num(line.sales_approved_quantity);
-  const approved = num(line.approved_quantity);
-  const dispatched = num(line.dispatched_quantity);
-  const returned = num(line.returned_quantity);
-  const delivered = num(line.delivered_quantity);
-  const netDelivered = Math.max(0, delivered - returned);
-  const cancelled = num(line.cancelled_quantity);
-
-  // Amounts are settled on the net delivered quantity (delivered minus returns).
-  const unitPrice = num(line.unit_price);
-  const discountPercent = num(line.discount_percent);
-  const gstPercent = num(line.gst_percent);
-  const grossAmount = round2(netDelivered * unitPrice);
-  const discountAmount = round2((grossAmount * discountPercent) / 100);
-  const taxableAmount = round2(grossAmount - discountAmount);
-  const gstAmount = round2((taxableAmount * gstPercent) / 100);
-  const totalAmount = round2(taxableAmount + gstAmount);
-
-  return {
-    order_item_id: refId(line._id),
-    product: refId(line.product),
-    product_name: line.product_name || '',
-    sku: line.sku || '',
-    brand: line.brand || '',
-    unit: line.unit || '',
-    hsn_code: line.hsn_code || '',
-    gst_percent: num(line.gst_percent),
-    ordered_quantity: ordered,
-    sales_approved_quantity: salesApproved,
-    approved_quantity: approved,
-    dispatched_quantity: dispatched,
-    delivered_quantity: delivered,
-    returned_quantity: returned,
-    net_delivered_quantity: netDelivered,
-    cancelled_quantity: cancelled,
-    unit_price: unitPrice,
-    applied_rate_type: line.applied_rate_type || 'MANUAL',
-    discount_percent: discountPercent,
-    discount_amount: discountAmount,
-    gross_amount: grossAmount,
-    taxable_amount: taxableAmount,
-    gst_amount: gstAmount,
-    total_amount: totalAmount,
-    line_status: line.line_status || 'active',
-    remarks: line.remarks || '',
-  };
-}
-
 function buildQuantitySummary(lines) {
+  // Kit shells are commercial-only — qty KPIs come from buckets + individuals.
   return lines.reduce(
     (acc, line) => {
+      if (line.is_kit_shell) return acc;
       acc.ordered += line.ordered_quantity;
       acc.sales_approved += line.sales_approved_quantity;
       acc.approved += line.approved_quantity;
@@ -124,17 +187,19 @@ function buildQuantitySummary(lines) {
 }
 
 function buildFinancialSummary(order, lines) {
+  // Kit buckets are fulfillment-only — commercial amounts live on kit shells + individuals.
+  const moneyLines = lines.filter((line) => !line.is_kit_bucket);
   const subtotal = round2(
-    lines.reduce((sum, line) => sum + line.gross_amount, 0),
+    moneyLines.reduce((sum, line) => sum + line.gross_amount, 0),
   );
   const lineDiscountTotal = round2(
-    lines.reduce((sum, line) => sum + line.discount_amount, 0),
+    moneyLines.reduce((sum, line) => sum + line.discount_amount, 0),
   );
   const taxableAmount = round2(
-    lines.reduce((sum, line) => sum + line.taxable_amount, 0),
+    moneyLines.reduce((sum, line) => sum + line.taxable_amount, 0),
   );
   const gstAmount = round2(
-    lines.reduce((sum, line) => sum + line.gst_amount, 0),
+    moneyLines.reduce((sum, line) => sum + line.gst_amount, 0),
   );
 
   const headerDiscount = num(order.discount_amount);
@@ -256,7 +321,9 @@ async function generateForOrder(orderId) {
     .sort({ createdAt: 1 })
     .lean();
 
-  const lines = (plain.order_items || []).map((line) => buildLineStatement(line));
+  const rawItems = plain.order_items || [];
+  const built = rawItems.map((line) => buildLineStatement(line, rawItems));
+  const lines = nestStatementLines(built);
   const quantitySummary = buildQuantitySummary(lines);
   const financialSummary = buildFinancialSummary(plain, lines);
 

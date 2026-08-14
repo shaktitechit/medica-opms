@@ -48,7 +48,12 @@ const IN_TRANSIT_PIPELINE_TABS: OrderWorkflowTabCategory[] = [
   "in_transit",
 ];
 
-const EMPTY_STAT: OrderWorkflowTabStat = { count: 0, quantity: 0, amount: 0 };
+const EMPTY_STAT: OrderWorkflowTabStat = {
+  count: 0,
+  quantity: 0,
+  kitQuantity: 0,
+  amount: 0,
+};
 
 function formatMoney(v: number): string {
   return v.toLocaleString("en-IN", {
@@ -62,6 +67,7 @@ function sumStats(stats: OrderWorkflowTabStat[]): OrderWorkflowTabStat {
     (acc, row) => ({
       count: acc.count + row.count,
       quantity: acc.quantity + row.quantity,
+      kitQuantity: acc.kitQuantity + row.kitQuantity,
       amount: acc.amount + row.amount,
     }),
     { ...EMPTY_STAT },
@@ -91,11 +97,35 @@ export default function OverviewWidgets({
     const inTransit = sumStats(
       IN_TRANSIT_PIPELINE_TABS.map((id) => tabStats[id] ?? EMPTY_STAT),
     );
-    // Order Volume = all approved / active pipeline orders (delivered + in-transit buckets)
-    const orderVolume = sumStats([delivered, inTransit]);
     const cancelled = tabStats.cancelled ?? EMPTY_STAT;
     const rejected = tabStats.rejected ?? EMPTY_STAT;
     const onHold = tabStats.on_hold ?? EMPTY_STAT;
+    const all = tabStats.all ?? EMPTY_STAT;
+
+    // Same scope as Product/Party/Sales leaderboards (shouldIncludeOrder):
+    // all non-draft orders except cancelled / rejected / on-hold.
+    // Uses line commercial volume (approved qty × rate), not grand_total.
+    const orderVolume: OrderWorkflowTabStat = {
+      count: Math.max(
+        0,
+        all.count - cancelled.count - rejected.count - onHold.count,
+      ),
+      quantity: Math.max(
+        0,
+        all.quantity - cancelled.quantity - rejected.quantity - onHold.quantity,
+      ),
+      kitQuantity: Math.max(
+        0,
+        all.kitQuantity -
+          cancelled.kitQuantity -
+          rejected.kitQuantity -
+          onHold.kitQuantity,
+      ),
+      amount: Math.max(
+        0,
+        all.amount - cancelled.amount - rejected.amount - onHold.amount,
+      ),
+    };
 
     return {
       orderVolume,
@@ -114,7 +144,7 @@ export default function OverviewWidgets({
         key: "order_volume",
         label: isSales ? "Order Quantity" : "Order Volume",
         ...kpis.orderVolume,
-        hint: "All approved orders (delivered + pipeline)",
+        hint: "Active orders excl. cancelled / rejected / on-hold · approved qty × rate",
         accent: "bg-slate-500",
         iconWrap: "bg-slate-50 dark:bg-slate-950/30",
         iconTone: "text-slate-600 dark:text-slate-400",
@@ -124,7 +154,7 @@ export default function OverviewWidgets({
         key: "delivered",
         label: isSales ? "Delivered Quantity" : "Delivered Volume",
         ...kpis.delivered,
-        hint: "Closed / delivered orders",
+        hint: "Closed / delivered · approved qty × rate",
         accent: "bg-emerald-500",
         iconWrap: "bg-emerald-50 dark:bg-emerald-950/30",
         iconTone: "text-emerald-600 dark:text-emerald-400",
@@ -175,6 +205,7 @@ export default function OverviewWidgets({
       label: string;
       amount: number;
       quantity: number;
+      kitQuantity: number;
       count: number;
       hint: string;
       accent: string;
@@ -187,20 +218,28 @@ export default function OverviewWidgets({
   const handleDownload = () => {
     const isSales = role === "sales";
     const headers = isSales
-      ? ["Metric Category", "Quantity (Items)", "Order Count"]
-      : ["Metric Category", "Amount (INR)", "Quantity (Items)", "Order Count"];
+      ? ["Metric Category", "Quantity (Items)", "Kit Quantity", "Order Count"]
+      : [
+          "Metric Category",
+          "Amount (INR)",
+          "Quantity (Items)",
+          "Kit Quantity",
+          "Order Count",
+        ];
 
     const rows = cards.map((card) =>
       isSales
         ? [
             card.label,
             card.quantity.toLocaleString(),
+            card.kitQuantity.toLocaleString(),
             card.count.toLocaleString(),
           ]
         : [
             card.label,
             `₹${formatMoney(card.amount)}`,
             card.quantity.toLocaleString(),
+            card.kitQuantity.toLocaleString(),
             card.count.toLocaleString(),
           ],
     );
@@ -248,6 +287,12 @@ export default function OverviewWidgets({
             const orderLabel = `${card.count.toLocaleString()} ${
               card.count === 1 ? "order" : "orders"
             }`;
+            const kitLabel =
+              card.kitQuantity > 0
+                ? `${card.kitQuantity.toLocaleString()} ${
+                    card.kitQuantity === 1 ? "kit" : "kits"
+                  }`
+                : null;
             return (
               <div
                 key={card.key}
@@ -276,9 +321,26 @@ export default function OverviewWidgets({
                     {isOrdersFetching ? (
                       <span className="inline-block h-3 w-28 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
                     ) : isSales ? (
-                      orderLabel
+                      <>
+                        {orderLabel}
+                        {kitLabel ? (
+                          <span className="ml-1 text-violet-600 dark:text-violet-400">
+                            · {kitLabel}
+                          </span>
+                        ) : null}
+                      </>
                     ) : (
-                      `${card.quantity.toLocaleString()} items · ${orderLabel}`
+                      <>
+                        {card.quantity.toLocaleString()} items
+                        {kitLabel ? (
+                          <span className="text-violet-600 dark:text-violet-400">
+                            {" "}
+                            · {kitLabel}
+                          </span>
+                        ) : null}
+                        {" · "}
+                        {orderLabel}
+                      </>
                     )}
                   </p>
                 </div>

@@ -102,6 +102,142 @@ async function findOrderIdsWithAnyPendingApproval(models) {
   return [...new Set(idSets.flat())];
 }
 
+/**
+ * Due-sheet pending: order is in finance review and OrderApproval
+ * does not yet have is_due_sheet_uploaded = true.
+ */
+async function findOrderIdsWithDueSheetPending(models) {
+  const { Order, OrderApproval } = models;
+
+  const notUploadedIds = await OrderApproval.distinct('order', {
+    deletedAt: null,
+    $or: [
+      { is_due_sheet_uploaded: false },
+      { is_due_sheet_uploaded: { $exists: false } },
+      { is_due_sheet_uploaded: null },
+    ],
+  });
+  if (!notUploadedIds.length) return [];
+
+  const orderIds = await Order.distinct('_id', {
+    _id: { $in: notUploadedIds },
+    deletedAt: null,
+    $or: [
+      { workflow_stage: ORDER_WORKFLOW_STAGE.FINANCE_REVIEW },
+      { status: ORDER_STATUS.FINANCE_REVIEW },
+    ],
+  });
+
+  return orderIds.map((id) => String(id));
+}
+
+/**
+ * Finance pending: order is in finance review and OrderApproval
+ * has is_due_sheet_uploaded = true (ready for finance approval).
+ */
+async function findOrderIdsWithFinancePending(models) {
+  const { Order, OrderApproval } = models;
+
+  const uploadedIds = await OrderApproval.distinct('order', {
+    deletedAt: null,
+    is_due_sheet_uploaded: true,
+    is_finance_approved: false,
+  });
+  if (!uploadedIds.length) return [];
+
+  const orderIds = await Order.distinct('_id', {
+    _id: { $in: uploadedIds },
+    deletedAt: null,
+    $or: [
+      { workflow_stage: ORDER_WORKFLOW_STAGE.FINANCE_REVIEW },
+      { status: ORDER_STATUS.FINANCE_REVIEW },
+    ],
+  });
+
+  return orderIds.map((id) => String(id));
+}
+
+/**
+ * Account pending (workflow-aligned):
+ * - status finance_approved / account_review
+ * - owned by account queue (or transitional post-finance dispatch ownership)
+ * - latest non-rejected OrderApproval has is_finance_approved true and
+ *   is_account_approved !== true
+ */
+async function findOrderIdsWithAccountPending(models) {
+  const { Order, OrderApproval } = models;
+
+  const stageOrderIds = await Order.distinct('_id', {
+    deletedAt: null,
+    status: {
+      $in: [ORDER_STATUS.FINANCE_APPROVED, ORDER_STATUS.ACCOUNT_REVIEW],
+    },
+    workflow_stage: {
+      $nin: [
+        ORDER_WORKFLOW_STAGE.CANCELLED,
+        ORDER_WORKFLOW_STAGE.COMPLETED,
+        ORDER_WORKFLOW_STAGE.ON_HOLD,
+      ],
+    },
+    $or: [
+      { workflow_stage: ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW },
+      { pending_with_role: 'account' },
+      { current_department: 'account' },
+      // Transitional rows from older finance→dispatch mapping.
+      {
+        status: ORDER_STATUS.FINANCE_APPROVED,
+        workflow_stage: ORDER_WORKFLOW_STAGE.DISPATCH,
+        pending_with_role: 'dispatch',
+        current_department: 'dispatch',
+      },
+    ],
+  });
+  if (!stageOrderIds.length) return [];
+
+  // Latest approval per order must be finance-approved and not yet account-approved.
+  const pending = await OrderApproval.aggregate([
+    {
+      $match: {
+        order: { $in: stageOrderIds },
+        deletedAt: null,
+      },
+    },
+    { $sort: { revision_number: -1, createdAt: -1, _id: -1 } },
+    {
+      $group: {
+        _id: '$order',
+        is_finance_approved: { $first: '$is_finance_approved' },
+        is_account_approved: { $first: '$is_account_approved' },
+        rejected_by: { $first: '$rejected_by' },
+        rejection_reason: { $first: '$rejection_reason' },
+      },
+    },
+    {
+      $match: {
+        is_finance_approved: true,
+        is_account_approved: { $ne: true },
+        $and: [
+          {
+            $or: [
+              { rejected_by: null },
+              { rejected_by: { $exists: false } },
+            ],
+          },
+          {
+            $or: [
+              { rejection_reason: null },
+              { rejection_reason: '' },
+              { rejection_reason: { $exists: false } },
+            ],
+          },
+        ],
+      },
+    },
+  ]);
+
+  return pending.map((row) => String(row._id));
+}
+
 function isAnyPendingApprovalStatus(value) {
   const raw = String(value || '').toLowerCase();
   return raw === 'pending_approval' || raw === 'pending_approvals';
@@ -299,6 +435,9 @@ module.exports = {
   buildApprovalPendingQuery,
   findOrderIdsWithPendingApproval,
   findOrderIdsWithAnyPendingApproval,
+  findOrderIdsWithDueSheetPending,
+  findOrderIdsWithFinancePending,
+  findOrderIdsWithAccountPending,
   isAnyPendingApprovalStatus,
   resolveOrderApprovalPending,
   enrichOrdersWithApprovalPending,

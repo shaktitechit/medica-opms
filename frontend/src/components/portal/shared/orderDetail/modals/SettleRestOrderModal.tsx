@@ -4,9 +4,9 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 
 import {
-  buildAccountResolvePreviewRows,
-  hasResolvableReleaseWork,
+  buildReleaseSettlePayload,
   idFromRef,
+  type AccountResolvePreviewRow,
 } from "../accountDispatchAvailability";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import {
@@ -35,10 +35,12 @@ type SettleRestOrderModalProps = {
 const btnSecondaryClass =
   "rounded-lg border border-slate-200/95 px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/15 dark:text-slate-100 dark:hover:bg-white/5";
 
-function approvalItemsList(approval: Record<string, unknown>): Record<string, unknown>[] {
-  return Array.isArray(approval.approval_items)
-    ? (approval.approval_items as Record<string, unknown>[])
-    : [];
+function isKitHeaderRow(row: AccountResolvePreviewRow): boolean {
+  return Boolean(row.isKitParent) || row.orderItemId.startsWith("__kit__");
+}
+
+function isSettlePayloadRow(row: AccountResolvePreviewRow): boolean {
+  return !isKitHeaderRow(row);
 }
 
 export function SettleRestOrderModal({
@@ -58,25 +60,29 @@ export function SettleRestOrderModal({
 
   const approvalId = approval ? idFromRef(approval._id ?? approval.id) : "";
 
-  const previewRows = useMemo(
-    () => buildAccountResolvePreviewRows(approval, orderItems, dispatches),
+  const settlePayload = useMemo(
+    () => buildReleaseSettlePayload(approval, orderItems, dispatches),
     [approval, orderItems, dispatches],
   );
 
-  const settleRows = useMemo(
-    () => previewRows.filter((row) => row.removedQty > 0),
-    [previewRows],
-  );
-
-  const canSettle = hasResolvableReleaseWork(previewRows);
+  const {
+    settleRows,
+    approvalItems: settledApprovalItems,
+    settledRestItems: settledRestUnbilledItems,
+    unbilledUnits,
+    hasSettleWork: canSettle,
+  } = settlePayload;
 
   const totals = useMemo(() => {
     return settleRows.reduce(
       (acc, row) => {
+        if (!isSettlePayloadRow(row)) return acc;
         acc.remainingClearance += row.remainingClearance;
         acc.settledReturnsQty += row.settledReturnsQty;
         acc.removedQty += row.removedQty;
         acc.settledQty += row.settledQty;
+        acc.clearedQty += row.clearedQty;
+        acc.dispatchedQty += row.dispatchedQty;
         return acc;
       },
       {
@@ -84,75 +90,10 @@ export function SettleRestOrderModal({
         settledReturnsQty: 0,
         removedQty: 0,
         settledQty: 0,
+        clearedQty: 0,
+        dispatchedQty: 0,
       },
     );
-  }, [settleRows]);
-
-  /** Net settled approval lines that remain after settle (approved_quantity → settledQty). */
-  const settledApprovalItems = useMemo(() => {
-    if (!approval) return [];
-    const byLine = new Map(
-      previewRows.map((row) => [row.orderItemId, row] as const),
-    );
-    const items: Record<string, unknown>[] = [];
-
-    for (const item of approvalItemsList(approval)) {
-      const lineId = idFromRef(item.order_item_id);
-      const row = byLine.get(lineId);
-      const settledQty = row ? row.settledQty : Number(item.approved_quantity || 0);
-      if (settledQty <= 0) continue;
-
-      const approvedPrice = Number(item.approved_unit_price ?? 0);
-      const discountPercent = Number(item.discount_percent ?? 0);
-      const gstPercent = Number(item.gst_percent ?? 18);
-      const priorApproved = Number(item.approved_quantity || 0);
-      const gross = settledQty * approvedPrice;
-      let disc = 0;
-      if (discountPercent > 0) {
-        disc = (gross * discountPercent) / 100;
-      } else if (priorApproved > 0) {
-        disc = (Number(item.discount_amount ?? 0) / priorApproved) * settledQty;
-      } else {
-        disc = Number(item.discount_amount ?? 0);
-      }
-      const taxable = Math.max(0, gross - disc);
-      const lineTotal = taxable + (taxable * gstPercent) / 100;
-
-      items.push({
-        order_item_id: lineId,
-        product: idFromRef(item.product) || item.product,
-        ordered_quantity: settledQty,
-        approved_quantity: settledQty,
-        approved_unit_price: approvedPrice,
-        free_quantity: Number(item.free_quantity ?? 0),
-        discount_percent: discountPercent,
-        discount_amount: disc,
-        gst_percent: gstPercent,
-        applied_rate_type: item.applied_rate_type ?? "MANUAL",
-        approved_total_amount: lineTotal,
-        rate_mapped: item.rate_mapped ?? true,
-        remarks: item.remarks,
-      });
-    }
-
-    return items;
-  }, [approval, previewRows]);
-
-  /**
-   * Settled-away (rest) lines — written onto UnbilledOrder after approval/order settle.
-   */
-  const settledRestUnbilledItems = useMemo(() => {
-    return settleRows
-      .filter((row) => row.removedQty > 0)
-      .map((row) => ({
-        order_item_id: row.orderItemId,
-        product: row.productId || undefined,
-        product_name: row.productName || "",
-        sku: row.sku || "",
-        approved_quantity: row.removedQty,
-        billed_dispatched_quantity: 0,
-        remaining_quantity: row.removedQty,
-      }));
   }, [settleRows]);
 
   const handleClose = () => {
@@ -164,8 +105,6 @@ export function SettleRestOrderModal({
   const handleSettle = async () => {
     if (!approvalId || !canSettle || !orderId) return;
     try {
-      // Resolve-dispatch amends the approval batch and the order in one backend path,
-      // then applies settled-away rest qty onto the existing UnbilledOrder.
       await settleRelease({
         id: approvalId,
         body: {
@@ -178,8 +117,8 @@ export function SettleRestOrderModal({
       }).unwrap();
 
       toast.success(
-        totals.removedQty > 0
-          ? `Settled & unbilled — approval/order updated; ${totals.removedQty} unit${totals.removedQty === 1 ? "" : "s"} moved to Unbilled Order.`
+        unbilledUnits > 0
+          ? `Settled & unbilled — approval/order updated; ${unbilledUnits} unit${unbilledUnits === 1 ? "" : "s"} moved to Unbilled Order.`
           : "Settled — approval batch and order quantities updated.",
       );
       setNotes("");
@@ -193,7 +132,9 @@ export function SettleRestOrderModal({
   if (!open || !approval) return null;
 
   const batchLabel = releaseNo || String(approval.approval_no ?? "—");
-  const hasReturns = settleRows.some((row) => row.settledReturnsQty > 0);
+  const hasReturns = settleRows.some(
+    (row) => isSettlePayloadRow(row) && row.settledReturnsQty > 0,
+  );
 
   return (
     <LargeModalPortal>
@@ -234,8 +175,11 @@ export function SettleRestOrderModal({
                   ? ` and returned stock (${totals.settledReturnsQty} unit${totals.settledReturnsQty === 1 ? "" : "s"})`
                   : ""}{" "}
                 will move to the{" "}
-                <span className="font-semibold">Unbilled Order</span>. Net kept on
-                order:{" "}
+                <span className="font-semibold">Unbilled Order</span>
+                {unbilledUnits > 0
+                  ? ` (${unbilledUnits} unit${unbilledUnits === 1 ? "" : "s"}; kit buckets settle on the order only)`
+                  : ""}
+                . Net kept on order:{" "}
                 <span className="font-semibold tabular-nums">
                   {totals.settledQty}
                 </span>
@@ -270,43 +214,73 @@ export function SettleRestOrderModal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                    {settleRows.map((row) => (
-                      <tr
-                        key={row.orderItemId}
-                        className="bg-white dark:bg-slate-900"
-                      >
-                        <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
-                          <div>{row.productName}</div>
-                          {row.sku ? (
-                            <div className="mt-0.5 font-mono text-2xs font-normal text-slate-500 dark:text-slate-400">
-                              {row.sku}
+                    {settleRows.map((row) => {
+                      const isKitParent = isKitHeaderRow(row);
+                      const isBucket = Boolean(row.isKitBucket);
+                      return (
+                        <tr
+                          key={row.orderItemId}
+                          className={
+                            isBucket
+                              ? "bg-slate-50/80 dark:bg-slate-950/60"
+                              : isKitParent
+                                ? "bg-violet-50/40 dark:bg-violet-950/20"
+                                : "bg-white dark:bg-slate-900"
+                          }
+                        >
+                          <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                            <div
+                              className={
+                                isBucket
+                                  ? "ml-3 border-l-2 border-violet-300 pl-2 dark:border-violet-700"
+                                  : undefined
+                              }
+                            >
+                              <div>
+                                {row.productName}
+                                {isKitParent ? (
+                                  <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                    KIT
+                                  </span>
+                                ) : null}
+                                {isBucket ? (
+                                  <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                    KIT BUCKET
+                                  </span>
+                                ) : null}
+                              </div>
+                              {row.sku ? (
+                                <div className="mt-0.5 font-mono text-2xs font-normal text-slate-500 dark:text-slate-400">
+                                  {row.sku}
+                                </div>
+                              ) : null}
                             </div>
-                          ) : null}
-                        </td>
-                        <td className="px-3 py-2 text-center tabular-nums">
-                          {row.clearedQty}
-                        </td>
-                        <td className="px-3 py-2 text-center tabular-nums text-blue-600 dark:text-blue-400">
-                          {row.dispatchedQty}
-                        </td>
-                        {hasReturns ? (
-                          <td className="px-3 py-2 text-center tabular-nums text-rose-600 dark:text-rose-400">
-                            {row.settledReturnsQty > 0
-                              ? row.settledReturnsQty
-                              : "—"}
                           </td>
-                        ) : null}
-                        <td className="px-3 py-2 text-center tabular-nums text-amber-700 dark:text-amber-300">
-                          {row.remainingClearance}
-                        </td>
-                        <td className="px-3 py-2 text-center tabular-nums font-semibold text-emerald-700 dark:text-emerald-300">
-                          {row.settledQty}
-                        </td>
-                        <td className="px-3 py-2 text-center tabular-nums font-semibold text-indigo-600 dark:text-indigo-400">
-                          {row.removedQty}
-                        </td>
-                      </tr>
-                    ))}
+                          <td className="px-3 py-2 text-center tabular-nums">
+                            {row.clearedQty}
+                          </td>
+                          <td className="px-3 py-2 text-center tabular-nums text-blue-600 dark:text-blue-400">
+                            {row.dispatchedQty}
+                          </td>
+                          {hasReturns ? (
+                            <td className="px-3 py-2 text-center tabular-nums text-rose-600 dark:text-rose-400">
+                              {row.settledReturnsQty > 0
+                                ? row.settledReturnsQty
+                                : "—"}
+                            </td>
+                          ) : null}
+                          <td className="px-3 py-2 text-center tabular-nums text-amber-700 dark:text-amber-300">
+                            {isBucket ? "—" : row.remainingClearance}
+                          </td>
+                          <td className="px-3 py-2 text-center tabular-nums font-semibold text-emerald-700 dark:text-emerald-300">
+                            {row.settledQty}
+                          </td>
+                          <td className="px-3 py-2 text-center tabular-nums font-semibold text-indigo-600 dark:text-indigo-400">
+                            {isBucket ? "—" : row.removedQty}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot className="bg-slate-50/80 text-xs font-semibold dark:bg-slate-950/60">
                     <tr>
@@ -314,10 +288,10 @@ export function SettleRestOrderModal({
                         Total
                       </td>
                       <td className="px-3 py-2 text-center tabular-nums">
-                        {settleRows.reduce((s, r) => s + r.clearedQty, 0)}
+                        {totals.clearedQty}
                       </td>
                       <td className="px-3 py-2 text-center tabular-nums text-blue-600 dark:text-blue-400">
-                        {settleRows.reduce((s, r) => s + r.dispatchedQty, 0)}
+                        {totals.dispatchedQty}
                       </td>
                       {hasReturns ? (
                         <td className="px-3 py-2 text-center tabular-nums text-rose-600 dark:text-rose-400">
@@ -331,7 +305,7 @@ export function SettleRestOrderModal({
                         {totals.settledQty}
                       </td>
                       <td className="px-3 py-2 text-center tabular-nums text-indigo-600 dark:text-indigo-400">
-                        {totals.removedQty}
+                        {unbilledUnits}
                       </td>
                     </tr>
                   </tfoot>

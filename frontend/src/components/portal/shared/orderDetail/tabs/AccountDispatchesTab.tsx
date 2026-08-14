@@ -12,6 +12,7 @@ import { SettleRestOrderModal } from "../modals/SettleRestOrderModal";
 import {
   canEditAccountDispatch,
   filterAccountApprovalsForUser,
+  findFirstSettleableRelease,
   groupAccountDispatchesByRelease,
   idFromRef,
   isFullyClearedApproval,
@@ -37,6 +38,7 @@ import {
   useFilePreview,
   type PreviewFile,
 } from "@/components/portal/shared/FilePreviewModal";
+import { DispatchItemsKitTable } from "./DispatchItemsKitTable";
 
 type DispatchesTabProps = {
   orderId: string;
@@ -272,39 +274,19 @@ export function AccountDispatchesTab({
     accountApprovals.length,
   ]);
 
-  const hasPartialDispatchRemaining =
-    !["cancelled", "on_hold"].includes(orderStatus) &&
-    accountApprovals.some((approval) => {
-      if (!isFullyClearedApproval(approval)) return false;
-      const summary = summarizeReleaseDispatchState(
-        approval,
-        dispatches,
-        orderItems,
-        orderReturns,
-        { includeWarehouseReturns: true },
-      );
-      return summary.canResolveRelease;
-    });
-
-  const firstSettleableRelease = useMemo(() => {
-    if (["cancelled", "on_hold"].includes(orderStatus)) return null;
-    for (const approval of accountApprovals) {
-      if (!isFullyClearedApproval(approval)) continue;
-      const summary = summarizeReleaseDispatchState(
-        approval,
-        dispatches,
-        orderItems,
-        orderReturns,
-        { includeWarehouseReturns: true },
-      );
-      if (!summary.canResolveRelease) continue;
-      return {
-        approval,
-        releaseNo: String(approval.approval_no ?? idFromRef(approval._id ?? approval.id)),
-      };
-    }
-    return null;
-  }, [accountApprovals, dispatches, orderItems, orderReturns, orderStatus]);
+  const firstSettleableRelease = useMemo(
+    () =>
+      ["cancelled", "on_hold"].includes(orderStatus)
+        ? null
+        : findFirstSettleableRelease(
+            accountApprovals,
+            dispatches,
+            orderItems,
+            orderReturns,
+            { includeWarehouseReturns: true },
+          ),
+    [accountApprovals, dispatches, orderItems, orderReturns, orderStatus],
+  );
 
   const openCreateDispatch = useCallback((approvalId?: string) => {
     setEditingDispatch(null);
@@ -326,13 +308,6 @@ export function AccountDispatchesTab({
   );
 
   const openPrimaryDispatchAction = useCallback(() => {
-    if (hasPartialDispatchRemaining && firstSettleableRelease) {
-      openSettleRestOrder(
-        firstSettleableRelease.approval,
-        firstSettleableRelease.releaseNo,
-      );
-      return;
-    }
     if (canCreateDispatch) {
       openCreateDispatch();
       return;
@@ -341,11 +316,8 @@ export function AccountDispatchesTab({
       openEditDispatch(editableDraftForClearedRelease);
     }
   }, [
-    hasPartialDispatchRemaining,
-    firstSettleableRelease,
     canCreateDispatch,
     editableDraftForClearedRelease,
-    openSettleRestOrder,
     openCreateDispatch,
     openEditDispatch,
   ]);
@@ -477,47 +449,42 @@ export function AccountDispatchesTab({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={
-                hasPartialDispatchRemaining
-                  ? !firstSettleableRelease
-                  : !canCreateDispatch && !editableDraftForClearedRelease
-              }
+              disabled={!canCreateDispatch && !editableDraftForClearedRelease}
               title={
-                hasPartialDispatchRemaining
+                canCreateDispatch || editableDraftForClearedRelease
                   ? undefined
-                  : canCreateDispatch || editableDraftForClearedRelease
-                    ? undefined
-                    : createDispatchDisabledReason
+                  : createDispatchDisabledReason
               }
               onClick={() => openPrimaryDispatchAction()}
               className={`shrink-0 rounded-lg px-4 py-2 text-xs font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                editableDraftForClearedRelease && !canCreateDispatch && !hasPartialDispatchRemaining
+                editableDraftForClearedRelease && !canCreateDispatch
                   ? "bg-amber-600 hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-400"
-                  : hasPartialDispatchRemaining
-                    ? "bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
-                    : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+                  : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
               }`}
             >
-              {editableDraftForClearedRelease && !canCreateDispatch && !hasPartialDispatchRemaining
+              {editableDraftForClearedRelease && !canCreateDispatch
                 ? "Edit draft dispatch"
-                : hasPartialDispatchRemaining
-                  ? "Settle & Unbilled Order"
-                  : "Create dispatch"}
+                : "Create dispatch"}
             </button>
-            {firstSettleableRelease && !hasPartialDispatchRemaining ? (
-              <button
-                type="button"
-                onClick={() =>
-                  openSettleRestOrder(
-                    firstSettleableRelease.approval,
-                    firstSettleableRelease.releaseNo,
-                  )
-                }
-                className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
-              >
-                Settle & Unbilled Order
-              </button>
-            ) : null}
+            <button
+              type="button"
+              disabled={!firstSettleableRelease}
+              title={
+                firstSettleableRelease
+                  ? "Move undispatched approval qty to Unbilled Order"
+                  : "Available when dispatched qty is less than approved qty on a release"
+              }
+              onClick={() => {
+                if (!firstSettleableRelease) return;
+                openSettleRestOrder(
+                  firstSettleableRelease.approval,
+                  firstSettleableRelease.releaseNo,
+                );
+              }}
+              className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+            >
+              Settle & Unbilled Order
+            </button>
           </div>
         </div>
         {!canCreateDispatch && !editableDraftForClearedRelease && createDispatchDisabledReason ? (
@@ -570,7 +537,20 @@ export function AccountDispatchesTab({
                         ) : null}
                       </p>
                     </div>
-
+                    {releaseSummary.canResolveRelease && group.approval ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openSettleRestOrder(
+                            group.approval as Record<string, unknown>,
+                            group.releaseNo,
+                          )
+                        }
+                        className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                      >
+                        Settle & Unbilled
+                      </button>
+                    ) : null}
                   </div>
 
                   <div className="space-y-6">
@@ -591,7 +571,9 @@ export function AccountDispatchesTab({
 
               const transport = activeTransport || dispatchTransports[dispatchTransports.length - 1];
 
-              const canEditDispatch = canEditAccountDispatch({
+              const canEditDispatch =
+                isSuperAdmin ||
+                canEditAccountDispatch({
                   dispatch: disp,
                   approval: group.approval,
                   transports,
@@ -678,7 +660,9 @@ export function AccountDispatchesTab({
                               onClick={() => openEditDispatch(disp)}
                               className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
                             >
-                              {dispatchStatus === "submitted" ? "Edit dispatch" : "Edit"}
+                              {dispatchStatus === "draft" || dispatchStatus === "cancelled"
+                                ? "Edit"
+                                : "Edit dispatch"}
                             </button>
                             {canSubmitDispatch ? (
                               <button
@@ -738,97 +722,10 @@ export function AccountDispatchesTab({
                         Dispatched Items
                       </h5>
                       <div className="overflow-x-auto rounded-lg border border-slate-200/60 dark:border-white/5">
-                        {(() => {
-                          const hasDelivered = dispatchItems.some(
-                            (item: any) => Number(item.delivered_quantity ?? 0) > 0,
-                          );
-                          const hasReturned = dispatchItems.some(
-                            (item: any) => Number(item.returned_quantity ?? 0) > 0,
-                          );
-                          return (
-                            <table className="w-full text-left text-xs">
-                              <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-medium">
-                                <tr>
-                                  <th className="px-3 py-2">Product</th>
-                                  <th className="px-3 py-2 text-center w-20">Ordered</th>
-                                  <th className="px-3 py-2 text-center w-22">Dispatched</th>
-                                  {hasDelivered && (
-                                    <th className="px-3 py-2 text-center w-22 text-emerald-600 dark:text-emerald-400">
-                                      Delivered
-                                    </th>
-                                  )}
-                                  {hasReturned && (
-                                    <th className="px-3 py-2 text-center w-22 text-rose-600 dark:text-rose-400">
-                                      Returned
-                                    </th>
-                                  )}
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                                {dispatchItems.map((item: any, idx: number) => {
-                                  const matchItem = orderItems.find(
-                                    (oi: any) => String(oi._id ?? oi.id ?? "") === String(item.order_item_id)
-                                  );
-                                  const productName = matchItem?.product_name || item.product_name || item.product?.product_name || "—";
-                                  const orderedQty = matchItem
-                                    ? (matchItem.ordered_quantity ?? matchItem.quantity ?? 0)
-                                    : (item.ordered_quantity ?? "—");
-                                  const dispatchedQty = item.dispatched_quantity ?? item.dispatch_quantity ?? "—";
-                                  const deliveredQty = Number(item.delivered_quantity ?? 0);
-                                  const returnedQty = Number(item.returned_quantity ?? 0);
-
-                                  return (
-                                    <tr key={String(item.order_item_id || idx)} className="bg-white dark:bg-slate-900">
-                                      <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
-                                        {productName}
-                                      </td>
-                                      <td className="px-3 py-2 text-center text-slate-600 dark:text-slate-400">
-                                        {orderedQty}
-                                      </td>
-                                      <td className="px-3 py-2 text-center font-semibold text-blue-600 dark:text-blue-400">
-                                        {dispatchedQty}
-                                      </td>
-                                      {hasDelivered && (
-                                        <td className="px-3 py-2 text-center">
-                                          {deliveredQty > 0 ? (
-                                            <span className="inline-flex items-center justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
-                                              {deliveredQty}
-                                            </span>
-                                          ) : (
-                                            <span className="text-slate-350 dark:text-slate-600">—</span>
-                                          )}
-                                        </td>
-                                      )}
-                                      {hasReturned && (
-                                        <td className="px-3 py-2 text-center">
-                                          {returnedQty > 0 ? (
-                                            <span className="inline-flex items-center justify-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-400">
-                                              <svg
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                className="h-2.5 w-2.5 shrink-0"
-                                                viewBox="0 0 20 20"
-                                                fill="currentColor"
-                                              >
-                                                <path
-                                                  fillRule="evenodd"
-                                                  d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 017 7v2a1 1 0 11-2 0v-2a5 5 0 00-5-5H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-                                                  clipRule="evenodd"
-                                                />
-                                              </svg>
-                                              {returnedQty}
-                                            </span>
-                                          ) : (
-                                            <span className="text-slate-350 dark:text-slate-600">—</span>
-                                          )}
-                                        </td>
-                                      )}
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          );
-                        })()}
+                        <DispatchItemsKitTable
+                          dispatchItems={dispatchItems as Record<string, unknown>[]}
+                          orderItems={orderItems as Record<string, unknown>[]}
+                        />
                       </div>
                     </div>
 
@@ -1079,6 +976,8 @@ export function AccountDispatchesTab({
         dispatchId={createTransportDispatchId ?? ""}
         dispatches={dispatches}
         transports={transports}
+        approvals={accountApprovals as Record<string, unknown>[]}
+        orderItems={orderItems as Record<string, unknown>[]}
         expectedDeliveryDate={
           detail?.expected_delivery_date != null
             ? String(detail.expected_delivery_date)

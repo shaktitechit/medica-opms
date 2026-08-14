@@ -69,6 +69,8 @@ export function DispatchesTab({ mode, ...props }: DispatchesTabProps) {
         onRefetch={props.onRefetch ?? props.refetchOrder}
         transportFormDefaults={props.transportFormDefaults}
         disableTransportAgent={props.disableTransportAgent}
+        detail={props.detail}
+        partyLabel={props.partyLabel}
       />
     );
   }

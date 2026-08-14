@@ -74,6 +74,84 @@ function formatGstPercent(v: unknown): string {
   return n % 1 === 0 ? `${n}%` : `${n.toFixed(2)}%`;
 }
 
+function idFromRef(ref: unknown): string {
+  if (typeof ref === "string") return ref.trim();
+  if (ref && typeof ref === "object" && "_id" in ref) {
+    return String((ref as { _id: unknown })._id ?? "").trim();
+  }
+  if (ref && typeof ref === "object" && "id" in ref) {
+    return String((ref as { id: unknown }).id ?? "").trim();
+  }
+  return "";
+}
+
+function isStatementKitBucket(line: Record<string, unknown>): boolean {
+  if (line.is_kit_bucket === true) return true;
+  return Boolean(idFromRef(line.kit_parent_product));
+}
+
+function isStatementKitShell(
+  line: Record<string, unknown>,
+  allLines: Record<string, unknown>[],
+): boolean {
+  if (isStatementKitBucket(line)) return false;
+  if (line.is_kit_shell === true) return true;
+  if (String(line.product_type || "").toLowerCase() === "kit") return true;
+  const productId = idFromRef(line.product);
+  if (!productId) return false;
+  return allLines.some(
+    (other) => idFromRef(other.kit_parent_product) === productId,
+  );
+}
+
+/** Nest kit buckets under kit shells for display (backend usually already nests). */
+function nestStatementLinesForDisplay(
+  lines: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const shells: Record<string, unknown>[] = [];
+  const individuals: Record<string, unknown>[] = [];
+  const bucketsByParent = new Map<string, Record<string, unknown>[]>();
+
+  for (const line of lines) {
+    if (isStatementKitBucket(line)) {
+      const parentId = idFromRef(line.kit_parent_product);
+      if (!parentId) {
+        individuals.push(line);
+        continue;
+      }
+      const list = bucketsByParent.get(parentId) || [];
+      list.push(line);
+      bucketsByParent.set(parentId, list);
+      continue;
+    }
+    if (isStatementKitShell(line, lines)) {
+      shells.push(line);
+      continue;
+    }
+    individuals.push(line);
+  }
+
+  const out: Record<string, unknown>[] = [];
+  const seenParents = new Set<string>();
+
+  for (const shell of shells) {
+    const productId = idFromRef(shell.product);
+    out.push(shell);
+    if (productId) {
+      seenParents.add(productId);
+      out.push(...(bucketsByParent.get(productId) || []));
+    }
+  }
+
+  for (const [parentId, buckets] of bucketsByParent) {
+    if (seenParents.has(parentId)) continue;
+    out.push(...buckets);
+  }
+
+  out.push(...individuals);
+  return out;
+}
+
 export default function FinalOrderStatementModal({
   orderId,
   isOpen,
@@ -112,32 +190,49 @@ export default function FinalOrderStatementModal({
   const order = asRecord(statement.order);
   const party = asRecord(order.party);
   const closedBy = asRecord(order.closed_by);
-  const lines = Array.isArray(statement.lines)
-    ? (statement.lines as Record<string, unknown>[])
-    : [];
+  const lines = useMemo(() => {
+    const s = asRecord(data);
+    const raw = Array.isArray(s.lines)
+      ? (s.lines as Record<string, unknown>[])
+      : [];
+    return nestStatementLinesForDisplay(raw);
+  }, [data]);
   const qty = asRecord(statement.quantity_summary);
   const fin = asRecord(statement.financial_summary);
 
-  const totalLineGst = lines.reduce((sum, line) => sum + num(line.gst_amount), 0);
+  const moneyLines = useMemo(
+    () => lines.filter((line) => !isStatementKitBucket(line)),
+    [lines],
+  );
+  const totalLineGst = moneyLines.reduce(
+    (sum, line) => sum + num(line.gst_amount),
+    0,
+  );
   const canDownloadPdf = !isLoading && !isError && lines.length > 0;
 
   const pdfLines = useMemo((): FinalOrderStatementPdfLine[] => {
-    return lines.map((line) => ({
-      productName: String(line.product_name || "—"),
-      sku: line.sku ? String(line.sku) : undefined,
-      hsnCode: line.hsn_code ? String(line.hsn_code) : undefined,
-      ordered: String(num(line.ordered_quantity)),
-      approved: String(num(line.approved_quantity)),
-      dispatched: String(num(line.dispatched_quantity)),
-      delivered: String(num(line.delivered_quantity)),
-      returned: String(num(line.returned_quantity)),
-      net: String(num(line.net_delivered_quantity)),
-      unitPrice: pdfMoney(num(line.unit_price)),
-      rateType: formatRateType(line.applied_rate_type),
-      gstPercent: formatGstPercent(line.gst_percent),
-      gstAmount: pdfMoney(num(line.gst_amount)),
-      lineTotal: pdfMoney(num(line.total_amount)),
-    }));
+    return lines.map((line) => {
+      const isKitBucket = isStatementKitBucket(line);
+      const isKitShell = isStatementKitShell(line, lines);
+      return {
+        productName: String(line.product_name || "—"),
+        sku: line.sku ? String(line.sku) : undefined,
+        hsnCode: line.hsn_code ? String(line.hsn_code) : undefined,
+        isKitShell,
+        isKitBucket,
+        ordered: String(num(line.ordered_quantity)),
+        approved: String(num(line.approved_quantity)),
+        dispatched: String(num(line.dispatched_quantity)),
+        delivered: String(num(line.delivered_quantity)),
+        returned: String(num(line.returned_quantity)),
+        net: String(num(line.net_delivered_quantity)),
+        unitPrice: pdfMoney(num(line.unit_price)),
+        rateType: formatRateType(line.applied_rate_type),
+        gstPercent: formatGstPercent(line.gst_percent),
+        gstAmount: pdfMoney(num(line.gst_amount)),
+        lineTotal: pdfMoney(num(line.total_amount)),
+      };
+    });
   }, [lines]);
 
   const orderNo = String(order.order_no || orderId);
@@ -349,18 +444,39 @@ export default function FinalOrderStatementModal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                    {lines.map((line, idx) => (
+                    {lines.map((line, idx) => {
+                      const isKitBucket = isStatementKitBucket(line);
+                      const isKitShell = isStatementKitShell(line, lines);
+                      return (
                       <tr key={String(line.order_item_id ?? idx)} className="bg-white dark:bg-slate-900">
                         <td className="px-3 py-2.5">
-                          <div className="font-medium text-slate-900 dark:text-slate-100">
-                            {String(line.product_name || "—")}
+                          <div
+                            className={
+                              isKitBucket
+                                ? "ml-3 border-l-2 border-violet-300 pl-2 dark:border-violet-700"
+                                : undefined
+                            }
+                          >
+                            <div className="font-medium text-slate-900 dark:text-slate-100">
+                              {String(line.product_name || "—")}
+                              {isKitShell ? (
+                                <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                  KIT
+                                </span>
+                              ) : null}
+                              {isKitBucket ? (
+                                <span className="ml-1.5 text-2xs font-semibold text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40 px-1 py-0.5 rounded">
+                                  KIT BUCKET
+                                </span>
+                              ) : null}
+                            </div>
+                            {line.sku ? (
+                              <div className="text-2xs font-mono text-slate-400">{String(line.sku)}</div>
+                            ) : null}
+                            {line.hsn_code ? (
+                              <div className="text-2xs text-slate-400">HSN: {String(line.hsn_code)}</div>
+                            ) : null}
                           </div>
-                          {line.sku ? (
-                            <div className="text-2xs font-mono text-slate-400">{String(line.sku)}</div>
-                          ) : null}
-                          {line.hsn_code ? (
-                            <div className="text-2xs text-slate-400">HSN: {String(line.hsn_code)}</div>
-                          ) : null}
                         </td>
                         <td className="px-3 py-2.5 text-center tabular-nums">{num(line.ordered_quantity)}</td>
                         <td className="px-3 py-2.5 text-center tabular-nums">{num(line.approved_quantity)}</td>
@@ -375,24 +491,29 @@ export default function FinalOrderStatementModal({
                           {num(line.net_delivered_quantity)}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 dark:text-slate-300">
-                          ₹{formatMoney(num(line.unit_price))}
+                          {isKitBucket ? "—" : `₹${formatMoney(num(line.unit_price))}`}
                         </td>
                         <td className="px-3 py-2.5 text-center">
-                          <span className="inline-flex rounded-md bg-slate-100 px-1.5 py-0.5 text-2xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                            {formatRateType(line.applied_rate_type)}
-                          </span>
+                          {isKitBucket ? (
+                            <span className="text-slate-400">—</span>
+                          ) : (
+                            <span className="inline-flex rounded-md bg-slate-100 px-1.5 py-0.5 text-2xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                              {formatRateType(line.applied_rate_type)}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-center tabular-nums text-slate-600 dark:text-slate-400">
-                          {formatGstPercent(line.gst_percent)}
+                          {isKitBucket ? "—" : formatGstPercent(line.gst_percent)}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 dark:text-slate-300">
-                          ₹{formatMoney(num(line.gst_amount))}
+                          {isKitBucket ? "—" : `₹${formatMoney(num(line.gst_amount))}`}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums font-semibold">
-                          ₹{formatMoney(num(line.total_amount))}
+                          {isKitBucket ? "—" : `₹${formatMoney(num(line.total_amount))}`}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                   <tfoot className="bg-slate-50/80 dark:bg-slate-950/50 text-xs font-semibold border-t border-slate-200/60 dark:border-white/5">
                     <tr>

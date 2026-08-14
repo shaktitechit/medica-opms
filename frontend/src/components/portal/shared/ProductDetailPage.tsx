@@ -9,12 +9,14 @@ import {
   DollarSign,
   Layers,
   Tag,
+  Link2,
 } from "lucide-react";
 
 import { useGetProductQuery } from "@/store/api";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { resolvePortalPresentation } from "@/components/portal/shared/portalPresentation";
 import { ProductDetailModal } from "./ProductDetailModal";
+import { ProductKitItemsMapping } from "./ProductKitItemsMapping";
 import { productRefLabel } from "./productRefLabel";
 
 export type ProductDetailPageProps = {
@@ -42,7 +44,9 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
 
   // Modal & Tab states
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"specifications" | "commercials">("specifications");
+  const [activeTab, setActiveTab] = useState<
+    "specifications" | "commercials" | "items"
+  >("specifications");
 
   if (isError || (!isLoading && !rawProduct)) {
     return (
@@ -67,6 +71,9 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
   }
 
   const p = rawProduct as any;
+  const isKit = p.product_type === "kit";
+  const tab =
+    !isKit && activeTab === "items" ? "specifications" : activeTab;
 
   return (
     <div className="space-y-6 max-w-none w-full pb-12">
@@ -114,6 +121,15 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-600 dark:bg-amber-400" /> Featured
                 </span>
               )}
+              <span
+                className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${
+                  isKit
+                    ? "text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-500/10"
+                    : "text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-500/10"
+                }`}
+              >
+                {isKit ? "Kit" : "Individual"}
+              </span>
             </div>
             {p.sku && (
               <div className="flex flex-wrap items-center gap-4 text-xs text-slate-550 dark:text-slate-400">
@@ -149,7 +165,7 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
           type="button"
           onClick={() => setActiveTab("specifications")}
           className={`border-b-2 px-6 py-3.5 text-sm font-semibold transition -mb-px flex items-center gap-2 ${
-            activeTab === "specifications"
+            tab === "specifications"
               ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-500"
               : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
           }`}
@@ -160,18 +176,31 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
           type="button"
           onClick={() => setActiveTab("commercials")}
           className={`border-b-2 px-6 py-3.5 text-sm font-semibold transition -mb-px flex items-center gap-2 ${
-            activeTab === "commercials"
+            tab === "commercials"
               ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-500"
               : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
           }`}
         >
           <DollarSign className="h-4 w-4" /> Commercials & Pricing
         </button>
+        {isKit && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("items")}
+            className={`border-b-2 px-6 py-3.5 text-sm font-semibold transition -mb-px flex items-center gap-2 ${
+              tab === "items"
+                ? "border-violet-600 text-violet-600 dark:border-violet-500 dark:text-violet-400"
+                : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+          >
+            <Link2 className="h-4 w-4" /> Items Mapping
+          </button>
+        )}
       </div>
 
       {/* Main Content Area */}
       <div className="grid grid-cols-1 gap-6">
-        {activeTab === "specifications" && (
+        {tab === "specifications" && (
           <div className="rounded-xl border border-slate-200/90 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-900 space-y-6">
             <h3 className="text-md font-bold text-slate-900 dark:text-slate-50 flex items-center gap-2 border-b border-slate-100 dark:border-white/5 pb-3">
               <Package className="h-5 w-5 text-blue-500" /> Basic Specs & Groupings
@@ -182,6 +211,14 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
               <div className="space-y-1 md:col-span-2">
                 <label className={labelClass}>Product Name</label>
                 <div className={valueClass}>{p.product_name || "—"}</div>
+              </div>
+
+              {/* Product Type */}
+              <div className="space-y-1">
+                <label className={labelClass}>Product Type</label>
+                <div className={`${valueClass} capitalize`}>
+                  {isKit ? "Kit" : "Individual"}
+                </div>
               </div>
 
               {/* Generic Name */}
@@ -291,7 +328,7 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
           </div>
         )}
 
-        {activeTab === "commercials" && (
+        {tab === "commercials" && (
           <div className="rounded-xl border border-slate-200/90 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-900 space-y-6">
             <h3 className="text-md font-bold text-slate-900 dark:text-slate-50 flex items-center gap-2 border-b border-slate-100 dark:border-white/5 pb-3">
               <DollarSign className="h-5 w-5 text-blue-500" /> Commercial & Compliance Details
@@ -332,6 +369,8 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
             </div>
           </div>
         )}
+
+        {isKit && tab === "items" && <ProductKitItemsMapping kitId={id} />}
       </div>
     </div>
   );

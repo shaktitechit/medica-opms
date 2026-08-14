@@ -7,12 +7,94 @@ export function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function idFromRef(ref: unknown): string {
+  if (typeof ref === "string") return ref.trim();
+  if (ref && typeof ref === "object" && "_id" in ref) {
+    return String((ref as { _id: unknown })._id ?? "").trim();
+  }
+  if (ref && typeof ref === "object" && "id" in ref) {
+    return String((ref as { id: unknown }).id ?? "").trim();
+  }
+  return "";
+}
+
+/**
+ * Kit product shells are commercial-only — KPI / item qty should not include them.
+ * Real item qty lives on individuals and kit bucket rows (`kit_parent_product` set).
+ */
+export function isKitShellOrderLine(
+  line: Record<string, unknown> | null | undefined,
+  allLines: Array<Record<string, unknown>> = [],
+): boolean {
+  if (!line) return false;
+  if (idFromRef(line.kit_parent_product)) return false;
+  if (String(line.product_type || "").toLowerCase() === "kit") return true;
+  const nested = line.product;
+  if (
+    nested &&
+    typeof nested === "object" &&
+    String((nested as { product_type?: unknown }).product_type || "").toLowerCase() ===
+      "kit"
+  ) {
+    return true;
+  }
+  const productId = idFromRef(line.product);
+  if (!productId || allLines.length === 0) return false;
+  return allLines.some(
+    (other) => idFromRef(other.kit_parent_product) === productId,
+  );
+}
+
+/** Kit bucket lines are fulfillment-only — commercial money lives on the kit shell. */
+export function isKitBucketOrderLine(
+  line: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!line) return false;
+  return Boolean(idFromRef(line.kit_parent_product));
+}
+
+export type OrderCommercialVolumeBasis = "approved" | "dispatched" | "ordered";
+
+/**
+ * Line-level commercial volume used by dashboard KPIs / leaderboards.
+ * Kit buckets excluded; kit shells included. Does NOT use order.grand_total
+ * (avoids GST / header discount / extra-charge drift vs product boards).
+ */
+export function orderCommercialVolume(
+  order: unknown,
+  basis: OrderCommercialVolumeBasis = "approved",
+): number {
+  if (!order || typeof order !== "object") return 0;
+  const items = Array.isArray((order as { order_items?: unknown }).order_items)
+    ? ((order as { order_items: unknown[] }).order_items as Array<
+        Record<string, unknown>
+      >)
+    : [];
+
+  let sum = 0;
+  for (const line of items) {
+    if (isKitBucketOrderLine(line)) continue;
+    const qty =
+      basis === "dispatched"
+        ? num(line.dispatched_quantity)
+        : basis === "ordered"
+          ? num(line.ordered_quantity ?? line.quantity)
+          : num(line.approved_quantity);
+    if (qty === 0) continue;
+    const unitPrice = num(line.unit_price ?? line.approved_unit_price);
+    sum += qty * unitPrice;
+  }
+  return sum;
+}
+
 /** Admin / sales-review approved qty on an order line. */
 export function salesApprovedOnLine(line: Record<string, unknown>): number {
+  // Live order ledger uses `approved_quantity` after admin approve/amend.
+  const approved = num(line.approved_quantity);
+  if (approved > 0) return approved;
   const explicit = num(line.sales_approved_quantity);
   if (explicit > 0) return explicit;
-  // Order lines persist admin approval in `approved_quantity` (see backend orderFulfillment.service).
-  return num(line.approved_quantity);
+  return 0;
 }
 
 /** Finance-approved qty on an order line. */

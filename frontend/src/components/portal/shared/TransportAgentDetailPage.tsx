@@ -845,6 +845,16 @@ export default function TransportAgentDetailPage({
           <div><dt className={labelClass}>GST No</dt><dd className={valueClass}>{stringField(detail.gst_no) || "—"}</dd></div>
           <div><dt className={labelClass}>PAN No</dt><dd className={valueClass}>{stringField(detail.pan_no) || "—"}</dd></div>
           <div className="sm:col-span-2"><dt className={labelClass}>Remarks</dt><dd className={valueClass}>{stringField(detail.remarks) || "—"}</dd></div>
+          <div>
+            <dt className={labelClass}>LR Number Required</dt>
+            <dd className={valueClass}>
+              {detail.lr_number_required ? (
+                <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-950/30 dark:text-blue-400">Yes</span>
+              ) : (
+                <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-slate-400">No</span>
+              )}
+            </dd>
+          </div>
         </dl>
       </section>
 

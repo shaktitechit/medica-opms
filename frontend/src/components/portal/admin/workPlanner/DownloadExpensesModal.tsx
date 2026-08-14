@@ -32,18 +32,45 @@ export type DownloadExpensesModalProps = {
   onClose: () => void;
 };
 
-type PeriodPreset = "current_month" | "last_month" | "custom";
+type PeriodPreset =
+  | "today"
+  | "yesterday"
+  | "current_month"
+  | "last_month"
+  | "month"
+  | "custom";
 
 function ymd(d: Date) {
-  return d.toISOString().slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function todayRange(): { from: string; to: string } {
+  const now = new Date();
+  return { from: ymd(now), to: ymd(now) };
+}
+
+function yesterdayRange(): { from: string; to: string } {
+  const now = new Date();
+  now.setDate(now.getDate() - 1);
+  return { from: ymd(now), to: ymd(now) };
 }
 
 function monthRange(offsetMonths: number): { from: string; to: string } {
   const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offsetMonths, 1));
-  const end = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offsetMonths + 1, 0),
-  );
+  const start = new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + offsetMonths + 1, 0);
+  return { from: ymd(start), to: ymd(end) };
+}
+
+function specificMonthRange(yearMonthStr: string): { from: string; to: string } {
+  if (!yearMonthStr) return { from: "", to: "" };
+  const [yStr, mStr] = yearMonthStr.split("-");
+  const year = Number(yStr);
+  const month = Number(mStr);
+  if (!year || !month) return { from: "", to: "" };
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0);
   return { from: ymd(start), to: ymd(end) };
 }
 
@@ -103,6 +130,7 @@ function formatDateTime(v: unknown = new Date()): string {
 
 export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalProps) {
   const [preset, setPreset] = useState<PeriodPreset>("current_month");
+  const [selectedMonth, setSelectedMonth] = useState("");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [salesUserId, setSalesUserId] = useState("");
@@ -145,14 +173,18 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
   }, [usersQ.data]);
 
   const range = useMemo(() => {
+    if (preset === "today") return todayRange();
+    if (preset === "yesterday") return yesterdayRange();
     if (preset === "current_month") return monthRange(0);
     if (preset === "last_month") return monthRange(-1);
+    if (preset === "month") return specificMonthRange(selectedMonth);
     return { from: customFrom, to: customTo };
-  }, [preset, customFrom, customTo]);
+  }, [preset, selectedMonth, customFrom, customTo]);
 
   const canLoad =
     Boolean(range.from && range.to) &&
-    (preset !== "custom" || (customFrom && customTo && customFrom <= customTo));
+    (preset !== "custom" || (customFrom && customTo && customFrom <= customTo)) &&
+    (preset !== "month" || Boolean(selectedMonth));
 
   const loadExpenses = useCallback(async () => {
     if (!canLoad) return;
@@ -187,6 +219,7 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
   useEffect(() => {
     if (!open) return;
     setPreset("current_month");
+    setSelectedMonth(ymd(new Date()).slice(0, 7));
     setCustomFrom("");
     setCustomTo("");
     setSalesUserId("");
@@ -198,8 +231,12 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
       setRows([]);
       return;
     }
+    if (preset === "month" && !selectedMonth) {
+      setRows([]);
+      return;
+    }
     void loadExpenses();
-  }, [open, preset, customFrom, customTo, salesUserId, loadExpenses]);
+  }, [open, preset, selectedMonth, customFrom, customTo, salesUserId, loadExpenses]);
 
   useEffect(() => {
     if (!open) return;
@@ -338,12 +375,28 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
                 onChange={(e) => setPreset(e.target.value as PeriodPreset)}
                 className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs dark:border-white/15 dark:bg-slate-950"
               >
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
                 <option value="current_month">Current month</option>
                 <option value="last_month">Last month</option>
+                <option value="month">Specific month</option>
                 <option value="custom">Custom date range</option>
               </select>
             </div>
-            {preset === "custom" ? (
+            {preset === "month" ? (
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-slate-500">
+                  Select month
+                </label>
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  disabled={loading}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs dark:border-white/15 dark:bg-slate-950"
+                />
+              </div>
+            ) : preset === "custom" ? (
               <>
                 <div>
                   <label className="mb-1 block text-[11px] font-medium text-slate-500">
@@ -372,7 +425,7 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
               </>
             ) : (
               <div className="pb-1.5 text-xs text-slate-500 dark:text-slate-400">
-                {range.from} → {range.to}
+                {range.from === range.to ? range.from : `${range.from} → ${range.to}`}
               </div>
             )}
             <div>
@@ -409,6 +462,10 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
             {preset === "custom" && (!customFrom || !customTo) ? (
               <div className="p-8 text-center text-sm text-slate-500">
                 Select a from and to date to load expenses.
+              </div>
+            ) : preset === "month" && !selectedMonth ? (
+              <div className="p-8 text-center text-sm text-slate-500">
+                Select a month to load expenses.
               </div>
             ) : rows.length === 0 && !loading ? (
               <div className="p-8 text-center text-sm text-slate-500">
