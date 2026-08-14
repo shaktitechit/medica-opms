@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 
-import { downloadOrderItemsPdf, waitForPdfTemplate } from "@/components/portal/shared/downloadOrderItemsPdf";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";
@@ -23,7 +22,11 @@ import {
   planIdOf,
   renderExpenseStatusBadge,
 } from "./workPlanUtils";
-import ExpensesPdfTemplate from "@/components/portal/admin/workPlanner/ExpensesPdfTemplate";
+import {
+  buildExpensesReportPdf,
+  openBlankPreviewWindow,
+  openPdfSystemPreview,
+} from "@/components/portal/admin/workPlanner/buildWorkPlannerPdf";
 
 export type DownloadExpensesModalProps = {
   open: boolean;
@@ -125,8 +128,6 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
   const [rows, setRows] = useState<WorkPlanExpenseRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
-  const [pdfGeneratedAt, setPdfGeneratedAt] = useState("");
-  const pdfTemplateRef = useRef<HTMLDivElement>(null);
 
   const [fetchList] = useLazyListWorkPlanExpensesQuery();
 
@@ -237,53 +238,47 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
       toast.error("No expenses to download");
       return;
     }
-    const stamp = formatDateTime(new Date());
-    setPdfGeneratedAt(stamp);
     setIsDownloadingPdf(true);
+    const previewWin = openBlankPreviewWindow();
     try {
-      await waitForPdfTemplate();
-      if (!pdfTemplateRef.current) {
-        throw new Error("PDF template is not ready.");
-      }
+      const stamp = formatDateTime(new Date());
       const dateStamp = new Date().toISOString().slice(0, 10);
-      await downloadOrderItemsPdf(
-        pdfTemplateRef.current,
-        `sales_expenses_${dateStamp}.pdf`,
-        { orientation: "landscape" },
-      );
-      toast.success("Expenses PDF downloaded.");
+      const filename = `sales_expenses_${dateStamp}.pdf`;
+      const pdf = await buildExpensesReportPdf({
+        companyName,
+        logoUrl,
+        portalLabel,
+        downloadedBy: salesUserLabel,
+        generatedAt: stamp,
+        periodFrom: range.from,
+        periodTo: range.to,
+        salesUserLabel,
+        expenses: rows,
+        totalAmount,
+      });
+      openPdfSystemPreview(pdf, filename, previewWin);
+      toast.success("Expenses PDF opened in preview.");
     } catch (err) {
+      previewWin?.close();
       toast.error(err instanceof Error ? err.message : "Could not generate PDF.");
     } finally {
       setIsDownloadingPdf(false);
     }
-  }, [rows]);
+  }, [
+    rows,
+    companyName,
+    logoUrl,
+    portalLabel,
+    salesUserLabel,
+    range.from,
+    range.to,
+    totalAmount,
+  ]);
 
   if (!open) return null;
 
   return (
     <LargeModalPortal>
-      {/* Hidden PDF Template */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed -left-[9999px] top-0"
-      >
-        <div ref={pdfTemplateRef}>
-          <ExpensesPdfTemplate
-            companyName={companyName}
-            logoUrl={logoUrl}
-            portalLabel={portalLabel}
-            downloadedBy={salesUserLabel}
-            generatedAt={pdfGeneratedAt}
-            periodFrom={range.from}
-            periodTo={range.to}
-            salesUserLabel={salesUserLabel}
-            expenses={rows}
-            totalAmount={totalAmount}
-          />
-        </div>
-      </div>
-
       <div
         className="fixed inset-0 z-[100] flex items-stretch justify-center bg-black/50 p-2 sm:p-4 backdrop-blur-[1px]"
         role="presentation"
@@ -313,7 +308,7 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" />
-                {isDownloadingPdf ? "Generating PDF…" : "Download PDF"}
+                {isDownloadingPdf ? "Opening PDF…" : "Download PDF"}
               </button>
               <button
                 type="button"

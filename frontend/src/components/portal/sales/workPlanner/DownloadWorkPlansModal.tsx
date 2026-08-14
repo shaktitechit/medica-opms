@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 
-import { downloadOrderItemsPdf, waitForPdfTemplate } from "@/components/portal/shared/downloadOrderItemsPdf";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";
@@ -29,7 +28,11 @@ import {
   renderVisitStatusBadge,
   visitPartyLabel,
 } from "./workPlanUtils";
-import WorkPlansPdfTemplate from "@/components/portal/admin/workPlanner/WorkPlansPdfTemplate";
+import {
+  buildWorkPlansReportPdf,
+  openBlankPreviewWindow,
+  openPdfSystemPreview,
+} from "@/components/portal/admin/workPlanner/buildWorkPlannerPdf";
 
 export type DownloadWorkPlansModalProps = {
   open: boolean;
@@ -118,8 +121,6 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
   const [rows, setRows] = useState<WorkPlanRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
-  const [pdfGeneratedAt, setPdfGeneratedAt] = useState("");
-  const pdfTemplateRef = useRef<HTMLDivElement>(null);
 
   const [fetchList] = useLazyListWorkPlansQuery();
   const [fetchPlan] = useLazyGetWorkPlanQuery();
@@ -282,54 +283,47 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
       toast.error("No work plans to download");
       return;
     }
-    const stamp = formatPdfDateTime(new Date());
-    setPdfGeneratedAt(stamp);
     setIsDownloadingPdf(true);
+    const previewWin = openBlankPreviewWindow();
     try {
-      await waitForPdfTemplate();
-      if (!pdfTemplateRef.current) {
-        throw new Error("PDF template is not ready.");
-      }
+      const stamp = formatPdfDateTime(new Date());
       const dateStamp = new Date().toISOString().slice(0, 10);
-      await downloadOrderItemsPdf(
-        pdfTemplateRef.current,
-        `sales_work_plans_${dateStamp}.pdf`,
-        { orientation: "landscape" },
-      );
-      toast.success("Work plans PDF downloaded.");
+      const filename = `sales_work_plans_${dateStamp}.pdf`;
+      const pdf = await buildWorkPlansReportPdf({
+        companyName,
+        logoUrl,
+        portalLabel,
+        downloadedBy: salesUserLabel,
+        generatedAt: stamp,
+        periodFrom: range.from,
+        periodTo: range.to,
+        salesUserLabel,
+        statusLabel: statusLabelDisplay,
+        plans: rows,
+      });
+      openPdfSystemPreview(pdf, filename, previewWin);
+      toast.success("Work plans PDF opened in preview.");
     } catch (err) {
+      previewWin?.close();
       toast.error(err instanceof Error ? err.message : "Could not generate PDF.");
     } finally {
       setIsDownloadingPdf(false);
     }
-  }, [rows]);
+  }, [
+    rows,
+    companyName,
+    logoUrl,
+    portalLabel,
+    salesUserLabel,
+    range.from,
+    range.to,
+    statusLabelDisplay,
+  ]);
 
   if (!open) return null;
 
   return (
     <LargeModalPortal>
-      {/* Hidden PDF Template */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed -left-[9999px] top-0"
-      >
-        <div ref={pdfTemplateRef}>
-          <WorkPlansPdfTemplate
-            companyName={companyName}
-            logoUrl={logoUrl}
-            portalLabel={portalLabel}
-            downloadedBy={salesUserLabel}
-            generatedAt={pdfGeneratedAt}
-            periodFrom={range.from}
-            periodTo={range.to}
-            salesUserLabel={salesUserLabel}
-            statusLabel={statusLabelDisplay}
-            plans={rows}
-            totalVisits={totalVisits}
-          />
-        </div>
-      </div>
-
       <div
         className="fixed inset-0 z-[100] flex items-stretch justify-center bg-black/50 p-2 sm:p-4 backdrop-blur-[1px]"
         role="presentation"
@@ -359,7 +353,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" />
-                {isDownloadingPdf ? "Generating PDF…" : "Download PDF"}
+                {isDownloadingPdf ? "Opening PDF…" : "Download PDF"}
               </button>
               <button
                 type="button"
