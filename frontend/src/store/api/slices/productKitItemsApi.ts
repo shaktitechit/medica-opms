@@ -25,7 +25,7 @@ export type ProductKitComponentWrite = {
   remarks?: string;
 };
 
-export type ProductKitComponent = ProductKitComponentWrite & {
+export type ProductKitComponent = Omit<ProductKitComponentWrite, "individual"> & {
   _id?: string;
   individual: ProductKitComponentRef;
 };
