@@ -855,9 +855,13 @@ export function ApprovalRecordCard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80 dark:divide-white/10">
-                {[...parentItems, ...orphanKitBuckets.map((it) => ({ ...it, __orphan: true }))].map(
-                  (it) => {
-                  const isOrphan = Boolean((it as { __orphan?: boolean }).__orphan);
+                {[
+                  ...parentItems,
+                  ...orphanKitBuckets.map(
+                    (it): Record<string, unknown> => ({ ...it, __orphan: true }),
+                  ),
+                ].map((it) => {
+                  const isOrphan = Boolean(it.__orphan);
                   const isBucketOnly = isOrphan || isKitBucketItem(it);
                   const parentId = idFromRef(it.product);
                   const buckets =
