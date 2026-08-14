@@ -16,16 +16,16 @@ export type ExpensesPdfTemplateProps = {
   totalAmount: number;
 };
 
-const PAGE_WIDTH = 1123;
-const PAGE_HEIGHT = 794;
-const PAGE_PAD_X = 30;
-const PAGE_PAD_Y = 24;
-const HEADER_BLOCK_H = 110;
-const FOOTER_BLOCK_H = 44;
-/** Slack so estimated rows never overflow / get clipped. */
-const BODY_MAX_H = PAGE_HEIGHT - PAGE_PAD_Y * 2 - HEADER_BLOCK_H - FOOTER_BLOCK_H - 28;
+const PAGE_W = 1123;
+const PAGE_H = 794;
+const PAD_X = 28;
+const PAD_Y = 20;
+const HEADER_H = 92;
+const FOOTER_H = 36;
+const BODY_H = PAGE_H - PAD_Y * 2 - HEADER_H - FOOTER_H;
 
-const H_THEAD = 28;
+const H_THEAD = 22;
+const H_ROW = 32;
 
 type ContentBlock =
   | { kind: "thead"; height: number }
@@ -33,64 +33,63 @@ type ContentBlock =
 
 type PageModel = { blocks: ContentBlock[] };
 
-/* ─── Shared styles matching TransportAgentPdfTemplate ──────────────────── */
-const pageShellStyle: CSSProperties = {
-  width: `${PAGE_WIDTH}px`,
-  minHeight: `${PAGE_HEIGHT}px`,
-  padding: `${PAGE_PAD_Y}px ${PAGE_PAD_X}px`,
+const pageShell: CSSProperties = {
+  width: `${PAGE_W}px`,
+  height: `${PAGE_H}px`,
+  padding: `${PAD_Y}px ${PAD_X}px`,
   backgroundColor: "#ffffff",
+  color: "#0f172a",
   boxSizing: "border-box",
   display: "flex",
   flexDirection: "column",
-  position: "relative",
-  overflow: "visible",
-  fontFamily: "'Segoe UI', Arial, sans-serif",
-};
-
-const tableStyle: CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-  tableLayout: "fixed",
-};
-
-const thBase: CSSProperties = {
-  padding: "5px 4px",
-  backgroundColor: "#f1f5f9",
-  borderBottom: "2px solid #94a3b8",
-  borderRight: "1px solid #e2e8f0",
-  color: "#334155",
-  fontWeight: 700,
-  textAlign: "left",
-  fontSize: "7.5px",
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-  whiteSpace: "nowrap",
   overflow: "hidden",
+  fontFamily: "Arial, Helvetica, sans-serif",
 };
 
-const tdBase: CSSProperties = {
-  padding: "5px 4px",
-  borderBottom: "1px solid #e2e8f0",
-  borderRight: "1px solid #f1f5f9",
+const clamp2: CSSProperties = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+  wordBreak: "break-word",
+  lineHeight: 1.25,
+};
+
+const th: CSSProperties = {
+  padding: "4px 5px",
+  backgroundColor: "#f1f5f9",
+  color: "#1e3a5f",
+  fontWeight: 700,
+  fontSize: "7.5px",
+  textAlign: "left",
+  textTransform: "uppercase",
+  letterSpacing: "0.03em",
+  whiteSpace: "nowrap",
+  borderBottom: "1.5px solid #1e3a5f",
+  verticalAlign: "middle",
+};
+
+const td: CSSProperties = {
+  padding: "4px 5px",
   fontSize: "8px",
   verticalAlign: "top",
-  wordBreak: "break-word",
-  overflowWrap: "break-word",
-  whiteSpace: "normal",
-  overflow: "visible",
+  borderBottom: "1px solid #e2e8f0",
 };
 
-/* ─── Helpers ────────────────────────────────────────────────────────────── */
 function fmtDate(d: unknown): string {
   if (!d) return "—";
   const dt = new Date(String(d));
-  if (isNaN(dt.getTime())) return "—";
-  return dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" });
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function fmtMoney(n: unknown): string {
   const v = Number(n) || 0;
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(v);
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(v);
 }
 
 function planRef(exp: WorkPlanExpenseRecord) {
@@ -98,7 +97,11 @@ function planRef(exp: WorkPlanExpenseRecord) {
   if (!wp || typeof wp === "string") {
     return { plan_date: undefined as unknown, sales_user: undefined as unknown, location: "" };
   }
-  return { plan_date: (wp as any).plan_date, sales_user: (wp as any).sales_user, location: (wp as any).location || "" };
+  return {
+    plan_date: (wp as { plan_date?: unknown }).plan_date,
+    sales_user: (wp as { sales_user?: unknown }).sales_user,
+    location: (wp as { location?: string }).location || "",
+  };
 }
 
 function salesName(user: unknown): string {
@@ -112,56 +115,166 @@ function visitLabel(exp: WorkPlanExpenseRecord): string {
   const visit = exp.work_plan_visit;
   if (!visit) return "Plan-level";
   if (typeof visit === "string") return "Visit";
-  const v = visit as any;
-  const party = (typeof v.party === "object" && v.party?.party_name) || v.party_name || "";
-  const seq = v.sequence != null ? `#${v.sequence}` : "Visit";
-  return party ? `${seq} — ${party}` : seq;
+  const party =
+    (typeof visit.party === "object" && visit.party?.party_name) || visit.party_name || "";
+  const seq = visit.sequence != null ? `#${visit.sequence}` : "Visit";
+  return party ? `${seq} ${party}` : seq;
 }
 
 function statusLabel(status: string | undefined): string {
-  return String(status || "pending").replace(/_/g, " ").toUpperCase();
+  return String(status || "pending").replace(/_/g, " ");
 }
 
-/* ─── Column definitions (total width ≈ 1063 usable) ───────────────────── */
-const COLS = [
-  { label: "Expense Date", w: 65 },
-  { label: "Plan Date",    w: 65 },
-  { label: "Sales Exec",   w: 90 },
-  { label: "Location",     w: 75 },
-  { label: "Visit",        w: 95 },
-  { label: "Category",     w: 80 },
-  { label: "Sub-Category", w: 80 },
-  { label: "Reading",      w: 65 },
-  { label: "Amount",       w: 60, right: true },
-  { label: "Payment",      w: 60 },
-  { label: "Status",       w: 60 },
-  { label: "Approved By",  w: 85 },
-  { label: "Vendor",       w: 80 },
-  { label: "Bill #",       w: 58 },
-  { label: "Description",  w: 45 },
-];
+function paginate(expenses: WorkPlanExpenseRecord[]): PageModel[] {
+  if (expenses.length === 0) return [{ blocks: [] }];
+  const rowsPerPage = Math.max(1, Math.floor((BODY_H - H_THEAD) / H_ROW));
+  const pages: PageModel[] = [];
+  for (let i = 0; i < expenses.length; i += rowsPerPage) {
+    const slice = expenses.slice(i, i + rowsPerPage);
+    pages.push({
+      blocks: [
+        { kind: "thead", height: H_THEAD },
+        ...slice.map((exp) => ({ kind: "row" as const, exp, height: H_ROW })),
+      ],
+    });
+  }
+  return pages;
+}
 
-/* ─── Component ─────────────────────────────────────────────────────────── */
-function estimateExpenseRowHeight(exp: WorkPlanExpenseRecord): number {
-  const visitStr = visitLabel(exp);
-  const vendor = exp.vendor_name || "";
-  const desc = exp.description || "";
-  const subCat = exp.sub_category || "";
-  const approvedBy =
-    exp.status === "approved" || exp.status === "rejected"
-      ? salesName(exp.approved_by)
-      : "";
-
-  const maxLines = Math.max(
-    1,
-    Math.ceil(visitStr.length / 18),
-    Math.ceil(vendor.length / 15),
-    Math.ceil(desc.length / 10),
-    Math.ceil(subCat.length / 15),
-    Math.ceil(approvedBy.length / 16),
+function PageHeader({
+  companyName,
+  logoUrl,
+  salesUserLabel,
+  totalAmount,
+  periodFrom,
+  periodTo,
+  generatedAt,
+  pageNo,
+  pageCount,
+}: {
+  companyName: string;
+  logoUrl: string;
+  salesUserLabel: string;
+  totalAmount: number;
+  periodFrom: string;
+  periodTo: string;
+  generatedAt: string;
+  pageNo: number;
+  pageCount: number;
+}) {
+  return (
+    <header
+      style={{
+        flexShrink: 0,
+        height: `${HEADER_H}px`,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        boxSizing: "border-box",
+        paddingBottom: "8px",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt=""
+              crossOrigin="anonymous"
+              style={{ height: "36px", width: "auto", maxWidth: "90px", objectFit: "contain" }}
+            />
+          ) : null}
+          <div>
+            <div style={{ fontSize: "16px", fontWeight: 700, color: "#1e3a5f", lineHeight: 1.15 }}>
+              {companyName || "Company"}
+            </div>
+            <div
+              style={{
+                marginTop: "2px",
+                fontSize: "9px",
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "#64748b",
+              }}
+            >
+              Expenses Report
+            </div>
+          </div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ fontSize: "11px", fontWeight: 700, color: "#0f172a" }}>
+            {salesUserLabel || "All sales users"}
+          </div>
+          <div style={{ marginTop: "2px", fontSize: "9px", color: "#475569" }}>
+            Total {fmtMoney(totalAmount)}
+          </div>
+        </div>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          fontSize: "8px",
+          color: "#475569",
+          borderTop: "2px solid #1e3a5f",
+          borderBottom: "1px solid #cbd5e1",
+          padding: "5px 0",
+        }}
+      >
+        <span>
+          Period: <strong>{periodFrom || "—"}</strong>
+          {periodTo ? `  →  ${periodTo}` : ""}
+        </span>
+        <span>
+          Generated: <strong>{generatedAt || "—"}</strong>
+        </span>
+        <span>
+          Page <strong>{pageNo}</strong> of <strong>{pageCount}</strong>
+        </span>
+      </div>
+    </header>
   );
+}
 
-  return Math.max(44, Math.min(26 + maxLines * 13, 160));
+function PageFooter({
+  portalLabel,
+  downloadedBy,
+  pageNo,
+  pageCount,
+}: {
+  portalLabel: string;
+  downloadedBy: string;
+  pageNo: number;
+  pageCount: number;
+}) {
+  return (
+    <footer
+      style={{
+        flexShrink: 0,
+        height: `${FOOTER_H}px`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        boxSizing: "border-box",
+        borderTop: "1px solid #cbd5e1",
+        paddingTop: "6px",
+        fontSize: "8px",
+        color: "#64748b",
+      }}
+    >
+      <span>
+        {portalLabel || "Portal"}
+        {"  ·  "}
+        Downloaded by {downloadedBy || "—"}
+      </span>
+      <span>
+        Page {pageNo} of {pageCount}
+      </span>
+      <span>Generated electronically — no signature required</span>
+    </footer>
+  );
 }
 
 export default function ExpensesPdfTemplate({
@@ -172,223 +285,150 @@ export default function ExpensesPdfTemplate({
   generatedAt,
   periodFrom,
   periodTo,
-  salesUserLabel: salesUserLabelProp,
+  salesUserLabel,
   expenses,
   totalAmount,
 }: ExpensesPdfTemplateProps) {
-  const pages: PageModel[] = useMemo(() => {
-    if (expenses.length === 0) return [{ blocks: [] }];
-
-    const all: ContentBlock[] = [
-      { kind: "thead", height: H_THEAD },
-      ...expenses.map((exp) => ({
-        kind: "row" as const,
-        exp,
-        height: estimateExpenseRowHeight(exp),
-      })),
-    ];
-
-    const result: PageModel[] = [];
-    let cur: ContentBlock[] = [];
-    let h = 0;
-
-    const flush = () => {
-      if (cur.length) result.push({ blocks: cur });
-      cur = [];
-      h = 0;
-    };
-
-    for (const block of all) {
-      const extra = cur.length === 0 && block.kind === "row" ? H_THEAD : 0;
-      if (h + extra + block.height > BODY_MAX_H && cur.length > 0) {
-        flush();
-      }
-      if (cur.length === 0 && block.kind === "row") {
-        cur.push({ kind: "thead", height: H_THEAD });
-        h = H_THEAD;
-      }
-      cur.push(block);
-      h += block.height;
-    }
-    flush();
-
-    return result.length ? result : [{ blocks: [] }];
-  }, [expenses]);
+  const pages = useMemo(() => paginate(expenses), [expenses]);
+  const pageCount = Math.max(pages.length, 1);
 
   return (
-    <div
-      id="expenses-pdf-root"
-      style={{ display: "flex", flexDirection: "column", backgroundColor: "#94a3b8", gap: "16px" }}
-    >
+    <div id="expenses-pdf-root" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       {pages.map((page, pageIdx) => (
-        <div key={pageIdx} data-pdf-page style={pageShellStyle}>
-          {/* ── Header ── */}
-          <header
+        <div key={pageIdx} data-pdf-page style={pageShell}>
+          <PageHeader
+            companyName={companyName}
+            logoUrl={logoUrl}
+            salesUserLabel={salesUserLabel}
+            totalAmount={totalAmount}
+            periodFrom={periodFrom}
+            periodTo={periodTo}
+            generatedAt={generatedAt}
+            pageNo={pageIdx + 1}
+            pageCount={pageCount}
+          />
+          <div
             style={{
+              height: `${BODY_H}px`,
               flexShrink: 0,
-              height: `${HEADER_BLOCK_H}px`,
-              display: "flex",
-              flexDirection: "column",
-              gap: "6px",
+              overflow: "hidden",
+              boxSizing: "border-box",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              {/* Left: logo + title */}
-              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                {logoUrl && (
-                  <img
-                    src={logoUrl}
-                    alt="Logo"
-                    style={{ height: "32px", width: "auto", objectFit: "contain" }}
-                  />
-                )}
-                <div>
-                  <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a", lineHeight: 1.1 }}>
-                    {companyName}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "7.5px",
-                      color: "#64748b",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.06em",
-                      marginTop: "2px",
-                    }}
-                  >
-                    Expenses Report
-                  </div>
-                </div>
-              </div>
-
-              {/* Right: metadata */}
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#0f172a" }}>
-                  {salesUserLabelProp}
-                </div>
-                <div style={{ fontSize: "8px", color: "#475569", marginTop: "2px" }}>
-                  Total Amount: {fmtMoney(totalAmount)}
-                </div>
-              </div>
-            </div>
-
-            {/* Meta bar */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                fontSize: "7.5px",
-                color: "#475569",
-                borderTop: "1px solid #cbd5e1",
-                borderBottom: "1px solid #cbd5e1",
-                padding: "4px 2px",
-                marginTop: "4px",
-              }}
-            >
-              <span>
-                <strong>Period:</strong> {periodFrom} to {periodTo}
-              </span>
-              <span>
-                <strong>Generated:</strong> {generatedAt}
-              </span>
-              <span>
-                <strong>Page:</strong> {pageIdx + 1} / {pages.length}
-              </span>
-            </div>
-          </header>
-
-          {/* ── Table body ── */}
-          <main style={{ flexGrow: 1, overflow: "visible" }}>
             {page.blocks.length === 0 ? (
-              <div style={{ padding: "24px 0", textAlign: "center", color: "#64748b", fontSize: "10px" }}>
-                No expenses recorded.
+              <div
+                style={{
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#94a3b8",
+                  fontSize: "11px",
+                }}
+              >
+                No expenses recorded
               </div>
             ) : (
-              <table style={tableStyle}>
-                <colgroup>
-                  {COLS.map((c, i) => (
-                    <col key={i} style={{ width: `${c.w}px` }} />
-                  ))}
-                </colgroup>
-
+              <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                 <thead>
-                  {page.blocks.find((b) => b.kind === "thead") && (
-                    <tr>
-                      {COLS.map((c, i) => (
-                        <th key={i} style={{ ...thBase, textAlign: c.right ? "right" : "left" }}>
-                          {c.label}
-                        </th>
-                      ))}
-                    </tr>
-                  )}
+                  <tr>
+                    <th style={{ ...th, width: "8%" }}>Expense date</th>
+                    <th style={{ ...th, width: "8%" }}>Plan date</th>
+                    <th style={{ ...th, width: "10%" }}>Sales exec</th>
+                    <th style={{ ...th, width: "8%" }}>Location</th>
+                    <th style={{ ...th, width: "11%" }}>Visit</th>
+                    <th style={{ ...th, width: "8%" }}>Category</th>
+                    <th style={{ ...th, width: "8%" }}>Sub-category</th>
+                    <th style={{ ...th, width: "7%" }}>Reading</th>
+                    <th style={{ ...th, width: "7%", textAlign: "right" }}>Amount</th>
+                    <th style={{ ...th, width: "6%" }}>Payment</th>
+                    <th style={{ ...th, width: "7%" }}>Status</th>
+                    <th style={{ ...th, width: "8%" }}>Approved by</th>
+                    <th style={{ ...th, width: "4%" }}>Bill #</th>
+                  </tr>
                 </thead>
-
                 <tbody>
                   {page.blocks
-                    .filter((b): b is { kind: "row"; exp: WorkPlanExpenseRecord; height: number } => b.kind === "row")
+                    .filter(
+                      (b): b is { kind: "row"; exp: WorkPlanExpenseRecord; height: number } =>
+                        b.kind === "row",
+                    )
                     .map((b, rowIdx) => {
                       const exp = b.exp;
                       const plan = planRef(exp);
                       const isPrivateBike = exp.sub_category === "Private Bike";
-                      const bg = rowIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
                       const meterReading = isPrivateBike
-                        ? [exp.start_reading ?? "—", exp.closing_reading ?? "—"].join(" → ")
+                        ? `${exp.start_reading ?? "—"} → ${exp.closing_reading ?? "—"}`
                         : "—";
                       const approvedBy =
                         exp.status === "approved" || exp.status === "rejected"
                           ? salesName(exp.approved_by)
                           : "—";
-
                       return (
-                        <tr key={String((exp as any)._id || rowIdx)} style={{ backgroundColor: bg }}>
-                          <td style={{ ...tdBase, fontFamily: "monospace", fontSize: "7.5px" }}>{fmtDate(exp.expense_date)}</td>
-                          <td style={{ ...tdBase, fontFamily: "monospace", fontSize: "7.5px" }}>{fmtDate(plan.plan_date)}</td>
-                          <td style={{ ...tdBase, fontSize: "7.5px" }}>{salesName(plan.sales_user)}</td>
-                          <td style={{ ...tdBase, fontSize: "7.5px" }}>{plan.location || "—"}</td>
-                          <td style={{ ...tdBase, fontSize: "7.5px" }}>{visitLabel(exp)}</td>
-                          <td style={{ ...tdBase, fontSize: "7.5px" }}>{exp.category || "—"}</td>
-                          <td style={{ ...tdBase, fontSize: "7.5px" }}>{exp.sub_category || "—"}</td>
-                          <td style={{ ...tdBase, fontSize: "7.5px", fontFamily: "monospace" }}>{meterReading}</td>
-                          <td style={{ ...tdBase, textAlign: "right", fontWeight: 600, fontFamily: "monospace" }}>
+                        <tr
+                          key={String(exp._id || rowIdx)}
+                          style={{
+                            backgroundColor: rowIdx % 2 === 0 ? "#ffffff" : "#f8fafc",
+                            height: `${H_ROW}px`,
+                          }}
+                        >
+                          <td style={{ ...td, fontFamily: "monospace", fontSize: "7.5px" }}>
+                            {fmtDate(exp.expense_date)}
+                          </td>
+                          <td style={{ ...td, fontFamily: "monospace", fontSize: "7.5px" }}>
+                            {fmtDate(plan.plan_date)}
+                          </td>
+                          <td style={td}>
+                            <div style={clamp2}>{salesName(plan.sales_user)}</div>
+                          </td>
+                          <td style={td}>
+                            <div style={clamp2}>{plan.location || "—"}</div>
+                          </td>
+                          <td style={td}>
+                            <div style={clamp2}>{visitLabel(exp)}</div>
+                          </td>
+                          <td style={td}>
+                            <div style={clamp2}>{exp.category || "—"}</div>
+                          </td>
+                          <td style={td}>
+                            <div style={clamp2}>{exp.sub_category || "—"}</div>
+                          </td>
+                          <td style={{ ...td, fontFamily: "monospace", fontSize: "7.5px" }}>
+                            {meterReading}
+                          </td>
+                          <td
+                            style={{
+                              ...td,
+                              textAlign: "right",
+                              fontWeight: 700,
+                              fontFamily: "monospace",
+                            }}
+                          >
                             {fmtMoney(exp.amount)}
                           </td>
-                          <td style={{ ...tdBase, fontSize: "7.5px" }}>{exp.payment_mode || "—"}</td>
-                          <td style={{ ...tdBase, fontSize: "7px", fontWeight: 500, color: "#334155" }}>
+                          <td style={td}>{exp.payment_mode || "—"}</td>
+                          <td style={{ ...td, textTransform: "capitalize" }}>
                             {statusLabel(exp.status)}
                           </td>
-                          <td style={{ ...tdBase, fontSize: "7.5px" }}>{approvedBy}</td>
-                          <td style={{ ...tdBase, fontSize: "7.5px" }}>{exp.vendor_name || "—"}</td>
-                          <td style={{ ...tdBase, fontFamily: "monospace", fontSize: "7.5px" }}>{exp.bill_number || "—"}</td>
-                          <td style={{ ...tdBase, fontSize: "7px", lineHeight: "1.3" }}>{exp.description || "—"}</td>
+                          <td style={td}>
+                            <div style={clamp2}>{approvedBy}</div>
+                          </td>
+                          <td style={{ ...td, fontFamily: "monospace", fontSize: "7.5px" }}>
+                            {exp.bill_number || "—"}
+                          </td>
                         </tr>
                       );
                     })}
                 </tbody>
               </table>
             )}
-          </main>
-
-          {/* ── Footer ── */}
-          <footer
-            style={{
-              flexShrink: 0,
-              height: `${FOOTER_BLOCK_H}px`,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              borderTop: "1px solid #e2e8f0",
-              paddingTop: "6px",
-              fontSize: "7.5px",
-              color: "#64748b",
-            }}
-          >
-            <span>
-              Portal: {portalLabel} &nbsp;|&nbsp; Downloaded by: {downloadedBy}
-            </span>
-            <span>
-              Page {pageIdx + 1} of {pages.length}
-            </span>
-            <span>Generated electronically — no signature required.</span>
-          </footer>
+          </div>
+          <PageFooter
+            portalLabel={portalLabel}
+            downloadedBy={downloadedBy}
+            pageNo={pageIdx + 1}
+            pageCount={pageCount}
+          />
         </div>
       ))}
     </div>

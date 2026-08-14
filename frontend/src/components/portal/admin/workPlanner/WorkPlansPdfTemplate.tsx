@@ -17,19 +17,19 @@ export type WorkPlansPdfTemplateProps = {
   totalVisits: number;
 };
 
-const PAGE_WIDTH = 1123;
-const PAGE_HEIGHT = 794;
-const PAGE_PAD_X = 30;
-const PAGE_PAD_Y = 24;
-const HEADER_BLOCK_H = 110;
-const FOOTER_BLOCK_H = 44;
-/** Leave slack so estimated rows never overflow the designed page. */
-const BODY_MAX_H = PAGE_HEIGHT - PAGE_PAD_Y * 2 - HEADER_BLOCK_H - FOOTER_BLOCK_H - 28;
+const PAGE_W = 1123;
+const PAGE_H = 794;
+const PAD_X = 28;
+const PAD_Y = 20;
+const HEADER_H = 92;
+const FOOTER_H = 36;
+const BODY_H = PAGE_H - PAD_Y * 2 - HEADER_H - FOOTER_H;
 
-const H_PLAN_HEADER = 48;
-const H_PLAN_CONTINUED = 28;
-const H_THEAD = 26;
-const H_EMPTY = 28;
+const H_PLAN = 40;
+const H_PLAN_CONT = 24;
+const H_THEAD = 22;
+const H_EMPTY = 26;
+const H_ROW = 34;
 
 type FlatVisitRow = {
   sequence: string;
@@ -47,73 +47,70 @@ type FlatVisitRow = {
 };
 
 type ContentBlock =
-  | { kind: "plan-header"; plan: WorkPlanRecord; height: number; continued?: boolean }
+  | { kind: "plan-header"; plan: WorkPlanRecord; continued?: boolean; height: number }
   | { kind: "empty"; height: number }
   | { kind: "thead"; height: number }
   | { kind: "row"; item: FlatVisitRow; height: number };
 
 type PageModel = { blocks: ContentBlock[] };
 
-const pageShellStyle: CSSProperties = {
-  width: `${PAGE_WIDTH}px`,
-  minHeight: `${PAGE_HEIGHT}px`,
-  padding: `${PAGE_PAD_Y}px ${PAGE_PAD_X}px`,
+const pageShell: CSSProperties = {
+  width: `${PAGE_W}px`,
+  height: `${PAGE_H}px`,
+  padding: `${PAD_Y}px ${PAD_X}px`,
   backgroundColor: "#ffffff",
+  color: "#0f172a",
   boxSizing: "border-box",
   display: "flex",
   flexDirection: "column",
-  position: "relative",
-  overflow: "visible",
-  fontFamily: "'Segoe UI', Arial, sans-serif",
+  overflow: "hidden",
+  fontFamily: "Arial, Helvetica, sans-serif",
 };
 
-const tableStyle: CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-  tableLayout: "fixed",
-  marginBottom: "4px",
+const clamp2: CSSProperties = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+  wordBreak: "break-word",
+  lineHeight: 1.25,
 };
 
-const thBase: CSSProperties = {
-  padding: "5px 4px",
+const th: CSSProperties = {
+  padding: "4px 5px",
   backgroundColor: "#f1f5f9",
-  borderBottom: "2px solid #94a3b8",
-  borderRight: "1px solid #e2e8f0",
-  color: "#334155",
+  color: "#1e3a5f",
   fontWeight: 700,
-  textAlign: "left",
   fontSize: "7.5px",
+  textAlign: "left",
   textTransform: "uppercase",
-  letterSpacing: "0.04em",
+  letterSpacing: "0.03em",
   whiteSpace: "nowrap",
+  borderBottom: "1.5px solid #1e3a5f",
+  verticalAlign: "middle",
 };
 
-const tdBase: CSSProperties = {
-  padding: "5px 4px",
-  borderBottom: "1px solid #e2e8f0",
-  borderRight: "1px solid #f1f5f9",
+const td: CSSProperties = {
+  padding: "4px 5px",
   fontSize: "8px",
   verticalAlign: "top",
-  wordBreak: "break-word",
-  overflowWrap: "break-word",
-  whiteSpace: "normal",
+  borderBottom: "1px solid #e2e8f0",
 };
 
 function fmtDate(d: unknown): string {
   if (!d) return "—";
   const dt = new Date(String(d));
-  if (isNaN(dt.getTime())) return "—";
-  return dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" });
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function fmtDateTime(d: unknown): string {
-  if (!d) return "—";
+  if (!d) return "";
   const dt = new Date(String(d));
-  if (isNaN(dt.getTime())) return "—";
+  if (Number.isNaN(dt.getTime())) return "";
   return dt.toLocaleString("en-IN", {
     day: "numeric",
     month: "short",
-    year: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
@@ -128,8 +125,8 @@ function salesName(user: unknown): string {
 }
 
 function yn(v: boolean | null | undefined): string {
-  if (v == null) return "—";
-  return v ? "Yes" : "No";
+  if (v == null) return "";
+  return v ? "Y" : "N";
 }
 
 function visitPartyName(v: WorkPlanVisitRecord): string {
@@ -138,87 +135,54 @@ function visitPartyName(v: WorkPlanVisitRecord): string {
   return v.party.party_name || "—";
 }
 
-function statusLabel(s: string): string {
-  return String(s || "planned").replace(/_/g, " ").toUpperCase();
-}
-
-const COLS = [
-  { label: "#", w: "4%" },
-  { label: "Party", w: "12%" },
-  { label: "Contact", w: "12%" },
-  { label: "Address", w: "12%" },
-  { label: "Purpose", w: "10%" },
-  { label: "Planned", w: "9%" },
-  { label: "Status", w: "7%" },
-  { label: "Actual", w: "9%" },
-  { label: "Outcome / Notes", w: "11%" },
-  { label: "Meetings & Flags", w: "10%" },
-  { label: "Follow-up", w: "4%" },
-];
-
-function flattenVisit(v: WorkPlanVisitRecord): FlatVisitRow {
-  const meetingParts: string[] = [];
-  if (v.meeting_with_doctor != null) meetingParts.push(`Doc: ${yn(v.meeting_with_doctor)}`);
-  if (v.meeting_with_purchase != null) meetingParts.push(`Pur: ${yn(v.meeting_with_purchase)}`);
-  if (v.meeting_with_finance != null) meetingParts.push(`Fin: ${yn(v.meeting_with_finance)}`);
-  if (v.meeting_with_engineer != null) meetingParts.push(`Eng: ${yn(v.meeting_with_engineer)}`);
-  if (v.new_product_introduced != null) meetingParts.push(`New Prod: ${yn(v.new_product_introduced)}`);
-  if (v.order_received != null) meetingParts.push(`Order: ${yn(v.order_received)}`);
-
-  const contactStr = [v.contact_person, v.contact_number, v.contact_email].filter(Boolean).join(" · ");
-  const outcomeStr = [v.outcome, v.notes].filter(Boolean).join(" | ");
-
-  return {
-    sequence: v.sequence != null ? `#${v.sequence}` : "—",
-    partyName: visitPartyName(v),
-    partyType: v.party_type || "",
-    contact: contactStr || "—",
-    address: v.address || "—",
-    purpose: v.purpose || "—",
-    planned:
-      [fmtDateTime(v.planned_start_time), fmtDateTime(v.planned_end_time)]
-        .filter((x) => x !== "—")
-        .join(" - ") || "—",
-    visitStatus: statusLabel(v.status || "planned"),
-    actual:
-      [
-        v.actual_check_in ? `In: ${fmtDateTime(v.actual_check_in)}` : "",
-        v.actual_check_out ? `Out: ${fmtDateTime(v.actual_check_out)}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n") || "—",
-    outcomeNotes: outcomeStr || "—",
-    meetings: meetingParts.join(", ") || "—",
-    followup: fmtDate(v.next_followup_date),
-  };
-}
-
-function estimateVisitRowHeight(item: FlatVisitRow): number {
-  const linesFor = (text: string, charsPerLine: number) =>
-    Math.max(1, Math.ceil((text || "").length / charsPerLine));
-
-  const maxLines = Math.max(
-    1,
-    linesFor(item.partyName, 16),
-    linesFor(item.contact, 18),
-    linesFor(item.address, 18),
-    linesFor(item.purpose, 14),
-    (item.actual || "").split("\n").length,
-    linesFor(item.outcomeNotes, 16),
-    linesFor(item.meetings, 16),
-  );
-
-  return Math.max(52, Math.min(28 + maxLines * 13, 180));
+function statusLabel(s: string | undefined): string {
+  return String(s || "planned").replace(/_/g, " ");
 }
 
 function planVisits(plan: WorkPlanRecord): WorkPlanVisitRecord[] {
   return Array.isArray(plan.visits) ? plan.visits : [];
 }
 
-function buildContentBlocks(plans: WorkPlanRecord[]): ContentBlock[] {
+function flattenVisit(v: WorkPlanVisitRecord): FlatVisitRow {
+  const flags = [
+    v.meeting_with_doctor != null ? `Doc ${yn(v.meeting_with_doctor)}` : "",
+    v.meeting_with_purchase != null ? `Pur ${yn(v.meeting_with_purchase)}` : "",
+    v.meeting_with_finance != null ? `Fin ${yn(v.meeting_with_finance)}` : "",
+    v.meeting_with_engineer != null ? `Eng ${yn(v.meeting_with_engineer)}` : "",
+    v.new_product_introduced != null ? `New ${yn(v.new_product_introduced)}` : "",
+    v.order_received != null ? `Ord ${yn(v.order_received)}` : "",
+  ].filter(Boolean);
+
+  const planned = [fmtDateTime(v.planned_start_time), fmtDateTime(v.planned_end_time)]
+    .filter(Boolean)
+    .join(" – ");
+  const actual = [
+    v.actual_check_in ? `In ${fmtDateTime(v.actual_check_in)}` : "",
+    v.actual_check_out ? `Out ${fmtDateTime(v.actual_check_out)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return {
+    sequence: v.sequence != null ? String(v.sequence) : "—",
+    partyName: visitPartyName(v),
+    partyType: v.party_type ? String(v.party_type).replace(/_/g, " ") : "",
+    contact: [v.contact_person, v.contact_number].filter(Boolean).join(" · ") || "—",
+    address: v.address || "—",
+    purpose: v.purpose || "—",
+    planned: planned || "—",
+    visitStatus: statusLabel(v.status),
+    actual: actual || "—",
+    outcomeNotes: [v.outcome, v.notes].filter(Boolean).join(" · ") || "—",
+    meetings: flags.join(" · ") || "—",
+    followup: v.next_followup_date ? fmtDate(v.next_followup_date) : "—",
+  };
+}
+
+function buildBlocks(plans: WorkPlanRecord[]): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   for (const plan of plans) {
-    blocks.push({ kind: "plan-header", plan, height: H_PLAN_HEADER });
+    blocks.push({ kind: "plan-header", plan, height: H_PLAN });
     const visits = planVisits(plan);
     if (visits.length === 0) {
       blocks.push({ kind: "empty", height: H_EMPTY });
@@ -226,126 +190,290 @@ function buildContentBlocks(plans: WorkPlanRecord[]): ContentBlock[] {
     }
     blocks.push({ kind: "thead", height: H_THEAD });
     for (const v of visits) {
-      const item = flattenVisit(v);
-      blocks.push({ kind: "row", item, height: estimateVisitRowHeight(item) });
+      blocks.push({ kind: "row", item: flattenVisit(v), height: H_ROW });
     }
   }
   return blocks;
 }
 
-function paginateBlocks(blocks: ContentBlock[]): PageModel[] {
+function paginate(blocks: ContentBlock[]): PageModel[] {
   const pages: PageModel[] = [];
-  let current: ContentBlock[] = [];
+  let cur: ContentBlock[] = [];
   let used = 0;
   let activePlan: WorkPlanRecord | null = null;
 
   const flush = () => {
-    if (current.length) pages.push({ blocks: current });
-    current = [];
+    if (!cur.length) return;
+    const hasContent = cur.some(
+      (b) => b.kind === "row" || b.kind === "empty" || (b.kind === "plan-header" && !b.continued),
+    );
+    if (hasContent) pages.push({ blocks: cur });
+    cur = [];
     used = 0;
   };
 
-  const continuedPrefix = (): ContentBlock[] => {
-    if (!activePlan) return [{ kind: "thead", height: H_THEAD }];
-    return [
-      { kind: "plan-header", plan: activePlan, height: H_PLAN_CONTINUED, continued: true },
-      { kind: "thead", height: H_THEAD },
-    ];
-  };
+  const roomFor = (h: number) => used + h <= BODY_H;
 
   for (const block of blocks) {
-    if (block.kind === "plan-header" && !block.continued) {
+    if (block.kind === "plan-header") {
       activePlan = block.plan;
+      const need = H_PLAN + Math.min(H_THEAD + H_ROW, H_EMPTY);
+      if (cur.length > 0 && !roomFor(need)) flush();
+      cur.push(block);
+      used += block.height;
+      continue;
     }
 
-    const prefix =
-      current.length === 0 && (block.kind === "row" || block.kind === "thead")
-        ? continuedPrefix()
-        : [];
-    const prefixH = prefix.reduce((s, b) => s + b.height, 0);
-
-    if (used + prefixH + block.height > BODY_MAX_H && current.length > 0) {
-      flush();
-    }
-
-    if (current.length === 0 && (block.kind === "row" || block.kind === "thead")) {
-      const cont = continuedPrefix();
-      // Avoid duplicating thead if the block itself is a thead
-      const toAdd = block.kind === "thead" ? cont.filter((b) => b.kind !== "thead") : cont;
-      for (const b of toAdd) {
-        current.push(b);
-        used += b.height;
+    if (block.kind === "thead") {
+      if (cur.length > 0 && !roomFor(H_THEAD + H_ROW)) flush();
+      if (cur.length === 0 && activePlan) {
+        cur.push({ kind: "plan-header", plan: activePlan, continued: true, height: H_PLAN_CONT });
+        used += H_PLAN_CONT;
       }
+      cur.push(block);
+      used += block.height;
+      continue;
     }
 
-    current.push(block);
-    used += block.height;
+    if (block.kind === "row" || block.kind === "empty") {
+      const prefix =
+        cur.length === 0
+          ? (activePlan ? H_PLAN_CONT : 0) + (block.kind === "row" ? H_THEAD : 0)
+          : 0;
+      if (cur.length > 0 && !roomFor(prefix + block.height)) flush();
+      if (cur.length === 0) {
+        if (activePlan) {
+          cur.push({ kind: "plan-header", plan: activePlan, continued: true, height: H_PLAN_CONT });
+          used += H_PLAN_CONT;
+        }
+        if (block.kind === "row") {
+          cur.push({ kind: "thead", height: H_THEAD });
+          used += H_THEAD;
+        }
+      }
+      cur.push(block);
+      used += block.height;
+    }
   }
   flush();
   return pages.length ? pages : [{ blocks: [] }];
 }
 
-function PlanHeader({ plan, continued }: { plan: WorkPlanRecord; continued?: boolean }) {
-  const visits = planVisits(plan);
-  const count = visits.length || Number(plan.visit_count) || 0;
+function PageHeader({
+  companyName,
+  logoUrl,
+  title,
+  salesUserLabel,
+  summary,
+  periodFrom,
+  periodTo,
+  statusLabel,
+  generatedAt,
+  pageNo,
+  pageCount,
+}: {
+  companyName: string;
+  logoUrl: string;
+  title: string;
+  salesUserLabel: string;
+  summary: string;
+  periodFrom: string;
+  periodTo: string;
+  statusLabel: string;
+  generatedAt: string;
+  pageNo: number;
+  pageCount: number;
+}) {
+  return (
+    <header
+      style={{
+        flexShrink: 0,
+        height: `${HEADER_H}px`,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        boxSizing: "border-box",
+        paddingBottom: "8px",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt=""
+              crossOrigin="anonymous"
+              style={{ height: "36px", width: "auto", maxWidth: "90px", objectFit: "contain" }}
+            />
+          ) : null}
+          <div>
+            <div style={{ fontSize: "16px", fontWeight: 700, color: "#1e3a5f", lineHeight: 1.15 }}>
+              {companyName || "Company"}
+            </div>
+            <div
+              style={{
+                marginTop: "2px",
+                fontSize: "9px",
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "#64748b",
+              }}
+            >
+              {title}
+            </div>
+          </div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ fontSize: "11px", fontWeight: 700, color: "#0f172a" }}>
+            {salesUserLabel || "All sales users"}
+          </div>
+          <div style={{ marginTop: "2px", fontSize: "9px", color: "#475569" }}>{summary}</div>
+        </div>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          fontSize: "8px",
+          color: "#475569",
+          borderTop: "2px solid #1e3a5f",
+          borderBottom: "1px solid #cbd5e1",
+          padding: "5px 0",
+        }}
+      >
+        <span>
+          Period: <strong>{periodFrom || "—"}</strong>
+          {periodTo ? `  →  ${periodTo}` : ""}
+          {"  ·  "}
+          Status: <strong>{statusLabel || "All"}</strong>
+        </span>
+        <span>
+          Generated: <strong>{generatedAt || "—"}</strong>
+        </span>
+        <span>
+          Page <strong>{pageNo}</strong> of <strong>{pageCount}</strong>
+        </span>
+      </div>
+    </header>
+  );
+}
+
+function PageFooter({
+  portalLabel,
+  downloadedBy,
+  pageNo,
+  pageCount,
+}: {
+  portalLabel: string;
+  downloadedBy: string;
+  pageNo: number;
+  pageCount: number;
+}) {
+  return (
+    <footer
+      style={{
+        flexShrink: 0,
+        height: `${FOOTER_H}px`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        boxSizing: "border-box",
+        borderTop: "1px solid #cbd5e1",
+        paddingTop: "6px",
+        fontSize: "8px",
+        color: "#64748b",
+      }}
+    >
+      <span>
+        {portalLabel || "Portal"}
+        {"  ·  "}
+        Downloaded by {downloadedBy || "—"}
+      </span>
+      <span>
+        Page {pageNo} of {pageCount}
+      </span>
+      <span>Generated electronically — no signature required</span>
+    </footer>
+  );
+}
+
+function PlanBar({ plan, continued }: { plan: WorkPlanRecord; continued?: boolean }) {
+  const n = planVisits(plan).length || Number(plan.visit_count) || 0;
   return (
     <div
       style={{
-        marginTop: continued ? "4px" : "8px",
-        marginBottom: "6px",
-        padding: continued ? "5px 8px" : "8px 10px",
+        height: continued ? `${H_PLAN_CONT}px` : `${H_PLAN}px`,
+        boxSizing: "border-box",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "10px",
+        padding: "0 10px",
+        margin: 0,
         backgroundColor: "#f8fafc",
-        borderLeft: "3.5px solid #1e3a5f",
-        borderRadius: "4px",
+        borderLeft: "3px solid #1e3a5f",
+        overflow: "hidden",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <span style={{ fontWeight: 700, color: "#1e3a5f", fontSize: "11px" }}>
-            {fmtDate(plan.plan_date)}
-            {continued ? " (continued)" : ""}
-          </span>
-          <span style={{ marginLeft: "12px", color: "#475569", fontSize: "9px" }}>
-            {salesName(plan.sales_user)}
-          </span>
-          <span style={{ marginLeft: "12px", color: "#64748b", fontSize: "9px" }}>
-            {plan.location || "No location"}
-          </span>
-        </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <span style={{ fontSize: "9px", color: "#334155" }}>
-            <strong>{count}</strong> visit{count === 1 ? "" : "s"}
-          </span>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+        <strong style={{ fontSize: "10px", color: "#1e3a5f", whiteSpace: "nowrap" }}>
+          {fmtDate(plan.plan_date)}
+          {continued ? "  ·  continued" : ""}
+        </strong>
+        <span style={{ fontSize: "9px", color: "#334155" }}>{salesName(plan.sales_user)}</span>
+        <span style={{ fontSize: "8px", color: "#64748b" }}>{plan.location || "—"}</span>
+        {!continued && plan.remarks ? (
           <span
             style={{
-              textTransform: "uppercase",
               fontSize: "8px",
-              fontWeight: 700,
-              color: "#2563eb",
+              color: "#64748b",
+              fontStyle: "italic",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              maxWidth: "280px",
             }}
           >
-            {statusLabel(plan.status || "draft")}
+            {plan.remarks}
           </span>
-        </div>
+        ) : null}
       </div>
-      {!continued && plan.remarks ? (
-        <div style={{ marginTop: "3px", fontSize: "8px", color: "#64748b", fontStyle: "italic" }}>
-          {plan.remarks}
-        </div>
-      ) : null}
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+        <span style={{ fontSize: "8px", color: "#334155" }}>
+          {n} visit{n === 1 ? "" : "s"}
+        </span>
+        <span
+          style={{
+            fontSize: "8px",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            color: "#1d4ed8",
+          }}
+        >
+          {statusLabel(plan.status)}
+        </span>
+      </div>
     </div>
   );
 }
 
-function VisitTableHead() {
+function VisitHead() {
   return (
     <thead>
       <tr>
-        {COLS.map((c) => (
-          <th key={c.label} style={{ ...thBase, width: c.w }}>
-            {c.label}
-          </th>
-        ))}
+        <th style={{ ...th, width: "3%" }}>#</th>
+        <th style={{ ...th, width: "13%" }}>Party</th>
+        <th style={{ ...th, width: "12%" }}>Contact</th>
+        <th style={{ ...th, width: "12%" }}>Address</th>
+        <th style={{ ...th, width: "10%" }}>Purpose</th>
+        <th style={{ ...th, width: "10%" }}>Planned</th>
+        <th style={{ ...th, width: "8%" }}>Status</th>
+        <th style={{ ...th, width: "10%" }}>Actual</th>
+        <th style={{ ...th, width: "11%" }}>Outcome / notes</th>
+        <th style={{ ...th, width: "7%" }}>Flags</th>
+        <th style={{ ...th, width: "4%" }}>Follow-up</th>
       </tr>
     </thead>
   );
@@ -353,27 +481,39 @@ function VisitTableHead() {
 
 function VisitRow({ item, zebra }: { item: FlatVisitRow; zebra: boolean }) {
   return (
-    <tr style={{ backgroundColor: zebra ? "#f8fafc" : "#ffffff" }}>
-      <td style={{ ...tdBase, textAlign: "center", fontFamily: "monospace", fontSize: "7.5px" }}>
-        {item.sequence}
+    <tr style={{ backgroundColor: zebra ? "#f8fafc" : "#ffffff", height: `${H_ROW}px` }}>
+      <td style={{ ...td, textAlign: "center", fontFamily: "monospace" }}>{item.sequence}</td>
+      <td style={td}>
+        <div style={clamp2}>
+          {item.partyName}
+          {item.partyType ? (
+            <span style={{ color: "#64748b" }}>{` · ${item.partyType}`}</span>
+          ) : null}
+        </div>
       </td>
-      <td style={{ ...tdBase, fontSize: "7.5px" }}>
-        <div>{item.partyName}</div>
-        {item.partyType ? (
-          <div style={{ fontSize: "6.5px", color: "#64748b" }}>{item.partyType}</div>
-        ) : null}
+      <td style={td}>
+        <div style={clamp2}>{item.contact}</div>
       </td>
-      <td style={{ ...tdBase, fontSize: "7.5px" }}>{item.contact}</td>
-      <td style={{ ...tdBase, fontSize: "7.5px" }}>{item.address}</td>
-      <td style={{ ...tdBase, fontSize: "7.5px" }}>{item.purpose}</td>
-      <td style={{ ...tdBase, fontSize: "7px", fontFamily: "monospace" }}>{item.planned}</td>
-      <td style={{ ...tdBase, fontSize: "7px", fontWeight: 500 }}>{item.visitStatus}</td>
-      <td style={{ ...tdBase, fontSize: "7px", fontFamily: "monospace", whiteSpace: "pre-line" }}>
-        {item.actual}
+      <td style={td}>
+        <div style={clamp2}>{item.address}</div>
       </td>
-      <td style={{ ...tdBase, fontSize: "7px", lineHeight: "1.3" }}>{item.outcomeNotes}</td>
-      <td style={{ ...tdBase, fontSize: "7px", lineHeight: "1.3" }}>{item.meetings}</td>
-      <td style={{ ...tdBase, fontFamily: "monospace", fontSize: "7.5px" }}>{item.followup}</td>
+      <td style={td}>
+        <div style={clamp2}>{item.purpose}</div>
+      </td>
+      <td style={{ ...td, fontFamily: "monospace", fontSize: "7.5px" }}>
+        <div style={clamp2}>{item.planned}</div>
+      </td>
+      <td style={{ ...td, textTransform: "capitalize" }}>{item.visitStatus}</td>
+      <td style={{ ...td, fontFamily: "monospace", fontSize: "7.5px" }}>
+        <div style={clamp2}>{item.actual}</div>
+      </td>
+      <td style={td}>
+        <div style={clamp2}>{item.outcomeNotes}</div>
+      </td>
+      <td style={td}>
+        <div style={clamp2}>{item.meetings}</div>
+      </td>
+      <td style={{ ...td, fontFamily: "monospace", fontSize: "7.5px" }}>{item.followup}</td>
     </tr>
   );
 }
@@ -382,53 +522,53 @@ function PageBody({ blocks }: { blocks: ContentBlock[] }) {
   const nodes: ReactNode[] = [];
   let i = 0;
   while (i < blocks.length) {
-    const block = blocks[i]!;
-    if (block.kind === "plan-header") {
-      nodes.push(
-        <PlanHeader
-          key={`plan-h-${i}`}
-          plan={block.plan}
-          continued={block.continued}
-        />,
-      );
+    const b = blocks[i]!;
+    if (b.kind === "plan-header") {
+      nodes.push(<PlanBar key={`p-${i}`} plan={b.plan} continued={b.continued} />);
       i += 1;
       continue;
     }
-    if (block.kind === "empty") {
+    if (b.kind === "empty") {
       nodes.push(
-        <p
-          key={`empty-${i}`}
+        <div
+          key={`e-${i}`}
           style={{
-            margin: "0 0 8px",
-            padding: "6px 10px",
-            backgroundColor: "#fafafa",
-            border: "1px dashed #e2e8f0",
-            borderRadius: "4px",
+            height: `${H_EMPTY}px`,
+            display: "flex",
+            alignItems: "center",
+            padding: "0 10px",
+            fontSize: "8px",
             color: "#94a3b8",
-            fontSize: "9px",
+            border: "1px dashed #e2e8f0",
+            backgroundColor: "#fafafa",
           }}
         >
-          No visits on this plan.
-        </p>,
+          No visits on this plan
+        </div>,
       );
       i += 1;
       continue;
     }
-    if (block.kind === "thead") {
+    if (b.kind === "thead") {
       const rows: ReactNode[] = [];
       let j = i + 1;
-      let rowIdx = 0;
+      let n = 0;
       while (j < blocks.length && blocks[j]!.kind === "row") {
         const row = blocks[j] as Extract<ContentBlock, { kind: "row" }>;
-        rows.push(
-          <VisitRow key={`row-${j}`} item={row.item} zebra={rowIdx % 2 === 1} />,
-        );
-        rowIdx += 1;
+        rows.push(<VisitRow key={`r-${j}`} item={row.item} zebra={n % 2 === 1} />);
+        n += 1;
         j += 1;
       }
       nodes.push(
-        <table key={`tbl-${i}`} style={tableStyle}>
-          <VisitTableHead />
+        <table
+          key={`t-${i}`}
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            tableLayout: "fixed",
+          }}
+        >
+          <VisitHead />
           <tbody>{rows}</tbody>
         </table>,
       );
@@ -438,7 +578,18 @@ function PageBody({ blocks }: { blocks: ContentBlock[] }) {
     i += 1;
   }
 
-  return <div style={{ flex: "1 1 auto", overflow: "visible" }}>{nodes}</div>;
+  return (
+    <div
+      style={{
+        height: `${BODY_H}px`,
+        flexShrink: 0,
+        overflow: "hidden",
+        boxSizing: "border-box",
+      }}
+    >
+      {nodes}
+    </div>
+  );
 }
 
 export default function WorkPlansPdfTemplate({
@@ -449,122 +600,53 @@ export default function WorkPlansPdfTemplate({
   generatedAt,
   periodFrom,
   periodTo,
-  salesUserLabel: salesUserLabelProp,
+  salesUserLabel,
   statusLabel: statusFilterLabel,
   plans,
   totalVisits,
 }: WorkPlansPdfTemplateProps) {
-  const pages: PageModel[] = useMemo(
-    () => paginateBlocks(buildContentBlocks(plans)),
-    [plans],
-  );
+  const pages = useMemo(() => paginate(buildBlocks(plans)), [plans]);
+  const pageCount = Math.max(pages.length, 1);
 
   return (
-    <div
-      id="work-plans-pdf-root"
-      style={{ display: "flex", flexDirection: "column", backgroundColor: "#94a3b8", gap: "16px" }}
-    >
-      {pages.map((page, pageIdx) => (
-        <div key={pageIdx} data-pdf-page style={pageShellStyle}>
-          <header
-            style={{
-              flexShrink: 0,
-              minHeight: `${HEADER_BLOCK_H}px`,
-              display: "flex",
-              flexDirection: "column",
-              gap: "6px",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                {logoUrl ? (
-                  <img
-                    src={logoUrl}
-                    alt="Logo"
-                    style={{ height: "32px", width: "auto", objectFit: "contain" }}
-                  />
-                ) : null}
-                <div>
-                  <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a", lineHeight: 1.1 }}>
-                    {companyName}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "7.5px",
-                      color: "#64748b",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.06em",
-                      marginTop: "2px",
-                    }}
-                  >
-                    Work Plans Report
-                  </div>
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#0f172a" }}>
-                  {salesUserLabelProp}
-                </div>
-                <div style={{ fontSize: "8px", color: "#475569", marginTop: "2px" }}>
-                  Plans: {plans.length} · Visits: {totalVisits}
-                </div>
-              </div>
-            </div>
+    <div id="work-plans-pdf-root" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      {pages.map((page, idx) => (
+        <div key={idx} data-pdf-page style={pageShell}>
+          <PageHeader
+            companyName={companyName}
+            logoUrl={logoUrl}
+            title="Work Plans Report"
+            salesUserLabel={salesUserLabel}
+            summary={`${plans.length} plan${plans.length === 1 ? "" : "s"}  ·  ${totalVisits} visit${totalVisits === 1 ? "" : "s"}`}
+            periodFrom={periodFrom}
+            periodTo={periodTo}
+            statusLabel={statusFilterLabel}
+            generatedAt={generatedAt}
+            pageNo={idx + 1}
+            pageCount={pageCount}
+          />
+          {page.blocks.length === 0 ? (
             <div
               style={{
+                height: `${BODY_H}px`,
                 display: "flex",
-                justifyContent: "space-between",
-                fontSize: "7.5px",
-                color: "#475569",
-                borderTop: "1px solid #cbd5e1",
-                borderBottom: "1px solid #cbd5e1",
-                padding: "4px 2px",
-                marginTop: "4px",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#94a3b8",
+                fontSize: "11px",
               }}
             >
-              <span>
-                <strong>Period:</strong> {periodFrom} to {periodTo} &nbsp;|&nbsp;{" "}
-                <strong>Status:</strong> {statusFilterLabel}
-              </span>
-              <span>
-                <strong>Generated:</strong> {generatedAt}
-              </span>
-              <span>
-                <strong>Page:</strong> {pageIdx + 1} / {pages.length}
-              </span>
-            </div>
-          </header>
-
-          {page.blocks.length === 0 ? (
-            <div style={{ padding: "24px 0", textAlign: "center", color: "#64748b", fontSize: "10px" }}>
-              No work plans recorded.
+              No work plans recorded
             </div>
           ) : (
             <PageBody blocks={page.blocks} />
           )}
-
-          <footer
-            style={{
-              flexShrink: 0,
-              minHeight: `${FOOTER_BLOCK_H}px`,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              borderTop: "1px solid #e2e8f0",
-              paddingTop: "6px",
-              marginTop: "auto",
-              fontSize: "7.5px",
-              color: "#64748b",
-            }}
-          >
-            <span>
-              Portal: {portalLabel} &nbsp;|&nbsp; Downloaded by: {downloadedBy}
-            </span>
-            <span>
-              Page {pageIdx + 1} of {pages.length}
-            </span>
-            <span>Generated electronically — no signature required.</span>
-          </footer>
+          <PageFooter
+            portalLabel={portalLabel}
+            downloadedBy={downloadedBy}
+            pageNo={idx + 1}
+            pageCount={pageCount}
+          />
         </div>
       ))}
     </div>
