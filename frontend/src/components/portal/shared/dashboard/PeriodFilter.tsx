@@ -7,6 +7,8 @@ import {
 } from "./periodFilterUtils";
 import { DATE_FILTER_OPTIONS } from "../orderList/orderListDateFilter";
 
+import type { DashboardDataType } from "./periodFilterUtils";
+
 interface PeriodFilterProps {
   availableYears: number[];
   selectedYears: number[];
@@ -19,6 +21,8 @@ interface PeriodFilterProps {
   onCustomDateFromChange?: (value: string) => void;
   customDateTo?: string;
   onCustomDateToChange?: (value: string) => void;
+  dataType?: DashboardDataType;
+  onDataTypeChange?: (value: DashboardDataType) => void;
   /** Visual density for leaderboard headers vs KPI row */
   size?: "sm" | "md";
 }
@@ -109,6 +113,8 @@ export default function PeriodFilter({
   onCustomDateFromChange,
   customDateTo,
   onCustomDateToChange,
+  dataType,
+  onDataTypeChange,
   size = "md",
 }: PeriodFilterProps) {
   const toggleYear = (year: number) => {
@@ -159,6 +165,32 @@ export default function PeriodFilter({
 
   return (
     <div className="flex flex-wrap items-center gap-3">
+      {dataType !== undefined && onDataTypeChange !== undefined && (
+        <div className="flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5 dark:border-white/10 dark:bg-slate-900">
+          <button
+            type="button"
+            onClick={() => onDataTypeChange("approved")}
+            className={`rounded-md px-2.5 py-1 text-xs font-bold transition cursor-pointer ${
+              dataType === "approved"
+                ? "bg-white text-blue-600 shadow-sm dark:bg-slate-800 dark:text-blue-400"
+                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+          >
+            Approved Data
+          </button>
+          <button
+            type="button"
+            onClick={() => onDataTypeChange("billed")}
+            className={`rounded-md px-2.5 py-1 text-xs font-bold transition cursor-pointer ${
+              dataType === "billed"
+                ? "bg-white text-blue-600 shadow-sm dark:bg-slate-800 dark:text-blue-400"
+                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+          >
+            Billed Data
+          </button>
+        </div>
+      )}
       {dateFilter !== undefined && onDateFilterChange !== undefined && (
         <div className="flex items-center gap-2">
           <span

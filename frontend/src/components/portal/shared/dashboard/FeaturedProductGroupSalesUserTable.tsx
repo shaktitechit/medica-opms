@@ -34,6 +34,7 @@ interface FeaturedProductGroupSalesUserTableProps {
   externalFilterCaption?: string;
   /** Initial Net/Approved basis (default: net). */
   initialQtyBasis?: MatrixQtyBasis;
+  qtyBasis?: MatrixQtyBasis;
   forceMetric?: MatrixMetric;
   forceSalesUserId?: string;
   forceSalesUserName?: string;
@@ -45,13 +46,13 @@ export default function FeaturedProductGroupSalesUserTable({
   syncWithExternalFilter = true,
   externalFilterCaption,
   initialQtyBasis = "approved",
+  qtyBasis: propQtyBasis,
   forceMetric,
   forceSalesUserId,
   forceSalesUserName,
 }: FeaturedProductGroupSalesUserTableProps) {
   const [metricState, setMetric] = useState<MatrixMetric>("quantity");
   const metric = forceMetric ?? metricState;
-  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>(initialQtyBasis);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const {
@@ -61,7 +62,10 @@ export default function FeaturedProductGroupSalesUserTable({
     selectedMonths,
     setSelectedMonths,
     filteredOrders: periodFilteredOrders,
+    qtyBasis: defaultQtyBasis,
   } = usePeriodFilter(orders);
+
+  const qtyBasis = propQtyBasis ?? defaultQtyBasis;
 
   const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
@@ -252,9 +256,7 @@ export default function FeaturedProductGroupSalesUserTable({
       accentClass="text-violet-600 dark:text-violet-400"
       metric={metric}
       onMetricChange={setMetric}
-      showMetricToggle={!forceMetric}
       qtyBasis={qtyBasis}
-      onQtyBasisChange={setQtyBasis}
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}

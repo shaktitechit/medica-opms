@@ -33,6 +33,7 @@ interface FeaturedProductGroupZoneTableProps {
   externalFilterCaption?: string;
   /** Initial Net/Approved basis (default: net). */
   initialQtyBasis?: MatrixQtyBasis;
+  qtyBasis?: MatrixQtyBasis;
   forceMetric?: MatrixMetric;
 }
 
@@ -42,11 +43,11 @@ export default function FeaturedProductGroupZoneTable({
   syncWithExternalFilter = true,
   externalFilterCaption,
   initialQtyBasis = "approved",
+  qtyBasis: propQtyBasis,
   forceMetric,
 }: FeaturedProductGroupZoneTableProps) {
   const [metricState, setMetric] = useState<MatrixMetric>("quantity");
   const metric = forceMetric ?? metricState;
-  const [qtyBasis, setQtyBasis] = useState<MatrixQtyBasis>(initialQtyBasis);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const {
@@ -56,7 +57,10 @@ export default function FeaturedProductGroupZoneTable({
     selectedMonths,
     setSelectedMonths,
     filteredOrders: periodFilteredOrders,
+    qtyBasis: defaultQtyBasis,
   } = usePeriodFilter(orders);
+
+  const qtyBasis = propQtyBasis ?? defaultQtyBasis;
 
   const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
@@ -303,9 +307,7 @@ export default function FeaturedProductGroupZoneTable({
       accentClass="text-emerald-600 dark:text-emerald-455"
       metric={metric}
       onMetricChange={setMetric}
-      showMetricToggle={!forceMetric}
       qtyBasis={qtyBasis}
-      onQtyBasisChange={setQtyBasis}
       availableYears={availableYears}
       selectedYears={selectedYears}
       selectedMonths={selectedMonths}

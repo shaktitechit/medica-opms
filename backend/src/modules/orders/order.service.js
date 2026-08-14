@@ -642,7 +642,7 @@ function applyAccessFilter(q, user) {
 
 async function buildBaseQuery(query = {}, user) {
   const q = {};
-  const { status, customer, party, exclude_status, search, priority, tab, dateFrom, dateTo, billing_status } = query;
+  const { status, customer, party, exclude_status, search, priority, tab, dateFrom, dateTo, billing_status, billingDateFrom, billingDateTo } = query;
 
   if (tab) {
     const s = String(tab).toLowerCase();
@@ -809,6 +809,16 @@ async function buildBaseQuery(query = {}, user) {
     q.order_date = {};
     if (dateFrom) q.order_date.$gte = new Date(dateFrom);
     if (dateTo) q.order_date.$lte = new Date(dateTo);
+  }
+
+  if (billingDateFrom || billingDateTo) {
+    q.billing_date = {};
+    if (billingDateFrom) q.billing_date.$gte = new Date(billingDateFrom);
+    if (billingDateTo) {
+      const bTo = new Date(billingDateTo);
+      bTo.setHours(23, 59, 59, 999);
+      q.billing_date.$lte = bTo;
+    }
   }
 
   const andConditions = [];
@@ -1002,6 +1012,7 @@ async function create(body, user) {
     order_no: orderNo,
     party: body.party,
     order_date: body.order_date ? new Date(body.order_date) : new Date(),
+    billing_date: body.billing_date ? new Date(body.billing_date) : null,
     payment_status: paymentStatus,
     internal_notes: body.notes != null ? String(body.notes) : '',
     order_items,
@@ -1727,6 +1738,7 @@ async function superSheetUpdate(id, body, user) {
   const DATE_KEYS = new Set([
     'order_date',
     'expected_delivery_date',
+    'billing_date',
     'closed_at',
     'pricing_validity_start',
     'pricing_validity_end',

@@ -416,6 +416,12 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
+    billing_date: {
+      type: Date,
+      index: true,
+    },
+
+
     /* ----- Department approvals (same enum shape) ----- */
 
     finance_approval_status: {

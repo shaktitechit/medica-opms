@@ -125,6 +125,9 @@ export default function AccountOverview() {
   );
 
   const {
+    dataType,
+    setDataType,
+    qtyBasis,
     availableYears,
     selectedYears,
     setSelectedYears,
@@ -707,6 +710,8 @@ export default function AccountOverview() {
           onCustomDateFromChange={setCustomDateFrom}
           customDateTo={customDateTo}
           onCustomDateToChange={setCustomDateTo}
+          dataType={dataType}
+          onDataTypeChange={setDataType}
         />
       </div>
 
@@ -721,6 +726,7 @@ export default function AccountOverview() {
         dateFilter={dateFilter}
         customDateFrom={customDateFrom}
         customDateTo={customDateTo}
+        qtyBasis={qtyBasis}
       />
 
       <TransportPlannerStatsWidgets portalHome="/account" />
@@ -728,6 +734,7 @@ export default function AccountOverview() {
       <MonthlyPerformanceChart
         orders={orders}
         isOrdersFetching={isOrdersFetching}
+        qtyBasis={qtyBasis}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -735,18 +742,21 @@ export default function AccountOverview() {
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
         <PartyLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
         <SalesLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           userNameById={userNameById}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
       </div>
 
@@ -755,16 +765,19 @@ export default function AccountOverview() {
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
         <FeaturedProductGroupZoneTable
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
         <FeaturedProductGroupFeaturedPartyTable
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
       </div>
     </div>

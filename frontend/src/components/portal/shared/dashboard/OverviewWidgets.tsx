@@ -24,6 +24,8 @@ import ReportDownloadButton from "./ReportDownloadButton";
 import { formatPeriodLabel } from "./periodFilterUtils";
 import { downloadCsvFile, reportFilename } from "./reportDownloadUtils";
 
+import type { QtyBasis } from "./leaderboardUtils";
+
 interface OverviewWidgetsProps {
   orders: any[];
   filteredOrders: any[];
@@ -36,6 +38,7 @@ interface OverviewWidgetsProps {
   dateFilter?: string;
   customDateFrom?: string;
   customDateTo?: string;
+  qtyBasis?: QtyBasis;
 }
 
 const IN_TRANSIT_PIPELINE_TABS: OrderWorkflowTabCategory[] = [
@@ -86,10 +89,11 @@ export default function OverviewWidgets({
   dateFilter,
   customDateFrom,
   customDateTo,
+  qtyBasis = "approved",
 }: OverviewWidgetsProps) {
   const tabStats = useMemo(
-    () => computeOrderWorkflowTabStats(filteredOrders, categoryOptions),
-    [filteredOrders, categoryOptions],
+    () => computeOrderWorkflowTabStats(filteredOrders, categoryOptions, qtyBasis),
+    [filteredOrders, categoryOptions, qtyBasis],
   );
 
   const kpis = useMemo(() => {

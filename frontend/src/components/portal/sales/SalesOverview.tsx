@@ -62,6 +62,9 @@ export default function SalesOverview() {
   );
 
   const {
+    dataType,
+    setDataType,
+    qtyBasis,
     availableYears,
     selectedYears,
     setSelectedYears,
@@ -82,7 +85,7 @@ export default function SalesOverview() {
       customDateFrom,
       customDateTo,
       selectedYears,
-      selectedMonths
+      selectedMonths,
     );
   }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
 
@@ -94,12 +97,8 @@ export default function SalesOverview() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await Promise.all([
-        refetchKpi().unwrap(),
-        refetchOrders().unwrap(),
-        refetchWorkPlanStats().unwrap(),
-      ]);
-    } catch (e) {
+      await refetchOrders().unwrap();
+    } catch {
       // Ignore errors
     } finally {
       setIsRefreshing(false);
@@ -113,15 +112,18 @@ export default function SalesOverview() {
     isRefreshing;
 
   return (
-    <div className="space-y-8 pb-10 font-sans">
+    <div className="space-y-8 pb-10">
       {/* HEADER SECTION */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50 font-sans">
-            Sales Hub
+            Sales Console
           </h1>
-          <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400 font-sans">
-            Welcome back, <span className="font-semibold text-blue-600 dark:text-blue-400">{userName}</span>. Here is your portfolio status for today.
+          <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400">
+            Welcome back,{" "}
+            <span className="font-semibold text-blue-600 dark:text-blue-400">
+              {userName}
+            </span>. Here is your portfolio status for today.
           </p>
         </div>
 
@@ -164,6 +166,8 @@ export default function SalesOverview() {
           onCustomDateFromChange={setCustomDateFrom}
           customDateTo={customDateTo}
           onCustomDateToChange={setCustomDateTo}
+          dataType={dataType}
+          onDataTypeChange={setDataType}
         />
       </div>
 
@@ -178,6 +182,7 @@ export default function SalesOverview() {
         dateFilter={dateFilter}
         customDateFrom={customDateFrom}
         customDateTo={customDateTo}
+        qtyBasis={qtyBasis}
       />
 
       <WorkPlannerStatsWidgets />
@@ -186,6 +191,7 @@ export default function SalesOverview() {
         orders={orders}
         isOrdersFetching={isOrdersFetching}
         forceMetric="quantity"
+        qtyBasis={qtyBasis}
       />
 
       {/* TWO COLUMN GRID: TOP PRODUCTS & TOP PARTIES */}
@@ -195,6 +201,7 @@ export default function SalesOverview() {
           isOrdersFetching={isOrdersFetching}
           forceMetric="quantity"
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
         <PartyLeaderboard
           orders={filteredOrders}
@@ -202,6 +209,7 @@ export default function SalesOverview() {
           partyNameById={partyNameById}
           forceMetric="quantity"
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
       </div>
 
@@ -213,6 +221,7 @@ export default function SalesOverview() {
           forceSalesUserId={user?._id || user?.id ? String(user?._id || user?.id) : undefined}
           forceSalesUserName={userName}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
       </div>
     </div>

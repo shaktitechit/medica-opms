@@ -484,7 +484,10 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
                       </th>
                     )}
                     <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
-                      {includeDraftTab ? "Order Date" : "Created"}
+                      Order Date
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Billing Date
                     </th>
                     <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
                       Expected Delivery
@@ -524,6 +527,9 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
                     const isDraftRow = statusRaw === "draft";
                     const orderDateStr = formatDateShort(
                       o.order_date ?? o.created_at ?? o.createdAt,
+                    );
+                    const billingDateStr = formatDateShort(
+                      o.billing_date,
                     );
                     const expectedDeliveryStr = formatDateShort(
                       o.expected_delivery_date,
@@ -589,6 +595,9 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
                         )}
                         <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-500 dark:text-slate-400">
                           {orderDateStr}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-500 dark:text-slate-400">
+                          {billingDateStr}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-500 dark:text-slate-400">
                           {expectedDeliveryStr}
@@ -740,8 +749,11 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
             priorityFilter={priorityFilter}
             onPriorityFilterChange={setPriorityFilter}
             dateFilter={dateFilter}
+            onDateFilterChange={handleDateFilterChange}
             customDateFrom={customDateFrom}
+            onCustomDateFromChange={handleCustomDateFromChange}
             customDateTo={customDateTo}
+            onCustomDateToChange={handleCustomDateToChange}
             showReset={showReset}
             onResetFilters={handleResetFilters}
           />

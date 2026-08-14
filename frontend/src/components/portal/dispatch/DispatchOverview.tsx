@@ -97,6 +97,9 @@ export default function DispatchOverview() {
   );
 
   const {
+    dataType,
+    setDataType,
+    qtyBasis,
     availableYears,
     selectedYears,
     setSelectedYears,
@@ -452,6 +455,8 @@ export default function DispatchOverview() {
           onCustomDateFromChange={setCustomDateFrom}
           customDateTo={customDateTo}
           onCustomDateToChange={setCustomDateTo}
+          dataType={dataType}
+          onDataTypeChange={setDataType}
         />
       </div>
 
@@ -466,6 +471,7 @@ export default function DispatchOverview() {
         dateFilter={dateFilter}
         customDateFrom={customDateFrom}
         customDateTo={customDateTo}
+        qtyBasis={qtyBasis}
       />
 
       <TransportPlannerStatsWidgets portalHome="/dispatch" />

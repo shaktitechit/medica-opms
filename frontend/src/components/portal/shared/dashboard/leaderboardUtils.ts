@@ -1,10 +1,44 @@
-"use client";
-
+import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
 import { isKitShellOrderLine } from "@/components/portal/shared/orderLineQuantities";
 
 export type Metric = "quantity" | "volume";
 export type QtyBasis = "approved" | "dispatched";
 export type RateBucket = { total: number; sr: number; sra: number; cr: number };
+
+export function shouldIncludeOrder(order: any, basis: QtyBasis | string): boolean {
+  if (!order) return false;
+  const status = deriveOrderWorkflowStatus(order);
+
+  if (
+    status === "draft" ||
+    status === "deleted" ||
+    order.is_deleted === true ||
+    order.isDeleted === true ||
+    order.deletedAt != null
+  ) {
+    return false;
+  }
+
+  if (basis === "approved" || basis === "dispatched") {
+    if (
+      status === "cancelled" ||
+      status === "finance_rejected" ||
+      status === "rejected" ||
+      status === "on_hold"
+    ) {
+      return false;
+    }
+  }
+
+  if (basis === "dispatched") {
+    const hasBillingDate = Boolean(
+      order.billing_date || order.dispatched_at || order.dispatch_date,
+    );
+    if (!hasBillingDate) return false;
+  }
+
+  return true;
+}
 
 function idFromRef(ref: unknown): string {
   if (ref == null || ref === "") return "";
@@ -39,7 +73,14 @@ export function itemApprovedQty(item: any): number {
 }
 
 export function itemDispatchedQty(item: any): number {
-  return Number(item.dispatched_quantity) || 0;
+  const explicit = Number(
+    item.dispatched_quantity ??
+      item.dispatch_quantity ??
+      item.billed_dispatched_quantity ??
+      0,
+  );
+  if (explicit > 0) return explicit;
+  return Number(item.approved_quantity ?? item.ordered_quantity ?? item.quantity ?? 0);
 }
 
 export function itemQty(item: any, basis: QtyBasis): number {

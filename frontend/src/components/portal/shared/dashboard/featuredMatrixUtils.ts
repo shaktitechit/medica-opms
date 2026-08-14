@@ -31,6 +31,13 @@ export function shouldIncludeOrder(order: any, basis: MatrixQtyBasis): boolean {
     }
   }
 
+  if (basis === "dispatched") {
+    const hasBillingDate = Boolean(
+      order.billing_date || order.dispatched_at || order.dispatch_date,
+    );
+    if (!hasBillingDate) return false;
+  }
+
   return true;
 }
 
@@ -77,7 +84,14 @@ export function itemApprovedQty(item: any): number {
 }
 
 export function itemDispatchedQty(item: any): number {
-  return Number(item.dispatched_quantity) || 0;
+  const explicit = Number(
+    item.dispatched_quantity ??
+      item.dispatch_quantity ??
+      item.billed_dispatched_quantity ??
+      0,
+  );
+  if (explicit > 0) return explicit;
+  return Number(item.approved_quantity ?? item.ordered_quantity ?? item.quantity ?? 0);
 }
 
 export function itemQty(item: any, basis: MatrixQtyBasis = "approved"): number {

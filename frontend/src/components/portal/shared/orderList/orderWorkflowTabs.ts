@@ -25,6 +25,7 @@ import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifec
 import {
   isKitShellOrderLine,
   orderCommercialVolume,
+  type OrderCommercialVolumeBasis,
 } from "@/components/portal/shared/orderLineQuantities";
 import { hasPendingReturns } from "@/components/portal/shared/returnSettlement";
 import { isReturnPending } from "@/constants/orderReturnStatus";
@@ -869,7 +870,10 @@ export function createEmptyOrderWorkflowTabStats(): OrderWorkflowTabStats {
   ) as OrderWorkflowTabStats;
 }
 
-function orderLineQuantitiesForStats(order: unknown): {
+function orderLineQuantitiesForStats(
+  order: unknown,
+  basis: OrderCommercialVolumeBasis = "approved",
+): {
   quantity: number;
   kitQuantity: number;
 } {
@@ -889,9 +893,21 @@ function orderLineQuantitiesForStats(order: unknown): {
   let quantity = 0;
   let kitQuantity = 0;
   for (const line of items) {
-    const q = isApproved
-      ? Number(line.approved_quantity ?? 0)
-      : Number(line.ordered_quantity ?? line.quantity ?? 0);
+    let q = 0;
+    if (basis === "dispatched") {
+      const explicit = Number(
+        line.dispatched_quantity ??
+          line.dispatch_quantity ??
+          line.billed_dispatched_quantity ??
+          0,
+      );
+      q = explicit > 0 ? explicit : Number(line.approved_quantity ?? line.ordered_quantity ?? line.quantity ?? 0);
+    } else {
+      q = isApproved
+        ? Number(line.approved_quantity ?? 0)
+        : Number(line.ordered_quantity ?? line.quantity ?? 0);
+    }
+
     if (!Number.isFinite(q) || q === 0) continue;
     if (isKitShellOrderLine(line, items)) {
       kitQuantity += q;
@@ -902,10 +918,11 @@ function orderLineQuantitiesForStats(order: unknown): {
   return { quantity, kitQuantity };
 }
 
-function orderAmountForStats(order: unknown): number {
-  // Same commercial definition as Product/Party/Sales leaderboard "Approved" volume:
-  // Σ (approved_qty × unit_price) excluding kit buckets — not order.grand_total.
-  return orderCommercialVolume(order, "approved");
+function orderAmountForStats(
+  order: unknown,
+  basis: OrderCommercialVolumeBasis = "approved",
+): number {
+  return orderCommercialVolume(order, basis);
 }
 
 /**
@@ -915,6 +932,7 @@ function orderAmountForStats(order: unknown): number {
 export function computeOrderWorkflowTabStats(
   orders: unknown[],
   options?: OrderWorkflowCategoryOptions,
+  basis: OrderCommercialVolumeBasis = "approved",
 ): OrderWorkflowTabStats {
   const stats = createEmptyOrderWorkflowTabStats();
 
@@ -923,8 +941,8 @@ export function computeOrderWorkflowTabStats(
     const status = deriveOrderWorkflowStatus(order);
     if (status === "draft") continue;
 
-    const { quantity: qty, kitQuantity } = orderLineQuantitiesForStats(order);
-    const amount = orderAmountForStats(order);
+    const { quantity: qty, kitQuantity } = orderLineQuantitiesForStats(order, basis);
+    const amount = orderAmountForStats(order, basis);
 
     stats.all.count += 1;
     stats.all.quantity += qty;

@@ -86,32 +86,6 @@ export default function FeaturedMatrixTableFrame({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {showQtyBasisToggle && onQtyBasisChange && (
-              <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
-                <button
-                  type="button"
-                  onClick={() => onQtyBasisChange("approved")}
-                  className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
-                    qtyBasis === "approved"
-                      ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
-                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-                  }`}
-                >
-                  Approved
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onQtyBasisChange("dispatched")}
-                  className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
-                    qtyBasis === "dispatched"
-                      ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300"
-                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-                  }`}
-                >
-                  Dispatched
-                </button>
-              </div>
-            )}
             {showMetricToggle && onMetricChange && (
               <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
                 <button

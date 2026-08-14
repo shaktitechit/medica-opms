@@ -14,11 +14,13 @@ import {
   matrixGrandTotal,
   matrixRowTotal,
   pickEntities,
+  resolveEntityId,
   resolveOrderPartyId,
   resolveProductId,
   shouldIncludeOrder,
   type MatrixEntity,
   type MatrixMetric,
+  type MatrixQtyBasis,
 } from "./featuredMatrixUtils";
 import { formatPeriodLabel } from "./periodFilterUtils";
 import {
@@ -32,6 +34,7 @@ interface FeaturedProductFeaturePartyTableProps {
   isOrdersFetching: boolean;
   syncWithExternalFilter?: boolean;
   externalFilterCaption?: string;
+  qtyBasis?: MatrixQtyBasis;
 }
 
 export default function FeaturedProductFeaturePartyTable({
@@ -39,6 +42,7 @@ export default function FeaturedProductFeaturePartyTable({
   isOrdersFetching,
   syncWithExternalFilter = true,
   externalFilterCaption,
+  qtyBasis: propQtyBasis,
 }: FeaturedProductFeaturePartyTableProps) {
   const [metric, setMetric] = useState<MatrixMetric>("quantity");
   const {
@@ -48,7 +52,10 @@ export default function FeaturedProductFeaturePartyTable({
     selectedMonths,
     setSelectedMonths,
     filteredOrders: periodFilteredOrders,
+    qtyBasis: defaultQtyBasis,
   } = usePeriodFilter(orders);
+
+  const qtyBasis = propQtyBasis ?? defaultQtyBasis;
 
   const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
@@ -64,21 +71,20 @@ export default function FeaturedProductFeaturePartyTable({
   const featuredProducts = useMemo<MatrixEntity[]>(() => {
     return pickEntities(productsData)
       .map((p) => ({
-        id: String(p._id ?? p.id ?? ""),
+        id: resolveEntityId(p._id ?? p.id),
         name: String(p.product_name ?? p.name ?? "Untitled Product"),
       }))
-      .filter((p) => p.id)
+      .filter((p) => Boolean(p.id))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [productsData]);
 
   const featuredParties = useMemo<MatrixEntity[]>(() => {
     return pickEntities(partiesData)
-      .map((p) => {
-        const id = String(p._id ?? p.id ?? "");
-        const name = partyRecordName(p) || String(p.party_name ?? "Untitled Party");
-        return { id, name };
-      })
-      .filter((p) => p.id)
+      .map((p) => ({
+        id: resolveEntityId(p._id ?? p.id),
+        name: partyRecordName(p) || String(p.party_name ?? "Untitled Party"),
+      }))
+      .filter((p) => Boolean(p.id))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [partiesData]);
 
@@ -90,7 +96,7 @@ export default function FeaturedProductFeaturePartyTable({
   const matrix = useMemo(() => {
     const map = emptyMatrix(productIds, partyIds);
     for (const order of filteredOrders) {
-      if (!shouldIncludeOrder(order, "approved")) continue;
+      if (!shouldIncludeOrder(order, qtyBasis)) continue;
       const partyId = resolveOrderPartyId(order);
       if (!partyId || !partyIdSet.has(partyId)) continue;
       const items = Array.isArray(order.order_items) ? order.order_items : [];
@@ -99,11 +105,11 @@ export default function FeaturedProductFeaturePartyTable({
         if (!productId || !productIdSet.has(productId)) continue;
         const row = map.get(productId);
         if (!row) continue;
-        row.set(partyId, (row.get(partyId) ?? 0) + itemMetricValue(item, metric, "approved", items));
+        row.set(partyId, (row.get(partyId) ?? 0) + itemMetricValue(item, metric, qtyBasis, items));
       }
     }
     return map;
-  }, [filteredOrders, productIds, partyIds, productIdSet, partyIdSet, metric]);
+  }, [filteredOrders, productIds, partyIds, productIdSet, partyIdSet, metric, qtyBasis]);
 
   const isLoading = isOrdersFetching || isProductsFetching || isPartiesFetching;
 

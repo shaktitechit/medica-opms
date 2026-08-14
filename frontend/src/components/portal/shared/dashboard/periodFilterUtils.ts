@@ -13,25 +13,44 @@ export const MONTH_OPTIONS = [
   { value: 11, label: "Dec" },
 ] as const;
 
+export type DashboardDataType = "approved" | "billed";
 export type OrderYearMonth = { year: number; month: number };
 
-export function getOrderYearMonth(order: unknown): OrderYearMonth | null {
+export function getOrderYearMonth(
+  order: unknown,
+  dataType?: DashboardDataType,
+): OrderYearMonth | null {
   const row = order as {
     order_date?: unknown;
+    billing_date?: unknown;
+    dispatched_at?: unknown;
+    dispatch_date?: unknown;
     created_at?: unknown;
     createdAt?: unknown;
   };
-  const dateStr = row?.order_date ?? row?.created_at ?? row?.createdAt;
-  if (!dateStr) return null;
-  const d = new Date(String(dateStr));
+
+  if (dataType === "billed") {
+    const billingDateStr = row?.billing_date ?? row?.dispatched_at ?? row?.dispatch_date;
+    if (!billingDateStr) return null;
+    const d = new Date(String(billingDateStr));
+    if (Number.isNaN(d.getTime())) return null;
+    return { year: d.getFullYear(), month: d.getMonth() };
+  }
+
+  const orderDateStr = row?.order_date ?? row?.created_at ?? row?.createdAt;
+  if (!orderDateStr) return null;
+  const d = new Date(String(orderDateStr));
   if (Number.isNaN(d.getTime())) return null;
   return { year: d.getFullYear(), month: d.getMonth() };
 }
 
-export function collectAvailableYears(orders: unknown[]): number[] {
+export function collectAvailableYears(
+  orders: unknown[],
+  dataType?: DashboardDataType,
+): number[] {
   const years = new Set<number>();
   for (const o of orders) {
-    const ym = getOrderYearMonth(o);
+    const ym = getOrderYearMonth(o, dataType);
     if (ym) years.add(ym.year);
   }
   years.add(new Date().getFullYear());
@@ -42,12 +61,13 @@ export function filterOrdersByPeriod<T>(
   orders: T[],
   selectedYears: number[],
   selectedMonths: number[],
+  dataType?: DashboardDataType,
 ): T[] {
   if (selectedYears.length === 0 || selectedMonths.length === 0) return [];
   const yearSet = new Set(selectedYears);
   const monthSet = new Set(selectedMonths);
   return orders.filter((o) => {
-    const ym = getOrderYearMonth(o);
+    const ym = getOrderYearMonth(o, dataType);
     if (!ym) return false;
     return yearSet.has(ym.year) && monthSet.has(ym.month);
   });

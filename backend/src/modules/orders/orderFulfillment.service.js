@@ -836,7 +836,7 @@ async function recalculateFromExecutionsOnce(orderId, user) {
 
   await syncDispatchDeliveredQuantities(orderId);
 
-  const [orderDoc, dispatches, shipments, returns, approvals] = await Promise.all([
+  const [orderDoc, dispatches, shipments, returns, approvals, allActiveDispatches] = await Promise.all([
     Order.findById(orderId),
     OrderDispatch.find({ order: orderId, deletedAt: null, dispatch_status: { $nin: ['cancelled', 'draft'] } }).lean(),
     TransportShipment.find({
@@ -846,6 +846,7 @@ async function recalculateFromExecutionsOnce(orderId, user) {
     }).lean(),
     getModels().OrderReturn.find({ order: orderId, deletedAt: null }).lean(),
     getModels().OrderApproval.find({ order: orderId, deletedAt: null }).lean(),
+    OrderDispatch.find({ order: orderId, deletedAt: null, dispatch_status: { $ne: 'cancelled' } }).lean(),
   ]);
 
   if (!orderDoc) throw new ApiError(404, 'Order not found');
@@ -956,6 +957,18 @@ async function recalculateFromExecutionsOnce(orderId, user) {
     orderDoc.billing_status = 'unbilled';
   } else {
     orderDoc.billing_status = 'fully_billed';
+  }
+
+  const latestBilledDispatch = (allActiveDispatches || [])
+    .filter(d => d.billing_date || d.dispatched_at || d.createdAt)
+    .sort((a, b) => new Date(b.billing_date || b.dispatched_at || b.createdAt) - new Date(a.billing_date || a.dispatched_at || a.createdAt))[0];
+
+  if (latestBilledDispatch) {
+    orderDoc.billing_date = latestBilledDispatch.billing_date || latestBilledDispatch.dispatched_at || latestBilledDispatch.createdAt;
+  } else if (isSettled && !orderDoc.billing_date) {
+    orderDoc.billing_date = new Date();
+  } else if (orderDoc.billing_status === 'unbilled' && totalBilled === 0 && !isSettled) {
+    orderDoc.billing_date = null;
   }
 
   const isOrderClosed = Boolean(orderDoc.is_locked);

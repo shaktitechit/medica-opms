@@ -19,6 +19,7 @@ interface SalesLeaderboardProps {
   userNameById: Record<string, string>;
   disableInternalFilter?: boolean;
   externalFilterCaption?: string;
+  qtyBasis?: QtyBasis;
 }
 
 import {
@@ -44,10 +45,10 @@ export default function SalesLeaderboard({
   userNameById,
   disableInternalFilter = true,
   externalFilterCaption,
+  qtyBasis: propQtyBasis,
 }: SalesLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
   const [metric, setMetric] = useState<Metric>("quantity");
-  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("approved");
   const {
     availableYears,
     selectedYears,
@@ -55,7 +56,10 @@ export default function SalesLeaderboard({
     selectedMonths,
     setSelectedMonths,
     filteredOrders,
+    qtyBasis: defaultQtyBasis,
   } = usePeriodFilter(orders);
+
+  const qtyBasis = propQtyBasis ?? defaultQtyBasis;
 
   const displayOrders = disableInternalFilter ? orders : filteredOrders;
 
@@ -111,33 +115,6 @@ export default function SalesLeaderboard({
       : metric === "quantity"
         ? "Sales Person breakdown (Approved Quantity)"
         : "Sales Person breakdown (Approved Volume)";
-
-  const basisToggle = (
-    <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
-      <button
-        type="button"
-        onClick={() => setQtyBasis("approved")}
-        className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
-          qtyBasis === "approved"
-            ? "bg-white text-violet-700 shadow-sm dark:bg-slate-700 dark:text-violet-300"
-            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-        }`}
-      >
-        Approved
-      </button>
-      <button
-        type="button"
-        onClick={() => setQtyBasis("dispatched")}
-        className={`rounded-md px-2.5 py-1 text-2xs font-semibold transition cursor-pointer ${
-          qtyBasis === "dispatched"
-            ? "bg-white text-violet-700 shadow-sm dark:bg-slate-700 dark:text-violet-300"
-            : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-        }`}
-      >
-        Dispatched
-      </button>
-    </div>
-  );
 
   const metricToggle = (
     <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
@@ -223,7 +200,6 @@ export default function SalesLeaderboard({
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                {basisToggle}
                 {metricToggle}
                 <button
                   type="button"
@@ -322,7 +298,6 @@ export default function SalesLeaderboard({
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {basisToggle}
                   {metricToggle}
                   <button
                     type="button"

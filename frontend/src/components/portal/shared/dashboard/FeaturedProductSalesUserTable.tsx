@@ -14,11 +14,13 @@ import {
   matrixGrandTotal,
   matrixRowTotal,
   pickEntities,
+  resolveEntityId,
   resolveOrderSalesUserId,
   resolveProductId,
   shouldIncludeOrder,
   type MatrixEntity,
   type MatrixMetric,
+  type MatrixQtyBasis,
 } from "./featuredMatrixUtils";
 import { formatPeriodLabel } from "./periodFilterUtils";
 import {
@@ -32,6 +34,7 @@ interface FeaturedProductSalesUserTableProps {
   isOrdersFetching: boolean;
   syncWithExternalFilter?: boolean;
   externalFilterCaption?: string;
+  qtyBasis?: MatrixQtyBasis;
 }
 
 export default function FeaturedProductSalesUserTable({
@@ -39,6 +42,7 @@ export default function FeaturedProductSalesUserTable({
   isOrdersFetching,
   syncWithExternalFilter = true,
   externalFilterCaption,
+  qtyBasis: propQtyBasis,
 }: FeaturedProductSalesUserTableProps) {
   const [metric, setMetric] = useState<MatrixMetric>("quantity");
   const {
@@ -48,7 +52,10 @@ export default function FeaturedProductSalesUserTable({
     selectedMonths,
     setSelectedMonths,
     filteredOrders: periodFilteredOrders,
+    qtyBasis: defaultQtyBasis,
   } = usePeriodFilter(orders);
+
+  const qtyBasis = propQtyBasis ?? defaultQtyBasis;
 
   const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
@@ -63,32 +70,26 @@ export default function FeaturedProductSalesUserTable({
   const featuredProducts = useMemo<MatrixEntity[]>(() => {
     return pickEntities(productsData)
       .map((p) => ({
-        id: String(p._id ?? p.id ?? ""),
+        id: resolveEntityId(p._id ?? p.id),
         name: String(p.product_name ?? p.name ?? "Untitled Product"),
       }))
-      .filter((p) => p.id)
+      .filter((p) => Boolean(p.id))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [productsData]);
 
   const salesUsers = useMemo<MatrixEntity[]>(() => {
-    const nameById = buildUserNameById(usersData);
-    const fromList = pickUsersList(usersData)
-      .map((u) => {
-        if (!u || typeof u !== "object") return null;
-        const o = u as Record<string, unknown>;
-        const id = o._id != null ? String(o._id) : o.id != null ? String(o.id) : "";
-        if (!id) return null;
-        return {
-          id,
-          name: nameById[id] || String(o.name ?? o.username ?? id),
-        };
-      })
-      .filter((u): u is MatrixEntity => Boolean(u));
+    const nameById: Record<string, string> = {};
+    for (const u of pickEntities(usersData)) {
+      const id = resolveEntityId(u._id ?? u.id);
+      if (!id) continue;
+      nameById[id] = String(u.name ?? u.full_name ?? u.email ?? id);
+    }
 
-    // Keep any sales users present on filtered orders even if not in the sales list.
-    const seen = new Set(fromList.map((u) => u.id));
+    const fromList: MatrixEntity[] = [];
+    const seen = new Set<string>();
+
     for (const order of filteredOrders) {
-      if (!shouldIncludeOrder(order, "approved")) continue;
+      if (!shouldIncludeOrder(order, qtyBasis)) continue;
       const id = resolveOrderSalesUserId(order);
       if (!id || seen.has(id)) continue;
       seen.add(id);
@@ -96,7 +97,7 @@ export default function FeaturedProductSalesUserTable({
     }
 
     return fromList.sort((a, b) => a.name.localeCompare(b.name));
-  }, [usersData, filteredOrders]);
+  }, [usersData, filteredOrders, qtyBasis]);
 
   const productIds = useMemo(() => featuredProducts.map((p) => p.id), [featuredProducts]);
   const salesIds = useMemo(() => salesUsers.map((u) => u.id), [salesUsers]);
@@ -105,7 +106,7 @@ export default function FeaturedProductSalesUserTable({
   const matrix = useMemo(() => {
     const map = emptyMatrix(productIds, salesIds);
     for (const order of filteredOrders) {
-      if (!shouldIncludeOrder(order, "approved")) continue;
+      if (!shouldIncludeOrder(order, qtyBasis)) continue;
       const salesId = resolveOrderSalesUserId(order);
       if (!salesId || !map.size) continue;
       if (!salesIds.includes(salesId)) continue;
@@ -115,11 +116,11 @@ export default function FeaturedProductSalesUserTable({
         if (!productId || !productIdSet.has(productId)) continue;
         const row = map.get(productId);
         if (!row) continue;
-        row.set(salesId, (row.get(salesId) ?? 0) + itemMetricValue(item, metric, "approved", items));
+        row.set(salesId, (row.get(salesId) ?? 0) + itemMetricValue(item, metric, qtyBasis, items));
       }
     }
     return map;
-  }, [filteredOrders, productIds, salesIds, productIdSet, metric]);
+  }, [filteredOrders, productIds, salesIds, productIdSet, metric, qtyBasis]);
 
   const isLoading = isOrdersFetching || isProductsFetching || isUsersFetching;
 

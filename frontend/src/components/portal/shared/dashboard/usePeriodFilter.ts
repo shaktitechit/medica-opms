@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   collectAvailableYears,
+  type DashboardDataType,
 } from "./periodFilterUtils";
+import type { QtyBasis } from "./leaderboardUtils";
 import { orderMatchesDateFilter } from "../orderList/orderListDateFilter";
 
 function getCurrentPeriodDefaults() {
@@ -15,9 +17,12 @@ function getCurrentPeriodDefaults() {
 }
 
 export function usePeriodFilter<T = unknown>(orders: T[]) {
+  const [dataType, setDataType] = useState<DashboardDataType>("approved");
+  const qtyBasis: QtyBasis = dataType === "billed" ? "dispatched" : "approved";
+
   const availableYears = useMemo(
-    () => collectAvailableYears(orders as unknown[]),
-    [orders],
+    () => collectAvailableYears(orders as unknown[], dataType),
+    [orders, dataType],
   );
   const defaults = useMemo(() => getCurrentPeriodDefaults(), []);
   const [selectedYears, setSelectedYears] = useState<number[]>([defaults.year]);
@@ -45,19 +50,47 @@ export function usePeriodFilter<T = unknown>(orders: T[]) {
 
   const filteredOrders = useMemo(() => {
     return (orders as any[]).filter((o) => {
+      const orderDateVal = o.order_date ?? o.created_at ?? o.createdAt;
+      const billingDateVal = o.billing_date ?? o.dispatched_at ?? o.dispatch_date;
+
+      if (dataType === "billed") {
+        if (!billingDateVal) return false;
+        if (dateFilter !== "all") {
+          return orderMatchesDateFilter(
+            { ...o, order_date: billingDateVal },
+            dateFilter,
+            customDateFrom,
+            customDateTo,
+          );
+        }
+        const yearSet = new Set(selectedYears);
+        const monthSet = new Set(selectedMonths);
+        const d = new Date(billingDateVal);
+        if (Number.isNaN(d.getTime())) return false;
+        return yearSet.has(d.getFullYear()) && monthSet.has(d.getMonth());
+      }
+
       if (dateFilter !== "all") {
-        return orderMatchesDateFilter(o, dateFilter, customDateFrom, customDateTo);
+        return orderMatchesDateFilter(
+          o,
+          dateFilter,
+          customDateFrom,
+          customDateTo,
+        );
       }
       const yearSet = new Set(selectedYears);
       const monthSet = new Set(selectedMonths);
-      const dateStr = o.order_date ?? o.created_at ?? o.createdAt;
-      if (!dateStr) return false;
-      const d = new Date(dateStr);
+      if (!orderDateVal) return false;
+      const d = new Date(orderDateVal);
+      if (Number.isNaN(d.getTime())) return false;
       return yearSet.has(d.getFullYear()) && monthSet.has(d.getMonth());
     });
-  }, [orders, dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
+  }, [orders, dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths, dataType]);
 
   return {
+    dataType,
+    setDataType,
+    qtyBasis,
     availableYears,
     selectedYears,
     setSelectedYears,

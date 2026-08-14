@@ -22,6 +22,7 @@ export type OrderListRow = {
   assigned_admin_user?: unknown;
   assigned_sales_user?: unknown;
   order_date?: string;
+  billing_date?: string;
   expected_delivery_date?: string;
   created_at?: string;
   createdAt?: string;

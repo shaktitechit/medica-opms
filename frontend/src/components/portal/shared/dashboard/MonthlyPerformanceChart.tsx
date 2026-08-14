@@ -6,17 +6,22 @@ import PeriodHeadingCaption from "./PeriodHeadingCaption";
 import ReportDownloadButton from "./ReportDownloadButton";
 import { formatPeriodLabel } from "./periodFilterUtils";
 import { downloadCsvFile, reportFilename } from "./reportDownloadUtils";
-import { shouldIncludeOrder } from "./featuredMatrixUtils";
+import {
+  itemQty,
+  itemUnitPrice,
+  shouldIncludeOrder,
+} from "./leaderboardUtils";
 import { isKitShellOrderLine } from "@/components/portal/shared/orderLineQuantities";
 
 interface MonthlyPerformanceChartProps {
   orders: any[];
   isOrdersFetching: boolean;
   forceMetric?: Metric;
+  qtyBasis?: QtyBasis;
 }
 
 type Metric = "quantity" | "volume";
-type QtyBasis = "net" | "approved";
+type QtyBasis = "net" | "approved" | "dispatched";
 
 const MONTH_LABELS = [
   "Jan",
@@ -59,26 +64,8 @@ function isKitBucketLine(item: unknown): boolean {
   );
 }
 
-function itemNetQty(item: any): number {
-  const del = Number(item.delivered_quantity) || 0;
-  const ret = Number(item.returned_quantity) || 0;
-  return del - ret;
-}
-
-function itemApprovedQty(item: any): number {
-  return Number(item.approved_quantity) || 0;
-}
-
-function itemQty(item: any, basis: QtyBasis): number {
-  return basis === "approved" ? itemApprovedQty(item) : itemNetQty(item);
-}
-
-function itemUnitPrice(item: any): number {
-  return Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
-}
-
 function orderMetricValue(order: any, metric: Metric, basis: QtyBasis): number {
-  if (!shouldIncludeOrder(order, basis)) return 0;
+  if (!shouldIncludeOrder(order, basis === "net" ? "approved" : basis)) return 0;
   const items = Array.isArray(order?.order_items) ? order.order_items : [];
   let total = 0;
   for (const item of items) {
@@ -87,14 +74,20 @@ function orderMetricValue(order: any, metric: Metric, basis: QtyBasis): number {
     } else if (isKitBucketLine(item)) {
       continue;
     }
-    const qty = itemQty(item, basis);
+    const qty = itemQty(item, basis === "net" ? "approved" : basis);
     total += metric === "quantity" ? qty : qty * itemUnitPrice(item);
   }
   return total;
 }
 
-function orderYearMonth(order: any): { year: number; month: number } | null {
-  const dateStr = order?.order_date ?? order?.created_at ?? order?.createdAt;
+function orderYearMonth(
+  order: any,
+  basis: QtyBasis = "approved",
+): { year: number; month: number } | null {
+  const dateStr =
+    basis === "dispatched"
+      ? (order?.billing_date ?? order?.dispatched_at ?? order?.dispatch_date)
+      : (order?.order_date ?? order?.created_at ?? order?.createdAt);
   if (!dateStr) return null;
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return null;
@@ -127,10 +120,10 @@ export default function MonthlyPerformanceChart({
   orders,
   isOrdersFetching,
   forceMetric,
+  qtyBasis = "approved",
 }: MonthlyPerformanceChartProps) {
   const [metricState, setMetric] = useState<Metric>("quantity");
   const metric = forceMetric ?? metricState;
-  const [qtyBasis, setQtyBasis] = useState<QtyBasis>("approved");
   const [selectedYears, setSelectedYears] = useState<number[]>([
     new Date().getFullYear(),
   ]);
@@ -141,13 +134,13 @@ export default function MonthlyPerformanceChart({
   const availableYears = useMemo(() => {
     const years = new Set<number>();
     for (const o of orders) {
-      const ym = orderYearMonth(o);
+      const ym = orderYearMonth(o, qtyBasis);
       if (ym) years.add(ym.year);
     }
     const currentYear = new Date().getFullYear();
     years.add(currentYear);
     return Array.from(years).sort((a, b) => b - a);
-  }, [orders]);
+  }, [orders, qtyBasis]);
 
   useEffect(() => {
     if (availableYears.length === 0) return;
@@ -184,7 +177,7 @@ export default function MonthlyPerformanceChart({
       map.set(year, Array.from({ length: 12 }, () => 0));
     }
     for (const o of orders) {
-      const ym = orderYearMonth(o);
+      const ym = orderYearMonth(o, qtyBasis);
       if (!ym || !map.has(ym.year)) continue;
       const row = map.get(ym.year)!;
       row[ym.month] += orderMetricValue(o, metric, qtyBasis);

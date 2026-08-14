@@ -1169,6 +1169,10 @@ function registerModels() {
         default: "unbilled",
         index: true,
       },
+      billing_date: {
+        type: Date,
+        index: true,
+      },
       finance_approval_status: {
         type: String,
         enum: ["pending", "partial", "approved", "rejected", "full"],

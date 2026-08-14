@@ -54,13 +54,16 @@ export default function SuperAdminOverview() {
     refetch: refetchOrders,
   } = useListOrdersQuery(ORDER_WORKFLOW_LIST_QUERY);
 
-  const { data: partiesData } = useListPartiesQuery({});
-  const { data: usersData } = useListUsersQuery({ department: "sales" });
+  const { data: partiesData, isFetching: isPartiesFetching } = useListPartiesQuery({});
+  const { data: usersData, isFetching: isUsersFetching } = useListUsersQuery({ department: "sales" });
   const categoryOptions = useOrderWorkflowCategoryOptions();
 
   const orders = useMemo(() => pickOrders(ordersData) as any[], [ordersData]);
 
   const {
+    dataType,
+    setDataType,
+    qtyBasis,
     availableYears,
     selectedYears,
     setSelectedYears,
@@ -114,8 +117,9 @@ export default function SuperAdminOverview() {
   const isAnyLoading =
     isKpiFetching ||
     isOrdersFetching ||
-    isTransportPlanStatsFetching ||
-    isRefreshing;
+    isPartiesFetching ||
+    isUsersFetching ||
+    isTransportPlanStatsFetching;
 
   return (
     <div className="space-y-8 pb-10">
@@ -138,13 +142,13 @@ export default function SuperAdminOverview() {
 
           <button
             type="button"
-            onClick={handleRefresh}
-            disabled={isAnyLoading}
-            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
+            onClick={() => void handleRefresh()}
+            disabled={isRefreshing || isAnyLoading}
+            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 cursor-pointer"
           >
             <RefreshCw
               className={`h-4 w-4 text-slate-500 dark:text-slate-400 ${
-                isAnyLoading ? "animate-spin" : ""
+                isRefreshing || isAnyLoading ? "animate-spin" : ""
               }`}
             />
             Refresh Console
@@ -173,6 +177,8 @@ export default function SuperAdminOverview() {
           onCustomDateFromChange={setCustomDateFrom}
           customDateTo={customDateTo}
           onCustomDateToChange={setCustomDateTo}
+          dataType={dataType}
+          onDataTypeChange={setDataType}
         />
       </div>
 
@@ -188,6 +194,7 @@ export default function SuperAdminOverview() {
         dateFilter={dateFilter}
         customDateFrom={customDateFrom}
         customDateTo={customDateTo}
+        qtyBasis={qtyBasis}
       />
 
       <WorkPlannerStatsWidgets portalHome={PORTAL_HOME} />
@@ -197,6 +204,7 @@ export default function SuperAdminOverview() {
       <MonthlyPerformanceChart
         orders={orders}
         isOrdersFetching={isOrdersFetching}
+        qtyBasis={qtyBasis}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -204,18 +212,21 @@ export default function SuperAdminOverview() {
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
         <PartyLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           partyNameById={partyNameById}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
         <SalesLeaderboard
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           userNameById={userNameById}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
       </div>
 
@@ -224,16 +235,19 @@ export default function SuperAdminOverview() {
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
         <FeaturedProductGroupZoneTable
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
         <FeaturedProductGroupFeaturedPartyTable
           orders={filteredOrders}
           isOrdersFetching={isOrdersFetching}
           externalFilterCaption={filterCaption}
+          qtyBasis={qtyBasis}
         />
       </div>
     </div>

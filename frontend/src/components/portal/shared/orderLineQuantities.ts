@@ -74,12 +74,20 @@ export function orderCommercialVolume(
   let sum = 0;
   for (const line of items) {
     if (isKitBucketOrderLine(line)) continue;
-    const qty =
-      basis === "dispatched"
-        ? num(line.dispatched_quantity)
-        : basis === "ordered"
-          ? num(line.ordered_quantity ?? line.quantity)
-          : num(line.approved_quantity);
+    let qty = 0;
+    if (basis === "dispatched") {
+      const explicit = num(
+        line.dispatched_quantity ??
+          line.dispatch_quantity ??
+          line.billed_dispatched_quantity,
+      );
+      qty = explicit > 0 ? explicit : num(line.approved_quantity ?? line.ordered_quantity ?? line.quantity);
+    } else if (basis === "ordered") {
+      qty = num(line.ordered_quantity ?? line.quantity);
+    } else {
+      qty = num(line.approved_quantity);
+    }
+
     if (qty === 0) continue;
     const unitPrice = num(line.unit_price ?? line.approved_unit_price);
     sum += qty * unitPrice;

@@ -82,6 +82,7 @@ import {
   ORDER_WORKFLOW_TABS,
   type OrderWorkflowCategoryOptions,
 } from "@/components/portal/shared/orderList/orderWorkflowTabs";
+import { DATE_FILTER_OPTIONS } from "@/components/portal/shared/orderList/orderListDateFilter";
 
 export type SuperAdminOrdersSheetModalProps = {
   isOpen: boolean;
@@ -103,8 +104,11 @@ export type SuperAdminOrdersSheetModalProps = {
   priorityFilter: string;
   onPriorityFilterChange: (value: string) => void;
   dateFilter: string;
+  onDateFilterChange?: (value: string) => void;
   customDateFrom: string;
+  onCustomDateFromChange?: (value: string) => void;
   customDateTo: string;
+  onCustomDateToChange?: (value: string) => void;
   showReset?: boolean;
   onResetFilters?: () => void;
 };
@@ -199,6 +203,8 @@ const RATE_TYPES = ["SR", "SRA", "CR", "MANUAL"] as const;
 const ORDER_COLUMNS: ColDef[] = [
   { key: "order_no", label: "order_no", editable: true, type: "text", width: 130 },
   { key: "order_date", label: "order_date", editable: true, type: "date", width: 120 },
+  { key: "billing_date", label: "billing_date", editable: true, type: "date", width: 120 },
+  { key: "dispatch_date", label: "dispatch_date", editable: false, type: "date", width: 120 },
   {
     key: "expected_delivery_date",
     label: "expected_delivery_date",
@@ -488,6 +494,7 @@ function displayOrderField(
   partyNameById: Map<string, string>,
   userNameById: Record<string, string>,
   approvalById: Map<string, Record<string, unknown>> = new Map(),
+  dispatchesByOrderId?: Map<string, Record<string, unknown>[]>,
 ): string {
   const raw = order?.[key];
   if (key === "_id") return refId(order?._id || order?.id);
@@ -503,7 +510,7 @@ function displayOrderField(
     const kind = APPROVAL_KIND_BY_KEY[key] || "admin";
     return resolveApprovalDisplay(raw, kind, approvalById, userNameById);
   }
-  return String(readOrderField(order, key) ?? "");
+  return String(readOrderField(order, key, dispatchesByOrderId) ?? "");
 }
 
 function buildProductOptions(raw: unknown): ProductOption[] {
@@ -679,7 +686,35 @@ function approvalOptionsForOrder(
   return opts.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function readOrderField(order: any, key: string): string | number | boolean {
+function getOrderDispatchDate(
+  orderId: string,
+  dispatchesByOrderId: Map<string, Record<string, unknown>[]>,
+): string {
+  const list = dispatchesByOrderId.get(orderId) || [];
+  const latest = (Array.isArray(list) ? list : [])
+    .filter((d) => d && (d.dispatched_at || d.dispatch_date || d.createdAt || d.created_at))
+    .sort(
+      (a, b) =>
+        new Date(String(b.dispatched_at || b.dispatch_date || b.createdAt || b.created_at)).getTime() -
+        new Date(String(a.dispatched_at || a.dispatch_date || a.createdAt || a.created_at)).getTime(),
+    )[0];
+  if (!latest) return "";
+  const raw = latest.dispatched_at || latest.dispatch_date || latest.createdAt || latest.created_at;
+  return toDateInput(raw);
+}
+
+function readOrderField(
+  order: any,
+  key: string,
+  dispatchesByOrderId?: Map<string, Record<string, unknown>[]>,
+): string | number | boolean {
+  if (key === "dispatch_date") {
+    const orderId = refId(order?._id || order?.id);
+    if (orderId && dispatchesByOrderId) {
+      return getOrderDispatchDate(orderId, dispatchesByOrderId);
+    }
+    return toDateInput(order?.dispatch_date || order?.dispatched_at);
+  }
   const v = order?.[key];
   if (key === "_id") return refId(order?._id || order?.id);
   if (
@@ -698,7 +733,7 @@ function readOrderField(order: any, key: string): string | number | boolean {
   ) {
     return refId(v);
   }
-  if (["order_date", "expected_delivery_date", "closed_at"].includes(key)) {
+  if (["order_date", "billing_date", "dispatch_date", "expected_delivery_date", "closed_at"].includes(key)) {
     return toDateInput(v);
   }
   if (typeof v === "boolean") return v;
@@ -889,8 +924,11 @@ export function SuperAdminOrdersSheetModal({
   priorityFilter,
   onPriorityFilterChange,
   dateFilter,
+  onDateFilterChange,
   customDateFrom,
+  onCustomDateFromChange,
   customDateTo,
+  onCustomDateToChange,
   showReset = false,
   onResetFilters,
 }: SuperAdminOrdersSheetModalProps) {
@@ -1386,6 +1424,7 @@ export function SuperAdminOrdersSheetModal({
           partyNameById,
           userNameById,
           approvalById,
+          dispatchesByOrderId,
         );
         return `"${s.replace(/"/g, '""')}"`;
       }).join(","),
@@ -1412,13 +1451,14 @@ export function SuperAdminOrdersSheetModal({
     order: any,
     onCommit: (val: string) => void,
   ) => {
-    const idValue = String(readOrderField(order, col.key) ?? "");
+    const idValue = String(readOrderField(order, col.key, dispatchesByOrderId) ?? "");
     const displayValue = displayOrderField(
       order,
       col.key,
       partyNameById,
       userNameById,
       approvalById,
+      dispatchesByOrderId,
     );
     const isEditing =
       editing?.orderId === orderId && editing?.colKey === col.key;
@@ -1689,14 +1729,51 @@ export function SuperAdminOrdersSheetModal({
               </button>
             ) : null}
           </div>
-          <div className="relative w-64">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-            <input
-              value={searchQuery}
-              onChange={(e) => onSearchQueryChange(e.target.value)}
-              placeholder={isBin ? "Search bin…" : "Search orders…"}
-              className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative w-64">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                value={searchQuery}
+                onChange={(e) => onSearchQueryChange(e.target.value)}
+                placeholder={isBin ? "Search bin…" : "Search orders…"}
+                className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900"
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <select
+                value={dateFilter}
+                onChange={(e) => onDateFilterChange?.(e.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 outline-none transition focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 cursor-pointer"
+                aria-label="Order date filter"
+              >
+                {DATE_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              {dateFilter === "custom" && (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="date"
+                    value={customDateFrom}
+                    onChange={(e) => onCustomDateFromChange?.(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 cursor-pointer"
+                    title="From date"
+                    aria-label="From date"
+                  />
+                  <span className="text-2xs text-slate-400">—</span>
+                  <input
+                    type="date"
+                    value={customDateTo}
+                    onChange={(e) => onCustomDateToChange?.(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 cursor-pointer"
+                    title="To date"
+                    aria-label="To date"
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
