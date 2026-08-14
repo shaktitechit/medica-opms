@@ -175,6 +175,29 @@ export default function PortalCatchAllPage() {
   if (portal === "finance" && restArr.length === 1 && restArr[0] === "create-order") {
     return <FinanceCreateOrderPage />;
   }
+  if (portal === "finance" && restArr.length === 1 && restArr[0] === "work-planner") {
+    if (workPlannerView === "expenses") {
+      return <ListAdminExpensesPage portalHome="/finance" />;
+    }
+    return <ListAdminWorkPlansPage portalHome="/finance" />;
+  }
+  if (portal === "finance" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "calendar") {
+    return <AdminWorkPlanCalendarPage portalHome="/finance" />;
+  }
+  if (portal === "finance" && restArr.length === 2 && restArr[0] === "work-planner" && restArr[1] === "new") {
+    return <AdminWorkPlanFormPage mode="create" portalHome="/finance" />;
+  }
+  if (
+    portal === "finance" &&
+    restArr.length === 3 &&
+    restArr[0] === "work-planner" &&
+    restArr[2] === "edit"
+  ) {
+    return <AdminWorkPlanFormPage mode="edit" planId={restArr[1]} portalHome="/finance" />;
+  }
+  if (portal === "finance" && restArr.length === 2 && restArr[0] === "work-planner") {
+    return <AdminWorkPlanDetailPage planId={restArr[1]} portalHome="/finance" />;
+  }
   if (portal === "finance" && restArr.length === 1 && restArr[0] === "parties") {
     return <ListPartiesPage portalHome="/finance" />;
   }

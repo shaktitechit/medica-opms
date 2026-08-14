@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFinanceTabAlertOverride } from "./FinanceTabAlert";
 import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
+import WorkPlannerStatsWidgets from "@/components/portal/admin/workPlanner/WorkPlannerStatsWidgets";
 import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
 import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
@@ -474,6 +475,8 @@ export default function FinanceOverview() {
         customDateFrom={customDateFrom}
         customDateTo={customDateTo}
       />
+
+      <WorkPlannerStatsWidgets portalHome="/finance" />
 
       <MonthlyPerformanceChart
         orders={orders}

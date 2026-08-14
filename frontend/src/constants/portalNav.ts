@@ -112,6 +112,15 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
     {
+      segments: ["work-planner"],
+      label: "Work Planner",
+      icon: "CalendarDays",
+      children: [
+        { label: "Sales Work Plan", query: "view=plans", icon: "CalendarDays" },
+        { label: "Sales Expenses", query: "view=expenses", icon: "Wallet" },
+      ],
+    },
+    {
       segments: ["parties"],
       label: "Party Master",
       icon: "Users",

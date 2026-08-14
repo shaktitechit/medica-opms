@@ -93,7 +93,7 @@ function isExpenseReceiptRequired(amount) {
 }
 
 function isAdminDept(user) {
-  return user && ['admin', 'super_admin'].includes(user.department);
+  return user && ['admin', 'super_admin', 'finance'].includes(user.department);
 }
 
 function isSalesDept(user) {

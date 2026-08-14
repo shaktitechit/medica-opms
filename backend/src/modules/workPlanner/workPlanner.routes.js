@@ -8,8 +8,8 @@ const { requireAuth } = require('../../middlewares/auth.middleware');
 const { requireDepartment } = require('../../middlewares/dept.middleware');
 const controller = require('./workPlanner.controller');
 
-const salesAndAdmin = ['sales', 'admin', 'super_admin'];
-const adminOnly = ['admin', 'super_admin'];
+const salesAndAdmin = ['sales', 'admin', 'super_admin', 'finance'];
+const adminOnly = ['admin', 'super_admin', 'finance'];
 
 router.use(requireAuth);
 

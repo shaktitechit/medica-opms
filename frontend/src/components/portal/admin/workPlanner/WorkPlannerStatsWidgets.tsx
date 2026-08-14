@@ -16,7 +16,7 @@ import {
 import { useGetWorkPlanStatsQuery } from "@/store/api";
 
 type WorkPlannerStatsWidgetsProps = {
-  portalHome?: "/admin" | "/super_admin";
+  portalHome?: string;
 };
 
 type StatCard = {
