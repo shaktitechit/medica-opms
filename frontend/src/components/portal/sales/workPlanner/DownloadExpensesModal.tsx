@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 
-import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
+import { downloadOrderItemsPdf, waitForPdfTemplate } from "@/components/portal/shared/downloadOrderItemsPdf";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";
@@ -241,7 +241,7 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
     setPdfGeneratedAt(stamp);
     setIsDownloadingPdf(true);
     try {
-      await new Promise<void>((resolve) => window.setTimeout(() => resolve(), 80));
+      await waitForPdfTemplate();
       if (!pdfTemplateRef.current) {
         throw new Error("PDF template is not ready.");
       }
@@ -266,7 +266,7 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
       {/* Hidden PDF Template */}
       <div
         aria-hidden
-        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
+        className="pointer-events-none fixed -left-[9999px] top-0"
       >
         <div ref={pdfTemplateRef}>
           <ExpensesPdfTemplate

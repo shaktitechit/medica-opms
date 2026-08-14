@@ -675,6 +675,7 @@ export const {
   useLazyListWorkPlanExpensesQuery,
   useGetWorkPlanStatsQuery,
   useGetWorkPlanQuery,
+  useLazyGetWorkPlanQuery,
   useCreateWorkPlanMutation,
   usePatchWorkPlanMutation,
   useDeleteWorkPlanMutation,

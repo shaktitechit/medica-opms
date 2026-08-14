@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 
-import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
+import { downloadOrderItemsPdf, waitForPdfTemplate } from "@/components/portal/shared/downloadOrderItemsPdf";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";
@@ -15,6 +15,7 @@ import {
 } from "@/lib/env";
 import { useAppSelector } from "@/store/hooks";
 import {
+  useLazyGetWorkPlanQuery,
   useLazyListWorkPlansQuery,
   type WorkPlanRecord,
   type WorkPlanVisitRecord,
@@ -121,6 +122,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
   const pdfTemplateRef = useRef<HTMLDivElement>(null);
 
   const [fetchList] = useLazyListWorkPlansQuery();
+  const [fetchPlan] = useLazyGetWorkPlanQuery();
 
   const authUser = useAppSelector((s) => s.auth.user);
   const salesUserLabel = useMemo(() => {
@@ -170,7 +172,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
           limit,
           from: range.from,
           to: range.to,
-          include_visits: 1,
+          include_visits: "true",
         };
         if (statusFilter && statusFilter !== "all") args.status = statusFilter;
         const result = await fetchList(args).unwrap();
@@ -178,14 +180,48 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
         pages = Math.max(result.pages || 1, 1);
         page += 1;
       } while (page <= pages);
-      setRows(all);
+
+      const hydrated = [...all];
+      const missingIdx = hydrated
+        .map((p, i) => {
+          const have = Array.isArray(p.visits) ? p.visits.length : 0;
+          const count = Number(p.visit_count) || 0;
+          return !Array.isArray(p.visits) || count > have ? i : -1;
+        })
+        .filter((i) => i >= 0);
+      const batch = 6;
+      for (let i = 0; i < missingIdx.length; i += batch) {
+        const slice = missingIdx.slice(i, i + batch);
+        const details = await Promise.all(
+          slice.map(async (idx) => {
+            const id = planIdOf(hydrated[idx]!);
+            if (!id) return null;
+            try {
+              return await fetchPlan(id).unwrap();
+            } catch {
+              return null;
+            }
+          }),
+        );
+        details.forEach((detail, j) => {
+          const idx = slice[j]!;
+          if (detail && Array.isArray(detail.visits)) {
+            hydrated[idx] = {
+              ...hydrated[idx]!,
+              visits: detail.visits,
+              visit_count: detail.visits.length,
+            };
+          }
+        });
+      }
+      setRows(hydrated);
     } catch {
       toast.error("Failed to load work plans for download");
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [canLoad, fetchList, range.from, range.to, statusFilter]);
+  }, [canLoad, fetchList, fetchPlan, range.from, range.to, statusFilter]);
 
   useEffect(() => {
     if (!open) return;
@@ -250,7 +286,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
     setPdfGeneratedAt(stamp);
     setIsDownloadingPdf(true);
     try {
-      await new Promise<void>((resolve) => window.setTimeout(() => resolve(), 80));
+      await waitForPdfTemplate();
       if (!pdfTemplateRef.current) {
         throw new Error("PDF template is not ready.");
       }
@@ -275,7 +311,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
       {/* Hidden PDF Template */}
       <div
         aria-hidden
-        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
+        className="pointer-events-none fixed -left-[9999px] top-0"
       >
         <div ref={pdfTemplateRef}>
           <WorkPlansPdfTemplate

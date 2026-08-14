@@ -22,10 +22,10 @@ const PAGE_PAD_X = 30;
 const PAGE_PAD_Y = 24;
 const HEADER_BLOCK_H = 110;
 const FOOTER_BLOCK_H = 44;
-const BODY_MAX_H = PAGE_HEIGHT - PAGE_PAD_Y * 2 - HEADER_BLOCK_H - FOOTER_BLOCK_H;
+/** Slack so estimated rows never overflow / get clipped. */
+const BODY_MAX_H = PAGE_HEIGHT - PAGE_PAD_Y * 2 - HEADER_BLOCK_H - FOOTER_BLOCK_H - 28;
 
 const H_THEAD = 28;
-const H_ROW = 38;
 
 type ContentBlock =
   | { kind: "thead"; height: number }
@@ -36,14 +36,14 @@ type PageModel = { blocks: ContentBlock[] };
 /* ─── Shared styles matching TransportAgentPdfTemplate ──────────────────── */
 const pageShellStyle: CSSProperties = {
   width: `${PAGE_WIDTH}px`,
-  height: `${PAGE_HEIGHT}px`,
+  minHeight: `${PAGE_HEIGHT}px`,
   padding: `${PAGE_PAD_Y}px ${PAGE_PAD_X}px`,
   backgroundColor: "#ffffff",
   boxSizing: "border-box",
   display: "flex",
   flexDirection: "column",
   position: "relative",
-  overflow: "hidden",
+  overflow: "visible",
   fontFamily: "'Segoe UI', Arial, sans-serif",
 };
 
@@ -161,7 +161,7 @@ function estimateExpenseRowHeight(exp: WorkPlanExpenseRecord): number {
     Math.ceil(approvedBy.length / 16),
   );
 
-  return Math.max(38, Math.min(22 + maxLines * 11, 140));
+  return Math.max(44, Math.min(26 + maxLines * 13, 160));
 }
 
 export default function ExpensesPdfTemplate({
@@ -199,8 +199,11 @@ export default function ExpensesPdfTemplate({
     };
 
     for (const block of all) {
-      if (h + block.height > BODY_MAX_H) {
+      const extra = cur.length === 0 && block.kind === "row" ? H_THEAD : 0;
+      if (h + extra + block.height > BODY_MAX_H && cur.length > 0) {
         flush();
+      }
+      if (cur.length === 0 && block.kind === "row") {
         cur.push({ kind: "thead", height: H_THEAD });
         h = H_THEAD;
       }
@@ -294,7 +297,7 @@ export default function ExpensesPdfTemplate({
           </header>
 
           {/* ── Table body ── */}
-          <main style={{ flexGrow: 1, minHeight: 0, overflow: "hidden" }}>
+          <main style={{ flexGrow: 1, overflow: "visible" }}>
             {page.blocks.length === 0 ? (
               <div style={{ padding: "24px 0", textAlign: "center", color: "#64748b", fontSize: "10px" }}>
                 No expenses recorded.
