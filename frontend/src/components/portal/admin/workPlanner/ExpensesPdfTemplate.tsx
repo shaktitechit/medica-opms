@@ -142,6 +142,28 @@ const COLS = [
 ];
 
 /* ─── Component ─────────────────────────────────────────────────────────── */
+function estimateExpenseRowHeight(exp: WorkPlanExpenseRecord): number {
+  const visitStr = visitLabel(exp);
+  const vendor = exp.vendor_name || "";
+  const desc = exp.description || "";
+  const subCat = exp.sub_category || "";
+  const approvedBy =
+    exp.status === "approved" || exp.status === "rejected"
+      ? salesName(exp.approved_by)
+      : "";
+
+  const maxLines = Math.max(
+    1,
+    Math.ceil(visitStr.length / 18),
+    Math.ceil(vendor.length / 15),
+    Math.ceil(desc.length / 10),
+    Math.ceil(subCat.length / 15),
+    Math.ceil(approvedBy.length / 16),
+  );
+
+  return Math.max(38, Math.min(22 + maxLines * 11, 140));
+}
+
 export default function ExpensesPdfTemplate({
   companyName,
   logoUrl,
@@ -159,7 +181,11 @@ export default function ExpensesPdfTemplate({
 
     const all: ContentBlock[] = [
       { kind: "thead", height: H_THEAD },
-      ...expenses.map((exp) => ({ kind: "row" as const, exp, height: H_ROW })),
+      ...expenses.map((exp) => ({
+        kind: "row" as const,
+        exp,
+        height: estimateExpenseRowHeight(exp),
+      })),
     ];
 
     const result: PageModel[] = [];

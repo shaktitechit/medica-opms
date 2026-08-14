@@ -163,6 +163,29 @@ const COLS = [
 ];
 
 /* ─── Component ─────────────────────────────────────────────────────────── */
+function estimateVisitRowHeight(item: FlatVisitRow): number {
+  const partyLines = Math.ceil((item.partyName || "").length / 20);
+  const contactLines = Math.ceil((item.contact || "").length / 16);
+  const addressLines = Math.ceil((item.address || "").length / 18);
+  const purposeLines = Math.ceil((item.purpose || "").length / 15);
+  const actualLines = (item.actual || "").split("\n").length;
+  const outcomeLines = Math.ceil((item.outcomeNotes || "").length / 20);
+  const meetingLines = Math.ceil((item.meetings || "").length / 20);
+
+  const maxLines = Math.max(
+    1,
+    partyLines,
+    contactLines,
+    addressLines,
+    purposeLines,
+    actualLines,
+    outcomeLines,
+    meetingLines,
+  );
+
+  return Math.max(48, Math.min(24 + maxLines * 11, 160));
+}
+
 export default function WorkPlansPdfTemplate({
   companyName,
   logoUrl,
@@ -249,7 +272,11 @@ export default function WorkPlansPdfTemplate({
 
     const all: ContentBlock[] = [
       { kind: "thead", height: H_THEAD },
-      ...flatRows.map((item) => ({ kind: "row" as const, item, height: H_ROW })),
+      ...flatRows.map((item) => ({
+        kind: "row" as const,
+        item,
+        height: estimateVisitRowHeight(item),
+      })),
     ];
 
     const result: PageModel[] = [];
