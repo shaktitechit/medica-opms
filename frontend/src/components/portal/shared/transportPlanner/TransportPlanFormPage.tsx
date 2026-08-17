@@ -38,6 +38,7 @@ import {
   useListPartiesQuery,
   useListTransportAgentsQuery,
   useListTransportsQuery,
+  useListTransportPlansQuery,
   usePatchTransportPlanMutation,
   useRemoveTransportPlanOrderMutation,
 } from "@/store/api";
@@ -249,6 +250,52 @@ export default function TransportPlanFormPage({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [activePlanId, setActivePlanId] = useState(planId || "");
 
+  // Query existing plans for selected dispatch date
+  const datePlansQ = useListTransportPlansQuery(
+    planDate ? { date: planDate, limit: 50 } : undefined,
+    { skip: !planDate }
+  );
+
+  useEffect(() => {
+    setSelectedOrderIds(new Set());
+    if (!planDate || !agentId) {
+      if (mode === "create") {
+        setActivePlanId("");
+        setRemarks("");
+      }
+      return;
+    }
+    const existingPlans = datePlansQ.data?.data;
+    if (datePlansQ.isFetching) {
+      if (mode === "create") {
+        setActivePlanId("");
+      }
+      return;
+    }
+    if (existingPlans && existingPlans.length > 0) {
+      // Find active plan matching BOTH planDate AND transportAgent
+      const match = existingPlans.find((p) => {
+        if (p.status === "cancelled") return false;
+        const pAgentId =
+          typeof p.transport_agent === "object"
+            ? p.transport_agent?._id
+            : p.transport_agent;
+        return String(pAgentId || "") === String(agentId);
+      });
+      const matchId = match ? planIdOf(match) : "";
+      if (matchId) {
+        setActivePlanId(matchId);
+      } else if (mode === "create") {
+        setActivePlanId("");
+      }
+    } else {
+      // No plan for this date and agent combination
+      if (mode === "create") {
+        setActivePlanId("");
+      }
+    }
+  }, [planDate, agentId, datePlansQ.data, datePlansQ.isFetching, mode]);
+
   const planQ = useGetTransportPlanQuery(activePlanId, {
     skip: !activePlanId,
   });
@@ -298,16 +345,16 @@ export default function TransportPlanFormPage({
     removeState.isLoading;
 
   useEffect(() => {
-    if (!planQ.data) return;
+    if (!activePlanId || !planQ.data) return;
     const d = planQ.data.plan_date ? String(planQ.data.plan_date).slice(0, 10) : "";
-    setPlanDate(d);
+    if (d) setPlanDate(d);
     const agent =
       typeof planQ.data.transport_agent === "object"
         ? planQ.data.transport_agent?._id
         : planQ.data.transport_agent;
     setAgentId(agent ? String(agent) : "");
     setRemarks(planQ.data.remarks || "");
-  }, [planQ.data]);
+  }, [planQ.data, activePlanId]);
 
   const agents = useMemo(() => {
     const raw = agentsQ.data;
@@ -327,7 +374,9 @@ export default function TransportPlanFormPage({
     return map;
   }, [transportsQ.data]);
 
-  const planOrders = (planQ.data?.orders ?? []).filter((o) => o.status !== "cancelled");
+  const planOrders = activePlanId && planQ.data?.orders
+    ? planQ.data.orders.filter((o) => o.status !== "cancelled")
+    : [];
 
   const mappingByOrderId = useMemo(() => {
     const map = new Map<string, OrderMapping>();
@@ -556,10 +605,10 @@ export default function TransportPlanFormPage({
   const selectedSummary = useMemo(() => {
     const dispatchCount =
       selectedItems.filter((i) => i.dispatch_id).length +
-      (mode === "edit" ? planOrders.length : 0);
+      (activePlanId ? planOrders.length : 0);
     const orderCount = new Set([
       ...selectedItems.map((i) => i.order_id),
-      ...(mode === "edit"
+      ...(activePlanId
         ? planOrders.map((l) => {
             const ord = l.order && typeof l.order === "object" ? l.order._id : l.order;
             return String(ord || "");
@@ -577,14 +626,14 @@ export default function TransportPlanFormPage({
           (s, r) => s + (Number(r.grand_total ?? r.total) || 0),
           0,
         ) +
-        (mode === "edit"
+        (activePlanId
           ? planOrders.reduce((s, r) => {
               const ord = r.order && typeof r.order === "object" ? r.order : null;
               return s + (Number(ord?.grand_total) || 0);
             }, 0)
           : 0),
     };
-  }, [selectedItems, selectedOrderIds, eligible, mode, planOrders]);
+  }, [selectedItems, selectedOrderIds, eligible, activePlanId, planOrders]);
 
   const orderSelectionState = (order: OrderListRow) => {
     const oid = orderKey(order);
@@ -794,7 +843,7 @@ export default function TransportPlanFormPage({
         ))}
       </div>
 
-      {mode === "edit" && planOrders.length > 0 ? (
+      {planOrders.length > 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
           <div className="border-b border-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-white/10">
             On this plan ({planOrders.length})
@@ -838,7 +887,7 @@ export default function TransportPlanFormPage({
                         {line.invoice_number || disp?.bill_number || "—"}
                       </td>
                       <td className="px-3 py-2">
-                        {line.transport ? (
+                        {line.transport || planQ.data ? (
                           <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">
                             Mapped
                           </span>

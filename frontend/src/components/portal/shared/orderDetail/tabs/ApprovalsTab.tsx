@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { CheckCircle2, Plus } from "lucide-react";
+import { CheckCircle2, FileCheck, Plus } from "lucide-react";
 import { useAppSelector } from "@/store";
 import { DashboardCard } from "@/components/widgets";
 import { ApprovalRecordCard } from "../approvals/ApprovalRecordCard";
@@ -15,6 +15,8 @@ import {
   useListUsersQuery,
   useCheckOrderRatesQuery,
   useListDispatchesQuery,
+  useCreateOrderDueSheetMutation,
+  useGetCurrentOrderDueSheetQuery,
 } from "@/store/api";
 import {
   rateLookupKey,
@@ -22,6 +24,8 @@ import {
 } from "@/components/portal/shared/orderLineRateDisplay";
 import type { CheckOrderRatesItem } from "@/store/api/slices/partyOrderProductsRateApi";
 import { pickList } from "../orderDetailUtils";
+import { toast } from "@/lib/toast";
+import { mutationRejectedMessage } from "@/lib/mutationMessages";
 
 export type ApprovalsTabPortal = "admin" | "finance" | "account";
 
@@ -218,6 +222,33 @@ export function ApprovalsTab({
   const orderNo = String(detail?.order_no ?? orderId);
   const copy = PORTAL_COPY[portal];
 
+  const isUserFinance = userDept === "finance" || isSuperAdmin;
+  const canApproveDueSheet = (isSuperAdmin || isUserFinance) && (portal === "finance" || isSuperAdmin);
+
+  const currentDueSheetQ = useGetCurrentOrderDueSheetQuery(orderId, {
+    skip: !orderId || !canApproveDueSheet,
+  });
+  const [createDueSheet, { isLoading: isCreatingDueSheet }] =
+    useCreateOrderDueSheetMutation();
+
+  const currentDueSheet = currentDueSheetQ.data as Record<string, unknown> | null;
+  const hasCurrentDueSheet = Boolean(currentDueSheet && currentDueSheet.status === "active");
+
+  const handleApproveDueSheet = useCallback(async () => {
+    if (!orderId) return;
+    try {
+      if (hasCurrentDueSheet) {
+        toast.info("Due sheet is already active for this order.");
+        return;
+      }
+      await createDueSheet({ order: orderId }).unwrap();
+      toast.success("Due sheet approved & generated successfully.");
+      await handleAmended();
+    } catch (err) {
+      toast.error(mutationRejectedMessage(err));
+    }
+  }, [orderId, hasCurrentDueSheet, createDueSheet, handleAmended]);
+
   return (
     <div className="space-y-4">
       {isAdmin && (mayApprove || canCreateApproval) && !allRatesMapped && (
@@ -233,16 +264,34 @@ export function ApprovalsTab({
         title={copy.title}
         description={copy.description}
         action={
-          canCreateApproval ? (
-            <button
-              type="button"
-              onClick={openCreateApprovalModal}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400 cursor-pointer"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Create Approval
-            </button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {canApproveDueSheet && (
+              <button
+                type="button"
+                onClick={() => void handleApproveDueSheet()}
+                disabled={isCreatingDueSheet}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-300 cursor-pointer"
+                title={hasCurrentDueSheet ? "Due sheet is already active" : "Approve & generate due sheet for finance clearance"}
+              >
+                <FileCheck className="h-3.5 w-3.5" />
+                {isCreatingDueSheet
+                  ? "Approving Due Sheet…"
+                  : hasCurrentDueSheet
+                    ? "Due Sheet Approved"
+                    : "Due Sheet Approval"}
+              </button>
+            )}
+            {canCreateApproval && (
+              <button
+                type="button"
+                onClick={openCreateApprovalModal}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400 cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create Approval
+              </button>
+            )}
+          </div>
         }
       >
         {hasActiveDispatch && !isSuperAdmin && (

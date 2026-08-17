@@ -248,9 +248,6 @@ async function create(body, user, options = {}) {
   const { file } = options;
 
   if (!body.order) throw new ApiError(400, 'order is required');
-  if (!file && !body.document) {
-    throw new ApiError(400, 'document file or document attachment id is required');
-  }
 
   const orderDoc = await Order.findOne({ _id: body.order, deletedAt: null }).select('party').lean();
   if (!orderDoc) throw new ApiError(404, 'Order not found');
@@ -259,7 +256,7 @@ async function create(body, user, options = {}) {
   const status = normalizeDueSheetStatus(body.status || DUE_SHEET_STATUS.ACTIVE);
   const revisionNumber = body.revision_number || await nextRevisionNumber(body.order);
 
-  let documentId = body.document;
+  let documentId = body.document || null;
   if (file) {
     documentId = await attachDocumentFromFile(
       file,
@@ -267,7 +264,7 @@ async function create(body, user, options = {}) {
       user,
       body.remarks || '',
     );
-  } else {
+  } else if (documentId) {
     await assertAttachmentDocument(documentId);
   }
 
@@ -292,10 +289,12 @@ async function create(body, user, options = {}) {
     created_by: user._id,
   });
 
-  await Attachment.updateOne(
-    { _id: documentId },
-    { $set: { entity_id: String(doc._id) } },
-  );
+  if (documentId) {
+    await Attachment.updateOne(
+      { _id: documentId },
+      { $set: { entity_id: String(doc._id) } },
+    );
+  }
 
   if (isCurrent && doc.status === DUE_SHEET_STATUS.ACTIVE) {
     await markOrderApprovalDueSheetUploaded(body.order);

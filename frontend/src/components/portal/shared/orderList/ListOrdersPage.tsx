@@ -40,7 +40,6 @@ import {
   buildUserNameById,
   resolveUserDisplay,
 } from "@/components/portal/shared/userDisplay";
-import { SuperAdminCreateOrderForm } from "@/components/portal/super_admin/order/SuperAdminCreateOrderForm";
 import { SuperAdminOrdersSheetModal } from "@/components/portal/super_admin/order/SuperAdminOrdersSheetModal";
 import {
   mutationRejectedMessage,
@@ -629,18 +628,6 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
                             >
                               View
                             </button>
-                            {allowSuperAdminEdit && id && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditOrderId(id);
-                                }}
-                                className="rounded border border-blue-500/20 bg-blue-500/10 px-2 py-1 font-semibold text-blue-700 transition hover:bg-blue-500/20 dark:text-blue-400 dark:hover:bg-blue-500/30"
-                              >
-                                Edit
-                              </button>
-                            )}
                             {allowDraftDelete && isDraftRow && id && (
                               <button
                                 type="button"
@@ -789,15 +776,6 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
           onClose={() => setIsAnalyticsOpen(false)}
           partyNameById={partyNameById}
           portal={sheetPortal === "super_admin" ? "super_admin" : sheetPortal}
-        />
-      )}
-
-      {allowSuperAdminEdit && editOrderId && (
-        <SuperAdminCreateOrderForm
-          isOpen={Boolean(editOrderId)}
-          onClose={() => setEditOrderId(null)}
-          orderId={editOrderId}
-          onOrderCreated={() => refetch()}
         />
       )}
 

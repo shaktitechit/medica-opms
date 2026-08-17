@@ -3,7 +3,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Truck } from "lucide-react";
 
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { Button } from "@/components/ui/Button";
@@ -26,6 +26,7 @@ import {
 } from "@/components/portal/finance/financeOrderUtils";
 import {
   buildOrderWorkflowCategoryOptions,
+  getOrderWorkflowTabCategory,
   isFulfillmentComplete,
 } from "@/components/portal/shared/orderList/orderWorkflowTabs";
 import { withAdminApprovalQuantities } from "@/components/portal/shared/orderAdminApprovalDisplay";
@@ -53,6 +54,7 @@ import {
   useGetPartyQuery,
   useListAttachmentsQuery,
   useListDispatchesQuery,
+  useListEligibleTransportOrdersQuery,
   useListFlagsQuery,
   useListOrderApprovalsQuery,
   useListOrderDeliveriesQuery,
@@ -60,6 +62,7 @@ import {
   useListOrderReturnsQuery,
   useListPartiesQuery,
   useListRemindersQuery,
+  useListTransportAgentsQuery,
   useListTransportsQuery,
   useListUsersQuery,
   usePatchDispatchMutation,
@@ -68,9 +71,11 @@ import {
   useTransitionOrderMutation,
 } from "@/store/api";
 
+import { agentLabel } from "@/components/portal/shared/transportPlanner/transportPlanUtils";
 import { OrderDetailTabContent } from "./OrderDetailTabContent";
 import OrderDetailsModal from "./modals/OrderDetailsModal";
 import PartyDetailsModal from "./modals/PartyDetailsModal";
+import TransportPlanModal from "./modals/TransportPlanModal";
 import { mobileTabIcon } from "./orderDetailMobileIcons";
 import {
   detailRefId,
@@ -242,6 +247,7 @@ export default function OrderDetailsPage({
   const [isFulfillmentModalOpen, setIsFulfillmentModalOpen] = useState(false);
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
   const [isPartyDetailsModalOpen, setIsPartyDetailsModalOpen] = useState(false);
+  const [isTransportPlanModalOpen, setIsTransportPlanModalOpen] = useState(false);
   const [isFinalStatementOpen, setIsFinalStatementOpen] = useState(false);
 
   const userNameById = useMemo(
@@ -318,6 +324,11 @@ export default function OrderDetailsPage({
     skip: !currentPartyId,
   });
 
+  const eligibleTransportQ = useListEligibleTransportOrdersQuery(
+    { limit: 200 },
+    { skip: !orderId },
+  );
+
   const dispatches = useMemo(
     () => pickList(dispatchesQ.data),
     [dispatchesQ.data],
@@ -326,6 +337,78 @@ export default function OrderDetailsPage({
     () => pickList(transportsQ.data),
     [transportsQ.data],
   );
+
+  const agentsQ = useListTransportAgentsQuery({});
+
+  const agentNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    const list = Array.isArray(agentsQ.data) ? agentsQ.data : [];
+    for (const a of list) {
+      if (!a || typeof a !== "object") continue;
+      const id = String(a._id || a.id || "");
+      const name = a.agent_name || a.agent_code || id;
+      if (id && name) map.set(id, name);
+    }
+    return map;
+  }, [agentsQ.data]);
+
+  const resolveAgentName = useCallback(
+    (agentVal: unknown): string => {
+      if (!agentVal) return "";
+      const label = agentLabel(agentVal as any);
+      if (label && label !== "—" && !/^[0-9a-fA-F]{24}$/.test(label)) {
+        return label;
+      }
+      const rawId =
+        typeof agentVal === "string"
+          ? agentVal
+          : String((agentVal as { _id?: unknown; id?: unknown })?._id ?? (agentVal as { id?: unknown })?.id ?? "");
+      if (rawId && agentNameById.has(rawId)) {
+        return agentNameById.get(rawId)!;
+      }
+      return label !== "—" ? label : "";
+    },
+    [agentNameById],
+  );
+
+  const activeTransportInfo = useMemo(() => {
+    // Check direct transports list first
+    for (const t of transports) {
+      if (!t || typeof t !== "object") continue;
+      const row = t as Record<string, unknown>;
+      if (row.shipment_status === "cancelled" || row.status === "cancelled") continue;
+      const agent = row.transport_agent;
+      const date = row.dispatch_date || row.expected_delivery_date;
+      const resolvedName = resolveAgentName(agent);
+      if (resolvedName || date) {
+        return {
+          agentName: resolvedName || undefined,
+          scheduledDate: date ? String(date) : undefined,
+        };
+      }
+    }
+
+    // Check transport plan / eligible orders enrichment
+    const eligibleOrders = eligibleTransportQ.data?.data ?? [];
+    const match = eligibleOrders.find((r) => String(r._id || r.id || "") === orderId);
+    if (match) {
+      const plan = match.transport_plan;
+      const shipment = match.transport;
+      if (plan || shipment) {
+        const agent = shipment?.transport_agent || plan?.transport_agent;
+        const date = shipment?.dispatch_date || plan?.plan_date;
+        const resolvedName = resolveAgentName(agent);
+        if (resolvedName || date) {
+          return {
+            agentName: resolvedName || undefined,
+            scheduledDate: date ? String(date) : undefined,
+          };
+        }
+      }
+    }
+
+    return null;
+  }, [transports, eligibleTransportQ.data, orderId, resolveAgentName]);
   const deliveries = useMemo(
     () => pickList(deliveriesQ.data),
     [deliveriesQ.data],
@@ -955,6 +1038,7 @@ export default function OrderDetailsPage({
         detail={detail}
         createdBy={createdBy}
         resolveUser={resolveUser}
+        activeTransportInfo={activeTransportInfo}
       />
 
       <PartyDetailsModal
@@ -963,6 +1047,14 @@ export default function OrderDetailsPage({
         isFetching={partyDetailQ.isFetching}
         isError={partyDetailQ.isError}
         partyData={partyDetailQ.data}
+        custLabel={custLabel}
+      />
+
+      <TransportPlanModal
+        isOpen={isTransportPlanModalOpen}
+        onClose={() => setIsTransportPlanModalOpen(false)}
+        orderId={orderId}
+        orderNo={orderNo}
         custLabel={custLabel}
       />
 
@@ -980,7 +1072,22 @@ export default function OrderDetailsPage({
           <div className="rounded-lg border border-slate-200/80 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-slate-900">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0 flex-1">
-                <div className="mb-1 flex flex-wrap items-center gap-1 text-2xs text-slate-500 dark:text-slate-400">
+                <div className="mb-1 flex flex-wrap items-center gap-1.5 text-2xs text-slate-500 dark:text-slate-400">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const workflowTab = detail ? getOrderWorkflowTabCategory(detail, categoryOptions) : null;
+                      const targetUrl = workflowTab && workflowTab !== "all"
+                        ? `${config.ordersListPath}?tab=${workflowTab}`
+                        : config.ordersListPath;
+                      router.push(targetUrl);
+                    }}
+                    className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-700 hover:bg-slate-200 dark:bg-white/10 dark:text-slate-200 dark:hover:bg-white/20 transition"
+                  >
+                    <ArrowLeft className="h-3 w-3" />
+                    <span>Back</span>
+                  </button>
+                  <span className="text-slate-300 dark:text-slate-600">|</span>
                   <button
                     type="button"
                     onClick={() => router.push(config.ordersListPath)}
@@ -1098,65 +1205,91 @@ export default function OrderDetailsPage({
             </div>
 
             <div className="mt-2 border-t border-slate-100 pt-2 dark:border-white/10">
-              <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 font-sans font-medium">
-                {hasHeaderAction(config, "resolve_order") &&
-                  totalApproved > 0 &&
-                  hasRemainingQty && (
+              <div className="flex flex-wrap items-center justify-between gap-1 sm:gap-1.5 font-sans font-medium">
+                <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsTransportPlanModalOpen(true)}
+                    className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 hover:bg-blue-100/80 px-2 py-0.5 text-xs font-semibold text-blue-800 shadow-sm transition dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50 cursor-pointer active:scale-[0.98]"
+                  >
+                    <Truck className="h-3 w-3" />
+                    <span>Transport Plan</span>
+                  </button>
+                  {hasHeaderAction(config, "resolve_order") &&
+                    totalApproved > 0 &&
+                    hasRemainingQty && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setConfirmResolveOpen(true)}
+                        className="rounded-md bg-indigo-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                      >
+                        Resolve Order
+                      </button>
+                    )}
+                  {hasHeaderAction(config, "hold") && (
                     <button
                       type="button"
-                      disabled={busy}
-                      onClick={() => setConfirmResolveOpen(true)}
-                      className="rounded-md bg-indigo-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                      disabled={!canHold || busy}
+                      title={lockReason}
+                      onClick={() => setTransitioningTo("on_hold")}
+                      className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                     >
-                      Resolve Order
+                      Hold
                     </button>
                   )}
-                {hasHeaderAction(config, "hold") && (
-                  <button
-                    type="button"
-                    disabled={!canHold || busy}
-                    title={lockReason}
-                    onClick={() => setTransitioningTo("on_hold")}
-                    className="rounded-md bg-amber-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
-                  >
-                    Hold
-                  </button>
-                )}
-                {hasHeaderAction(config, "resume") &&
-                  config.resumeTargetStatus && (
+                  {hasHeaderAction(config, "resume") &&
+                    config.resumeTargetStatus && (
+                      <button
+                        type="button"
+                        disabled={!canResume || busy}
+                        onClick={() =>
+                          setTransitioningTo(config.resumeTargetStatus!)
+                        }
+                        className="rounded-md bg-blue-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                      >
+                        {resumeLabel}
+                      </button>
+                    )}
+                  {hasHeaderAction(config, "reject") && (
                     <button
                       type="button"
-                      disabled={!canResume || busy}
-                      onClick={() =>
-                        setTransitioningTo(config.resumeTargetStatus!)
-                      }
-                      className="rounded-md bg-blue-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                      disabled={!canReject || busy}
+                      title={lockReason}
+                      onClick={() => setTransitioningTo("finance_rejected")}
+                      className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
                     >
-                      {resumeLabel}
+                      Reject
                     </button>
                   )}
-                {hasHeaderAction(config, "reject") && (
-                  <button
-                    type="button"
-                    disabled={!canReject || busy}
-                    title={lockReason}
-                    onClick={() => setTransitioningTo("finance_rejected")}
-                    className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
-                  >
-                    Reject
-                  </button>
-                )}
-                {hasHeaderAction(config, "cancel") && (
-                  <button
-                    type="button"
-                    disabled={!canCancel || busy}
-                    title={lockReason}
-                    onClick={() => setTransitioningTo("cancelled")}
-                    className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
-                  >
-                    Cancel
-                  </button>
-                )}
+                  {hasHeaderAction(config, "cancel") && (
+                    <button
+                      type="button"
+                      disabled={!canCancel || busy}
+                      title={lockReason}
+                      onClick={() => setTransitioningTo("cancelled")}
+                      className="rounded-md bg-rose-600 px-2 sm:px-2 py-0.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+
+                {activeTransportInfo?.agentName || activeTransportInfo?.scheduledDate ? (
+                  <div className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 ring-1 ring-inset ring-amber-600/25 shadow-xs">
+                    <Truck className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span className="flex flex-wrap items-center gap-1">
+                      {activeTransportInfo.agentName ? (
+                        <span>Agent: <b>{activeTransportInfo.agentName}</b></span>
+                      ) : null}
+                      {activeTransportInfo.scheduledDate ? (
+                        <span>
+                          {activeTransportInfo.agentName ? " • " : ""}Dispatch: <b>{formatDateShort(activeTransportInfo.scheduledDate)}</b>
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>

@@ -24,7 +24,7 @@ const orderDueSheetSchema = new mongoose.Schema(
     document: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Attachment",
-      required: true,
+      default: null,
     },
 
     sheet_date: {

@@ -7,6 +7,7 @@ interface OrderDetailsModalProps {
   detail: any;
   createdBy: string;
   resolveUser: (userVal: unknown) => { name: string; phone: string };
+  activeTransportInfo?: { agentName?: string; scheduledDate?: string } | null;
 }
 
 function formatDate(v: unknown): string {
@@ -22,6 +23,7 @@ export default function OrderDetailsModal({
   detail,
   createdBy,
   resolveUser,
+  activeTransportInfo,
 }: OrderDetailsModalProps) {
   if (!isOpen || !detail) return null;
 
@@ -144,6 +146,22 @@ export default function OrderDetailsModal({
                 )}
               </dd>
             </div>
+            {activeTransportInfo?.agentName || activeTransportInfo?.scheduledDate ? (
+              <>
+                <div>
+                  <dt className="text-xs font-medium text-slate-500">Transport Agent</dt>
+                  <dd className="mt-0.5 font-semibold text-blue-700 dark:text-blue-400">
+                    {activeTransportInfo.agentName || "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-slate-500">Scheduled Dispatch Date</dt>
+                  <dd className="mt-0.5 font-semibold text-slate-900 dark:text-slate-100">
+                    {activeTransportInfo.scheduledDate ? formatDate(activeTransportInfo.scheduledDate) : "—"}
+                  </dd>
+                </div>
+              </>
+            ) : null}
             <div className="sm:col-span-2">
               <dt className="text-xs font-medium text-slate-500">Remarks</dt>
               <dd className="mt-0.5 min-h-[32px] whitespace-pre-wrap rounded-lg bg-slate-50 p-2 text-slate-900 dark:bg-slate-900/40 dark:text-slate-100">

@@ -1793,7 +1793,7 @@ function registerModels() {
     {
       due_sheet_no: { type: String, required: true, unique: true, index: true },
       order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
-      document: { type: mongoose.Schema.Types.ObjectId, ref: "Attachment", required: true },
+      document: { type: mongoose.Schema.Types.ObjectId, ref: "Attachment", default: null },
       sheet_date: { type: Date, default: Date.now },
       revision_number: { type: Number, default: 1, min: 1 },
       is_current: { type: Boolean, default: true, index: true },
