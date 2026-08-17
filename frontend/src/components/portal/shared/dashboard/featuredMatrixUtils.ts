@@ -121,7 +121,9 @@ export function itemMetricValue(
   const qty = itemQty(item, basis);
   if (metric === "quantity") return qty;
   const unitPrice = Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
-  return qty * unitPrice;
+  const gstPct = Number(item.gst_percent ?? 0) || 0;
+  const unitPriceWithGst = unitPrice * (1 + gstPct / 100);
+  return qty * unitPriceWithGst;
 }
 
 export function formatMatrixValue(v: number, metric: MatrixMetric): string {
