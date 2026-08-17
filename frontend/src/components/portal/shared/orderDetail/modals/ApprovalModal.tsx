@@ -221,7 +221,11 @@ export function ApprovalModal({
   const [bucketAddKitId, setBucketAddKitId] = useState<string | null>(null);
   const [bucketSearch, setBucketSearch] = useState("");
   const [bucketAddPct, setBucketAddPct] = useState("100");
+  const [bucketAddQty, setBucketAddQty] = useState("");
   const [bucketPctDrafts, setBucketPctDrafts] = useState<Record<string, string>>(
+    {},
+  );
+  const [bucketQtyDrafts, setBucketQtyDrafts] = useState<Record<string, string>>(
     {},
   );
   const [removeKitItem, setRemoveKitItem] = useState<{
@@ -320,14 +324,19 @@ export function ApprovalModal({
   }, [kitItemsQ.data]);
 
   useEffect(() => {
-    const next: Record<string, string> = {};
+    const nextPct: Record<string, string> = {};
+    const nextQty: Record<string, string> = {};
     for (const row of kitCompositionByProductId.values()) {
       for (const item of row.items ?? []) {
         const id = String(item._id ?? "");
-        if (id) next[id] = String(item.percentage ?? 0);
+        if (id) {
+          const pct = Number(item.percentage ?? 0);
+          nextPct[id] = String(pct);
+        }
       }
     }
-    setBucketPctDrafts(next);
+    setBucketPctDrafts(nextPct);
+    setBucketQtyDrafts(nextQty);
   }, [kitCompositionByProductId]);
 
   useEffect(() => {
@@ -335,7 +344,9 @@ export function ApprovalModal({
       setBucketAddKitId(null);
       setBucketSearch("");
       setBucketAddPct("100");
+      setBucketAddQty("");
       setRemoveKitItem(null);
+      setBucketQtyDrafts({});
     }
   }, [open]);
 
@@ -391,6 +402,11 @@ export function ApprovalModal({
           patch: { percentage: pct },
         }).unwrap();
         toast.success("Kit bucket item updated");
+        setBucketQtyDrafts((prev) => {
+          const next = { ...prev };
+          delete next[itemId];
+          return next;
+        });
       } catch (err) {
         toast.error(mutationRejectedMessage(err));
       }
@@ -423,6 +439,7 @@ export function ApprovalModal({
         toast.success("Item added to kit bucket");
         setBucketSearch("");
         setBucketAddPct("100");
+        setBucketAddQty("");
       } catch (err) {
         toast.error(mutationRejectedMessage(err));
       }
@@ -1703,10 +1720,15 @@ export function ApprovalModal({
                               ? bucketPctDrafts[itemId]
                               : String(comp.percentage ?? 0);
                           const pctNum = Number(pctDraft) || 0;
-                          const bucketQty = kitBucketItemQty(
+                          const calculatedQty = kitBucketItemQty(
                             line.approved_quantity,
                             pctNum,
                           );
+                          const qtyDraft =
+                            itemId && bucketQtyDrafts[itemId] != null
+                              ? bucketQtyDrafts[itemId]
+                              : String(calculatedQty);
+                          const bucketQty = Number(qtyDraft) || 0;
                           const bucketFreeQty = kitBucketItemQty(
                             line.free_quantity,
                             pctNum,
@@ -1750,8 +1772,41 @@ export function ApprovalModal({
                                   ) : null}
                                 </div>
                               </td>
-                              <td className="px-3 py-1.5 text-right tabular-nums text-slate-700 dark:text-slate-300">
-                                {bucketQty}
+                              <td className="px-3 py-1.5 text-right">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={qtyDraft}
+                                  disabled={busy || kitBusy || !itemId}
+                                  onChange={(e) => {
+                                    if (!itemId) return;
+                                    const rawVal = e.target.value;
+                                    setBucketQtyDrafts((prev) => ({
+                                      ...prev,
+                                      [itemId]: rawVal,
+                                    }));
+                                    const val = Number(rawVal);
+                                    const parentQty = Number(line.approved_quantity) || 0;
+                                    if (parentQty > 0 && Number.isFinite(val) && val >= 0) {
+                                      const calcPct = Number(((val / parentQty) * 100).toFixed(2));
+                                      setBucketPctDrafts((prev) => ({
+                                        ...prev,
+                                        [itemId]: String(calcPct),
+                                      }));
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    if (itemId && pctDirty) {
+                                      void handleSaveKitBucketPct(
+                                        line.product,
+                                        itemId,
+                                      );
+                                    }
+                                  }}
+                                  className={`${inputClass} w-20 text-right tabular-nums`}
+                                  title="Component Qty"
+                                />
                               </td>
                               <td className="px-3 py-1.5 text-right tabular-nums text-slate-700 dark:text-slate-300">
                                 {bucketFreeQty}
@@ -1767,11 +1822,20 @@ export function ApprovalModal({
                                     disabled={busy || kitBusy || !itemId}
                                     onChange={(e) => {
                                       if (!itemId) return;
-                                      const v = e.target.value;
+                                      const rawVal = e.target.value;
                                       setBucketPctDrafts((prev) => ({
                                         ...prev,
-                                        [itemId]: v,
+                                        [itemId]: rawVal,
                                       }));
+                                      const val = Number(rawVal);
+                                      const parentQty = Number(line.approved_quantity) || 0;
+                                      if (Number.isFinite(val) && val >= 0) {
+                                        const calcQty = Number(((parentQty * val) / 100).toFixed(2));
+                                        setBucketQtyDrafts((prev) => ({
+                                          ...prev,
+                                          [itemId]: String(calcQty),
+                                        }));
+                                      }
                                     }}
                                     onBlur={() => {
                                       if (itemId && pctDirty) {
@@ -1863,22 +1927,64 @@ export function ApprovalModal({
                                     </div>
                                   ) : null}
                                 </div>
-                                <div className="flex items-center gap-2">
-                                  <label className="text-2xs text-slate-500">
-                                    %
-                                  </label>
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    max={1000}
-                                    step="0.1"
-                                    value={bucketAddPct}
-                                    disabled={busy || kitBusy}
-                                    onChange={(e) =>
-                                      setBucketAddPct(e.target.value)
-                                    }
-                                    className={`${inputClass} w-24`}
-                                  />
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <div className="flex items-center gap-1.5">
+                                    <label className="text-2xs text-slate-500 font-medium">
+                                      Qty:
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      step="0.01"
+                                      placeholder="Qty"
+                                      value={
+                                        bucketAddQty !== ""
+                                          ? bucketAddQty
+                                          : String(
+                                              kitBucketItemQty(
+                                                line.approved_quantity,
+                                                Number(bucketAddPct) || 0,
+                                              ),
+                                            )
+                                      }
+                                      disabled={busy || kitBusy}
+                                      onChange={(e) => {
+                                        const rawVal = e.target.value;
+                                        setBucketAddQty(rawVal);
+                                        const val = Number(rawVal);
+                                        const parentQty = Number(line.approved_quantity) || 0;
+                                        if (parentQty > 0 && Number.isFinite(val) && val >= 0) {
+                                          const calcPct = Number(((val / parentQty) * 100).toFixed(2));
+                                          setBucketAddPct(String(calcPct));
+                                        }
+                                      }}
+                                      className={`${inputClass} w-20 text-right tabular-nums`}
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <label className="text-2xs text-slate-500 font-medium">
+                                      %:
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={1000}
+                                      step="0.1"
+                                      value={bucketAddPct}
+                                      disabled={busy || kitBusy}
+                                      onChange={(e) => {
+                                        const rawVal = e.target.value;
+                                        setBucketAddPct(rawVal);
+                                        const val = Number(rawVal);
+                                        const parentQty = Number(line.approved_quantity) || 0;
+                                        if (Number.isFinite(val) && val >= 0) {
+                                          const calcQty = Number(((parentQty * val) / 100).toFixed(2));
+                                          setBucketAddQty(String(calcQty));
+                                        }
+                                      }}
+                                      className={`${inputClass} w-20`}
+                                    />
+                                  </div>
                                   <span className="text-2xs text-slate-500">
                                     Select a product above to add
                                   </span>
