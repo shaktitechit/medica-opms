@@ -1207,14 +1207,16 @@ export default function OrderDetailsPage({
             <div className="mt-2 border-t border-slate-100 pt-2 dark:border-white/10">
               <div className="flex flex-wrap items-center justify-between gap-1 sm:gap-1.5 font-sans font-medium">
                 <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setIsTransportPlanModalOpen(true)}
-                    className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 hover:bg-blue-100/80 px-2 py-0.5 text-xs font-semibold text-blue-800 shadow-sm transition dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50 cursor-pointer active:scale-[0.98]"
-                  >
-                    <Truck className="h-3 w-3" />
-                    <span>Transport Plan</span>
-                  </button>
+                  {!(activeTransportInfo?.agentName || activeTransportInfo?.scheduledDate) && (
+                    <button
+                      type="button"
+                      onClick={() => setIsTransportPlanModalOpen(true)}
+                      className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 hover:bg-blue-100/80 px-2 py-0.5 text-xs font-semibold text-blue-800 shadow-sm transition dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50 cursor-pointer active:scale-[0.98]"
+                    >
+                      <Truck className="h-3 w-3" />
+                      <span>Transport Plan</span>
+                    </button>
+                  )}
                   {hasHeaderAction(config, "resolve_order") &&
                     totalApproved > 0 &&
                     hasRemainingQty && (

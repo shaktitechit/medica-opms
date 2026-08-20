@@ -41,14 +41,11 @@ interface OverviewWidgetsProps {
   qtyBasis?: QtyBasis;
 }
 
-const IN_TRANSIT_PIPELINE_TABS: OrderWorkflowTabCategory[] = [
+const APPROVAL_PENDING_PIPELINE_TABS: OrderWorkflowTabCategory[] = [
   "pending_admin_approval",
   "due_sheet_pending",
   "pending_finance_approval",
   "pending_account_approval",
-  "open_dispatched",
-  "transport_pending",
-  "in_transit",
 ];
 
 const EMPTY_STAT: OrderWorkflowTabStat = {
@@ -98,9 +95,12 @@ export default function OverviewWidgets({
 
   const kpis = useMemo(() => {
     const delivered = tabStats.closed_delivered ?? EMPTY_STAT;
-    const inTransit = sumStats(
-      IN_TRANSIT_PIPELINE_TABS.map((id) => tabStats[id] ?? EMPTY_STAT),
+    const approvalPending = sumStats(
+      APPROVAL_PENDING_PIPELINE_TABS.map((id) => tabStats[id] ?? EMPTY_STAT),
     );
+    const dispatchPending = tabStats.open_dispatched ?? EMPTY_STAT;
+    const transportPending = tabStats.transport_pending ?? EMPTY_STAT;
+    const inTransit = tabStats.in_transit ?? EMPTY_STAT;
     const cancelled = tabStats.cancelled ?? EMPTY_STAT;
     const rejected = tabStats.rejected ?? EMPTY_STAT;
     const onHold = tabStats.on_hold ?? EMPTY_STAT;
@@ -134,6 +134,9 @@ export default function OverviewWidgets({
     return {
       orderVolume,
       delivered,
+      approvalPending,
+      dispatchPending,
+      transportPending,
       inTransit,
       cancelled,
       rejected,
@@ -165,10 +168,40 @@ export default function OverviewWidgets({
         Icon: PackageCheck,
       },
       {
+        key: "approval_pending",
+        label: isSales ? "Approval Pending Qty" : "Approval Pending",
+        ...kpis.approvalPending,
+        hint: "Admin, due sheet, finance & account pending",
+        accent: "bg-amber-500",
+        iconWrap: "bg-amber-50 dark:bg-amber-950/30",
+        iconTone: "text-amber-600 dark:text-amber-400",
+        Icon: PauseCircle,
+      },
+      {
+        key: "dispatch_pending",
+        label: isSales ? "Dispatch Pending Qty" : "Dispatch Pending",
+        ...kpis.dispatchPending,
+        hint: "Dispatch pending",
+        accent: "bg-indigo-500",
+        iconWrap: "bg-indigo-50 dark:bg-indigo-950/30",
+        iconTone: "text-indigo-600 dark:text-indigo-400",
+        Icon: LayoutGrid,
+      },
+      {
+        key: "transport_pending",
+        label: isSales ? "Transport Pending Qty" : "Transport Pending",
+        ...kpis.transportPending,
+        hint: "Transport pending",
+        accent: "bg-blue-500",
+        iconWrap: "bg-blue-50 dark:bg-blue-950/30",
+        iconTone: "text-blue-600 dark:text-blue-400",
+        Icon: Truck,
+      },
+      {
         key: "in_transit",
-        label: isSales ? "In Transit Quantity" : "In Transit Volume",
+        label: isSales ? "In Transit Quantity" : "In Transit",
         ...kpis.inTransit,
-        hint: "Admin, due sheet, finance, account, dispatch, transport pending + in transit",
+        hint: "In transit orders",
         accent: "bg-sky-500",
         iconWrap: "bg-sky-50 dark:bg-sky-950/30",
         iconTone: "text-sky-600 dark:text-sky-400",

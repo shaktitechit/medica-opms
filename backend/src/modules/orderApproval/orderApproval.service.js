@@ -970,7 +970,23 @@ async function patch(id, patchBody, user) {
     'approval_notes',
     'rejection_reason',
     'hold_reason',
+    'remarks',
+    'assigned_finance_user',
     'assigned_account_user',
+    'is_sales_submited',
+    'sales_submitted_by',
+    'sales_submitted_at',
+    'is_admin_approved',
+    'admin_approved_by',
+    'admin_approved_at',
+    'is_finance_approved',
+    'finance_approved_by',
+    'finance_approved_at',
+    'is_account_approved',
+    'account_approved_by',
+    'account_approved_at',
+    'approved_by',
+    'approved_at',
   ];
   for (const field of fields) {
     if (patch[field] !== undefined) doc[field] = patch[field];
@@ -987,6 +1003,102 @@ async function patch(id, patchBody, user) {
   doc.reviewed_by = user._id;
   doc.reviewed_at = new Date();
   await doc.save();
+
+  // Sync parent Order status, workflow_stage, and OrderWorkflow log if approval flags were patched
+  const parentOrder = await getModels().Order.findById(doc.order);
+  if (parentOrder) {
+    let orderChanged = false;
+
+    if (doc.is_account_approved) {
+      if (
+        parentOrder.workflow_stage === ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW ||
+        parentOrder.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW ||
+        parentOrder.workflow_stage === ORDER_WORKFLOW_STAGE.ADMIN_REVIEW
+      ) {
+        parentOrder.workflow_stage = ORDER_WORKFLOW_STAGE.DISPATCH;
+        orderChanged = true;
+      }
+      if (
+        !['account_approved', 'dispatch', 'in_transit', 'delivered', 'closed', 'cancelled'].includes(
+          String(parentOrder.status || ''),
+        )
+      ) {
+        parentOrder.status = ORDER_STATUS.ACCOUNT_APPROVED;
+        orderChanged = true;
+      }
+      parentOrder.current_action = 'account_approved';
+      parentOrder.account_approval_status = APPROVAL_STATUS.APPROVED;
+      parentOrder.finance_approval_status = APPROVAL_STATUS.APPROVED;
+      parentOrder.admin_approval_status = APPROVAL_STATUS.APPROVED;
+      parentOrder.last_account_approval = doc._id;
+      parentOrder.last_finance_approval = doc._id;
+      parentOrder.last_admin_approval = doc._id;
+      orderChanged = true;
+    } else if (doc.is_finance_approved) {
+      if (
+        parentOrder.workflow_stage === ORDER_WORKFLOW_STAGE.FINANCE_REVIEW ||
+        parentOrder.workflow_stage === ORDER_WORKFLOW_STAGE.ADMIN_REVIEW
+      ) {
+        parentOrder.workflow_stage = ORDER_WORKFLOW_STAGE.ACCOUNT_REVIEW;
+        orderChanged = true;
+      }
+      if (
+        !['finance_approved', 'account_review', 'account_approved', 'dispatch', 'in_transit', 'delivered', 'closed', 'cancelled'].includes(
+          String(parentOrder.status || ''),
+        )
+      ) {
+        parentOrder.status = ORDER_STATUS.FINANCE_APPROVED;
+        orderChanged = true;
+      }
+      parentOrder.finance_approval_status = APPROVAL_STATUS.APPROVED;
+      parentOrder.admin_approval_status = APPROVAL_STATUS.APPROVED;
+      parentOrder.last_finance_approval = doc._id;
+      parentOrder.last_admin_approval = doc._id;
+      orderChanged = true;
+    } else if (doc.is_admin_approved) {
+      if (parentOrder.workflow_stage === ORDER_WORKFLOW_STAGE.ADMIN_REVIEW) {
+        parentOrder.workflow_stage = ORDER_WORKFLOW_STAGE.FINANCE_REVIEW;
+        orderChanged = true;
+      }
+      if (
+        !['finance_review', 'finance_approved', 'account_review', 'account_approved', 'dispatch', 'in_transit', 'delivered', 'closed', 'cancelled'].includes(
+          String(parentOrder.status || ''),
+        )
+      ) {
+        parentOrder.status = ORDER_STATUS.FINANCE_REVIEW;
+        orderChanged = true;
+      }
+      parentOrder.admin_approval_status = APPROVAL_STATUS.APPROVED;
+      parentOrder.last_admin_approval = doc._id;
+      orderChanged = true;
+    }
+
+    if (orderChanged) {
+      recalcCommercials(parentOrder);
+      normalizeOrderWorkflowFields(parentOrder);
+      await parentOrder.save();
+
+      // Create OrderWorkflow log entry
+      const { OrderWorkflow } = getModels();
+      if (OrderWorkflow) {
+        await OrderWorkflow.create({
+          order: parentOrder._id,
+          action_by: user?._id,
+          role: doc.is_account_approved ? 'account' : doc.is_finance_approved ? 'finance' : 'admin',
+          action: doc.is_account_approved ? 'account_approved' : doc.is_finance_approved ? 'finance_approved' : 'admin_approved',
+          to_stage: parentOrder.workflow_stage,
+          to_status: parentOrder.status,
+          remarks: doc.approval_notes || 'Approvals copied from referral order',
+          revision_number: doc.revision_number,
+          metadata: {
+            entity_type: 'OrderApproval',
+            entity_id: String(doc._id),
+            approval_no: doc.approval_no,
+          },
+        });
+      }
+    }
+  }
 
   const nextAccountUser = doc.assigned_account_user
     ? String(doc.assigned_account_user)

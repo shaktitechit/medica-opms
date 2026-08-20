@@ -12,7 +12,10 @@ import {
   TableProperties,
   Trash2,
   TrendingUp,
+  Truck,
 } from "lucide-react";
+
+import TransportPlanModal from "../orderDetail/modals/TransportPlanModal";
 
 import { ConfirmDeleteDraftModal } from "@/components/portal/sales/components/modals/ConfirmDeleteDraftModal";
 import { OrderDetailModal } from "@/components/portal/sales/components/modals/OrderDetailModal";
@@ -52,7 +55,12 @@ import {
   useListOrdersQuery,
   useListPartiesQuery,
   useListUsersQuery,
+  useListTransportAgentsQuery,
+  useListTransportsQuery,
+  useListEligibleTransportOrdersQuery,
 } from "@/store/api";
+
+import { agentLabel } from "@/components/portal/shared/transportPlanner/transportPlanUtils";
 
 import { OrderListBottomTabStrip } from "./OrderListBottomTabStrip";
 import {
@@ -179,6 +187,89 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
     if (!scopeToSalesUser) return picked;
     return filterOrdersForSalesUser(picked, authUser) as OrderListRow[];
   }, [authUser, data, scopeToSalesUser]);
+
+  const transportsQ = useListTransportsQuery({});
+  const eligibleTransportQ = useListEligibleTransportOrdersQuery({ limit: 1000 });
+  const agentsQ = useListTransportAgentsQuery({});
+
+  const agentNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    const list = Array.isArray(agentsQ.data) ? agentsQ.data : [];
+    for (const a of list) {
+      if (!a || typeof a !== "object") continue;
+      const id = String(a._id || a.id || "");
+      const name = a.agent_name || a.agent_code || id;
+      if (id && name) map.set(id, name);
+    }
+    return map;
+  }, [agentsQ.data]);
+
+  const resolveAgentName = useCallback(
+    (agentVal: unknown): string => {
+      if (!agentVal) return "";
+      const label = agentLabel(agentVal as any);
+      if (label && label !== "—" && !/^[0-9a-fA-F]{24}$/.test(label)) {
+        return label;
+      }
+      const rawId =
+        typeof agentVal === "string"
+          ? agentVal
+          : String((agentVal as { _id?: unknown; id?: unknown })?._id ?? (agentVal as { id?: unknown })?.id ?? "");
+      if (rawId && agentNameById.has(rawId)) {
+        return agentNameById.get(rawId)!;
+      }
+      return label !== "—" ? label : "";
+    },
+    [agentNameById],
+  );
+
+  const getActiveTransportInfoForOrder = useCallback((orderId: string) => {
+    const orderTransports = (transportsQ.data && Array.isArray(transportsQ.data) ? transportsQ.data : []).filter(
+      (t: any) => String(t?.order?._id || t?.order?.id || t?.order || "") === orderId
+    );
+
+    for (const t of orderTransports) {
+      if (!t || typeof t !== "object") continue;
+      const row = t as Record<string, unknown>;
+      if (row.shipment_status === "cancelled" || row.status === "cancelled") continue;
+      const agent = row.transport_agent;
+      const date = row.dispatch_date || row.expected_delivery_date;
+      const resolvedName = resolveAgentName(agent);
+      if (resolvedName || date) {
+        return {
+          agentName: resolvedName || undefined,
+          scheduledDate: date ? String(date) : undefined,
+        };
+      }
+    }
+
+    const eligibleOrders = eligibleTransportQ.data?.data ?? [];
+    const match = eligibleOrders.find((r) => String(r._id || r.id || "") === orderId);
+    if (match) {
+      const plan = match.transport_plan;
+      const shipment = match.transport;
+      if (plan || shipment) {
+        const agent = shipment?.transport_agent || plan?.transport_agent;
+        const date = shipment?.dispatch_date || plan?.plan_date;
+        const resolvedName = resolveAgentName(agent);
+        if (resolvedName || date) {
+          return {
+            agentName: resolvedName || undefined,
+            scheduledDate: date ? String(date) : undefined,
+          };
+        }
+      }
+    }
+
+    return null;
+  }, [transportsQ.data, eligibleTransportQ.data, resolveAgentName]);
+
+  const [transportPlanOrderId, setTransportPlanOrderId] = useState<string | null>(null);
+
+  const selectedTransportOrder = useMemo(() => {
+    if (!transportPlanOrderId) return null;
+    return orders.find((o) => orderKey(o) === transportPlanOrderId) || null;
+  }, [transportPlanOrderId, orders]);
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesQ.data),
@@ -495,6 +586,9 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
                       Priority
                     </th>
                     <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Transport
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
                       Status
                     </th>
                     <th className="px-4 py-3 text-right font-semibold uppercase tracking-wider text-slate-500">
@@ -514,6 +608,7 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
                     const total = Number(o.grand_total ?? o.total ?? 0);
                     const pri =
                       typeof o.priority === "string" ? o.priority : "normal";
+                    const transportInfo = id ? getActiveTransportInfoForOrder(id) : null;
                     const partyLabel = resolveOrderCounterparty(
                       o as Record<string, unknown>,
                       partyNameById,
@@ -603,6 +698,37 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
                           {renderPriorityBadge(pri)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
+                          {id && (
+                            transportInfo?.agentName || transportInfo?.scheduledDate ? (
+                              <div className="inline-flex flex-col items-start text-3xs font-medium text-amber-700 bg-amber-50/70 border border-amber-200/50 rounded px-1.5 py-0.5 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30 text-left shrink-0">
+                                {transportInfo.agentName && (
+                                  <span className="truncate max-w-[120px]" title={transportInfo.agentName}>
+                                    Agent: <b>{transportInfo.agentName}</b>
+                                  </span>
+                                )}
+                                {transportInfo.scheduledDate && (
+                                  <span>
+                                    Date: <b>{formatDateShort(transportInfo.scheduledDate)}</b>
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTransportPlanOrderId(id);
+                                }}
+                                className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-400 dark:hover:bg-blue-950/40"
+                                title="Transport Plan"
+                              >
+                                <Truck className="h-3.5 w-3.5" />
+                                <span>Plan</span>
+                              </button>
+                            )
+                          )}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
                           {isPendingTab
@@ -784,6 +910,25 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
           orderId={viewOrderId}
           partyNameById={partyNameById}
           onClose={() => setViewOrderId(null)}
+        />
+      )}
+
+      {transportPlanOrderId && selectedTransportOrder && (
+        <TransportPlanModal
+          isOpen={!!transportPlanOrderId}
+          onClose={() => setTransportPlanOrderId(null)}
+          orderId={transportPlanOrderId}
+          orderNo={
+            typeof selectedTransportOrder.order_no === "string"
+              ? selectedTransportOrder.order_no
+              : typeof selectedTransportOrder.order_number === "string"
+                ? selectedTransportOrder.order_number
+                : transportPlanOrderId.slice(0, 8)
+          }
+          custLabel={resolveOrderCounterparty(
+            selectedTransportOrder as Record<string, unknown>,
+            partyNameById,
+          )}
         />
       )}
     </div>

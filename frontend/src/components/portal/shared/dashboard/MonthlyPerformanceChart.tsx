@@ -120,10 +120,14 @@ export default function MonthlyPerformanceChart({
   orders,
   isOrdersFetching,
   forceMetric,
-  qtyBasis = "approved",
+  qtyBasis: propQtyBasis = "approved",
 }: MonthlyPerformanceChartProps) {
   const [metricState, setMetric] = useState<Metric>("quantity");
   const metric = forceMetric ?? metricState;
+  const [dataBasisState, setDataBasisState] = useState<QtyBasis>(
+    propQtyBasis === "dispatched" ? "dispatched" : "approved",
+  );
+  const qtyBasis = dataBasisState;
   const [selectedYears, setSelectedYears] = useState<number[]>([
     new Date().getFullYear(),
   ]);
@@ -256,23 +260,52 @@ export default function MonthlyPerformanceChart({
             </h2>
             <PeriodHeadingCaption selectedYears={selectedYears} />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {qtyBasis === "net"
+              {qtyBasis === "dispatched"
                 ? metric === "quantity"
-                  ? "System-wide net sales quantity by month across selected years"
-                  : "System-wide net sales volume (₹) by month across selected years"
-                : metric === "quantity"
-                  ? "System-wide approved quantity by month across selected years"
-                  : "System-wide approved volume (₹) by month across selected years"}
+                  ? "System-wide billed quantity by month across selected years"
+                  : "System-wide billed volume (₹) by month across selected years"
+                : qtyBasis === "net"
+                  ? metric === "quantity"
+                    ? "System-wide net sales quantity by month across selected years"
+                    : "System-wide net sales volume (₹) by month across selected years"
+                  : metric === "quantity"
+                    ? "System-wide approved quantity by month across selected years"
+                    : "System-wide approved volume (₹) by month across selected years"}
             </p>
           </div>
         </div>
 
-         <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
+        <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
           <ReportDownloadButton
             onDownload={handleDownload}
             disabled={isOrdersFetching || activeYears.length === 0}
             size="sm"
           />
+
+          <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+            <button
+              type="button"
+              onClick={() => setDataBasisState("approved")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                qtyBasis === "approved"
+                  ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                  : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              Approved Data
+            </button>
+            <button
+              type="button"
+              onClick={() => setDataBasisState("dispatched")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                qtyBasis === "dispatched"
+                  ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                  : "text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              Billed Data
+            </button>
+          </div>
 
           {!forceMetric && (
             <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">

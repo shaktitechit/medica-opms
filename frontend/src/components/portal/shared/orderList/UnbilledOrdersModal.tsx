@@ -26,10 +26,10 @@ import {
   X,
 } from "lucide-react";
 
-import AdminCreateOrderPage, {
-  type StaffCreateOrderLinePrefill,
-  type StaffCreateOrderPortalHome,
-} from "@/components/portal/admin/AdminCreateOrderPage";
+import {
+  UnbilledCreateOrderModal,
+  type CreateOrderTarget,
+} from "@/components/portal/shared/orderList/UnbilledCreateOrderModal";
 import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
 import { ModalOverlay } from "@/components/portal/shared/ModalOverlay";
 import {
@@ -231,26 +231,7 @@ const SELECT_CLASS =
 const INPUT_CLASS =
   "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 dark:border-white/10 dark:bg-slate-950 dark:text-slate-100";
 
-type CreateOrderTarget = {
-  unbilledId: string;
-  orderNo: string;
-  partyId: string;
-  salesUserId: string;
-  linePrefills: StaffCreateOrderLinePrefill[];
-};
 
-function resolveCreateOrderPortal(
-  portalBasePath: string,
-): StaffCreateOrderPortalHome {
-  if (
-    portalBasePath === "/account" ||
-    portalBasePath === "/finance" ||
-    portalBasePath === "/super_admin"
-  ) {
-    return portalBasePath;
-  }
-  return "/admin";
-}
 
 function portalLabelFromPath(portalBasePath: string): string {
   const key = portalBasePath.replace(/^\//, "").toLowerCase();
@@ -346,8 +327,8 @@ export function UnbilledOrdersModal({
     { status: "open" },
     { skip: !isOpen },
   );
+
   const [patchUnbilledOrder] = usePatchUnbilledOrderMutation();
-  const createOrderPortal = resolveCreateOrderPortal(portalBasePath);
   const isUnbilledTab = mainTab === "unbilled";
   const isProcessPendingTab = mainTab === "process_pending";
   const isOnHoldTab = mainTab === "on_hold";
@@ -674,6 +655,7 @@ export function UnbilledOrdersModal({
     }
     setCreateTarget({
       unbilledId: view.unbilledId,
+      orderId: view.orderId,
       orderNo: view.orderNo,
       partyId: view.partyId,
       salesUserId: view.salesUserId,
@@ -763,40 +745,7 @@ export function UnbilledOrdersModal({
 
 
 
-  const handleCreated = useCallback(
-    async (info: { orderId: string; orderNo: string }) => {
-      const source = createTarget;
-      setCreateTarget(null);
 
-      if (source?.unbilledId && info.orderId) {
-        try {
-          await patchUnbilledOrder({
-            id: source.unbilledId,
-            patch: {
-              status: "resolved",
-              replacement_order: info.orderId,
-              remarks: `Resolved by creating replacement order ${
-                info.orderNo || info.orderId
-              } from unbilled ${source.orderNo}`,
-            },
-          }).unwrap();
-          toast.success(
-            `Unbilled order ${source.orderNo} resolved against new order ${
-              info.orderNo || info.orderId
-            }`,
-          );
-        } catch (rejected) {
-          toast.error(
-            mutationRejectedMessage(rejected) ||
-              "New order created, but failed to resolve the unbilled tracking row.",
-          );
-        }
-      }
-
-      void unbilledQ.refetch();
-    },
-    [createTarget, patchUnbilledOrder, unbilledQ],
-  );
 
   const pdfUnbilledLines = useMemo((): UnbilledOrdersPdfUnbilledLine[] => {
     const lines: UnbilledOrdersPdfUnbilledLine[] = [];
@@ -1666,20 +1615,10 @@ export function UnbilledOrdersModal({
         initialRecord={editRecord}
       />
 
-      <AdminCreateOrderPage
-        asModal
-        isOpen={Boolean(createTarget)}
+      <UnbilledCreateOrderModal
+        createTarget={createTarget}
         onClose={() => setCreateTarget(null)}
-        onCreated={handleCreated}
-        portalHome={createOrderPortal}
-        initialPartyId={createTarget?.partyId || ""}
-        initialAssignedSalesUserId={createTarget?.salesUserId || ""}
-        initialLinePrefills={createTarget?.linePrefills}
-        modalSubtitle={
-          createTarget
-            ? `From unbilled order ${createTarget.orderNo} — party, sales rep, and remaining items prefilled.`
-            : undefined
-        }
+        portalBasePath={portalBasePath}
       />
     </ModalOverlay>
   );
