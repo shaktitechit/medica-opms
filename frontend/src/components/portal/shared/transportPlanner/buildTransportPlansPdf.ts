@@ -78,12 +78,9 @@ function shipmentStatusOf(line: TransportPlanOrderRecord): string {
 }
 
 function getItemsAndQty(line: TransportPlanOrderRecord): { itemsStr: string; qty: number } {
-  const ord = line.order && typeof line.order === "object" ? line.order : null;
-  const ordDispatches =
-    ord && Array.isArray((ord as { dispatches?: unknown[] }).dispatches)
-      ? (ord as { dispatches: unknown[] }).dispatches
-      : [];
-  const disp = line.dispatch && typeof line.dispatch === "object" ? line.dispatch : null;
+  const ord = line.order && typeof line.order === "object" ? asRecord(line.order) : {};
+  const ordDispatches = Array.isArray(ord.dispatches) ? (ord.dispatches as unknown[]) : [];
+  const disp = line.dispatch && typeof line.dispatch === "object" ? asRecord(line.dispatch) : {};
   let itemsStr = "";
   let qty = 0;
   if (ordDispatches.length > 0) {
@@ -100,7 +97,7 @@ function getItemsAndQty(line: TransportPlanOrderRecord): { itemsStr: string; qty
     }
     itemsStr = list.join(", ");
   } else {
-    const items = disp && Array.isArray(asRecord(disp).dispatch_items) ? (asRecord(disp).dispatch_items as unknown[]) : [];
+    const items = Array.isArray(disp.dispatch_items) ? (disp.dispatch_items as unknown[]) : [];
     itemsStr = items
       .map((item) => {
         const it = asRecord(item);
