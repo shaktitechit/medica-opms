@@ -44,7 +44,7 @@ import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { useAppSelector } from "@/store/hooks";
-import { isLeadAdmin } from "./leadUtils";
+import { isLeadAdmin, formatCurrencyINR, leadLineValue } from "./leadUtils";
 
 type Props = {
   mode: "create" | "edit";
@@ -68,6 +68,7 @@ interface ProductAutocompleteProps {
   onChange: (id: string, product?: CatalogProduct) => void;
   placeholder?: string;
   className?: string;
+  showPrice?: boolean;
 }
 
 function ProductAutocomplete({
@@ -76,6 +77,7 @@ function ProductAutocomplete({
   onChange,
   placeholder = "Search catalog product...",
   className = "w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-white",
+  showPrice = false,
 }: ProductAutocompleteProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -161,7 +163,7 @@ function ProductAutocomplete({
               const id = String(p._id);
               const sku = p.sku ? ` (${p.sku})` : "";
               const brand = p.brand ? ` • ${p.brand}` : "";
-              const price = p.base_price ? ` • ₹${p.base_price}` : "";
+              const price = showPrice && p.base_price ? ` • ₹${p.base_price}` : "";
               return (
                 <button
                   key={id}
@@ -245,7 +247,6 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
   const [country, setCountry] = useState<string>("India");
 
   const [requirement, setRequirement] = useState<string>("");
-  const [estimatedValue, setEstimatedValue] = useState<number | "">("");
   const [expectedClosingDate, setExpectedClosingDate] = useState<string>("");
 
   const [source, setSource] = useState<string>("Website");
@@ -281,7 +282,6 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
       }
 
       setRequirement(existingLead.requirement || "");
-      setEstimatedValue(existingLead.estimated_value ?? "");
       if (existingLead.expected_closing_date) {
         setExpectedClosingDate(existingLead.expected_closing_date.split("T")[0]);
       }
@@ -358,6 +358,11 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
       ? sourcesData.map((s) => s.name)
       : DEFAULT_SOURCES;
 
+  const productsEstimatedTotal = useMemo(
+    () => Math.round(products.reduce((sum, p) => sum + leadLineValue(p), 0) * 100) / 100,
+    [products]
+  );
+
   const catalogProducts: CatalogProduct[] = useMemo(() => {
     if (Array.isArray(productsData)) return productsData as CatalogProduct[];
     if (productsData && typeof productsData === "object") {
@@ -372,19 +377,6 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
   }, [productsData]);
 
   // Product Row Management
-  const handleAddProduct = () => {
-    setProducts((prev) => [
-      ...prev,
-      {
-        product_name: "",
-        quantity: 1,
-        target_price: 0,
-        unit: "pcs",
-        remarks: "",
-      },
-    ]);
-  };
-
   const handleQuickAddProduct = (productId: string, productObj?: CatalogProduct) => {
     const found = productObj || catalogProducts.find((p) => p._id === productId);
     if (!found) return;
@@ -395,7 +387,7 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
         product: found._id,
         product_name: found.product_name,
         quantity: 1,
-        target_price: 0,
+        target_price: isAdmin ? Number(found.base_price || 0) : 0,
         unit: found.unit || "pcs",
         remarks: "",
       },
@@ -424,7 +416,7 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
         ...copy[idx],
         product: found._id,
         product_name: found.product_name,
-        target_price: 0,
+        target_price: isAdmin ? Number(found.base_price || copy[idx].target_price || 0) : copy[idx].target_price || 0,
         unit: found.unit || copy[idx].unit || "pcs",
       };
       return copy;
@@ -438,7 +430,9 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
   ) => {
     setProducts((prev) => {
       const copy = [...prev];
-      copy[idx] = { ...copy[idx], [field]: val };
+      const nextVal =
+        field === "quantity" || field === "target_price" ? Number(val) || 0 : val;
+      copy[idx] = { ...copy[idx], [field]: nextVal };
       return copy;
     });
   };
@@ -545,7 +539,7 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
         country: country.trim() || "India",
       },
       requirement: requirement.trim() || undefined,
-      estimated_value: estimatedValue !== "" ? Number(estimatedValue) : 0,
+      estimated_value: isAdmin ? productsEstimatedTotal : existingLead?.estimated_value,
       expected_closing_date: expectedClosingDate ? expectedClosingDate : undefined,
       source: source.trim(),
       priority,
@@ -1000,21 +994,11 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
 
         {/* Section 3: Product Requirements */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-900">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 dark:border-white/10">
-            <div className="flex items-center gap-2">
-              <Package className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                3. Products & Requirements
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={handleAddProduct}
-              className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add Custom Line
-            </button>
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3 dark:border-white/10">
+            <Package className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+              3. Products & Requirements
+            </h2>
           </div>
 
           <div className="mt-4 space-y-4">
@@ -1041,6 +1025,7 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
                 products={catalogProducts}
                 selectedId=""
                 onChange={(id, p) => handleQuickAddProduct(id, p)}
+                showPrice={isAdmin}
                 placeholder="Type product name, SKU, or brand to add directly..."
                 className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-white"
               />
@@ -1055,6 +1040,12 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
                       <th className="px-3 py-2 min-w-[220px]">Catalog Product Search</th>
                       <th className="px-3 py-2 min-w-[180px]">Requirement Item Name</th>
                       <th className="px-3 py-2 w-28">Required Qty</th>
+                      {isAdmin && (
+                        <>
+                          <th className="px-3 py-2 w-32">Target Price (₹)</th>
+                          <th className="px-3 py-2 w-32 text-right">Line Total</th>
+                        </>
+                      )}
                       <th className="px-3 py-2 w-24">Unit</th>
                       <th className="px-3 py-2 text-right w-12">Action</th>
                     </tr>
@@ -1072,6 +1063,7 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
                               products={catalogProducts}
                               selectedId={selProdId}
                               onChange={(id, p) => handleProductSelect(idx, id, p)}
+                              showPrice={isAdmin}
                               placeholder="Search catalog item..."
                               className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-white"
                             />
@@ -1103,6 +1095,26 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
                               className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-white"
                             />
                           </td>
+                          {isAdmin && (
+                            <>
+                              <td className="p-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={item.target_price || ""}
+                                  onChange={(e) =>
+                                    handleProductChange(idx, "target_price", e.target.value)
+                                  }
+                                  placeholder="0.00"
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-white"
+                                />
+                              </td>
+                              <td className="p-2 text-right font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                                {formatCurrencyINR(leadLineValue(item))}
+                              </td>
+                            </>
+                          )}
                           <td className="p-2">
                             <input
                               type="text"
@@ -1131,7 +1143,7 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${isAdmin ? "lg:grid-cols-3" : ""}`}>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                   Total Required Quantity (Auto Sum)
@@ -1140,6 +1152,17 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
                   {products.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0).toLocaleString()} Units / Items
                 </div>
               </div>
+
+              {isAdmin && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Estimated Deal Value (Auto Sum)
+                  </label>
+                  <div className="mt-1.5 flex items-center h-[38px] rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 dark:border-white/10 dark:bg-slate-800/50 dark:text-white">
+                    {formatCurrencyINR(productsEstimatedTotal)}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">

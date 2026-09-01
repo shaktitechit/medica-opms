@@ -55,6 +55,15 @@ async function updateCompanyInfo(patch, user) {
     'timezone',
     'financial_year',
     'invoice_footer_note',
+    'bank_name',
+    'account_name',
+    'account_number',
+    'ifsc_code',
+    'branch_name',
+    'account_type',
+    'upi_id',
+    'swift_code',
+    'quotation_terms',
   ];
 
   const updateFields = {};

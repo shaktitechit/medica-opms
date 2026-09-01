@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Commercial Quotation - #{{quotationNo}}</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      color: #1e293b;
+      background-color: #f8fafc;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrapper {
+      width: 100%;
+      background-color: #f8fafc;
+      padding: 30px 15px;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+      border: 1px solid #e2e8f0;
+    }
+
+    /* Header */
+    .header {
+      background-color: #f8fafc;
+      color: #1e40af;
+      padding: 32px 24px;
+      text-align: center;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .header-logo {
+      max-height: 60px;
+      max-width: 200px;
+      margin-bottom: 10px;
+      display: inline-block;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      color: #1e40af;
+      letter-spacing: -0.5px;
+    }
+
+    .header p {
+      margin: 6px 0 0 0;
+      font-size: 14px;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    /* Content Area */
+    .content {
+      padding: 32px 28px;
+    }
+
+    .greeting {
+      font-size: 16px;
+      font-weight: 600;
+      color: #0f172a;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e293b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin: 24px 0 12px 0;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #f1f5f9;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* Message Box */
+    .message-box {
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid #2563eb;
+      border-radius: 8px;
+      padding: 16px 18px;
+      margin-bottom: 24px;
+      font-size: 13.5px;
+      color: #334155;
+      line-height: 1.65;
+    }
+
+    /* Order Info Card */
+    .order-info-card {
+      background-color: #f8fafc;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid #1e40af;
+    }
+
+    .info-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .info-table td {
+      padding: 6px 0;
+      font-size: 13px;
+    }
+
+    .info-label {
+      color: #64748b;
+      width: 35%;
+    }
+
+    .info-value {
+      color: #0f172a;
+      font-weight: 600;
+      text-align: right;
+    }
+
+    /* Items Table */
+    .items-table-container {
+      width: 100%;
+      overflow-x: auto;
+      margin-bottom: 20px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+    }
+
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .items-table th {
+      background-color: #1e40af;
+      color: #ffffff;
+      padding: 10px 12px;
+      font-weight: 600;
+      font-size: 11.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .items-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      color: #334155;
+      font-size: 12.5px;
+      vertical-align: middle;
+    }
+
+    .items-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .items-table tr:nth-child(even) td {
+      background-color: #f8fafc;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .text-right {
+      text-align: right;
+    }
+
+    .font-semibold {
+      font-weight: 600;
+    }
+
+    /* Total Summary Box */
+    .totals-box {
+      width: 100%;
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      box-sizing: border-box;
+    }
+
+    .totals-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 13px;
+      color: #475569;
+    }
+
+    .totals-row.grand-total {
+      border-top: 2px solid #cbd5e1;
+      margin-top: 8px;
+      padding-top: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #1e40af;
+    }
+
+    /* Attachment Banner */
+    .attachment-box {
+      background-color: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      border-left: 4px solid #059669;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 24px;
+      font-size: 13px;
+      color: #065f46;
+      line-height: 1.5;
+    }
+
+    .attachment-title {
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    /* Signatory Block */
+    .signatory-card {
+      border-top: 1px solid #e2e8f0;
+      padding-top: 18px;
+      margin-top: 24px;
+      font-size: 13px;
+    }
+
+    .signatory-name {
+      font-weight: 700;
+      color: #0f172a;
+      font-size: 14px;
+    }
+
+    .signatory-desc {
+      color: #64748b;
+      margin-top: 2px;
+      font-size: 12px;
+    }
+
+    /* Footer */
+    .footer {
+      background-color: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      padding: 24px;
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .footer p {
+      margin: 4px 0;
+    }
+
+    .footer a {
+      color: #1e40af;
+      text-decoration: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <!-- Header -->
+      <div class="header">
+        {{companyLogoHtml}}
+        <h1>{{companyName}}</h1>
+        <p>Commercial Quotation & Proposal</p>
+      </div>
+
+      <!-- Main Content -->
+      <div class="content">
+        <div class="greeting">Dear {{customerName}},</div>
+
+        <!-- Defined Message Section -->
+        <div class="section-title">Message</div>
+        <div class="message-box">
+          {{messageBody}}
+        </div>
+
+        <!-- Quotation Overview Card -->
+        <div class="section-title">Quotation Details</div>
+        <div class="order-info-card">
+          <table class="info-table">
+            <tr>
+              <td class="info-label">Quotation Reference:</td>
+              <td class="info-value" style="color: #1e40af;">#{{quotationNo}}</td>
+            </tr>
+            <tr>
+              <td class="info-label">Customer / Facility:</td>
+              <td class="info-value">{{customerName}}</td>
+            </tr>
+            <tr>
+              <td class="info-label">Subject / Purpose:</td>
+              <td class="info-value">{{subject}}</td>
+            </tr>
+            <tr>
+              <td class="info-label">Date of Issue:</td>
+              <td class="info-value">{{quotationDate}}</td>
+            </tr>
+            <tr>
+              <td class="info-label">Validity Period:</td>
+              <td class="info-value">{{validityDays}} Days</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- Items Table -->
+        <div class="section-title">Items & Specifications</div>
+        <div class="items-table-container">
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th style="width: 6%;" class="text-center">#</th>
+                <th>Item & Description</th>
+                <th style="width: 14%;" class="text-center">Qty</th>
+                <th style="width: 18%;" class="text-right">Unit Rate</th>
+                <th style="width: 12%;" class="text-center">GST</th>
+                <th style="width: 20%;" class="text-right">Total (INR)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{itemsRows}}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Financial Summary -->
+        <div class="totals-box">
+          <div class="totals-row">
+            <span>Subtotal (Excl. Taxes):</span>
+            <span class="font-semibold">{{subtotal}}</span>
+          </div>
+          <div class="totals-row">
+            <span>GST Amount:</span>
+            <span class="font-semibold">{{gstAmount}}</span>
+          </div>
+          <div class="totals-row grand-total">
+            <span>Grand Total (INR):</span>
+            <span>{{grandTotal}}</span>
+          </div>
+        </div>
+
+        <!-- Attachment Notice Box -->
+        <div class="attachment-box">
+          <div class="attachment-title">📎 Official PDF Quotation Attached</div>
+          <div>Please find attached the official proposal document (<strong>Quotation_{{quotationNo}}.pdf</strong>) containing comprehensive product specifications, commercial terms & conditions, and bank payment instructions.</div>
+        </div>
+
+        <!-- Signatory Contact -->
+        <div class="signatory-card">
+          <div class="signatory-name">{{signatoryName}}</div>
+          <div class="signatory-desc">{{signatoryDesignation}}</div>
+          <div class="signatory-desc">{{companyName}} • {{signatoryPhone}} • <a href="mailto:{{signatoryEmail}}" style="color: #1e40af; text-decoration: none;">{{signatoryEmail}}</a></div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <p>If you have any questions or require revisions, please contact us at <a href="mailto:{{companyEmail}}">{{companyEmail}}</a>.</p>
+        <p>&copy; {{year}} {{companyName}}. All rights reserved.</p>
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>

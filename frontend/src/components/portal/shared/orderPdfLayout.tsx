@@ -1,6 +1,12 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
+import {
+  PdfLetterheadBrand,
+  PdfLetterheadFooterCopy,
+  PdfLetterheadRule,
+  usePdfCompanyLetterhead,
+} from "./pdfCompanyLetterhead";
 
 export const pdfPageStyle: CSSProperties = {
   width: "794px",
@@ -44,74 +50,28 @@ export const pdfTdCompactStyle: CSSProperties = {
 };
 
 type PdfCompanyLetterheadProps = {
-  companyName: string;
-  logoUrl: string;
+  companyName?: string;
+  logoUrl?: string;
 };
 
-export function PdfCompanyLetterhead({ companyName, logoUrl }: PdfCompanyLetterheadProps) {
+export function PdfCompanyLetterhead(_props: PdfCompanyLetterheadProps) {
+  const letterhead = usePdfCompanyLetterhead();
   return (
     <header style={{ marginBottom: "28px" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "16px",
-          marginBottom: "16px",
-        }}
-      >
-        <img
-          src={logoUrl}
-          alt={companyName}
-          crossOrigin="anonymous"
-          style={{
-            width: "128px",
-            height: "52px",
-            objectFit: "contain",
-            objectPosition: "left center",
-            flexShrink: 0,
-          }}
-        />
-        <div style={{ flex: 1, textAlign: "center" }}>
-          <div
-            style={{
-              fontSize: "26px",
-              fontWeight: 700,
-              color: "#1e3a5f",
-              letterSpacing: "0.02em",
-            }}
-          >
-            {companyName}
-          </div>
-          <div
-            style={{
-              marginTop: "6px",
-              fontSize: "12px",
-              color: "#64748b",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-            }}
-          >
-            Order Management Portal
-          </div>
-        </div>
-        <div style={{ width: "128px", flexShrink: 0 }} aria-hidden />
+      <div style={{ marginBottom: "16px" }}>
+        <PdfLetterheadBrand letterhead={letterhead} />
       </div>
-      <div
-        style={{
-          height: "3px",
-          background: "linear-gradient(90deg, #1e3a5f 0%, #3b82f6 50%, #1e3a5f 100%)",
-          borderRadius: "2px",
-        }}
-      />
+      <PdfLetterheadRule />
     </header>
   );
 }
 
 type PdfCompanyFooterProps = {
-  companyName: string;
+  companyName?: string;
 };
 
-export function PdfCompanyFooter({ companyName }: PdfCompanyFooterProps) {
+export function PdfCompanyFooter(_props: PdfCompanyFooterProps) {
+  const letterhead = usePdfCompanyLetterhead();
   return (
     <footer
       style={{
@@ -120,33 +80,29 @@ export function PdfCompanyFooter({ companyName }: PdfCompanyFooterProps) {
         borderTop: "1px solid #e2e8f0",
         fontSize: "9px",
         color: "#94a3b8",
-        textAlign: "center",
       }}
     >
-      This document was generated electronically by {companyName} OPMS and does not require a
-      signature.
+      <PdfLetterheadFooterCopy letterhead={letterhead} />
     </footer>
   );
 }
 
 type PdfDocumentShellProps = {
-  companyName: string;
-  logoUrl: string;
+  companyName?: string;
+  logoUrl?: string;
   children: ReactNode;
   rootId?: string;
 };
 
 export function PdfDocumentShell({
-  companyName,
-  logoUrl,
   children,
   rootId,
 }: PdfDocumentShellProps) {
   return (
     <div id={rootId} style={pdfPageStyle}>
-      <PdfCompanyLetterhead companyName={companyName} logoUrl={logoUrl} />
+      <PdfCompanyLetterhead />
       {children}
-      <PdfCompanyFooter companyName={companyName} />
+      <PdfCompanyFooter />
     </div>
   );
 }

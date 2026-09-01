@@ -33,9 +33,9 @@ export type OrderItemsPdfFinanceAmendment = {
 };
 
 export type OrderItemsPdfTemplateProps = {
-  companyName: string;
+  companyName?: string;
   /** Absolute URL recommended for reliable PDF/canvas capture. */
-  logoUrl: string;
+  logoUrl?: string;
   orderNo: string;
   partyName: string;
   orderDate: string;
@@ -53,8 +53,6 @@ export type OrderItemsPdfTemplateProps = {
 };
 
 export function OrderItemsPdfTemplate({
-  companyName,
-  logoUrl,
   orderNo,
   partyName,
   orderDate,
@@ -71,11 +69,7 @@ export function OrderItemsPdfTemplate({
   generatedAt,
 }: OrderItemsPdfTemplateProps) {
   return (
-    <PdfDocumentShell
-      companyName={companyName}
-      logoUrl={logoUrl}
-      rootId="order-items-pdf-root"
-    >
+    <PdfDocumentShell rootId="order-items-pdf-root">
       <div style={{ marginBottom: "20px" }}>
         <h1
           style={{

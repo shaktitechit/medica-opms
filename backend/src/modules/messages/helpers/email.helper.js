@@ -30,9 +30,44 @@ function getTransporter() {
   return transporterInstance;
 }
 
-async function sendEmailViaGraph(recipient, subject, textBody, htmlBody) {
-  logger.info(`[Email Helper] Sending email to ${recipient} via Microsoft Graph API...`);
-  
+function extractCleanBase64(content) {
+  if (!content) return '';
+  if (Buffer.isBuffer(content)) {
+    return content.toString('base64');
+  }
+  if (typeof content === 'string') {
+    const commaIdx = content.indexOf(',');
+    if (content.startsWith('data:') && commaIdx !== -1) {
+      return content.slice(commaIdx + 1).trim();
+    }
+    return content.trim();
+  }
+  return '';
+}
+
+function parseEmailAddresses(value) {
+  if (!value) return [];
+  const parts = Array.isArray(value)
+    ? value.flatMap((v) => String(v || '').split(/[,;]/))
+    : String(value).split(/[,;]/);
+  const seen = new Set();
+  const out = [];
+  for (const part of parts) {
+    const email = String(part).trim();
+    if (!email || !email.includes('@')) continue;
+    const key = email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(email);
+  }
+  return out;
+}
+
+function toGraphRecipients(emails) {
+  return emails.map((address) => ({ emailAddress: { address } }));
+}
+
+async function sendEmailViaGraph(recipient, subject, textBody, htmlBody, attachments = [], cc = []) {
   const tokenUrl = `https://login.microsoftonline.com/${microsoftGraph.tenantId}/oauth2/v2.0/token`;
   const params = new URLSearchParams();
   params.append('client_id', microsoftGraph.clientId);
@@ -46,6 +81,21 @@ async function sendEmailViaGraph(recipient, subject, textBody, htmlBody) {
 
   const accessToken = tokenRes.data.access_token;
 
+  const graphAttachments = (attachments || []).map((att) => {
+    return {
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: att.filename || att.name || 'document.pdf',
+      contentType: att.contentType || 'application/pdf',
+      contentBytes: extractCleanBase64(att.content),
+    };
+  });
+
+  const toRecipients = parseEmailAddresses(recipient);
+  const toKeys = new Set(toRecipients.map((e) => e.toLowerCase()));
+  const ccRecipients = parseEmailAddresses(cc).filter((e) => !toKeys.has(e.toLowerCase()));
+
+  logger.info(`[Email Helper] Sending email to ${recipient} via Microsoft Graph API${ccRecipients.length ? ` (CC: ${ccRecipients.join(', ')})` : ''}...`);
+
   const sendMailUrl = `https://graph.microsoft.com/v1.0/users/${microsoftGraph.senderEmail}/sendMail`;
   const mailBody = {
     message: {
@@ -54,13 +104,11 @@ async function sendEmailViaGraph(recipient, subject, textBody, htmlBody) {
         contentType: htmlBody ? 'HTML' : 'Text',
         content: htmlBody || textBody
       },
-      toRecipients: [
-        {
-          emailAddress: {
-            address: recipient
-          }
-        }
-      ]
+      toRecipients: toGraphRecipients(
+        toRecipients.length ? toRecipients : [String(recipient || '').trim()].filter(Boolean)
+      ),
+      ...(ccRecipients.length > 0 ? { ccRecipients: toGraphRecipients(ccRecipients) } : {}),
+      ...(graphAttachments.length > 0 ? { attachments: graphAttachments } : {})
     },
     saveToSentItems: 'true'
   };
@@ -82,12 +130,14 @@ async function sendEmailViaGraph(recipient, subject, textBody, htmlBody) {
  * @param {string} subject - Subject line.
  * @param {string} textBody - Plain text body.
  * @param {string} htmlBody - HTML body.
+ * @param {Array} [attachments] - List of attachments [{ filename, content, contentType, path }].
+ * @param {string|string[]} [cc] - CC recipient email(s).
  * @returns {Promise<object>} Nodemailer or Microsoft Graph send status.
  */
-async function sendEmail(recipient, subject, textBody, htmlBody) {
+async function sendEmail(recipient, subject, textBody, htmlBody, attachments = [], cc = []) {
   if (microsoftGraph.isConfigured()) {
     try {
-      return await sendEmailViaGraph(recipient, subject, textBody, htmlBody);
+      return await sendEmailViaGraph(recipient, subject, textBody, htmlBody, attachments, cc);
     } catch (graphError) {
       logger.error(`[Email Helper] Microsoft Graph send failed: ${graphError.message}. Falling back to SMTP.`);
     }
@@ -96,15 +146,32 @@ async function sendEmail(recipient, subject, textBody, htmlBody) {
   const transporter = getTransporter();
   const from = smtpConfig.transportOptions().auth?.user || 'no-reply@medica-opms.com';
 
+  const normalizedAttachments = (attachments || []).map((att) => {
+    if ((typeof att.content === 'string' || Buffer.isBuffer(att.content)) && !att.path) {
+      const cleanBase64 = extractCleanBase64(att.content);
+      return {
+        filename: att.filename || att.name || 'document.pdf',
+        content: Buffer.from(cleanBase64, 'base64'),
+        contentType: att.contentType || 'application/pdf',
+      };
+    }
+    return att;
+  });
+
+  const toKeys = new Set(parseEmailAddresses(recipient).map((e) => e.toLowerCase()));
+  const ccList = parseEmailAddresses(cc).filter((e) => !toKeys.has(e.toLowerCase()));
+
   const mailOptions = {
     from,
     to: recipient,
     subject,
     text: textBody,
     html: htmlBody,
+    attachments: normalizedAttachments,
+    ...(ccList.length > 0 ? { cc: ccList.join(', ') } : {}),
   };
 
-  logger.info(`[Email Helper] Sending email to ${recipient} via SMTP...`);
+  logger.info(`[Email Helper] Sending email to ${recipient} via SMTP... (${normalizedAttachments.length} attachments${ccList.length ? `, CC: ${ccList.join(', ')}` : ''})`);
 
   try {
     const info = await transporter.sendMail(mailOptions);
@@ -134,40 +201,93 @@ function compileTemplate(template, data) {
  * @param {string} recipient - Recipient email.
  * @param {string} templateName - The name of the HTML template file (without extension).
  * @param {object} templateData - Object containing replacements.
+ * @param {Array} [attachments] - List of attachments [{ filename, content, contentType, path }].
+ * @param {string|string[]} [cc] - CC recipient email(s).
  * @returns {Promise<object>} Nodemailer send status.
  */
-async function sendTemplateEmail(recipient, templateName, templateData) {
+async function sendTemplateEmail(recipient, templateName, templateData = {}, attachments = [], cc = []) {
   const templatesDir = path.join(__dirname, '..', 'templates', 'emails');
   const templatePath = path.join(templatesDir, `${templateName}.html`);
   const defaultTemplatePath = path.join(templatesDir, 'default.html');
 
+  let company = {};
+  try {
+    const { getCompanyInfo } = require('../../companyInfo/companyInfo.service');
+    if (typeof getCompanyInfo === 'function') {
+      company = (await getCompanyInfo()) || {};
+    }
+  } catch (err) {
+    logger.warn(`[Email Helper] Could not retrieve CompanyInfo: ${err.message}`);
+  }
+
+  const companyName = templateData.companyName || company.trade_name || company.legal_name || 'Medica';
+  const companyLegalName = templateData.companyLegalName || company.legal_name || company.trade_name || 'Medica';
+  const companyLogo = templateData.companyLogo || templateData.logoUrl || company.logo_url || '';
+  const companyPhone = templateData.companyPhone || company.phone || '';
+  const companyEmail = templateData.companyEmail || company.email || company.billing_email || '';
+  const companyWebsite = templateData.companyWebsite || company.website || '';
+  const companyAddress = templateData.companyAddress || [company.address, company.city, company.state, company.pincode, company.country].filter(Boolean).join(', ');
+  const companyGstin = templateData.companyGstin || company.gstin || '';
+  const companyPan = templateData.companyPan || company.pan || '';
+  const companyBankName = templateData.companyBankName || company.bank_name || '';
+  const companyAccountName = templateData.companyAccountName || company.account_name || '';
+  const companyAccountNo = templateData.companyAccountNo || company.account_number || '';
+  const companyIfsc = templateData.companyIfsc || company.ifsc_code || '';
+  const companyBranch = templateData.companyBranch || company.branch_name || '';
+  const companyUpi = templateData.companyUpi || company.upi_id || '';
+  const year = new Date().getFullYear();
+
+  const defaultCompanyLogoHtml = companyLogo
+    ? `<img src="${companyLogo}" alt="${companyName} Logo" class="header-logo" style="max-height: 50px; max-width: 180px; margin-bottom: 8px; display: inline-block;">`
+    : '';
+
+  const mergedData = {
+    companyName,
+    companyLegalName,
+    companyLogo,
+    logoUrl: companyLogo,
+    companyLogoHtml: templateData.companyLogoHtml || defaultCompanyLogoHtml,
+    companyPhone,
+    companyEmail,
+    companyWebsite,
+    companyAddress,
+    companyGstin,
+    companyPan,
+    companyBankName,
+    companyAccountName,
+    companyAccountNo,
+    companyIfsc,
+    companyBranch,
+    companyUpi,
+    year,
+    ...templateData,
+  };
+
   let htmlBody;
-  const subject = templateData.subject || 'Notification';
-  const textBody = templateData.body || templateData.text || '';
+  const subject = mergedData.subject || 'Notification';
+  const textBody = mergedData.body || mergedData.text || '';
 
   try {
     // Try to load requested template
     const templateContent = await fs.readFile(templatePath, 'utf-8');
-    htmlBody = compileTemplate(templateContent, templateData);
+    htmlBody = compileTemplate(templateContent, mergedData);
   } catch (err) {
     logger.warn(`[Email Helper] Template "${templateName}" not found on disk. Falling back to default.html.`);
     try {
       // Fallback to default.html
       const defaultContent = await fs.readFile(defaultTemplatePath, 'utf-8');
-      const compiledData = {
-        subject,
-        body: templateData.body || templateData.text || '',
-        year: new Date().getFullYear(),
-        ...templateData,
-      };
-      htmlBody = compileTemplate(defaultContent, compiledData);
+      htmlBody = compileTemplate(defaultContent, mergedData);
     } catch (fallbackErr) {
       logger.error(`[Email Helper] Failed to read default.html template. Sending plain text fallback.`);
       htmlBody = textBody;
     }
   }
 
-  return sendEmail(recipient, subject, textBody, htmlBody);
+  const finalAttachments = attachments && attachments.length > 0 ? attachments : mergedData.attachments || [];
+  const finalCc = (Array.isArray(cc) && cc.length > 0) || (typeof cc === 'string' && cc.trim())
+    ? cc
+    : mergedData.cc || [];
+  return sendEmail(recipient, subject, textBody, htmlBody, finalAttachments, finalCc);
 }
 
 module.exports = {

@@ -43,18 +43,20 @@ import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import {
   formatLeadDate,
+  formatCurrencyINR,
   isFollowUpOverdue,
   isFollowUpToday,
   isLeadAdmin,
   canAssignLead,
   canDeleteLead,
   canScheduleFollowUp,
+  canViewLeadPricing,
+  leadEstimatedValue,
   ALLOWED_STATUS_TRANSITIONS,
   LEAD_STATUS_CONFIG,
   LEAD_PRIORITY_CONFIG,
 } from "./leadUtils";
 import { AssignLeadModal } from "./AssignLeadModal";
-import { ChangeLeadStatusModal } from "./ChangeLeadStatusModal";
 import { FollowUpModal } from "./FollowUpModal";
 import { ConfirmDeleteLeadModal } from "./ConfirmDeleteLeadModal";
 import { DownloadLeadsPreviewModal } from "./DownloadLeadsPreviewModal";
@@ -79,6 +81,7 @@ type LeadRow = {
   assigned_to_id?: string;
   assigned_to_name?: string;
   total_quantity: number;
+  estimated_value: number;
   products_list: LeadProductItem[];
   products_summary: string;
   city?: string;
@@ -136,13 +139,8 @@ const COLUMNS: {
     type: "select",
     options: [
       "new",
-      "assigned",
-      "contacted",
-      "qualified",
-      "unqualified",
       "follow_up",
       "quotation",
-      "negotiation",
       "won",
       "lost",
       "converted",
@@ -160,13 +158,14 @@ const COLUMNS: {
   { key: "source", label: "Source*", headerLetter: "H", type: "text", widthPdf: 1.2 },
   { key: "assigned_to_name", label: "Assigned To", headerLetter: "I", type: "select", widthPdf: 1.3 },
   { key: "total_quantity", label: "Est. Qty", headerLetter: "J", type: "number", widthPdf: 0.9 },
-  { key: "products_summary", label: "Requirements & Products (- Qty)", headerLetter: "K", type: "text", widthPdf: 2.2 },
-  { key: "city", label: "City", headerLetter: "L", type: "text", widthPdf: 1.1 },
-  { key: "state", label: "State", headerLetter: "M", type: "text", widthPdf: 1.1 },
-  { key: "industry", label: "Industry", headerLetter: "N", type: "text", widthPdf: 1.2 },
-  { key: "next_follow_up_at", label: "Next Follow-up", headerLetter: "O", type: "date", widthPdf: 1.3 },
-  { key: "lost_reason", label: "Lost Reason", headerLetter: "P", type: "text", widthPdf: 1.3 },
-  { key: "createdAt", label: "Created Date", headerLetter: "Q", readonly: true, type: "text", widthPdf: 1.1 },
+  { key: "estimated_value", label: "Est. Value", headerLetter: "K", type: "number", widthPdf: 1.2 },
+  { key: "products_summary", label: "Requirements & Products (- Qty)", headerLetter: "L", type: "text", widthPdf: 2.2 },
+  { key: "city", label: "City", headerLetter: "M", type: "text", widthPdf: 1.1 },
+  { key: "state", label: "State", headerLetter: "N", type: "text", widthPdf: 1.1 },
+  { key: "industry", label: "Industry", headerLetter: "O", type: "text", widthPdf: 1.2 },
+  { key: "next_follow_up_at", label: "Next Follow-up", headerLetter: "P", type: "date", widthPdf: 1.3 },
+  { key: "lost_reason", label: "Lost Reason", headerLetter: "Q", type: "text", widthPdf: 1.3 },
+  { key: "createdAt", label: "Created Date", headerLetter: "R", readonly: true, type: "text", widthPdf: 1.1 },
 ];
 
 export function GoogleSheetLeadsModal({
@@ -178,8 +177,19 @@ export function GoogleSheetLeadsModal({
   const authUser = useAppSelector((state) => state.auth?.user);
   const isAdmin = isLeadAdmin(authUser, portalHome);
   const isSales = !isAdmin;
+  const showPricing = canViewLeadPricing(authUser, portalHome);
   const canAssign = canAssignLead(authUser, portalHome);
   const canDelete = canDeleteLead(authUser, portalHome);
+
+  const visibleColumns = useMemo(() => {
+    const cols = showPricing
+      ? COLUMNS
+      : COLUMNS.filter((c) => c.key !== "estimated_value");
+    return cols.map((c, i) => ({
+      ...c,
+      headerLetter: String.fromCharCode(65 + i),
+    }));
+  }, [showPricing]);
 
   const authUserId = authUser?._id
     ? String(authUser._id)
@@ -217,7 +227,6 @@ export function GoogleSheetLeadsModal({
 
   // Sub-modals inside sheet
   const [assignTarget, setAssignTarget] = useState<LeadRecord | null>(null);
-  const [statusTarget, setStatusTarget] = useState<LeadRecord | null>(null);
   const [followUpTarget, setFollowUpTarget] = useState<LeadRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LeadRecord | null>(null);
 
@@ -233,6 +242,7 @@ export function GoogleSheetLeadsModal({
     source: 130,
     assigned_to_name: 150,
     total_quantity: 90,
+    estimated_value: 120,
     products_summary: 260,
     city: 110,
     state: 110,
@@ -320,6 +330,7 @@ export function GoogleSheetLeadsModal({
           assigned_to_id: assignedId,
           assigned_to_name: assignedName,
           total_quantity: totalQty,
+          estimated_value: leadEstimatedValue(lead),
           products_list: lead.products || [],
           products_summary: productsSummary,
           city: lead.billing_address?.city || "",
@@ -356,7 +367,7 @@ export function GoogleSheetLeadsModal({
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (assignTarget || statusTarget || followUpTarget || deleteTarget) return;
+        if (assignTarget || followUpTarget || deleteTarget) return;
         onClose();
       }
     };
@@ -367,7 +378,7 @@ export function GoogleSheetLeadsModal({
       window.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = originalStyle;
     };
-  }, [isOpen, onClose, assignTarget, statusTarget, followUpTarget, deleteTarget]);
+  }, [isOpen, onClose, assignTarget, followUpTarget, deleteTarget]);
 
   // Column Resizing handlers
   const handleResizeStart = (colKey: string, e: React.MouseEvent) => {
@@ -394,16 +405,21 @@ export function GoogleSheetLeadsModal({
   };
 
   const totalWidth = useMemo(() => {
-    const columnsSum = COLUMNS.reduce((sum, col) => sum + (colWidths[col.key] || 120), 0);
+    const columnsSum = visibleColumns.reduce((sum, col) => sum + (colWidths[col.key] || 120), 0);
     const checkboxWidth = canDelete ? 48 : 0;
     return 48 + checkboxWidth + 110 + columnsSum;
-  }, [colWidths, canDelete]);
+  }, [colWidths, canDelete, visibleColumns]);
 
   // Save edited cell to backend with Access Control checks
   const saveCell = useCallback(
     async (leadId: string, colKey: keyof LeadRow, val: any) => {
       const originalRow = localRows.find((r) => r._id === leadId);
       if (!originalRow) return;
+
+      if (originalRow.status === "converted") {
+        toast.error("Converted leads cannot be edited or deleted");
+        return;
+      }
 
       // Access control check for Assignment
       if (colKey === "assigned_to_name" && !canAssign) {
@@ -428,8 +444,13 @@ export function GoogleSheetLeadsModal({
         }
       }
 
+      if (colKey === "estimated_value" && !showPricing) {
+        toast.error("Only administrators can edit lead pricing");
+        return;
+      }
+
       let parsedVal: any = val;
-      if (colKey === "total_quantity") {
+      if (colKey === "total_quantity" || colKey === "estimated_value") {
         parsedVal = val === "" ? 0 : Number(val);
         if (isNaN(parsedVal)) {
           toast.error("Invalid number value");
@@ -485,13 +506,18 @@ export function GoogleSheetLeadsModal({
         setSavingRows((prev) => ({ ...prev, [leadId]: false }));
       }
     },
-    [localRows, rawUsers, updateLead, refetch, canAssign, isAdmin]
+    [localRows, rawUsers, updateLead, refetch, canAssign, isAdmin, showPricing]
   );
 
   // Quick Delete Row (Admin only)
   const handleDeleteRow = async (leadId: string) => {
     if (!canDelete) {
       toast.error("Only administrators can delete leads");
+      return;
+    }
+    const target = localRows.find((r) => r._id === leadId);
+    if (target?.status === "converted") {
+      toast.error("Converted leads cannot be deleted");
       return;
     }
     if (!confirm("Are you sure you want to delete this lead?")) return;
@@ -512,9 +538,14 @@ export function GoogleSheetLeadsModal({
       return;
     }
     const idsToDelete = Object.keys(selectedIds).filter(
-      (id) => selectedIds[id] && localRows.some((r) => r._id === id)
+      (id) =>
+        selectedIds[id] &&
+        localRows.some((r) => r._id === id && r.status !== "converted")
     );
-    if (idsToDelete.length === 0) return;
+    if (idsToDelete.length === 0) {
+      toast.error("Converted leads cannot be deleted");
+      return;
+    }
 
     if (!confirm(`Are you sure you want to delete ${idsToDelete.length} selected leads?`)) return;
 
@@ -767,20 +798,25 @@ export function GoogleSheetLeadsModal({
     ).length;
   }, [selectedIds, localRows]);
 
+  const selectableRows = useMemo(
+    () => filteredRows.filter((r) => r.status !== "converted"),
+    [filteredRows]
+  );
+
   const isAllSelected = useMemo(() => {
-    if (filteredRows.length === 0) return false;
-    return filteredRows.every((r) => selectedIds[r._id]);
-  }, [filteredRows, selectedIds]);
+    if (selectableRows.length === 0) return false;
+    return selectableRows.every((r) => selectedIds[r._id]);
+  }, [selectableRows, selectedIds]);
 
   const handleToggleSelectAll = () => {
     setSelectedIds((prev) => {
       const next = { ...prev };
       if (isAllSelected) {
-        filteredRows.forEach((r) => {
+        selectableRows.forEach((r) => {
           delete next[r._id];
         });
       } else {
-        filteredRows.forEach((r) => {
+        selectableRows.forEach((r) => {
           next[r._id] = true;
         });
       }
@@ -791,6 +827,10 @@ export function GoogleSheetLeadsModal({
   // KPIs
   const totalQuantitySum = useMemo(() => {
     return filteredRows.reduce((sum, r) => sum + (r.total_quantity || 0), 0);
+  }, [filteredRows]);
+
+  const totalEstimatedValueSum = useMemo(() => {
+    return filteredRows.reduce((sum, r) => sum + (Number(r.estimated_value) || 0), 0);
   }, [filteredRows]);
 
   const overdueCount = useMemo(() => {
@@ -940,7 +980,7 @@ export function GoogleSheetLeadsModal({
                   <span className="min-w-[32px] text-slate-700 dark:text-slate-200">
                     {selectedCell
                       ? `${
-                          COLUMNS.find((c) => c.key === selectedCell.colKey)?.headerLetter || ""
+                          visibleColumns.find((c) => c.key === selectedCell.colKey)?.headerLetter || ""
                         }${filteredRows.findIndex((r) => r._id === selectedCell.leadId) + 1}`
                       : "—"}
                   </span>
@@ -957,13 +997,14 @@ export function GoogleSheetLeadsModal({
                   placeholder={
                     selectedCell
                       ? `Editing ${
-                          COLUMNS.find((c) => c.key === selectedCell.colKey)?.label || ""
+                          visibleColumns.find((c) => c.key === selectedCell.colKey)?.label || ""
                         }`
                       : "Select a cell to view/edit formula..."
                   }
                   disabled={
                     !selectedCell ||
-                    COLUMNS.find((c) => c.key === selectedCell.colKey)?.readonly ||
+                    visibleColumns.find((c) => c.key === selectedCell.colKey)?.readonly ||
+                    localRows.find((r) => r._id === selectedCell.leadId)?.status === "converted" ||
                     (selectedCell.colKey === "assigned_to_name" && !canAssign) ||
                     (selectedCell.colKey === "next_follow_up_at" &&
                       !canScheduleFollowUp(
@@ -988,6 +1029,14 @@ export function GoogleSheetLeadsModal({
                     {totalQuantitySum.toLocaleString()} units
                   </span>
                 </div>
+                {showPricing && (
+                  <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                    <span className="text-slate-400">Est. Value:</span>
+                    <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-indigo-800 dark:bg-indigo-950/70 dark:text-indigo-300">
+                      {formatCurrencyINR(totalEstimatedValueSum)}
+                    </span>
+                  </div>
+                )}
                 {overdueCount > 0 && (
                   <div className="flex items-center gap-1 text-rose-600 dark:text-rose-400">
                     <AlertTriangle className="h-3.5 w-3.5" />
@@ -1025,7 +1074,7 @@ export function GoogleSheetLeadsModal({
                   </div>
 
                   {/* Dynamic Data Columns */}
-                  {COLUMNS.map((col) => {
+                  {visibleColumns.map((col) => {
                     const isSorted = sortConfig?.key === col.key;
                     return (
                       <div
@@ -1093,12 +1142,12 @@ export function GoogleSheetLeadsModal({
                     const statusCfg = LEAD_STATUS_CONFIG[row.status];
                     const priorityCfg = LEAD_PRIORITY_CONFIG[row.priority];
 
-                    // Status options based on user vs admin role
+                    const isRowConverted = row.status === "converted";
                     const allowedTransitions = ALLOWED_STATUS_TRANSITIONS[row.status] || [];
                     const statusOptions: LeadStatus[] = isAdmin
-                      ? (COLUMNS.find((c) => c.key === "status")?.options as LeadStatus[]) || []
+                      ? (visibleColumns.find((c) => c.key === "status")?.options as LeadStatus[]) || []
                       : [row.status, ...(allowedTransitions.filter((s) => s !== row.status) as LeadStatus[])];
-                    const isStatusEditable = isAdmin || allowedTransitions.length > 0;
+                    const isStatusEditable = !isRowConverted && (isAdmin || allowedTransitions.length > 0);
 
                     return (
                       <div
@@ -1122,13 +1171,16 @@ export function GoogleSheetLeadsModal({
                             <input
                               type="checkbox"
                               checked={isRowSelected}
+                              disabled={isRowConverted}
                               onChange={() => {
+                                if (isRowConverted) return;
                                 setSelectedIds((prev) => ({
                                   ...prev,
                                   [row._id]: !prev[row._id],
                                 }));
                               }}
-                              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                              title={isRowConverted ? "Converted leads cannot be deleted" : "Select lead"}
+                              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                             />
                           </div>
                         )}
@@ -1145,15 +1197,7 @@ export function GoogleSheetLeadsModal({
                               <CalendarPlus className="h-3.5 w-3.5" />
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => setStatusTarget(row.raw)}
-                            title="Change Status"
-                            className="rounded p-1 text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/50"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                          </button>
-                          {canAssign && (
+                          {canAssign && !isRowConverted && (
                             <button
                               type="button"
                               onClick={() => setAssignTarget(row.raw)}
@@ -1163,7 +1207,7 @@ export function GoogleSheetLeadsModal({
                               <UserCheck className="h-3.5 w-3.5" />
                             </button>
                           )}
-                          {canDelete && (
+                          {canDelete && !isRowConverted && (
                             <button
                               type="button"
                               onClick={() => handleDeleteRow(row._id)}
@@ -1176,7 +1220,7 @@ export function GoogleSheetLeadsModal({
                         </div>
 
                         {/* Lead Cells */}
-                        {COLUMNS.map((col) => {
+                        {visibleColumns.map((col) => {
                           const isCellSelected =
                             selectedCell?.leadId === row._id && selectedCell?.colKey === col.key;
                           const cellValue = row[col.key];
@@ -1226,40 +1270,56 @@ export function GoogleSheetLeadsModal({
                                   </span>
                                 )
                               ) : col.key === "priority" ? (
-                                <select
-                                  value={row.priority}
-                                  onChange={(e) =>
-                                    saveCell(row._id, "priority", e.target.value as LeadPriority)
-                                  }
-                                  className={`w-full rounded px-1.5 py-0.5 text-xs font-semibold border focus:outline-none cursor-pointer ${
-                                    priorityCfg?.bg || "bg-slate-100"
-                                  } ${priorityCfg?.text || "text-slate-800"} ${
-                                    priorityCfg?.border || "border-slate-300"
-                                  }`}
-                                >
-                                  {col.options?.map((opt) => (
-                                    <option key={opt} value={opt}>
-                                      {LEAD_PRIORITY_CONFIG[opt as LeadPriority]?.label || opt}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : col.key === "source" ? (
-                                <select
-                                  value={row.source}
-                                  onChange={(e) => saveCell(row._id, "source", e.target.value)}
-                                  className="w-full bg-transparent border-0 px-1 py-0.5 text-xs text-slate-800 dark:text-white focus:bg-white dark:focus:bg-slate-800 rounded focus:ring-1 focus:ring-emerald-500 truncate"
-                                >
-                                  <option value={row.source}>{row.source || "Select Source"}</option>
-                                  {sources
-                                    ?.filter((s) => s.name !== row.source)
-                                    .map((s) => (
-                                      <option key={s._id} value={s.name}>
-                                        {s.name}
+                                isRowConverted ? (
+                                  <span
+                                    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                                      priorityCfg?.bg || "bg-slate-100"
+                                    } ${priorityCfg?.text || "text-slate-800"}`}
+                                  >
+                                    {priorityCfg?.label || row.priority}
+                                  </span>
+                                ) : (
+                                  <select
+                                    value={row.priority}
+                                    onChange={(e) =>
+                                      saveCell(row._id, "priority", e.target.value as LeadPriority)
+                                    }
+                                    className={`w-full rounded px-1.5 py-0.5 text-xs font-semibold border focus:outline-none cursor-pointer ${
+                                      priorityCfg?.bg || "bg-slate-100"
+                                    } ${priorityCfg?.text || "text-slate-800"} ${
+                                      priorityCfg?.border || "border-slate-300"
+                                    }`}
+                                  >
+                                    {col.options?.map((opt) => (
+                                      <option key={opt} value={opt}>
+                                        {LEAD_PRIORITY_CONFIG[opt as LeadPriority]?.label || opt}
                                       </option>
                                     ))}
-                                </select>
+                                  </select>
+                                )
+                              ) : col.key === "source" ? (
+                                isRowConverted ? (
+                                  <span className="text-slate-700 dark:text-slate-300 truncate">
+                                    {row.source || "—"}
+                                  </span>
+                                ) : (
+                                  <select
+                                    value={row.source}
+                                    onChange={(e) => saveCell(row._id, "source", e.target.value)}
+                                    className="w-full bg-transparent border-0 px-1 py-0.5 text-xs text-slate-800 dark:text-white focus:bg-white dark:focus:bg-slate-800 rounded focus:ring-1 focus:ring-emerald-500 truncate"
+                                  >
+                                    <option value={row.source}>{row.source || "Select Source"}</option>
+                                    {sources
+                                      ?.filter((s) => s.name !== row.source)
+                                      .map((s) => (
+                                        <option key={s._id} value={s.name}>
+                                          {s.name}
+                                        </option>
+                                      ))}
+                                  </select>
+                                )
                               ) : col.key === "assigned_to_name" ? (
-                                canAssign ? (
+                                canAssign && !isRowConverted ? (
                                   <select
                                     value={row.assigned_to_id || ""}
                                     onChange={(e) =>
@@ -1353,9 +1413,46 @@ export function GoogleSheetLeadsModal({
                                     {row.next_follow_up_at ? formatLeadDate(row.next_follow_up_at) : "—"}
                                   </span>
                                 )
+                              ) : col.key === "estimated_value" ? (
+                                isRowConverted ? (
+                                  <span className="truncate text-right font-semibold text-slate-800 dark:text-slate-200">
+                                    {Number(row.estimated_value) > 0
+                                      ? formatCurrencyINR(row.estimated_value)
+                                      : "—"}
+                                  </span>
+                                ) : (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    value={
+                                      row.estimated_value !== undefined && row.estimated_value !== null
+                                        ? String(row.estimated_value)
+                                        : ""
+                                    }
+                                    onChange={(e) => {
+                                      const newVal = e.target.value;
+                                      setLocalRows((prev) =>
+                                        prev.map((r) =>
+                                          r._id === row._id
+                                            ? { ...r, estimated_value: newVal === "" ? 0 : Number(newVal) }
+                                            : r
+                                        )
+                                      );
+                                    }}
+                                    onBlur={(e) => saveCell(row._id, "estimated_value", e.target.value)}
+                                    className="w-full bg-transparent border-0 px-1 py-0.5 text-xs text-right font-semibold text-slate-800 dark:text-white focus:bg-white dark:focus:bg-slate-800 rounded focus:ring-1 focus:ring-emerald-500 truncate"
+                                  />
+                                )
                               ) : col.key === "createdAt" ? (
                                 <span className="text-slate-500 text-[11px] truncate">
                                   {row.createdAt}
+                                </span>
+                              ) : isRowConverted ? (
+                                <span className="truncate text-slate-700 dark:text-slate-300">
+                                  {cellValue !== undefined && cellValue !== null && String(cellValue).trim()
+                                    ? String(cellValue)
+                                    : "—"}
                                 </span>
                               ) : (
                                 <input
@@ -1644,16 +1741,6 @@ export function GoogleSheetLeadsModal({
           />
         )}
 
-        {statusTarget && (
-          <ChangeLeadStatusModal
-            lead={statusTarget}
-            isAdmin={isAdmin}
-            open={Boolean(statusTarget)}
-            onClose={() => setStatusTarget(null)}
-            onSuccess={() => refetch()}
-          />
-        )}
-
         {followUpTarget && (
           <FollowUpModal
             lead={followUpTarget}
@@ -1677,7 +1764,7 @@ export function GoogleSheetLeadsModal({
             open={downloadPreviewOpen}
             onClose={() => setDownloadPreviewOpen(false)}
             leads={filteredRows}
-            availableColumns={COLUMNS.map((c) => ({
+            availableColumns={visibleColumns.map((c) => ({
               key: c.key,
               label: c.label,
               widthPdf: c.widthPdf,

@@ -6,7 +6,7 @@
  */
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   CheckCircle2,
   UserPlus,
@@ -18,7 +18,7 @@ import {
   Plus,
   Trash2,
   Search,
-  Tag,
+  FileText,
   SendHorizontal,
 } from "lucide-react";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
@@ -27,7 +27,9 @@ import {
   useConvertLeadMutation,
   useListPartiesQuery,
   useListProductsQuery,
+  useListLeadQuotationsQuery,
   type LeadRecord,
+  type LeadQuotationRecord,
 } from "@/store/api";
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
@@ -36,12 +38,14 @@ import {
   sanitizePartyContacts,
   type PartyContact,
 } from "@/lib/partyContacts";
+import { formatCurrencyINR } from "./leadUtils";
 
 type Props = {
   lead: LeadRecord;
   open: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  initialQuotationId?: string;
 };
 
 type CustomerMode = "new_customer" | "existing_customer";
@@ -55,9 +59,13 @@ type LineRow = {
   sku: string;
   unit: string;
   quantity: number;
+  unit_price: number;
+  gst_percent: number;
   applied_rate_type: RateType;
   remarks: string;
 };
+
+type ProductLike = Record<string, unknown>;
 
 function newLine(overrides?: Partial<LineRow>): LineRow {
   return {
@@ -70,18 +78,109 @@ function newLine(overrides?: Partial<LineRow>): LineRow {
     sku: "",
     unit: "pcs",
     quantity: 1,
+    unit_price: 0,
+    gst_percent: 18,
     applied_rate_type: "SR",
     remarks: "",
     ...overrides,
   };
 }
 
+function resolveProductId(product: unknown): string {
+  if (!product) return "";
+  if (typeof product === "string") return product;
+  if (typeof product === "object") {
+    const obj = product as { _id?: string; id?: string };
+    return String(obj._id || obj.id || "");
+  }
+  return "";
+}
+
+function catalogUnitPrice(prod: ProductLike | undefined | null, rateType: RateType): number {
+  if (!prod) return 0;
+  if (rateType === "SRA") return Number(prod.minimum_sale_rate || prod.base_price || 0) || 0;
+  if (rateType === "CR") return Number(prod.mrp || prod.base_price || 0) || 0;
+  return Number(prod.base_price || 0) || 0;
+}
+
+function catalogGstPercent(prod: ProductLike | undefined | null): number {
+  if (!prod) return 18;
+  const g = Number(prod.gst_percent ?? prod.default_gst_rate ?? prod.gst_rate ?? 18);
+  return Number.isFinite(g) && g >= 0 ? g : 18;
+}
+
+function lineTaxable(row: LineRow): number {
+  return Math.max(0, Number(row.quantity || 0) * Number(row.unit_price || 0));
+}
+
+function lineGst(row: LineRow): number {
+  return (lineTaxable(row) * Number(row.gst_percent || 0)) / 100;
+}
+
+function lineTotal(row: LineRow): number {
+  return lineTaxable(row) + lineGst(row);
+}
+
+function pickDefaultQuotationId(list: LeadQuotationRecord[], preferredId?: string): string {
+  if (preferredId && list.some((q) => q._id === preferredId)) return preferredId;
+  const rank = (s: string) =>
+    s === "accepted" ? 0 : s === "sent" ? 1 : s === "draft" ? 2 : 3;
+  const sorted = [...list].sort((a, b) => rank(a.status) - rank(b.status));
+  return sorted[0]?._id || "";
+}
+
+function linesFromQuotation(q: LeadQuotationRecord): LineRow[] {
+  if (!Array.isArray(q.items) || q.items.length === 0) return [newLine()];
+  return q.items.map((it) =>
+    newLine({
+      productId: resolveProductId(it.product),
+      product_name: it.product_name || "",
+      unit: it.unit || "pcs",
+      quantity: Math.max(1, Number(it.quantity || 1)),
+      unit_price: Number(it.rate || 0) || 0,
+      gst_percent: Number(it.gst_rate ?? 18) || 0,
+      applied_rate_type: "SR",
+      remarks: it.description || "",
+    })
+  );
+}
+
+function linesFromLead(lead: LeadRecord, productsList: ProductLike[]): LineRow[] {
+  if (!Array.isArray(lead.products) || lead.products.length === 0) return [newLine()];
+  return lead.products.map((p) => {
+    const prodObj = typeof p.product === "object" ? (p.product as ProductLike) : null;
+    const productId = resolveProductId(p.product);
+    const catalog =
+      prodObj || productsList.find((x) => String(x._id || x.id) === productId) || null;
+    const target = Number(p.target_price || 0);
+    return newLine({
+      productId,
+      product_name: p.product_name || String(catalog?.product_name || ""),
+      sku: String(catalog?.sku || ""),
+      unit: p.unit || String(catalog?.unit || "pcs"),
+      quantity: Math.max(1, Number(p.quantity || 1)),
+      unit_price: target > 0 ? target : catalogUnitPrice(catalog, "SR"),
+      gst_percent: catalogGstPercent(catalog),
+      applied_rate_type: "SR",
+      remarks: p.remarks || "",
+    });
+  });
+}
+
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-white/10 dark:bg-slate-800 dark:text-white";
 const labelClass = "block text-xs font-semibold text-slate-700 dark:text-slate-300";
 
-export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
+export function ConvertLeadModal({
+  lead,
+  open,
+  onClose,
+  onSuccess,
+  initialQuotationId,
+}: Props) {
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [selectedQuotationId, setSelectedQuotationId] = useState<string>(initialQuotationId || "");
+  const appliedSourceRef = useRef<string | null>(null);
 
   // -------------------------------------------------------------
   // Step 1: Customer State
@@ -147,23 +246,7 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
   // -------------------------------------------------------------
   // Step 2: Order State (with Rate Type)
   // -------------------------------------------------------------
-  const [orderItems, setOrderItems] = useState<LineRow[]>(() => {
-    if (Array.isArray(lead.products) && lead.products.length > 0) {
-      return lead.products.map((p) => {
-        const prodObj = typeof p.product === "object" ? (p.product as Record<string, unknown>) : null;
-        return newLine({
-          productId: typeof p.product === "object" ? String(p.product._id || "") : (typeof p.product === "string" ? p.product : ""),
-          product_name: p.product_name || (typeof prodObj?.product_name === "string" ? prodObj.product_name : ""),
-          sku: typeof prodObj?.sku === "string" ? prodObj.sku : "",
-          unit: p.unit || (typeof prodObj?.unit === "string" ? prodObj.unit : "pcs"),
-          quantity: Math.max(1, Number(p.quantity || 1)),
-          applied_rate_type: "SR",
-          remarks: p.remarks || "",
-        });
-      });
-    }
-    return [newLine()];
-  });
+  const [orderItems, setOrderItems] = useState<LineRow[]>(() => linesFromLead(lead, []));
 
   const [orderDate, setOrderDate] = useState<string>(
     new Date().toISOString().split("T")[0]
@@ -184,6 +267,10 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
   const { data: productsData } = useListProductsQuery({
     limit: "200",
   });
+  const { data: quotationsData, isLoading: loadingQuotations } = useListLeadQuotationsQuery(
+    lead._id,
+    { skip: !open || !lead._id }
+  );
   const [convertLead, { isLoading }] = useConvertLeadMutation();
 
   const partiesList = useMemo(() => {
@@ -218,6 +305,16 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
     return partiesList.find((p) => String(p._id || p.id) === String(selectedPartyId)) || null;
   }, [partiesList, selectedPartyId]);
 
+  const quotations = useMemo(() => {
+    if (Array.isArray(quotationsData)) return quotationsData;
+    return [] as LeadQuotationRecord[];
+  }, [quotationsData]);
+
+  const selectedQuotation = useMemo(
+    () => quotations.find((q) => q._id === selectedQuotationId) || null,
+    [quotations, selectedQuotationId]
+  );
+
   // Sync shipping address if sameAsBilling
   useEffect(() => {
     if (sameAsBilling) {
@@ -225,34 +322,118 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
     }
   }, [sameAsBilling, billingAddress]);
 
-  if (!open) return null;
+  useEffect(() => {
+    if (!open) {
+      appliedSourceRef.current = null;
+      return;
+    }
+    setCurrentStep(1);
+    setSelectedQuotationId(initialQuotationId || "");
+    appliedSourceRef.current = null;
+  }, [open, lead._id, initialQuotationId]);
 
-  const totalUnits = useMemo(() => {
-    return orderItems.reduce((acc, row) => acc + Number(row.quantity || 0), 0);
+  useEffect(() => {
+    if (!open || loadingQuotations) return;
+
+    let nextId = selectedQuotationId;
+    if (!nextId && quotations.length > 0) {
+      nextId = pickDefaultQuotationId(quotations, initialQuotationId);
+      if (nextId) {
+        setSelectedQuotationId(nextId);
+        return;
+      }
+    }
+
+    const applyKey = nextId || "__lead__";
+    if (appliedSourceRef.current === applyKey) return;
+    appliedSourceRef.current = applyKey;
+
+    if (nextId) {
+      const q = quotations.find((item) => item._id === nextId);
+      if (q) {
+        setOrderItems(linesFromQuotation(q));
+        if (q.gstin) {
+          setGstNo((prev) => (prev.trim() ? prev : q.gstin || ""));
+        }
+        if (q.customer_name) {
+          setPartyName((prev) => (prev.trim() ? prev : q.customer_name || ""));
+        }
+        if (q.address?.address_line_1) {
+          setBillingAddress((prev) =>
+            prev.address_line_1
+              ? prev
+              : {
+                  ...prev,
+                  address_line_1: q.address?.address_line_1 || prev.address_line_1,
+                  city: q.address?.city || prev.city,
+                  state: q.address?.state || prev.state,
+                  pincode: q.address?.pincode || prev.pincode,
+                  country: q.address?.country || prev.country || "India",
+                }
+          );
+        }
+        return;
+      }
+    }
+
+    setOrderItems(linesFromLead(lead, productsList));
+  }, [
+    open,
+    loadingQuotations,
+    quotations,
+    selectedQuotationId,
+    initialQuotationId,
+    lead,
+    productsList,
+  ]);
+
+  const orderTotals = useMemo(() => {
+    const units = orderItems.reduce((acc, row) => acc + Number(row.quantity || 0), 0);
+    const subtotal = orderItems.reduce((acc, row) => acc + lineTaxable(row), 0);
+    const gst = orderItems.reduce((acc, row) => acc + lineGst(row), 0);
+    return {
+      units,
+      subtotal,
+      gst,
+      grandTotal: subtotal + gst,
+    };
   }, [orderItems]);
 
-  // -------------------------------------------------------------
-  // Handlers
-  // -------------------------------------------------------------
   const handleProductSelect = (index: number, prodId: string) => {
     const prod = productsList.find((p) => String(p._id || p.id) === String(prodId));
     setOrderItems((prev) =>
       prev.map((row, i) => {
         if (i !== index) return row;
         if (!prod) return { ...row, productId: prodId };
+        const rateType = row.applied_rate_type || "SR";
         return {
           ...row,
           productId: prodId,
           product_name: String(prod.product_name || row.product_name),
           sku: String(prod.sku || ""),
           unit: String(prod.unit || "pcs"),
+          unit_price: catalogUnitPrice(prod, rateType),
+          gst_percent: catalogGstPercent(prod),
         };
       })
     );
   };
 
   const handleUpdateItem = (index: number, patch: Partial<LineRow>) => {
-    setOrderItems((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    setOrderItems((prev) =>
+      prev.map((row, i) => {
+        if (i !== index) return row;
+        const next = { ...row, ...patch };
+        if (patch.applied_rate_type && next.productId) {
+          const prod = productsList.find((p) => String(p._id || p.id) === String(next.productId));
+          if (prod) {
+            next.unit_price = catalogUnitPrice(prod, next.applied_rate_type);
+            if (!patch.gst_percent) next.gst_percent = catalogGstPercent(prod);
+          }
+        }
+        return next;
+      })
+    );
   };
 
   const handleAddItem = () => {
@@ -265,6 +446,11 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
       return;
     }
     setOrderItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSelectQuotation = (quotationId: string) => {
+    appliedSourceRef.current = null;
+    setSelectedQuotationId(quotationId);
   };
 
   const validateStep1 = (): boolean => {
@@ -326,6 +512,8 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
             quantity: Math.max(1, Number(item.quantity || 1)),
             unit: item.unit || "pcs",
             applied_rate_type: item.applied_rate_type || "SR",
+            unit_price: Number(item.unit_price || 0),
+            gst_percent: Number(item.gst_percent || 0),
             remarks: item.remarks ? item.remarks.trim() : undefined,
           }))
       : undefined;
@@ -348,6 +536,7 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
         create_order: createOrderFlag,
         order_items: orderItemsPayload,
         order_data: orderDataPayload,
+        quotation_id: selectedQuotationId || undefined,
         notes: orderRemarks.trim() || undefined,
       }).unwrap();
 
@@ -363,6 +552,8 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
     }
   };
 
+  if (!open) return null;
+
   return (
     <LargeModalPortal>
       <ModalOverlay onClick={onClose}>
@@ -370,7 +561,7 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
           role="dialog"
           aria-modal="true"
           onClick={(e) => e.stopPropagation()}
-          className="relative flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl transition-all dark:border-white/10 dark:bg-slate-900"
+          className="relative flex max-h-[92vh] w-full max-w-6xl flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl transition-all dark:border-white/10 dark:bg-slate-900"
         >
           {/* Header */}
           <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-white/10">
@@ -440,7 +631,7 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
               }`}>
                 2
               </span>
-              <span>2. Order Configuration & Rate Types</span>
+              <span>2. Order Items & Pricing</span>
             </button>
           </div>
 
@@ -854,19 +1045,63 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
                   </div>
                   <div className="text-right">
                     <div className="text-xs font-bold text-blue-700 dark:text-blue-300">
-                      Total Items: {orderItems.length} ({totalUnits} units)
+                      {formatCurrencyINR(orderTotals.grandTotal)}
                     </div>
                     <div className="text-[10px] text-slate-500">
-                      Pricing and commercials resolved automatically by selected Rate Types
+                      {orderItems.length} items · {orderTotals.units} units · incl. {formatCurrencyINR(orderTotals.gst)} GST
                     </div>
                   </div>
+                </div>
+
+                {/* Quotation source + pricing */}
+                <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div className="min-w-[240px] flex-1">
+                      <label className={labelClass}>
+                        <span className="inline-flex items-center gap-1.5">
+                          <FileText className="h-3.5 w-3.5 text-purple-600" />
+                          Load items &amp; pricing from quotation
+                        </span>
+                      </label>
+                      <select
+                        value={selectedQuotationId}
+                        onChange={(e) => handleSelectQuotation(e.target.value)}
+                        className={`${inputClass} mt-1.5`}
+                      >
+                        <option value="">
+                          {loadingQuotations
+                            ? "Loading quotations..."
+                            : quotations.length === 0
+                            ? "No quotations — use lead products"
+                            : "Lead products (catalog / target rates)"}
+                        </option>
+                        {quotations.map((q) => (
+                          <option key={q._id} value={q._id}>
+                            {q.ref_no || q.quotation_no} · {q.status} · {formatCurrencyINR(q.grand_total)} · {q.items?.length || 0} items
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {selectedQuotation && (
+                      <div className="rounded-lg border border-purple-200 bg-purple-50/70 px-3 py-2 text-[11px] text-purple-900 dark:border-purple-900/40 dark:bg-purple-950/30 dark:text-purple-200">
+                        <div className="font-bold">{selectedQuotation.subject || "Quotation"}</div>
+                        <div className="mt-0.5">
+                          Quoted {formatCurrencyINR(selectedQuotation.grand_total)}
+                          {selectedQuotation.validity_days ? ` · valid ${selectedQuotation.validity_days} days` : ""}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    Quoted unit rates and GST are loaded and editable. Change Rate Type to pull catalog SR / SRA / CR instead.
+                  </p>
                 </div>
 
                 {/* Line Items Table */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <label className={labelClass}>
-                      Order Products & Rate Types ({orderItems.length})
+                      Order Products &amp; Pricing ({orderItems.length})
                     </label>
                     <button
                       type="button"
@@ -882,10 +1117,13 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
                     <table className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
                       <thead className="border-b border-slate-100 bg-slate-50 font-bold uppercase text-slate-500 dark:border-white/5 dark:bg-slate-800/50 dark:text-slate-400">
                         <tr>
-                          <th className="px-3.5 py-2.5 min-w-[260px]">Product / Item</th>
-                          <th className="px-2.5 py-2.5 text-center w-28">Quantity</th>
-                          <th className="px-2.5 py-2.5 text-center w-36">Rate Type</th>
-                          <th className="px-3.5 py-2.5 min-w-[180px]">Line Remarks</th>
+                          <th className="px-3.5 py-2.5 min-w-[220px]">Product / Item</th>
+                          <th className="px-2.5 py-2.5 text-center w-24">Qty</th>
+                          <th className="px-2.5 py-2.5 text-center w-28">Unit Rate (₹)</th>
+                          <th className="px-2.5 py-2.5 text-center w-20">GST %</th>
+                          <th className="px-2.5 py-2.5 text-center w-32">Rate Type</th>
+                          <th className="px-2.5 py-2.5 text-right w-28">Line Total</th>
+                          <th className="px-3.5 py-2.5 min-w-[140px]">Remarks</th>
                           <th className="px-2.5 py-2.5 text-center w-10"></th>
                         </tr>
                       </thead>
@@ -893,7 +1131,6 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
                         {orderItems.map((item, idx) => {
                           return (
                             <tr key={item.key} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02]">
-                              {/* Product Name / Selection */}
                               <td className="p-2.5 space-y-1">
                                 <select
                                   value={item.productId}
@@ -903,7 +1140,7 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
                                   <option value="">Choose catalog product...</option>
                                   {productsList.map((p) => (
                                     <option key={String(p._id || p.id)} value={String(p._id || p.id)}>
-                                      {p.product_name} {p.sku ? `(${p.sku})` : ""}
+                                      {String(p.product_name || "")} {p.sku ? `(${String(p.sku)})` : ""}
                                     </option>
                                   ))}
                                 </select>
@@ -916,7 +1153,6 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
                                 />
                               </td>
 
-                              {/* Quantity & Unit */}
                               <td className="p-2.5">
                                 <div className="flex items-center gap-1">
                                   <input
@@ -930,31 +1166,64 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
                                 </div>
                               </td>
 
-                              {/* Rate Type */}
+                              <td className="p-2.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={item.unit_price}
+                                  onChange={(e) =>
+                                    handleUpdateItem(idx, { unit_price: Math.max(0, Number(e.target.value) || 0) })
+                                  }
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-xs font-semibold font-mono text-slate-900 focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-white"
+                                />
+                              </td>
+
+                              <td className="p-2.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  step="0.01"
+                                  value={item.gst_percent}
+                                  onChange={(e) =>
+                                    handleUpdateItem(idx, { gst_percent: Math.max(0, Number(e.target.value) || 0) })
+                                  }
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-xs font-semibold text-slate-900 focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-white"
+                                />
+                              </td>
+
                               <td className="p-2.5">
                                 <select
                                   value={item.applied_rate_type}
                                   onChange={(e) => handleUpdateItem(idx, { applied_rate_type: e.target.value as RateType })}
                                   className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-xs font-bold text-blue-700 focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-blue-300"
                                 >
-                                  <option value="SR">SR (Standard Rate)</option>
-                                  <option value="SRA">SRA (Special Rate)</option>
-                                  <option value="CR">CR (Contract Rate)</option>
+                                  <option value="SR">SR</option>
+                                  <option value="SRA">SRA</option>
+                                  <option value="CR">CR</option>
                                 </select>
                               </td>
 
-                              {/* Remarks */}
+                              <td className="p-2.5 text-right">
+                                <div className="font-bold font-mono text-slate-900 dark:text-white">
+                                  {formatCurrencyINR(lineTotal(item))}
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  + {formatCurrencyINR(lineGst(item))} GST
+                                </div>
+                              </td>
+
                               <td className="p-2.5">
                                 <input
                                   type="text"
                                   value={item.remarks}
                                   onChange={(e) => handleUpdateItem(idx, { remarks: e.target.value })}
-                                  placeholder="Batch, pack size or delivery notes..."
+                                  placeholder="Batch, pack size..."
                                   className="w-full rounded-lg border border-slate-100 bg-slate-50/50 px-2 py-1 text-xs text-slate-700 dark:border-white/5 dark:bg-slate-800/40 dark:text-slate-300"
                                 />
                               </td>
 
-                              {/* Remove */}
                               <td className="p-2.5 text-center">
                                 <button
                                   type="button"
@@ -968,6 +1237,35 @@ export function ConvertLeadModal({ lead, open, onClose, onSuccess }: Props) {
                           );
                         })}
                       </tbody>
+                      <tfoot className="border-t border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-slate-800/40">
+                        <tr>
+                          <td colSpan={5} className="px-3.5 py-2.5 text-right text-[11px] font-semibold uppercase text-slate-500">
+                            Taxable
+                          </td>
+                          <td className="px-2.5 py-2.5 text-right font-mono text-xs font-bold text-slate-800 dark:text-slate-100">
+                            {formatCurrencyINR(orderTotals.subtotal)}
+                          </td>
+                          <td colSpan={2} />
+                        </tr>
+                        <tr>
+                          <td colSpan={5} className="px-3.5 py-1.5 text-right text-[11px] font-semibold uppercase text-slate-500">
+                            GST
+                          </td>
+                          <td className="px-2.5 py-1.5 text-right font-mono text-xs font-semibold text-slate-700 dark:text-slate-200">
+                            {formatCurrencyINR(orderTotals.gst)}
+                          </td>
+                          <td colSpan={2} />
+                        </tr>
+                        <tr>
+                          <td colSpan={5} className="px-3.5 py-2.5 text-right text-xs font-bold uppercase text-slate-800 dark:text-white">
+                            Grand Total
+                          </td>
+                          <td className="px-2.5 py-2.5 text-right font-mono text-sm font-extrabold text-blue-700 dark:text-blue-300">
+                            {formatCurrencyINR(orderTotals.grandTotal)}
+                          </td>
+                          <td colSpan={2} />
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </div>

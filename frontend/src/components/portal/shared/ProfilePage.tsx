@@ -46,6 +46,9 @@ import {
   Activity,
   BarChart3,
   RefreshCw,
+  CreditCard,
+  Wallet,
+  QrCode,
 } from "lucide-react";
 import {
   THEME_PALETTES,
@@ -79,6 +82,14 @@ export type CompanyInfoData = {
   timezone: string;
   financialYear: string;
   invoiceFooterNote: string;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  ifscCode: string;
+  branchName: string;
+  accountType: string;
+  upiId: string;
+  swiftCode: string;
 };
 
 export const DEFAULT_COMPANY_INFO: CompanyInfoData = {
@@ -107,6 +118,14 @@ export const DEFAULT_COMPANY_INFO: CompanyInfoData = {
   timezone: "",
   financialYear: "",
   invoiceFooterNote: "",
+  bankName: "",
+  accountName: "",
+  accountNumber: "",
+  ifscCode: "",
+  branchName: "",
+  accountType: "Current Account",
+  upiId: "",
+  swiftCode: "",
 };
 
 export default function ProfilePage() {
@@ -191,6 +210,14 @@ export default function ProfilePage() {
         timezone: dbCompanyData.timezone || "",
         financialYear: dbCompanyData.financial_year || "",
         invoiceFooterNote: dbCompanyData.invoice_footer_note || "",
+        bankName: dbCompanyData.bank_name || "",
+        accountName: dbCompanyData.account_name || "",
+        accountNumber: dbCompanyData.account_number || "",
+        ifscCode: dbCompanyData.ifsc_code || "",
+        branchName: dbCompanyData.branch_name || "",
+        accountType: dbCompanyData.account_type || "Current Account",
+        upiId: dbCompanyData.upi_id || "",
+        swiftCode: dbCompanyData.swift_code || "",
       });
     }
   }, [dbCompanyData]);
@@ -284,6 +311,14 @@ export default function ProfilePage() {
         timezone: companyInfo.timezone.trim(),
         financial_year: companyInfo.financialYear.trim(),
         invoice_footer_note: companyInfo.invoiceFooterNote.trim(),
+        bank_name: companyInfo.bankName.trim(),
+        account_name: companyInfo.accountName.trim(),
+        account_number: companyInfo.accountNumber.trim(),
+        ifsc_code: companyInfo.ifscCode.trim().toUpperCase(),
+        branch_name: companyInfo.branchName.trim(),
+        account_type: companyInfo.accountType.trim(),
+        upi_id: companyInfo.upiId.trim(),
+        swift_code: companyInfo.swiftCode.trim().toUpperCase(),
       }).unwrap();
 
       if (companyInfo.primaryColor) {
@@ -493,6 +528,16 @@ export default function ProfilePage() {
                       : "Not specified"}
                   </span>
                 </div>
+
+                {companyInfo.bankName && (
+                  <div className="flex items-start justify-between gap-2 border-t border-slate-200/60 dark:border-white/5 pt-2">
+                    <span className="text-slate-500 dark:text-slate-400">Bank</span>
+                    <span className="font-medium text-slate-800 dark:text-slate-200 text-right truncate max-w-[150px]">
+                      {companyInfo.bankName}
+                      {companyInfo.accountNumber ? ` (••${companyInfo.accountNumber.slice(-4)})` : ""}
+                    </span>
+                  </div>
+                )}
 
                 <div className="flex items-start justify-between gap-2 border-t border-slate-200/60 dark:border-white/5 pt-2">
                   <span className="text-slate-500 dark:text-slate-400">Configuration</span>
@@ -1538,6 +1583,213 @@ export default function ProfilePage() {
                           }
                           className="w-full rounded-xl border border-slate-250/90 bg-white py-2 px-3 text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-950/40 dark:disabled:text-slate-500"
                           placeholder="Standard terms and jurisdiction disclaimer for statements..."
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 4: Bank & Settlement Account Details */}
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-white/5">
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="size-4 text-blue-600 dark:text-blue-400" />
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                          Bank & Settlement Account Details
+                        </h4>
+                      </div>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Printed on tax invoices, proforma statements & client payment receipts
+                      </span>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Bank Name
+                        </label>
+                        <div className="relative">
+                          <Landmark className="absolute left-3 top-2.5 size-4 text-slate-400" />
+                          <input
+                            type="text"
+                            value={companyInfo.bankName}
+                            disabled={!isSuperAdmin}
+                            onChange={(e) =>
+                              setCompanyInfo({ ...companyInfo, bankName: e.target.value })
+                            }
+                            className="w-full rounded-xl border border-slate-250/90 bg-white py-2 pl-9 pr-3 text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-950/40 dark:disabled:text-slate-500"
+                            placeholder="e.g. HDFC Bank Ltd. / State Bank of India"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Account Beneficiary / Holder Name
+                        </label>
+                        <div className="relative">
+                          <User className="absolute left-3 top-2.5 size-4 text-slate-400" />
+                          <input
+                            type="text"
+                            value={companyInfo.accountName}
+                            disabled={!isSuperAdmin}
+                            onChange={(e) =>
+                              setCompanyInfo({ ...companyInfo, accountName: e.target.value })
+                            }
+                            className="w-full rounded-xl border border-slate-250/90 bg-white py-2 pl-9 pr-3 text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-950/40 dark:disabled:text-slate-500"
+                            placeholder="e.g. Medica Healthcare Private Limited"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            Bank Account Number
+                          </label>
+                          {companyInfo.accountNumber ? (
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(companyInfo.accountNumber, "Account Number")}
+                              className="text-[11px] text-blue-600 hover:underline dark:text-blue-400 dark:hover:text-blue-300 inline-flex items-center gap-1"
+                            >
+                              <Copy className="size-3" /> Copy
+                            </button>
+                          ) : null}
+                        </div>
+                        <div className="relative">
+                          <Wallet className="absolute left-3 top-2.5 size-4 text-slate-400" />
+                          <input
+                            type="text"
+                            value={companyInfo.accountNumber}
+                            disabled={!isSuperAdmin}
+                            onChange={(e) =>
+                              setCompanyInfo({ ...companyInfo, accountNumber: e.target.value })
+                            }
+                            className="w-full font-mono rounded-xl border border-slate-250/90 bg-white py-2 pl-9 pr-3 text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-950/40 dark:disabled:text-slate-500"
+                            placeholder="e.g. 50200012345678"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            IFSC Code
+                          </label>
+                          {companyInfo.ifscCode ? (
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(companyInfo.ifscCode, "IFSC Code")}
+                              className="text-[11px] text-blue-600 hover:underline dark:text-blue-400 dark:hover:text-blue-300 inline-flex items-center gap-1"
+                            >
+                              <Copy className="size-3" /> Copy
+                            </button>
+                          ) : null}
+                        </div>
+                        <input
+                          type="text"
+                          value={companyInfo.ifscCode}
+                          disabled={!isSuperAdmin}
+                          onChange={(e) =>
+                            setCompanyInfo({ ...companyInfo, ifscCode: e.target.value.toUpperCase() })
+                          }
+                          className="w-full font-mono uppercase rounded-xl border border-slate-250/90 bg-white py-2 px-3 text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-950/40 dark:disabled:text-slate-500"
+                          placeholder="e.g. HDFC0000123"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Account Type
+                        </label>
+                        <select
+                          value={companyInfo.accountType || "Current Account"}
+                          disabled={!isSuperAdmin}
+                          onChange={(e) =>
+                            setCompanyInfo({ ...companyInfo, accountType: e.target.value })
+                          }
+                          className="w-full rounded-xl border border-slate-250/90 bg-white py-2 px-3 text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-950/40 dark:disabled:text-slate-500 cursor-pointer"
+                        >
+                          <option value="Current Account">Current Account</option>
+                          <option value="Savings Account">Savings Account</option>
+                          <option value="Cash Credit (CC)">Cash Credit (CC)</option>
+                          <option value="Overdraft (OD)">Overdraft (OD)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Branch Name & City
+                        </label>
+                        <div className="relative">
+                          <MapPin className="absolute left-3 top-2.5 size-4 text-slate-400" />
+                          <input
+                            type="text"
+                            value={companyInfo.branchName}
+                            disabled={!isSuperAdmin}
+                            onChange={(e) =>
+                              setCompanyInfo({ ...companyInfo, branchName: e.target.value })
+                            }
+                            className="w-full rounded-xl border border-slate-250/90 bg-white py-2 pl-9 pr-3 text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-950/40 dark:disabled:text-slate-500"
+                            placeholder="e.g. Andheri East Branch, Mumbai"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            Corporate UPI ID / VPA
+                          </label>
+                          {companyInfo.upiId ? (
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(companyInfo.upiId, "UPI ID")}
+                              className="text-[11px] text-blue-600 hover:underline dark:text-blue-400 dark:hover:text-blue-300 inline-flex items-center gap-1"
+                            >
+                              <Copy className="size-3" /> Copy
+                            </button>
+                          ) : null}
+                        </div>
+                        <div className="relative">
+                          <QrCode className="absolute left-3 top-2.5 size-4 text-slate-400" />
+                          <input
+                            type="text"
+                            value={companyInfo.upiId}
+                            disabled={!isSuperAdmin}
+                            onChange={(e) =>
+                              setCompanyInfo({ ...companyInfo, upiId: e.target.value })
+                            }
+                            className="w-full font-mono rounded-xl border border-slate-250/90 bg-white py-2 pl-9 pr-3 text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-950/40 dark:disabled:text-slate-500"
+                            placeholder="e.g. medica@icici or 9876543210@upi"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            SWIFT / BIC Code (Optional)
+                          </label>
+                          {companyInfo.swiftCode ? (
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(companyInfo.swiftCode, "SWIFT Code")}
+                              className="text-[11px] text-blue-600 hover:underline dark:text-blue-400 dark:hover:text-blue-300 inline-flex items-center gap-1"
+                            >
+                              <Copy className="size-3" /> Copy
+                            </button>
+                          ) : null}
+                        </div>
+                        <input
+                          type="text"
+                          value={companyInfo.swiftCode}
+                          disabled={!isSuperAdmin}
+                          onChange={(e) =>
+                            setCompanyInfo({ ...companyInfo, swiftCode: e.target.value.toUpperCase() })
+                          }
+                          className="w-full font-mono uppercase rounded-xl border border-slate-250/90 bg-white py-2 px-3 text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-950 dark:text-slate-50 disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-950/40 dark:disabled:text-slate-500"
+                          placeholder="e.g. HDFCINBB"
                         />
                       </div>
                     </div>

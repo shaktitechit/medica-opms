@@ -29,6 +29,14 @@ const DEFAULT_COMPANY_DATA = {
   timezone: "",
   financial_year: "",
   invoice_footer_note: "",
+  bank_name: "",
+  account_name: "",
+  account_number: "",
+  ifsc_code: "",
+  branch_name: "",
+  account_type: "Current Account",
+  upi_id: "",
+  swift_code: "",
   is_default: true,
 };
 

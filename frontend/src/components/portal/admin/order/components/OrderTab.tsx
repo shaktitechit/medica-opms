@@ -1,19 +1,12 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { CheckCircle2, Download, Send } from "lucide-react";
 import { DashboardCard } from "@/components/widgets";
 import { resolveUserDisplay } from "@/components/portal/shared/userDisplay";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
-import {
-  companyLetterheadLogoUrl,
-  companyLetterheadName,
-  resolvePublicAssetUrl,
-} from "@/lib/env";
 import { toast } from "@/lib/toast";
-import {
-  OrderItemsPdfTemplate,
-  type OrderItemsPdfLine,
-} from "../../../shared/OrderItemsPdfTemplate";
-import { downloadOrderItemsPdf } from "../../../shared/downloadOrderItemsPdf";
+import { type OrderItemsPdfLine } from "../../../shared/OrderItemsPdfTemplate";
+import { buildOrderItemsPdf } from "../../../shared/buildOrderItemsPdf";
+import { usePdfCompanyLetterhead } from "../../../shared/pdfCompanyLetterhead";
 import {
   MapOrderLinePriceModal,
   type MapOrderLinePriceSuccess,
@@ -197,7 +190,7 @@ export function OrderTab({
     product_name: string;
   } | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
-  const pdfTemplateRef = useRef<HTMLDivElement>(null);
+  const letterhead = usePdfCompanyLetterhead();
 
   const canMapPrice =
     (status === "submitted" || status === "on_hold") && Boolean(partyId);
@@ -476,17 +469,46 @@ export function OrderTab({
   );
 
   const handleDownloadPdf = useCallback(async () => {
-    if (!canDownloadPdf || !pdfTemplateRef.current || readOnlyItems.length === 0) {
+    if (!canDownloadPdf || !detail || readOnlyItems.length === 0) {
       return;
     }
     setIsDownloadingPdf(true);
     try {
-      const orderNo = String(detail?.order_no ?? orderId ?? "order");
-      await downloadOrderItemsPdf(
-        pdfTemplateRef.current,
-        `${orderNo.replace(/\s+/g, "-")}-items.pdf`,
-        { salesApproved: canDownloadPdf },
-      );
+      const orderNo = String(detail.order_no ?? orderId ?? "order");
+      const pdf = await buildOrderItemsPdf({
+        letterhead,
+        orderNo,
+        partyName: partyLabel,
+        orderDate: formatDateShort(detail.order_date),
+        expectedDeliveryDate: detail.expected_delivery_date
+          ? formatDateShort(detail.expected_delivery_date)
+          : undefined,
+        statusLabel: formatStatusLabel(status),
+        salesApproval: salesApprovalPdf,
+        financeAmendment: latestFinanceAmended
+          ? {
+              amendedBy: latestFinanceAmendedByLabel,
+              amendedAt: latestFinanceAmendedAtLabel,
+              amendmentNotes: latestAdminApprovalRecord?.approval_notes
+                ? String(latestAdminApprovalRecord.approval_notes)
+                : undefined,
+            }
+          : undefined,
+        adminAmendment: latestAdminAmended
+          ? {
+              amendedBy: latestAdminAmendedByLabel,
+              amendedAt: latestAdminAmendedAtLabel,
+              amendmentNotes: latestAdminAmendNotes,
+            }
+          : undefined,
+        items: pdfLines,
+        subtotal: pdfMoney(financialBreakdown.subtotal),
+        gst: pdfMoney(financialBreakdown.gst),
+        headerDiscount: pdfMoney(financialBreakdown.discount),
+        grandTotal: pdfMoney(financialBreakdown.grandTotal),
+        generatedAt: formatDate(new Date()),
+      });
+      pdf.save(`${orderNo.replace(/\s+/g, "-")}-items.pdf`);
       toast.success("Order items PDF downloaded.");
     } catch (err) {
       const message =
@@ -497,10 +519,26 @@ export function OrderTab({
     }
   }, [
     canDownloadPdf,
-    detail?.order_no,
+    detail,
+    financialBreakdown.discount,
+    financialBreakdown.grandTotal,
+    financialBreakdown.gst,
+    financialBreakdown.subtotal,
+    latestAdminAmendNotes,
+    latestAdminAmended,
+    latestAdminAmendedAtLabel,
+    latestAdminAmendedByLabel,
+    latestAdminApprovalRecord?.approval_notes,
+    latestFinanceAmended,
+    latestFinanceAmendedAtLabel,
+    latestFinanceAmendedByLabel,
+    letterhead,
     orderId,
+    partyLabel,
+    pdfLines,
     readOnlyItems.length,
     salesApprovalPdf,
+    status,
   ]);
 
   if (!detail) return null;
@@ -511,61 +549,8 @@ export function OrderTab({
     (showApproveAction && canApprove) ||
     (showSendToFinanceAction && canSendToFinance);
 
-  const companyName = companyLetterheadName();
-  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
-
   return (
     <div className="space-y-6">
-      <div
-        aria-hidden
-        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
-      >
-        {canDownloadPdf ? (
-          <div ref={pdfTemplateRef}>
-            <OrderItemsPdfTemplate
-              companyName={companyName}
-              logoUrl={logoUrl}
-              orderNo={String(detail.order_no ?? orderId)}
-              partyName={partyLabel}
-              orderDate={formatDateShort(detail.order_date)}
-              expectedDeliveryDate={
-                detail.expected_delivery_date
-                  ? formatDateShort(detail.expected_delivery_date)
-                  : undefined
-              }
-              statusLabel={formatStatusLabel(status)}
-              salesApproval={salesApprovalPdf}
-              financeAmendment={
-                latestFinanceAmended
-                  ? {
-                      amendedBy: latestFinanceAmendedByLabel,
-                      amendedAt: latestFinanceAmendedAtLabel,
-                      amendmentNotes: latestAdminApprovalRecord?.approval_notes
-                        ? String(latestAdminApprovalRecord.approval_notes)
-                        : undefined,
-                    }
-                  : undefined
-              }
-              adminAmendment={
-                latestAdminAmended
-                  ? {
-                      amendedBy: latestAdminAmendedByLabel,
-                      amendedAt: latestAdminAmendedAtLabel,
-                      amendmentNotes: latestAdminAmendNotes,
-                    }
-                  : undefined
-              }
-              items={pdfLines}
-              subtotal={pdfMoney(financialBreakdown.subtotal)}
-              gst={pdfMoney(financialBreakdown.gst)}
-              headerDiscount={pdfMoney(financialBreakdown.discount)}
-              grandTotal={pdfMoney(financialBreakdown.grandTotal)}
-              generatedAt={formatDate(new Date())}
-            />
-          </div>
-        ) : null}
-      </div>
-
       <DashboardCard
         title="Order Items"
         description="Catalog lines, negotiated pricing status, map rates, and financial totals."

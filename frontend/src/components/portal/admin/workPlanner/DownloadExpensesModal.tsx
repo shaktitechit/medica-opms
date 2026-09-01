@@ -7,11 +7,7 @@ import { usePathname } from "next/navigation";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";
-import {
-  companyLetterheadLogoUrl,
-  companyLetterheadName,
-  resolvePublicAssetUrl,
-} from "@/lib/env";
+import { usePdfCompanyLetterhead } from "@/components/portal/shared/pdfCompanyLetterhead";
 import { useAppSelector } from "@/store/hooks";
 import {
   useLazyListWorkPlanExpensesQuery,
@@ -161,8 +157,7 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
     return "Admin";
   }, [pathname]);
 
-  const companyName = companyLetterheadName();
-  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
+  const letterhead = usePdfCompanyLetterhead();
 
   const salesUsers = useMemo(() => {
     const raw = usersQ.data;
@@ -282,8 +277,7 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
       const dateStamp = new Date().toISOString().slice(0, 10);
       const filename = `admin_expenses_${dateStamp}.pdf`;
       const pdf = await buildExpensesReportPdf({
-        companyName,
-        logoUrl,
+        letterhead,
         portalLabel,
         downloadedBy,
         generatedAt: stamp,
@@ -303,8 +297,7 @@ export function DownloadExpensesModal({ open, onClose }: DownloadExpensesModalPr
     }
   }, [
     rows,
-    companyName,
-    logoUrl,
+    letterhead,
     portalLabel,
     downloadedBy,
     range.from,

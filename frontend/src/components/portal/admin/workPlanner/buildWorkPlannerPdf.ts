@@ -1,10 +1,16 @@
 import type { WorkPlanExpenseRecord, WorkPlanRecord, WorkPlanVisitRecord, WorkPlanWorkRecord } from "@/store/api";
-
-type JsPDF = InstanceType<(typeof import("jspdf"))["jsPDF"]>;
+import type { PdfCompanyLetterhead } from "@/components/portal/shared/pdfCompanyLetterhead";
+import {
+  contentBottom,
+  drawLetterheadHeader,
+  preparePdfChrome,
+  stampAllPages,
+  type JsPDF,
+  type PdfChromeOpts,
+} from "@/components/portal/shared/pdfVectorChrome";
 
 export type WorkPlansReportPdfInput = {
-  companyName: string;
-  logoUrl?: string;
+  letterhead: PdfCompanyLetterhead;
   portalLabel: string;
   downloadedBy: string;
   generatedAt: string;
@@ -17,8 +23,7 @@ export type WorkPlansReportPdfInput = {
 };
 
 export type ExpensesReportPdfInput = {
-  companyName: string;
-  logoUrl?: string;
+  letterhead: PdfCompanyLetterhead;
   portalLabel: string;
   downloadedBy: string;
   generatedAt: string;
@@ -37,9 +42,6 @@ const BAND: [number, number, number] = [248, 250, 252];
 const ZEBRA: [number, number, number] = [248, 250, 252];
 
 const M = 10;
-const HEADER_H = 20;
-const META_H = 8;
-const FOOTER_H = 9;
 const LINE_H = 3.4;
 const CELL_PAD = 1.1;
 const MAX_LINES = 3;
@@ -105,128 +107,18 @@ function rowH(lineSets: string[][]): number {
   return CELL_PAD * 2 + n * LINE_H;
 }
 
-async function loadLogo(url?: string): Promise<string | null> {
-  if (!url) return null;
-  if (url.startsWith("data:image/")) return url;
-  try {
-    const res = await fetch(url, { mode: "cors" });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    if (!blob.type.startsWith("image/")) return null;
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || "") || null);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
-
-function contentTop() {
-  return M + HEADER_H + META_H;
-}
-
-function contentBottom(pdf: JsPDF) {
-  return pdf.internal.pageSize.getHeight() - M - FOOTER_H;
-}
-
-function drawChrome(
-  pdf: JsPDF,
-  opts: {
-    companyName: string;
-    logo?: string | null;
-    title: string;
-    rightTitle: string;
-    rightSub: string;
-    periodFrom: string;
-    periodTo: string;
-    extraMeta?: string;
-    generatedAt: string;
-    portalLabel: string;
-    downloadedBy: string;
-  },
-) {
-  const w = pdf.internal.pageSize.getWidth();
-  const h = pdf.internal.pageSize.getHeight();
-  let x = M;
-  const y = M;
-
-  if (opts.logo) {
-    try {
-      const fmt = opts.logo.includes("image/png") ? "PNG" : "JPEG";
-      pdf.addImage(opts.logo, fmt, x, y, 18, 8);
-      x += 21;
-    } catch {
-      /* skip broken logo */
-    }
-  }
-
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(13);
-  pdf.setTextColor(...NAVY);
-  pdf.text(opts.companyName || "Company", x, y + 5);
-
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(8);
-  pdf.setTextColor(...MUTED);
-  pdf.text(opts.title.toUpperCase(), x, y + 11);
-
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(10);
-  pdf.setTextColor(...NAVY);
-  pdf.text(opts.rightTitle || "—", w - M, y + 5, { align: "right" });
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(8);
-  pdf.setTextColor(...SLATE);
-  pdf.text(opts.rightSub, w - M, y + 11, { align: "right" });
-
-  const metaY = M + HEADER_H;
-  pdf.setDrawColor(...NAVY);
-  pdf.setLineWidth(0.6);
-  pdf.line(M, metaY, w - M, metaY);
-
-  const period =
-    opts.periodFrom === opts.periodTo
-      ? opts.periodFrom || "—"
-      : `${opts.periodFrom || "—"}  →  ${opts.periodTo || "—"}`;
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(7.5);
-  pdf.setTextColor(...SLATE);
-  pdf.text(`Period: ${period}${opts.extraMeta ? `    ${opts.extraMeta}` : ""}`, M, metaY + 5.5);
-  pdf.text(`Generated: ${opts.generatedAt || "—"}`, w - M, metaY + 5.5, { align: "right" });
-
-  pdf.setDrawColor(...LINE);
-  pdf.setLineWidth(0.25);
-  pdf.line(M, metaY + META_H - 1, w - M, metaY + META_H - 1);
-
-  const fy = h - M - 2;
-  pdf.setDrawColor(...LINE);
-  pdf.line(M, fy - 5, w - M, fy - 5);
-  pdf.setFontSize(7);
-  pdf.setTextColor(...MUTED);
-  pdf.text(`${opts.portalLabel || "Portal"}  ·  Downloaded by ${opts.downloadedBy || "—"}`, M, fy);
-  pdf.text("Generated electronically — no signature required", w - M, fy, { align: "right" });
-}
-
-function stampPages(pdf: JsPDF) {
-  const total = pdf.getNumberOfPages();
-  const w = pdf.internal.pageSize.getWidth();
-  const h = pdf.internal.pageSize.getHeight();
-  for (let i = 1; i <= total; i += 1) {
-    pdf.setPage(i);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(8);
-    pdf.setTextColor(...NAVY);
-    pdf.text(`Page ${i} of ${total}`, w / 2, h - M - 2, { align: "center" });
-  }
+function periodLabel(from: string, to: string): string {
+  return from === to ? from || "—" : `${from || "—"}  →  ${to || "—"}`;
 }
 
 function ensureSpace(pdf: JsPDF, y: number, need: number, onNewPage: () => number): number {
-  if (y + need <= contentBottom(pdf)) return y;
+  if (y + need <= contentBottom(pdf, true)) return y;
   pdf.addPage();
   return onNewPage();
+}
+
+function paintHeader(pdf: JsPDF, chrome: PdfChromeOpts): number {
+  return drawLetterheadHeader(pdf, chrome);
 }
 
 function drawTableHeader(
@@ -269,7 +161,6 @@ function isLeavePlan(plan: WorkPlanRecord): boolean {
 export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): Promise<JsPDF> {
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const logo = await loadLogo(input.logoUrl);
   const pageW = pdf.internal.pageSize.getWidth();
   const usable = pageW - M * 2;
 
@@ -287,22 +178,19 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
       ? `    Type: ${input.planTypeLabel}`
       : "";
 
-  const chrome = () =>
-    drawChrome(pdf, {
-      companyName: input.companyName,
-      logo,
-      title: "Work Plans Report",
-      rightTitle: input.salesUserLabel,
-      rightSub: `${input.plans.length} plan${input.plans.length === 1 ? "" : "s"}  ·  ${visitCount} visit${visitCount === 1 ? "" : "s"}  ·  ${workCount} task${workCount === 1 ? "" : "s"}`,
-      periodFrom: input.periodFrom,
-      periodTo: input.periodTo,
-      extraMeta: `Status: ${input.statusLabel || "All"}${typeMeta}`,
-      generatedAt: input.generatedAt,
-      portalLabel: input.portalLabel,
-      downloadedBy: input.downloadedBy,
-    });
+  const chrome = await preparePdfChrome(input.letterhead, {
+    title: "Work Plans Report",
+    subtitle: `Period: ${periodLabel(input.periodFrom, input.periodTo)}    Status: ${input.statusLabel || "All"}${typeMeta}`,
+    generatedAt: input.generatedAt,
+    portalLabel: input.portalLabel,
+    downloadedBy: input.downloadedBy,
+    compact: true,
+    rightTitle: input.salesUserLabel,
+    rightSub: `${input.plans.length} plan${input.plans.length === 1 ? "" : "s"}  ·  ${visitCount} visit${visitCount === 1 ? "" : "s"}  ·  ${workCount} task${workCount === 1 ? "" : "s"}`,
+  });
 
-  chrome();
+  const startBody = () => paintHeader(pdf, chrome);
+  let y = startBody();
 
   const colW = [8, 32, 28, 30, 26, 28, 20, 28, 32, 26, usable - 258];
   const colX: number[] = [];
@@ -345,8 +233,6 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
     }),
   );
 
-  let y = contentTop() + 2;
-
   const drawVisitHead = () => {
     y = drawTableHeader(pdf, y, cols);
   };
@@ -356,8 +242,7 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
 
   const drawEmptyLine = (message: string) => {
     y = ensureSpace(pdf, y, 7, () => {
-      chrome();
-      return contentTop() + 2;
+      return startBody();
     });
     pdf.setFont("helvetica", "italic");
     pdf.setFontSize(8);
@@ -382,8 +267,7 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
     const typeLabel = planTypeOf(plan);
     const bandH = 8;
     y = ensureSpace(pdf, y, bandH + 7 + 10, () => {
-      chrome();
-      return contentTop() + 2;
+      return startBody();
     });
 
     pdf.setFillColor(...BAND);
@@ -408,8 +292,7 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
 
     if (plan.remarks) {
       y = ensureSpace(pdf, y, 6, () => {
-        chrome();
-        return contentTop() + 2;
+        return startBody();
       });
       pdf.setFont("helvetica", "italic");
       pdf.setFontSize(7);
@@ -433,8 +316,7 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
       }
 
       y = ensureSpace(pdf, y, 7 + 10, () => {
-        chrome();
-        y = contentTop() + 2;
+        y = startBody();
         drawWorkHead();
         return y;
       });
@@ -454,8 +336,7 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
         ];
         const h = rowH(cells);
         y = ensureSpace(pdf, y, h, () => {
-          chrome();
-          y = contentTop() + 2;
+          y = startBody();
           drawWorkHead();
           return y;
         });
@@ -482,8 +363,7 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
     }
 
     y = ensureSpace(pdf, y, 7 + 10, () => {
-      chrome();
-      y = contentTop() + 2;
+      y = startBody();
       drawVisitHead();
       return y;
     });
@@ -528,8 +408,7 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
       ];
       const h = rowH(cells);
       y = ensureSpace(pdf, y, h, () => {
-        chrome();
-        y = contentTop() + 2;
+        y = startBody();
         drawVisitHead();
         return y;
       });
@@ -549,32 +428,29 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
     y += 3;
   }
 
-  stampPages(pdf);
+  stampAllPages(pdf, chrome);
   return pdf;
 }
 
 export async function buildExpensesReportPdf(input: ExpensesReportPdfInput): Promise<JsPDF> {
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const logo = await loadLogo(input.logoUrl);
   const pageW = pdf.internal.pageSize.getWidth();
   const usable = pageW - M * 2;
 
-  const chrome = () =>
-    drawChrome(pdf, {
-      companyName: input.companyName,
-      logo,
-      title: "Expenses Report",
-      rightTitle: input.salesUserLabel,
-      rightSub: `${input.expenses.length} expense${input.expenses.length === 1 ? "" : "s"}  ·  ${fmtMoney(input.totalAmount)}`,
-      periodFrom: input.periodFrom,
-      periodTo: input.periodTo,
-      generatedAt: input.generatedAt,
-      portalLabel: input.portalLabel,
-      downloadedBy: input.downloadedBy,
-    });
+  const chrome = await preparePdfChrome(input.letterhead, {
+    title: "Expenses Report",
+    subtitle: `Period: ${periodLabel(input.periodFrom, input.periodTo)}`,
+    generatedAt: input.generatedAt,
+    portalLabel: input.portalLabel,
+    downloadedBy: input.downloadedBy,
+    compact: true,
+    rightTitle: input.salesUserLabel,
+    rightSub: `${input.expenses.length} expense${input.expenses.length === 1 ? "" : "s"}  ·  ${fmtMoney(input.totalAmount)}`,
+  });
 
-  chrome();
+  const startBody = () => paintHeader(pdf, chrome);
+  let y = startBody();
 
   const colW = [20, 20, 26, 20, 30, 20, 20, 20, 20, 16, 18, 22, usable - 252];
   const colX: number[] = [];
@@ -604,7 +480,6 @@ export async function buildExpensesReportPdf(input: ExpensesReportPdfInput): Pro
     align: i === 8 ? ("right" as const) : undefined,
   }));
 
-  let y = contentTop() + 2;
   const head = () => {
     y = drawTableHeader(pdf, y, cols);
   };
@@ -654,8 +529,7 @@ export async function buildExpensesReportPdf(input: ExpensesReportPdfInput): Pro
     ];
     const h = rowH(cells);
     y = ensureSpace(pdf, y, h, () => {
-      chrome();
-      y = contentTop() + 2;
+      y = startBody();
       head();
       return y;
     });
@@ -683,7 +557,7 @@ export async function buildExpensesReportPdf(input: ExpensesReportPdfInput): Pro
     y += h;
   });
 
-  stampPages(pdf);
+  stampAllPages(pdf, chrome);
   return pdf;
 }
 

@@ -28,6 +28,8 @@ async function createAndQueueMessage(messageData) {
     body: messageData.body,
     templateName: messageData.templateName,
     templateParams: messageData.templateParams,
+    attachments: messageData.attachments || (messageData.templateParams && messageData.templateParams.attachments) || undefined,
+    cc: messageData.cc || (messageData.templateParams && messageData.templateParams.cc) || undefined,
   });
 
   logger.info(`[Message Service] Created message record: ${msg._id} for ${msg.recipient}`);
@@ -78,10 +80,12 @@ async function processMessageJob(messageId) {
     let result = null;
 
     if (msg.channel === 'email') {
+      const attachments = msg.attachments || (msg.templateParams && msg.templateParams.attachments) || [];
+      const cc = msg.cc || (msg.templateParams && msg.templateParams.cc) || [];
       if (msg.templateName) {
-        result = await emailHelper.sendTemplateEmail(msg.recipient, msg.templateName, msg.templateParams || {});
+        result = await emailHelper.sendTemplateEmail(msg.recipient, msg.templateName, msg.templateParams || {}, attachments, cc);
       } else {
-        result = await emailHelper.sendEmail(msg.recipient, msg.subject || 'Notification', msg.body, msg.body);
+        result = await emailHelper.sendEmail(msg.recipient, msg.subject || 'Notification', msg.body, msg.body, attachments, cc);
       }
     } else if (msg.channel === 'whatsapp') {
       if (msg.templateName) {

@@ -11,7 +11,7 @@ const { ApiError } = require('../../utils/ApiError');
  * POST /api/emails
  */
 exports.sendEmail = asyncHandler(async (req, res) => {
-  const { recipient, subject, body, templateName, templateParams, orderId } = req.body;
+  const { recipient, subject, body, templateName, templateParams, orderId, attachments, cc } = req.body;
 
   if (!recipient) {
     throw new ApiError(400, 'Recipient email is required');
@@ -24,6 +24,8 @@ exports.sendEmail = asyncHandler(async (req, res) => {
     templateName,
     templateParams,
     orderId,
+    attachments,
+    cc,
   });
 
   res.status(201).json({

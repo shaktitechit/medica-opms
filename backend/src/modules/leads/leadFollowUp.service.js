@@ -140,6 +140,9 @@ async function complete(followUpId, body, user) {
     lead.next_follow_up_at = nextPending ? nextPending.follow_up_date : null;
   }
 
+  if (lead.status === 'new' || lead.status === 'assigned') {
+    lead.status = 'follow_up';
+  }
   lead.last_contacted_at = new Date();
   lead.last_activity_at = new Date();
   await lead.save();

@@ -3,16 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
 
-import { useRef } from "react";
 import { usePathname } from "next/navigation";
 import { useAppSelector } from "@/store/hooks";
-import {
-  companyLetterheadLogoUrl,
-  companyLetterheadName,
-  resolvePublicAssetUrl,
-} from "@/lib/env";
-import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
-import TransportPlansPdfTemplate from "./TransportPlansPdfTemplate";
+import { buildTransportPlansPdf } from "./buildTransportPlansPdf";
+import { usePdfCompanyLetterhead } from "@/components/portal/shared/pdfCompanyLetterhead";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";
@@ -234,9 +228,8 @@ export function DownloadTransportPlansModal({
   const [plans, setPlans] = useState<TransportPlanRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const pdfTemplateRef = useRef<HTMLDivElement>(null);
-  const [pdfGeneratedAt, setPdfGeneratedAt] = useState("");
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const letterhead = usePdfCompanyLetterhead();
 
   const authUser = useAppSelector((s) => s.auth.user);
   const downloadedBy = useMemo(() => {
@@ -256,9 +249,6 @@ export function DownloadTransportPlansModal({
     if (pathname.includes("/dispatch")) return "Dispatch";
     return "Admin";
   }, [pathname]);
-
-  const companyName = companyLetterheadName();
-  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
 
   const [fetchList] = useLazyListTransportPlansQuery();
   const [fetchDetail] = useLazyGetTransportPlanQuery();
@@ -386,37 +376,6 @@ export function DownloadTransportPlansModal({
     [plans],
   );
 
-  const handleDownloadPdf = useCallback(async () => {
-    if (plans.length === 0) {
-      toast.error("No transport plans to download");
-      return;
-    }
-    const stamp = formatDateTime(new Date());
-    setPdfGeneratedAt(stamp);
-    setIsDownloadingPdf(true);
-    try {
-      await new Promise<void>((resolve) => {
-        window.setTimeout(() => resolve(), 80);
-      });
-      if (!pdfTemplateRef.current) {
-        throw new Error("PDF template is not ready.");
-      }
-      const dateStamp = new Date().toISOString().slice(0, 10);
-      await downloadOrderItemsPdf(
-        pdfTemplateRef.current,
-        `transport_plans_${dateStamp}.pdf`,
-        { orientation: "landscape" },
-      );
-      toast.success("Transport plans PDF downloaded.");
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Could not generate PDF.";
-      toast.error(message);
-    } finally {
-      setIsDownloadingPdf(false);
-    }
-  }, [plans]);
-
   const agentLabelSelected = useMemo(() => {
     return agentId.length > 0
       ? agentId.map((id) => agentLabel(agents.find((a) => idOf(a) === id)) || id).join(", ")
@@ -429,29 +388,47 @@ export function DownloadTransportPlansModal({
       : "All";
   }, [statusFilter]);
 
+  const handleDownloadPdf = useCallback(async () => {
+    if (plans.length === 0) {
+      toast.error("No transport plans to download");
+      return;
+    }
+    setIsDownloadingPdf(true);
+    try {
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const pdf = await buildTransportPlansPdf({
+        letterhead,
+        portalLabel,
+        downloadedBy,
+        generatedAt: formatDateTime(new Date()),
+        plans,
+        range,
+        statusLabelSelected,
+        agentLabelSelected,
+      });
+      pdf.save(`transport_plans_${dateStamp}.pdf`);
+      toast.success("Transport plans PDF downloaded.");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not generate PDF.";
+      toast.error(message);
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  }, [
+    agentLabelSelected,
+    downloadedBy,
+    letterhead,
+    plans,
+    portalLabel,
+    range,
+    statusLabelSelected,
+  ]);
+
   if (!open) return null;
 
   return (
     <LargeModalPortal>
-      <div
-        aria-hidden
-        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
-      >
-        <div ref={pdfTemplateRef}>
-          <TransportPlansPdfTemplate
-            companyName={companyName}
-            logoUrl={logoUrl}
-            portalLabel={portalLabel}
-            downloadedBy={downloadedBy}
-            generatedAt={pdfGeneratedAt}
-            plans={plans}
-            range={range}
-            statusLabelSelected={statusLabelSelected}
-            agentLabelSelected={agentLabelSelected}
-          />
-        </div>
-      </div>
-
       <div
         className="fixed inset-0 z-[100] flex items-stretch justify-center bg-black/50 p-0 backdrop-blur-[1px]"
         role="presentation"

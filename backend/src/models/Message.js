@@ -8,6 +8,7 @@ const messageSchema = new mongoose.Schema(
   {
     order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", index: true },
     recipient: { type: String, required: true, index: true },
+    cc: { type: mongoose.Schema.Types.Mixed },
     channel: { type: String, enum: ['email', 'whatsapp'], required: true, index: true },
     status: {
       type: String,
@@ -19,6 +20,7 @@ const messageSchema = new mongoose.Schema(
     body: { type: String },
     templateName: { type: String },
     templateParams: { type: mongoose.Schema.Types.Mixed },
+    attachments: { type: mongoose.Schema.Types.Mixed },
     error: { type: String },
     attempts: { type: Number, default: 0 },
     metadata: { type: mongoose.Schema.Types.Mixed },

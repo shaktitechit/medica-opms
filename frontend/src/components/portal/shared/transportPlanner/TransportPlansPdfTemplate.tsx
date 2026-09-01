@@ -1,7 +1,14 @@
 "use client";
 
-import { useMemo, type CSSProperties, type ReactNode, useState } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { pdfTdCompactStyle } from "../orderPdfLayout";
+import {
+  PdfLetterheadBrand,
+  PdfLetterheadFooterCopy,
+  PdfLetterheadRule,
+  usePdfCompanyLetterhead,
+  type PdfCompanyLetterhead,
+} from "../pdfCompanyLetterhead";
 import {
   agentLabel,
   formatMoney,
@@ -13,8 +20,8 @@ import {
 import type { TransportPlanRecord, TransportPlanOrderRecord } from "@/store/api";
 
 export type TransportPlansPdfTemplateProps = {
-  companyName: string;
-  logoUrl: string;
+  companyName?: string;
+  logoUrl?: string;
   portalLabel: string;
   downloadedBy: string;
   generatedAt: string;
@@ -28,8 +35,8 @@ const PAGE_WIDTH = 1123;
 const PAGE_HEIGHT = 794;
 const PAGE_PAD_X = 30;
 const PAGE_PAD_Y = 28;
-const HEADER_BLOCK_H = 148;
-const FOOTER_BLOCK_H = 58;
+const HEADER_BLOCK_H = 168;
+const FOOTER_BLOCK_H = 70;
 const BODY_MAX_H = PAGE_HEIGHT - PAGE_PAD_Y * 2 - HEADER_BLOCK_H - FOOTER_BLOCK_H;
 
 const H_PLAN_HEADER = 54;
@@ -366,75 +373,24 @@ function TableHead() {
 }
 
 function PageHeader({
-  companyName,
-  logoUrl,
+  letterhead,
   range,
   statusLabelSelected,
   agentLabelSelected,
 }: {
-  companyName: string;
-  logoUrl: string;
+  letterhead: PdfCompanyLetterhead;
   range: { from: string; to: string };
   statusLabelSelected: string;
   agentLabelSelected: string;
 }) {
   return (
     <header style={{ flexShrink: 0, marginBottom: "8px" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          marginBottom: "6px",
-        }}
-      >
-        {logoUrl ? (
-          <img
-            src={logoUrl}
-            alt={companyName}
-            crossOrigin="anonymous"
-            style={{
-              width: "90px",
-              height: "38px",
-              objectFit: "contain",
-              objectPosition: "left center",
-              flexShrink: 0,
-            }}
-          />
-        ) : null}
-        <div style={{ flex: 1, textAlign: "center" }}>
-          <div
-            style={{
-              fontSize: "18px",
-              fontWeight: 700,
-              color: "#1e3a5f",
-              letterSpacing: "0.01em",
-            }}
-          >
-            {companyName}
-          </div>
-          <div
-            style={{
-              marginTop: "2px",
-              fontSize: "9px",
-              color: "#64748b",
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-            }}
-          >
-            Order Management Portal
-          </div>
-        </div>
-        <div style={{ width: "90px", flexShrink: 0 }} aria-hidden />
+      <div style={{ marginBottom: "6px" }}>
+        <PdfLetterheadBrand letterhead={letterhead} compact />
       </div>
-      <div
-        style={{
-          height: "2px",
-          background: "linear-gradient(90deg, #1e3a5f 0%, #3b82f6 50%, #1e3a5f 100%)",
-          borderRadius: "1px",
-          marginBottom: "8px",
-        }}
-      />
+      <div style={{ marginBottom: "8px" }}>
+        <PdfLetterheadRule compact />
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <h1
           style={{
@@ -455,14 +411,14 @@ function PageHeader({
 }
 
 function PageFooter({
-  companyName,
+  letterhead,
   portalLabel,
   downloadedBy,
   generatedAt,
   pageNo,
   pageCount,
 }: {
-  companyName: string;
+  letterhead: PdfCompanyLetterhead;
   portalLabel: string;
   downloadedBy: string;
   generatedAt: string;
@@ -484,27 +440,19 @@ function PageFooter({
         style={{
           display: "flex",
           justifyContent: "space-between",
-          gap: "10px",
-          marginBottom: "2px",
-          fontWeight: 600,
-          color: "#475569",
+          gap: "12px",
+          alignItems: "flex-end",
         }}
       >
-        <span>Portal: {portalLabel}</span>
-        <span>Downloaded by: {downloadedBy}</span>
-        <span>{generatedAt}</span>
-      </div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          color: "#94a3b8",
-        }}
-      >
-        <span>Generated electronically — no signature required.</span>
-        <span>
-          Page {pageNo} of {pageCount}
-        </span>
+        <PdfLetterheadFooterCopy letterhead={letterhead} compact />
+        <div style={{ textAlign: "right", flexShrink: 0, fontSize: "7.5px", color: "#94a3b8" }}>
+          <div>Portal: {portalLabel}</div>
+          <div>Downloaded by: {downloadedBy}</div>
+          <div>{generatedAt}</div>
+          <div>
+            Page {pageNo} of {pageCount}
+          </div>
+        </div>
       </div>
     </footer>
   );
@@ -632,8 +580,6 @@ function PageBody({ blocks }: { blocks: ContentBlock[] }) {
 }
 
 export function TransportPlansPdfTemplate({
-  companyName,
-  logoUrl,
   portalLabel,
   downloadedBy,
   generatedAt,
@@ -642,6 +588,7 @@ export function TransportPlansPdfTemplate({
   statusLabelSelected,
   agentLabelSelected,
 }: TransportPlansPdfTemplateProps) {
+  const letterhead = usePdfCompanyLetterhead();
   const pages = useMemo(() => {
     const blocks = buildContentBlocks(plans);
     return paginateBlocks(blocks);
@@ -659,15 +606,14 @@ export function TransportPlansPdfTemplate({
           }}
         >
           <PageHeader
-            companyName={companyName}
-            logoUrl={logoUrl}
+            letterhead={letterhead}
             range={range}
             statusLabelSelected={statusLabelSelected}
             agentLabelSelected={agentLabelSelected}
           />
           <PageBody blocks={page.blocks} />
           <PageFooter
-            companyName={companyName}
+            letterhead={letterhead}
             portalLabel={portalLabel}
             downloadedBy={downloadedBy}
             generatedAt={generatedAt}

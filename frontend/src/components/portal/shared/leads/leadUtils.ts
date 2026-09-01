@@ -20,34 +20,6 @@ export const LEAD_STATUS_CONFIG: Record<
     border: "border-blue-200 dark:border-blue-800",
     dot: "bg-blue-500",
   },
-  assigned: {
-    label: "Assigned",
-    bg: "bg-cyan-50 dark:bg-cyan-950/40",
-    text: "text-cyan-700 dark:text-cyan-300",
-    border: "border-cyan-200 dark:border-cyan-800",
-    dot: "bg-cyan-500",
-  },
-  contacted: {
-    label: "Contacted",
-    bg: "bg-indigo-50 dark:bg-indigo-950/40",
-    text: "text-indigo-700 dark:text-indigo-300",
-    border: "border-indigo-200 dark:border-indigo-800",
-    dot: "bg-indigo-500",
-  },
-  qualified: {
-    label: "Qualified",
-    bg: "bg-emerald-50 dark:bg-emerald-950/40",
-    text: "text-emerald-700 dark:text-emerald-300",
-    border: "border-emerald-200 dark:border-emerald-800",
-    dot: "bg-emerald-500",
-  },
-  unqualified: {
-    label: "Unqualified",
-    bg: "bg-slate-100 dark:bg-slate-800",
-    text: "text-slate-700 dark:text-slate-300",
-    border: "border-slate-300 dark:border-slate-700",
-    dot: "bg-slate-400",
-  },
   follow_up: {
     label: "Follow Up",
     bg: "bg-amber-50 dark:bg-amber-950/40",
@@ -62,19 +34,12 @@ export const LEAD_STATUS_CONFIG: Record<
     border: "border-purple-200 dark:border-purple-800",
     dot: "bg-purple-500",
   },
-  negotiation: {
-    label: "Negotiation",
-    bg: "bg-orange-50 dark:bg-orange-950/40",
-    text: "text-orange-700 dark:text-orange-300",
-    border: "border-orange-200 dark:border-orange-800",
-    dot: "bg-orange-500",
-  },
   won: {
     label: "Won",
-    bg: "bg-green-50 dark:bg-green-950/40",
-    text: "text-green-700 dark:text-green-300",
-    border: "border-green-200 dark:border-green-800",
-    dot: "bg-green-500",
+    bg: "bg-emerald-50 dark:bg-emerald-950/40",
+    text: "text-emerald-700 dark:text-emerald-300",
+    border: "border-emerald-200 dark:border-emerald-800",
+    dot: "bg-emerald-500",
   },
   lost: {
     label: "Lost",
@@ -198,16 +163,11 @@ export function isFollowUpToday(dateStr?: string | null): boolean {
  * Forward progression only: passing one stage disables previous stages.
  */
 export const ALLOWED_STATUS_TRANSITIONS: Record<LeadStatus, LeadStatus[]> = {
-  new: ["assigned", "contacted", "unqualified", "lost"],
-  assigned: ["contacted", "qualified", "unqualified", "follow_up", "lost"],
-  contacted: ["qualified", "unqualified", "follow_up", "lost"],
-  qualified: ["follow_up", "quotation", "negotiation", "won", "lost", "converted"],
-  unqualified: ["lost"],
-  follow_up: ["quotation", "negotiation", "won", "lost"],
-  quotation: ["negotiation", "won", "lost", "converted"],
-  negotiation: ["won", "lost", "converted"],
+  new: ["follow_up", "quotation", "won", "lost", "converted"],
+  follow_up: ["new", "quotation", "won", "lost", "converted"],
+  quotation: ["follow_up", "won", "lost", "converted"],
   won: ["converted"], // No lost option after won
-  lost: [], // Reopening/transitions require admin
+  lost: ["new", "follow_up", "quotation"], // Reopening/transitions require admin
   converted: [], // Terminal
 };
 
@@ -267,40 +227,65 @@ export function canScheduleFollowUp(status: LeadStatus | string): boolean {
 }
 
 /**
- * Pipeline stage sequential hierarchy for forward progression.
+ * Checks if quotation creation is permissible for the given lead status.
+ * Quotations cannot be created once a lead is Won, Lost, or Converted.
  */
+export function canCreateQuotation(status: LeadStatus | string): boolean {
+  return status !== "won" && status !== "lost" && status !== "converted";
+}
+
+/**
+ * Checks if user has permission to create, edit, or delete quotations (Admin / Super Admin only).
+ * Sales representatives are restricted from drafting, editing, or deleting quotations.
+ */
+export function canManageQuotations(user: AuthUserLike, portalHome: string = ""): boolean {
+  return isLeadAdmin(user, portalHome);
+}
+
+/**
+ * Admin / super-admin may view and edit commercial pricing on leads.
+ * Sales representatives see quantity and requirements only.
+ */
+export function canViewLeadPricing(user: AuthUserLike, portalHome: string = ""): boolean {
+  return isLeadAdmin(user, portalHome);
+}
+
+export function leadLineValue(product?: { quantity?: number; target_price?: number } | null): number {
+  return Math.max(0, Number(product?.quantity || 0) * Number(product?.target_price || 0));
+}
+
+export function leadEstimatedValue(lead?: {
+  estimated_value?: number | null;
+  products?: Array<{ quantity?: number; target_price?: number }> | null;
+} | null): number {
+  const direct = Number(lead?.estimated_value || 0);
+  if (direct > 0) return direct;
+  if (!Array.isArray(lead?.products) || lead.products.length === 0) return 0;
+  return lead.products.reduce((sum, p) => sum + leadLineValue(p), 0);
+}
+
 const STAGE_ORDER: Record<string, number> = {
   new: 0,
-  assigned: 1,
-  contacted: 2,
-  qualified: 3,
-  follow_up: 4,
-  quotation: 5,
-  negotiation: 6,
-  won: 7,
+  follow_up: 1,
+  quotation: 2,
+  won: 3,
+  converted: 4,
 };
 
 /**
- * Returns the list of selectable statuses for ChangeLeadStatusModal.
- * Excludes 'converted' (handled on details page).
- * Disables passed/previous stages and disallows 'lost' after 'won'.
+ * Returns the list of selectable statuses.
  */
 export function getSelectableStatuses(
   currentStatus: LeadStatus,
   isAdmin: boolean
 ): { status: LeadStatus; isAllowed: boolean }[] {
-  // Converted is handled via dedicated Convert Lead modal on the details page
   const modalStatuses: LeadStatus[] = [
     "new",
-    "assigned",
-    "contacted",
-    "qualified",
-    "unqualified",
     "follow_up",
     "quotation",
-    "negotiation",
     "won",
     "lost",
+    "converted",
   ];
 
   const allowedNext = ALLOWED_STATUS_TRANSITIONS[currentStatus] || [];

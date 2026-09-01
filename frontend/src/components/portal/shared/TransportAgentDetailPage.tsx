@@ -48,16 +48,10 @@ import {
   DATE_FILTER_OPTIONS,
   orderMatchesDateFilter,
 } from "@/components/portal/shared/orderList/orderListDateFilter";
-import { useRef } from "react";
 import { usePathname } from "next/navigation";
 import { useAppSelector } from "@/store/hooks";
-import {
-  companyLetterheadLogoUrl,
-  companyLetterheadName,
-  resolvePublicAssetUrl,
-} from "@/lib/env";
-import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
-import TransportAgentPdfTemplate from "./TransportAgentPdfTemplate";
+import { buildTransportAgentPdf } from "./buildTransportAgentPdf";
+import { usePdfCompanyLetterhead } from "./pdfCompanyLetterhead";
 
 // Modals for Drivers & Vehicles
 import { DriverDetailModal } from "./modals/DriverDetailModal";
@@ -280,8 +274,7 @@ export default function TransportAgentDetailPage({
   portalHome = "/dispatch",
 }: TransportAgentDetailPageProps) {
   const router = useRouter();
-  const pdfTemplateRef = useRef<HTMLDivElement>(null);
-  const [pdfGeneratedAt, setPdfGeneratedAt] = useState("");
+  const letterhead = usePdfCompanyLetterhead();
   const authUser = useAppSelector((s) => s.auth.user);
   const pathname = usePathname() || "";
   
@@ -585,11 +578,6 @@ export default function TransportAgentDetailPage({
     return "Admin";
   }, [pathname]);
 
-  const companyName = companyLetterheadName();
-  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
-
-
-
   const handleDelete = useCallback(async () => {
     try {
       await deleteTransportAgent(id).unwrap();
@@ -664,18 +652,22 @@ export default function TransportAgentDetailPage({
       second: "2-digit",
       hour12: true,
     });
-    setPdfGeneratedAt(stamp);
     setIsExportingTransports(true);
-    await new Promise((r) => setTimeout(r, 100));
     try {
-      if (!pdfTemplateRef.current) {
-        throw new Error("PDF template is not ready.");
-      }
-      await downloadOrderItemsPdf(
-        pdfTemplateRef.current,
-        `${transportExportFilenameBase()}.pdf`,
-        { orientation: "landscape" },
-      );
+      const pdf = await buildTransportAgentPdf({
+        letterhead,
+        portalLabel,
+        downloadedBy,
+        generatedAt: stamp,
+        agentName,
+        agentCode: agentCode || "",
+        shipments: filteredTransports,
+        statusLabelSelected:
+          transportStatusFilter === "all"
+            ? "All Shipment Statuses"
+            : transportStatusFilter.replace(/_/g, " ").toUpperCase(),
+      });
+      pdf.save(`${transportExportFilenameBase()}.pdf`);
       toast.success("PDF downloaded.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to download PDF.");
@@ -1809,26 +1801,6 @@ export default function TransportAgentDetailPage({
               )}
             </div>
           ) : null}
-
-      {/* Hidden PDF Template */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
-      >
-        <div ref={pdfTemplateRef}>
-          <TransportAgentPdfTemplate
-            companyName={companyName}
-            logoUrl={logoUrl}
-            portalLabel={portalLabel}
-            downloadedBy={downloadedBy}
-            generatedAt={pdfGeneratedAt}
-            agentName={agentName}
-            agentCode={agentCode || ""}
-            shipments={filteredTransports}
-            statusLabelSelected={transportStatusFilter === "all" ? "All Shipment Statuses" : transportStatusFilter.replace(/_/g, " ").toUpperCase()}
-          />
-        </div>
-      </div>
 
         </div>
       </div>

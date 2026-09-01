@@ -20,6 +20,7 @@ const EMAIL_TEMPLATES = {
   DISPATCH_PENDING: 'dispatch_pending',
   TRANSPORT_PENDING: 'transport_pending',
   PASSWORD_RESET: 'password_reset',
+  LEAD_QUOTATION: 'lead_quotation',
 };
 
 function isValidTemplate(templateName) {

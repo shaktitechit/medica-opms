@@ -32,10 +32,15 @@ import {
   type LeadSalesPerformance,
   type LeadStatus,
 } from "@/store/api";
+import { useAppSelector } from "@/store/hooks";
 import {
   formatLeadDate,
+  formatCurrencyINR,
   isFollowUpOverdue,
   isFollowUpToday,
+  canViewLeadPricing,
+  leadLineValue,
+  leadEstimatedValue,
   LEAD_STATUS_CONFIG,
   LEAD_PRIORITY_CONFIG,
 } from "./leadUtils";
@@ -53,6 +58,10 @@ type AggregatedProduct = {
   pipelineQuantity: number;
   wonQuantity: number;
   lostQuantity: number;
+  pipelineValue: number;
+  wonValue: number;
+  lostValue: number;
+  totalValue: number;
   leadCount: number;
   leads: Array<{
     _id: string;
@@ -62,6 +71,7 @@ type AggregatedProduct = {
     status: LeadStatus;
     quantity: number;
     unit?: string;
+    lineValue: number;
   }>;
 };
 
@@ -71,6 +81,8 @@ export function ExecutiveLeadDetailsModal({
   executive,
   portalHome = "/admin",
 }: ExecutiveLeadDetailsModalProps) {
+  const authUser = useAppSelector((state) => state.auth.user);
+  const showPricing = canViewLeadPricing(authUser, portalHome);
   const [activeTab, setActiveTab] = useState<"products" | "leads">("products");
   const [search, setSearch] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -162,16 +174,29 @@ export function ExecutiveLeadDetailsModal({
               pipelineQuantity: 0,
               wonQuantity: 0,
               lostQuantity: 0,
+              pipelineValue: 0,
+              wonValue: 0,
+              lostValue: 0,
+              totalValue: 0,
               leadCount: 0,
               leads: [],
             });
           }
 
           const entry = map.get(rawName)!;
+          const lineVal = leadLineValue(p);
           entry.totalQuantity += qty;
-          if (isWon) entry.wonQuantity += qty;
-          else if (isLost) entry.lostQuantity += qty;
-          else if (isPipeline) entry.pipelineQuantity += qty;
+          entry.totalValue += lineVal;
+          if (isWon) {
+            entry.wonQuantity += qty;
+            entry.wonValue += lineVal;
+          } else if (isLost) {
+            entry.lostQuantity += qty;
+            entry.lostValue += lineVal;
+          } else if (isPipeline) {
+            entry.pipelineQuantity += qty;
+            entry.pipelineValue += lineVal;
+          }
 
           entry.leadCount += 1;
           entry.leads.push({
@@ -182,6 +207,7 @@ export function ExecutiveLeadDetailsModal({
             status: lead.status,
             quantity: qty,
             unit: p.unit,
+            lineValue: lineVal,
           });
         });
       } else if (lead.requirement && lead.requirement.trim()) {
@@ -194,11 +220,20 @@ export function ExecutiveLeadDetailsModal({
             pipelineQuantity: 0,
             wonQuantity: 0,
             lostQuantity: 0,
+            pipelineValue: 0,
+            wonValue: 0,
+            lostValue: 0,
+            totalValue: 0,
             leadCount: 0,
             leads: [],
           });
         }
         const entry = map.get(rawName)!;
+        const reqValue = leadEstimatedValue(lead);
+        entry.totalValue += reqValue;
+        if (isWon) entry.wonValue += reqValue;
+        else if (isLost) entry.lostValue += reqValue;
+        else if (isPipeline) entry.pipelineValue += reqValue;
         entry.leadCount += 1;
         entry.leads.push({
           _id: lead._id,
@@ -207,6 +242,7 @@ export function ExecutiveLeadDetailsModal({
           company_name: lead.company_name,
           status: lead.status,
           quantity: 0,
+          lineValue: reqValue,
         });
       }
     });
@@ -226,6 +262,22 @@ export function ExecutiveLeadDetailsModal({
   const wonQtySum = useMemo(() => {
     return aggregatedProducts.reduce((sum, p) => sum + p.wonQuantity, 0);
   }, [aggregatedProducts]);
+
+  const pipelineValueSum = useMemo(() => {
+    return filteredLeads.reduce((sum, lead) => {
+      const isWon = ["won", "converted"].includes(lead.status);
+      const isLost = ["lost", "unqualified"].includes(lead.status);
+      if (isWon || isLost) return sum;
+      return sum + leadEstimatedValue(lead);
+    }, 0);
+  }, [filteredLeads]);
+
+  const wonValueSum = useMemo(() => {
+    return filteredLeads.reduce((sum, lead) => {
+      const isWon = ["won", "converted"].includes(lead.status);
+      return isWon ? sum + leadEstimatedValue(lead) : sum;
+    }, 0);
+  }, [filteredLeads]);
 
   if (!open || !executive) return null;
 
@@ -280,7 +332,7 @@ export function ExecutiveLeadDetailsModal({
           </div>
 
           {/* Metric Summary Ribbon */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/70 p-4 border-b border-slate-200 dark:border-slate-800 dark:bg-slate-900/50">
+          <div className={`grid grid-cols-2 ${showPricing ? "sm:grid-cols-3 lg:grid-cols-6" : "sm:grid-cols-4"} gap-3 bg-slate-50/70 p-4 border-b border-slate-200 dark:border-slate-800 dark:bg-slate-900/50`}>
             <div className="rounded-xl border border-slate-200/80 bg-white p-3 shadow-xs dark:border-slate-800 dark:bg-slate-800/80">
               <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                 Total Leads Assigned
@@ -322,6 +374,29 @@ export function ExecutiveLeadDetailsModal({
               </div>
               <div className="text-[10px] text-slate-400">Successfully converted units</div>
             </div>
+
+            {showPricing && (
+              <>
+                <div className="rounded-xl border border-slate-200/80 bg-white p-3 shadow-xs dark:border-slate-800 dark:bg-slate-800/80">
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    Pipeline Value
+                  </div>
+                  <div className="mt-0.5 text-xl font-black text-indigo-600 dark:text-indigo-400">
+                    {formatCurrencyINR(pipelineValueSum)}
+                  </div>
+                  <div className="text-[10px] text-slate-400">Estimated deal value</div>
+                </div>
+                <div className="rounded-xl border border-slate-200/80 bg-white p-3 shadow-xs dark:border-slate-800 dark:bg-slate-800/80">
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    Won Value
+                  </div>
+                  <div className="mt-0.5 text-xl font-black text-emerald-600 dark:text-emerald-400">
+                    {formatCurrencyINR(wonValueSum)}
+                  </div>
+                  <div className="text-[10px] text-slate-400">Closed-won revenue</div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Search, Filter and Tabs Bar */}
@@ -408,6 +483,16 @@ export function ExecutiveLeadDetailsModal({
                         <th className="px-4 py-3 text-center text-emerald-600 dark:text-emerald-400">
                           Won Qty
                         </th>
+                        {showPricing && (
+                          <>
+                            <th className="px-4 py-3 text-right text-indigo-600 dark:text-indigo-400">
+                              Pipeline Value
+                            </th>
+                            <th className="px-4 py-3 text-right text-emerald-600 dark:text-emerald-400">
+                              Won Value
+                            </th>
+                          </>
+                        )}
                         <th className="px-4 py-3 text-center text-rose-600 dark:text-rose-400">
                           Lost Qty
                         </th>
@@ -438,6 +523,16 @@ export function ExecutiveLeadDetailsModal({
                           <td className="px-4 py-3 text-center font-bold text-emerald-600 dark:text-emerald-400">
                             {p.wonQuantity.toLocaleString()}
                           </td>
+                          {showPricing && (
+                            <>
+                              <td className="px-4 py-3 text-right font-semibold text-indigo-700 dark:text-indigo-300">
+                                {formatCurrencyINR(p.pipelineValue)}
+                              </td>
+                              <td className="px-4 py-3 text-right font-bold text-emerald-700 dark:text-emerald-300">
+                                {formatCurrencyINR(p.wonValue)}
+                              </td>
+                            </>
+                          )}
                           <td className="px-4 py-3 text-center font-semibold text-rose-600 dark:text-rose-400">
                             {p.lostQuantity.toLocaleString()}
                           </td>
@@ -454,7 +549,13 @@ export function ExecutiveLeadDetailsModal({
                                   className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
                                 >
                                   <span>{l.company_name || l.name}</span>
-                                  <span className="text-blue-600 dark:text-blue-400">({l.quantity})</span>
+                                  <span className="text-blue-600 dark:text-blue-400">
+                                    ({l.quantity}
+                                    {showPricing && l.lineValue > 0
+                                      ? ` · ${formatCurrencyINR(l.lineValue)}`
+                                      : ""}
+                                    )
+                                  </span>
                                 </Link>
                               ))}
                               {p.leads.length > 3 && (
@@ -554,6 +655,11 @@ export function ExecutiveLeadDetailsModal({
                             >
                               {priorityCfg?.label || lead.priority}
                             </span>
+                            {showPricing && leadEstimatedValue(lead) > 0 && (
+                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+                                {formatCurrencyINR(leadEstimatedValue(lead))}
+                              </span>
+                            )}
 
                             <Link
                               href={`${portalHome}/leads/${lead._id}`}
@@ -580,6 +686,9 @@ export function ExecutiveLeadDetailsModal({
                                 <span>{p.product_name}</span>
                                 <span className="text-emerald-600 dark:text-emerald-400 font-bold">
                                   - {p.quantity} {p.unit || "pcs"}
+                                  {showPricing && leadLineValue(p) > 0
+                                    ? ` · ${formatCurrencyINR(leadLineValue(p))}`
+                                    : ""}
                                 </span>
                               </span>
                             ))}

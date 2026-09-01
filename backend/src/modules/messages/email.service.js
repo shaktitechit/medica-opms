@@ -10,7 +10,7 @@ const { toPlain } = require('../../utils/mongoJson');
  * Creates and queues a new outbound email.
  */
 async function sendEmailMessage(data) {
-  const { recipient, subject, body, templateName, templateParams, orderId } = data;
+  const { recipient, subject, body, templateName, templateParams, orderId, attachments, cc } = data;
 
   const messageData = {
     recipient,
@@ -20,6 +20,8 @@ async function sendEmailMessage(data) {
     templateName: templateName || undefined,
     templateParams: templateParams || undefined,
     order: orderId || undefined,
+    attachments: attachments || (templateParams && templateParams.attachments) || undefined,
+    cc: cc || (templateParams && templateParams.cc) || undefined,
   };
 
   return messageService.createAndQueueMessage(messageData);

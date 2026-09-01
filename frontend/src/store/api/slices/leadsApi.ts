@@ -7,13 +7,8 @@ import { unwrapEnvelope, type ApiEnvelope } from "../unwrap";
 
 export type LeadStatus =
   | "new"
-  | "assigned"
-  | "contacted"
-  | "qualified"
-  | "unqualified"
   | "follow_up"
   | "quotation"
-  | "negotiation"
   | "won"
   | "lost"
   | "converted";
@@ -224,11 +219,12 @@ export type DuplicateCheckResult = {
 export type LeadDashboardStats = {
   totalLeads: number;
   newLeads: number;
-  assignedLeads: number;
-  contactedLeads: number;
-  qualifiedLeads: number;
-  quotationLeads: number;
-  negotiationLeads: number;
+  followUpLeads?: number;
+  assignedLeads?: number;
+  contactedLeads?: number;
+  qualifiedLeads?: number;
+  quotationLeads?: number;
+  negotiationLeads?: number;
   wonLeads: number;
   lostLeads: number;
   convertedLeads: number;
@@ -479,6 +475,7 @@ export const leadsApi = medicaApi.injectEndpoints({
         payment_terms?: string;
         create_order?: boolean;
         notes?: string;
+        quotation_id?: string;
         party_data?: Record<string, unknown>;
         order_items?: Array<{
           product?: string;
@@ -508,6 +505,7 @@ export const leadsApi = medicaApi.injectEndpoints({
       invalidatesTags: (_res, _err, { id }) => [
         { type: "Lead", id },
         { type: "Lead", id: "LIST" },
+        { type: "LeadQuotation", id: `LEAD_${id}` },
         { type: "Parties", id: "LIST" },
         { type: "Orders", id: "LIST" },
       ],

@@ -1,14 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, Fragment } from "react";
+import { useCallback, useMemo, useState, Fragment } from "react";
 import { CheckCircle2, Download, Pencil, Send } from "lucide-react";
 import { useAppSelector } from "@/store";
 
-import {
-  OrderItemsPdfTemplate,
-  type OrderItemsPdfLine,
-} from "@/components/portal/shared/OrderItemsPdfTemplate";
-import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
+import { type OrderItemsPdfLine } from "@/components/portal/shared/OrderItemsPdfTemplate";
+import { buildOrderItemsPdf } from "@/components/portal/shared/buildOrderItemsPdf";
+import { usePdfCompanyLetterhead } from "@/components/portal/shared/pdfCompanyLetterhead";
 import {
   accountAmendmentNotes,
   isAccountAmended,
@@ -18,11 +16,6 @@ import {
   isAdminAmended,
 } from "@/components/portal/shared/orderAdminApprovalDisplay";
 import { resolveUserDisplay } from "@/components/portal/shared/userDisplay";
-import {
-  companyLetterheadLogoUrl,
-  companyLetterheadName,
-  resolvePublicAssetUrl,
-} from "@/lib/env";
 import { toast } from "@/lib/toast";
 
 type ApprovalRecordCardProps = {
@@ -174,7 +167,7 @@ export function ApprovalRecordCard({
   }, [approval]);
   const approvalNo = String(approval.approval_no ?? "—");
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
-  const pdfTemplateRef = useRef<HTMLDivElement>(null);
+  const letterhead = usePdfCompanyLetterhead();
 
   const items = useMemo(() => approvalItemsList(approval), [approval]);
 
@@ -386,22 +379,53 @@ export function ApprovalRecordCard({
     return { subtotal, gst };
   }, [items]);
 
-  const companyName = companyLetterheadName();
-  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
-
   const handleDownloadPdf = useCallback(async () => {
-    if (!canDownloadPdf || !pdfTemplateRef.current || pdfLines.length === 0) {
+    if (!canDownloadPdf || pdfLines.length === 0) {
       return;
     }
     setIsDownloadingPdf(true);
     try {
       const safeNo = approvalNo.replace(/\s+/g, "-");
       const safeOrder = orderNo.replace(/\s+/g, "-");
-      await downloadOrderItemsPdf(
-        pdfTemplateRef.current,
-        `${safeOrder}-${safeNo}.pdf`,
-        { salesApproved: true },
-      );
+      const pdf = await buildOrderItemsPdf({
+        letterhead,
+        orderNo,
+        partyName: partyLabel,
+        orderDate: formatDateShort(orderDate),
+        expectedDeliveryDate: expectedDeliveryDate
+          ? formatDateShort(expectedDeliveryDate)
+          : undefined,
+        statusLabel: formatStatus(approvalStatus),
+        salesApproval: {
+          statusLabel: formatStatus(approvalStatus),
+          approvalNo,
+          approvedBy: approvedByLabel,
+          approvedAt: approvedAtLabel,
+        },
+        financeAmendment: financeAmended
+          ? {
+              amendedBy: financeAmendedByLabel,
+              amendedAt: financeAmendedAtLabel,
+              amendmentNotes: approval.approval_notes
+                ? String(approval.approval_notes)
+                : undefined,
+            }
+          : undefined,
+        adminAmendment: adminAmended
+          ? {
+              amendedBy: adminAmendedByLabel,
+              amendedAt: adminAmendedAtLabel,
+              amendmentNotes: adminAmendNotes,
+            }
+          : undefined,
+        items: pdfLines,
+        subtotal: pdfMoney(computedTotals.subtotal),
+        gst: pdfMoney(computedTotals.gst),
+        headerDiscount: "0.00",
+        grandTotal: pdfMoney(approvedTotal),
+        generatedAt: formatDate(new Date()),
+      });
+      pdf.save(`${safeOrder}-${safeNo}.pdf`);
       toast.success("Approval PDF downloaded.");
     } catch (err) {
       const message =
@@ -410,68 +434,36 @@ export function ApprovalRecordCard({
     } finally {
       setIsDownloadingPdf(false);
     }
-  }, [approvalNo, canDownloadPdf, orderNo, pdfLines.length]);
+  }, [
+    adminAmendNotes,
+    adminAmended,
+    adminAmendedAtLabel,
+    adminAmendedByLabel,
+    approval.approval_notes,
+    approvalNo,
+    approvalStatus,
+    approvedAtLabel,
+    approvedByLabel,
+    approvedTotal,
+    canDownloadPdf,
+    computedTotals.gst,
+    computedTotals.subtotal,
+    expectedDeliveryDate,
+    financeAmended,
+    financeAmendedAtLabel,
+    financeAmendedByLabel,
+    letterhead,
+    orderDate,
+    orderNo,
+    partyLabel,
+    pdfLines,
+  ]);
 
   const isSendingThis =
     (sendToFinanceBusy || sendToAccountBusy) && sendingApprovalId === approvalId;
 
   return (
     <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900/40">
-      <div
-        aria-hidden
-        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
-      >
-        {canDownloadPdf ? (
-          <div ref={pdfTemplateRef}>
-            <OrderItemsPdfTemplate
-              companyName={companyName}
-              logoUrl={logoUrl}
-              orderNo={orderNo}
-              partyName={partyLabel}
-              orderDate={formatDateShort(orderDate)}
-              expectedDeliveryDate={
-                expectedDeliveryDate
-                  ? formatDateShort(expectedDeliveryDate)
-                  : undefined
-              }
-              statusLabel={formatStatus(approvalStatus)}
-              salesApproval={{
-                statusLabel: formatStatus(approvalStatus),
-                approvalNo,
-                approvedBy: approvedByLabel,
-                approvedAt: approvedAtLabel,
-              }}
-              financeAmendment={
-                financeAmended
-                  ? {
-                    amendedBy: financeAmendedByLabel,
-                    amendedAt: financeAmendedAtLabel,
-                    amendmentNotes: approval.approval_notes
-                      ? String(approval.approval_notes)
-                      : undefined,
-                  }
-                  : undefined
-              }
-              adminAmendment={
-                adminAmended
-                  ? {
-                    amendedBy: adminAmendedByLabel,
-                    amendedAt: adminAmendedAtLabel,
-                    amendmentNotes: adminAmendNotes,
-                  }
-                  : undefined
-              }
-              items={pdfLines}
-              subtotal={pdfMoney(computedTotals.subtotal)}
-              gst={pdfMoney(computedTotals.gst)}
-              headerDiscount="0.00"
-              grandTotal={pdfMoney(approvedTotal)}
-              generatedAt={formatDate(new Date())}
-            />
-          </div>
-        ) : null}
-      </div>
-
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 dark:border-white/5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-100">

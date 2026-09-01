@@ -6,7 +6,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
@@ -30,7 +29,6 @@ import {
   UnbilledCreateOrderModal,
   type CreateOrderTarget,
 } from "@/components/portal/shared/orderList/UnbilledCreateOrderModal";
-import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
 import { ModalOverlay } from "@/components/portal/shared/ModalOverlay";
 import {
   lineApprovalQuantities,
@@ -53,15 +51,12 @@ import {
   type OrderWorkflowCategoryOptions,
   type OrderWorkflowTabCategory,
 } from "@/components/portal/shared/orderList/orderWorkflowTabs";
-import UnbilledOrdersPdfTemplate, {
+import {
   type UnbilledOrdersPdfListLine,
   type UnbilledOrdersPdfUnbilledLine,
 } from "@/components/portal/shared/UnbilledOrdersPdfTemplate";
-import {
-  companyLetterheadLogoUrl,
-  companyLetterheadName,
-  resolvePublicAssetUrl,
-} from "@/lib/env";
+import { buildUnbilledOrdersPdf } from "@/components/portal/shared/buildUnbilledOrdersPdf";
+import { usePdfCompanyLetterhead } from "@/components/portal/shared/pdfCompanyLetterhead";
 import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { useAppSelector } from "@/store/hooks";
@@ -306,10 +301,7 @@ export function UnbilledOrdersModal({
   const [resolveTarget, setResolveTarget] = useState<ResolveTarget | null>(null);
   const [isResolving, setIsResolving] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
-  const [pdfGeneratedAt, setPdfGeneratedAt] = useState(() =>
-    formatDateTime(new Date()),
-  );
-  const pdfTemplateRef = useRef<HTMLDivElement>(null);
+  const letterhead = usePdfCompanyLetterhead();
 
   const authUser = useAppSelector((s) => s.auth.user);
   const downloadedBy = useMemo(() => {
@@ -320,8 +312,6 @@ export function UnbilledOrdersModal({
     );
   }, [authUser]);
   const portalLabel = portalLabelFromPath(portalBasePath);
-  const companyName = companyLetterheadName();
-  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
 
   const unbilledQ = useListUnbilledOrdersQuery(
     { status: "open" },
@@ -360,7 +350,6 @@ export function UnbilledOrdersModal({
       setResolveTarget(null);
       setIsResolving(false);
       setIsDownloadingPdf(false);
-      setPdfGeneratedAt(formatDateTime(new Date()));
       setIsFilterPanelOpen(false);
       setSearchQuery("");
       setIsAddUnbilledOpen(false);
@@ -847,22 +836,19 @@ export function UnbilledOrdersModal({
 
   const handleDownloadPdf = useCallback(async () => {
     if (totalPdfOrders === 0) return;
-    const stamp = formatDateTime(new Date());
-    setPdfGeneratedAt(stamp);
     setIsDownloadingPdf(true);
     try {
-      // Wait for letterhead template to commit the fresh timestamp.
-      await new Promise<void>((resolve) => {
-        window.setTimeout(() => resolve(), 80);
-      });
-      if (!pdfTemplateRef.current) {
-        throw new Error("PDF template is not ready.");
-      }
       const dateStamp = new Date().toISOString().slice(0, 10);
-      await downloadOrderItemsPdf(
-        pdfTemplateRef.current,
-        `unbilled_process_on_hold_orders_${dateStamp}.pdf`,
-      );
+      const pdf = await buildUnbilledOrdersPdf({
+        letterhead,
+        portalLabel,
+        downloadedBy,
+        generatedAt: formatDateTime(new Date()),
+        unbilledLines: pdfUnbilledLines,
+        processPendingLines: pdfProcessPendingLines,
+        onHoldLines: pdfOnHoldLines,
+      });
+      pdf.save(`unbilled_process_on_hold_orders_${dateStamp}.pdf`);
       toast.success("Orders PDF downloaded.");
     } catch (err) {
       const message =
@@ -871,7 +857,15 @@ export function UnbilledOrdersModal({
     } finally {
       setIsDownloadingPdf(false);
     }
-  }, [totalPdfOrders]);
+  }, [
+    downloadedBy,
+    letterhead,
+    pdfOnHoldLines,
+    pdfProcessPendingLines,
+    pdfUnbilledLines,
+    portalLabel,
+    totalPdfOrders,
+  ]);
 
   if (!isOpen) return null;
 
@@ -912,24 +906,6 @@ export function UnbilledOrdersModal({
       onClick={onClose}
       className="fixed inset-0 z-[100] flex bg-slate-900/50 backdrop-blur-[1px]"
     >
-      <div
-        aria-hidden
-        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
-      >
-        <div ref={pdfTemplateRef}>
-          <UnbilledOrdersPdfTemplate
-            companyName={companyName}
-            logoUrl={logoUrl}
-            portalLabel={portalLabel}
-            downloadedBy={downloadedBy}
-            generatedAt={pdfGeneratedAt}
-            unbilledLines={pdfUnbilledLines}
-            processPendingLines={pdfProcessPendingLines}
-            onHoldLines={pdfOnHoldLines}
-          />
-        </div>
-      </div>
-
       <div
         role="dialog"
         aria-modal="true"

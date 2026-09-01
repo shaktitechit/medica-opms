@@ -46,11 +46,12 @@ import {
   isLeadAdmin,
   canAssignLead,
   canDeleteLead,
+  canViewLeadPricing,
+  leadEstimatedValue,
   LEAD_STATUS_CONFIG,
   LEAD_PRIORITY_CONFIG,
 } from "./leadUtils";
 import { AssignLeadModal } from "./AssignLeadModal";
-import { ChangeLeadStatusModal } from "./ChangeLeadStatusModal";
 import { FollowUpModal } from "./FollowUpModal";
 import { ConfirmDeleteLeadModal } from "./ConfirmDeleteLeadModal";
 import { GoogleSheetLeadsModal } from "./GoogleSheetLeadsModal";
@@ -62,12 +63,8 @@ type Props = {
 const STATUS_TABS: Array<{ id: string; label: string }> = [
   { id: "all", label: "All Leads" },
   { id: "new", label: "New" },
-  { id: "assigned", label: "Assigned" },
-  { id: "contacted", label: "Contacted" },
-  { id: "qualified", label: "Qualified" },
   { id: "follow_up", label: "Follow Up" },
   { id: "quotation", label: "Quotation" },
-  { id: "negotiation", label: "Negotiation" },
   { id: "won", label: "Won" },
   { id: "lost", label: "Lost" },
   { id: "converted", label: "Converted" },
@@ -93,7 +90,6 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
 
   // Modals state
   const [assignTarget, setAssignTarget] = useState<LeadRecord | null>(null);
-  const [statusTarget, setStatusTarget] = useState<LeadRecord | null>(null);
   const [followUpTarget, setFollowUpTarget] = useState<LeadRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LeadRecord | null>(null);
   const [sheetOpen, setSheetOpen] = useState<boolean>(false);
@@ -103,6 +99,8 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
 
   const isAdmin = isLeadAdmin(authUser, portalHome);
   const isSales = !isAdmin;
+  const showPricing = canViewLeadPricing(authUser, portalHome);
+  const tableColSpan = showPricing ? 12 : 11;
 
   const authUserId = authUser?._id
     ? String(authUser._id)
@@ -469,6 +467,7 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
                 <th className="px-4 py-3">Priority</th>
                 <th className="px-4 py-3">Assigned To</th>
                 <th className="px-4 py-3 text-center">Est. Qty</th>
+                {showPricing && <th className="px-4 py-3 text-right">Est. Value</th>}
                 <th className="px-4 py-3">Next Follow-up</th>
                 <th className="px-4 py-3">Created</th>
                 <th className="px-4 py-3 text-right">Actions</th>
@@ -477,13 +476,13 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
             <tbody className="divide-y divide-slate-100 dark:divide-white/5">
               {isLoading ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={tableColSpan} className="py-12 text-center text-slate-400">
                     Loading leads...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={tableColSpan} className="py-12 text-center text-slate-400">
                     No leads found matching your criteria.
                   </td>
                 </tr>
@@ -602,6 +601,19 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
                         })()}
                       </td>
 
+                      {showPricing && (
+                        <td className="px-4 py-3 whitespace-nowrap text-right font-bold text-slate-900 dark:text-white">
+                          {(() => {
+                            const value = leadEstimatedValue(lead);
+                            return value > 0 ? (
+                              formatCurrencyINR(value)
+                            ) : (
+                              <span className="text-slate-400 font-normal">—</span>
+                            );
+                          })()}
+                        </td>
+                      )}
+
                       {/* Next Follow-up */}
                       <td className="px-4 py-3 whitespace-nowrap text-[11px]">
                         {lead.next_follow_up_at ? (
@@ -671,18 +683,7 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
                             </button>
                           )}
 
-                          {!isLeadClosed && (
-                            <button
-                              type="button"
-                              onClick={() => setStatusTarget(lead)}
-                              title="Change Status"
-                              className="rounded-lg p-1.5 text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/50"
-                            >
-                              <CheckCircle2 className="h-4 w-4" />
-                            </button>
-                          )}
-
-                          {isAdmin && (
+                          {isAdmin && !isLeadConverted && (
                             <button
                               type="button"
                               onClick={() => setDeleteTarget(lead)}
@@ -726,16 +727,6 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
           lead={assignTarget}
           open={Boolean(assignTarget)}
           onClose={() => setAssignTarget(null)}
-          onSuccess={() => refetch()}
-        />
-      )}
-
-      {statusTarget && (
-        <ChangeLeadStatusModal
-          lead={statusTarget}
-          isAdmin={isAdmin}
-          open={Boolean(statusTarget)}
-          onClose={() => setStatusTarget(null)}
           onSuccess={() => refetch()}
         />
       )}

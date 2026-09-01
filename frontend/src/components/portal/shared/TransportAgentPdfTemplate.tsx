@@ -1,10 +1,16 @@
 "use client";
 
 import { useMemo, type CSSProperties } from "react";
+import {
+  PdfLetterheadBrand,
+  PdfLetterheadFooterCopy,
+  PdfLetterheadRule,
+  usePdfCompanyLetterhead,
+} from "./pdfCompanyLetterhead";
 
 export type TransportAgentPdfTemplateProps = {
-  companyName: string;
-  logoUrl: string;
+  companyName?: string;
+  logoUrl?: string;
   portalLabel: string;
   downloadedBy: string;
   generatedAt: string;
@@ -18,8 +24,8 @@ const PAGE_WIDTH = 1123;
 const PAGE_HEIGHT = 794;
 const PAGE_PAD_X = 30;
 const PAGE_PAD_Y = 24;
-const HEADER_BLOCK_H = 110;
-const FOOTER_BLOCK_H = 44;
+const HEADER_BLOCK_H = 128;
+const FOOTER_BLOCK_H = 58;
 const BODY_MAX_H = PAGE_HEIGHT - PAGE_PAD_Y * 2 - HEADER_BLOCK_H - FOOTER_BLOCK_H;
 
 const H_THEAD = 28;
@@ -117,9 +123,10 @@ const COLS = [
 
 /* ─── Component ─────────────────────────────────────────────────────────── */
 export default function TransportAgentPdfTemplate({
-  companyName, logoUrl, portalLabel, downloadedBy, generatedAt,
+  portalLabel, downloadedBy, generatedAt,
   agentName, agentCode, shipments, statusLabelSelected,
 }: TransportAgentPdfTemplateProps) {
+  const letterhead = usePdfCompanyLetterhead();
 
   const pages: PageModel[] = useMemo(() => {
     if (shipments.length === 0) return [{ blocks: [] }];
@@ -156,31 +163,18 @@ export default function TransportAgentPdfTemplate({
 
           {/* ── Header ── */}
           <header style={{ flexShrink: 0, height: `${HEADER_BLOCK_H}px`, display: "flex", flexDirection: "column", gap: "6px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              {/* Left: logo + title */}
-              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                {logoUrl && (
-                  <img src={logoUrl} alt="Logo"
-                    style={{ height: "32px", width: "auto", objectFit: "contain" }} />
-                )}
-                <div>
-                  <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a", lineHeight: 1.1 }}>
-                    {companyName}
-                  </div>
-                  <div style={{ fontSize: "7.5px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: "2px" }}>
-                    Transport Agent · Shipments Report
-                  </div>
-                </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <PdfLetterheadBrand letterhead={letterhead} compact />
               </div>
-
-              {/* Right: agent info */}
-              <div style={{ textAlign: "right" }}>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <div style={{ fontSize: "11px", fontWeight: 700, color: "#0f172a" }}>{agentName}</div>
                 {agentCode && (
                   <div style={{ fontSize: "8px", color: "#475569", marginTop: "2px" }}>Code: {agentCode}</div>
                 )}
               </div>
             </div>
+            <PdfLetterheadRule compact />
 
             {/* Meta bar */}
             <div style={{
@@ -189,6 +183,7 @@ export default function TransportAgentPdfTemplate({
               borderTop: "1px solid #cbd5e1", borderBottom: "1px solid #cbd5e1",
               padding: "4px 2px", marginTop: "4px",
             }}>
+              <span><strong>Transport Agent Shipments</strong></span>
               <span><strong>Status Filter:</strong> {statusLabelSelected}</span>
               <span><strong>Generated:</strong> {generatedAt}</span>
               <span><strong>Page:</strong> {pageIdx + 1} / {pages.length}</span>
@@ -297,13 +292,15 @@ export default function TransportAgentPdfTemplate({
           {/* ── Footer ── */}
           <footer style={{
             flexShrink: 0, height: `${FOOTER_BLOCK_H}px`,
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            borderTop: "1px solid #e2e8f0", paddingTop: "6px",
+            display: "flex", justifyContent: "space-between", alignItems: "flex-end",
+            borderTop: "1px solid #e2e8f0", paddingTop: "6px", gap: "12px",
             fontSize: "7.5px", color: "#64748b",
           }}>
-            <span>Portal: {portalLabel} &nbsp;|&nbsp; Downloaded by: {downloadedBy}</span>
-            <span>Page {pageIdx + 1} of {pages.length}</span>
-            <span>Generated electronically — no signature required.</span>
+            <PdfLetterheadFooterCopy letterhead={letterhead} compact />
+            <div style={{ textAlign: "right", flexShrink: 0, color: "#94a3b8" }}>
+              <div>Portal: {portalLabel} | Downloaded by: {downloadedBy}</div>
+              <div>Page {pageIdx + 1} of {pages.length}</div>
+            </div>
           </footer>
 
         </div>

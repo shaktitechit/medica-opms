@@ -9,6 +9,7 @@ export type MessageRecord = {
   id?: string;
   order?: string;
   recipient: string;
+  cc?: string | string[];
   channel: MessageChannel;
   status: MessageStatus;
   subject?: string;
@@ -70,6 +71,27 @@ export const messagesApi = medicaApi.injectEndpoints({
         unwrapEnvelope(raw) as MessageRecord,
       providesTags: (_r, _e, id) => [{ type: "Messages", id }],
     }),
+    sendEmail: build.mutation<
+      unknown,
+      {
+        recipient: string;
+        subject: string;
+        body: string;
+        templateName?: string;
+        templateParams?: Record<string, unknown>;
+        orderId?: string;
+        attachments?: Array<{ filename: string; content: string; contentType?: string }>;
+        cc?: string | string[];
+      }
+    >({
+      query: (body) => ({
+        url: "emails",
+        method: "POST",
+        body,
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: [{ type: "Messages", id: "LIST" }],
+    }),
   }),
 });
 
@@ -77,4 +99,5 @@ export const {
   useListMessagesQuery,
   useLazyListMessagesQuery,
   useGetMessageQuery,
+  useSendEmailMutation,
 } = messagesApi;

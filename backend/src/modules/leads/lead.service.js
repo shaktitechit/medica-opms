@@ -648,11 +648,7 @@ async function convert(id, body = {}, user) {
   if (!lead) throw new ApiError(404, 'Lead not found');
 
   if (!isLeadManager(user)) {
-    const assignedId = lead.assigned_to ? String(lead.assigned_to) : null;
-    const createdById = lead.created_by ? String(lead.created_by) : null;
-    if (assignedId && assignedId !== String(user._id) && createdById !== String(user._id)) {
-      throw new ApiError(403, 'You do not have permission to convert this lead');
-    }
+    throw new ApiError(403, 'Only administrators can convert leads to customers / orders');
   }
 
   if (lead.status === 'converted') {
@@ -770,6 +766,20 @@ async function convert(id, body = {}, user) {
 
           if (pDoc.gst_percent !== undefined) {
             gstPct = Number(pDoc.gst_percent);
+          }
+        }
+
+        if (prodItem.unit_price !== undefined && prodItem.unit_price !== null && prodItem.unit_price !== '') {
+          const explicitPrice = Number(prodItem.unit_price);
+          if (Number.isFinite(explicitPrice) && explicitPrice >= 0) {
+            unitPrice = explicitPrice;
+          }
+        }
+        const gstSource = prodItem.gst_percent ?? prodItem.gst_rate;
+        if (gstSource !== undefined && gstSource !== null && gstSource !== '') {
+          const explicitGst = Number(gstSource);
+          if (Number.isFinite(explicitGst) && explicitGst >= 0) {
+            gstPct = explicitGst;
           }
         }
 

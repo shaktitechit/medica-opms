@@ -5,13 +5,8 @@
 
 const LEAD_STATUSES = Object.freeze([
   'new',
-  'assigned',
-  'contacted',
-  'qualified',
-  'unqualified',
   'follow_up',
   'quotation',
-  'negotiation',
   'won',
   'lost',
   'converted',
@@ -48,17 +43,12 @@ const CONVERSION_TYPES = Object.freeze([
  * Admin and super_admin may override these transitions.
  */
 const ALLOWED_STATUS_TRANSITIONS = Object.freeze({
-  new: ['assigned', 'contacted', 'unqualified', 'lost'],
-  assigned: ['contacted', 'qualified', 'unqualified', 'follow_up', 'lost'],
-  contacted: ['qualified', 'unqualified', 'follow_up', 'lost'],
-  qualified: ['follow_up', 'quotation', 'negotiation', 'won', 'lost', 'converted'],
-  unqualified: ['lost'],
-  follow_up: ['quotation', 'negotiation', 'won', 'lost'],
-  quotation: ['negotiation', 'won', 'lost', 'converted'],
-  negotiation: ['won', 'lost', 'converted'],
+  new: ['follow_up', 'quotation', 'won', 'lost', 'converted'],
+  follow_up: ['new', 'quotation', 'won', 'lost', 'converted'],
+  quotation: ['follow_up', 'won', 'lost', 'converted'],
   won: ['converted'], // Terminal until converted, no lost after won
-  lost: [], // Requires admin override to reopen
-  converted: [], // Terminal outcome
+  lost: ['new', 'follow_up', 'quotation'], // Requires admin override to reopen
+  converted: [], // Final terminal state
 });
 
 module.exports = {

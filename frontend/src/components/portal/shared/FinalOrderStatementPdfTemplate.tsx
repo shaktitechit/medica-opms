@@ -1,6 +1,13 @@
 "use client";
 
 import { useMemo, type CSSProperties, type ReactNode } from "react";
+import {
+  PdfLetterheadBrand,
+  PdfLetterheadFooterCopy,
+  PdfLetterheadRule,
+  usePdfCompanyLetterhead,
+  type PdfCompanyLetterhead,
+} from "./pdfCompanyLetterhead";
 
 export type FinalOrderStatementPdfLine = {
   productName: string;
@@ -46,8 +53,8 @@ export type FinalOrderStatementPdfFinancialSummary = {
 };
 
 export type FinalOrderStatementPdfTemplateProps = {
-  companyName: string;
-  logoUrl: string;
+  companyName?: string;
+  logoUrl?: string;
   statementNo: string;
   orderNo: string;
   partyName: string;
@@ -72,8 +79,8 @@ const PAGE_WIDTH = 794;
 const PAGE_HEIGHT = 1123;
 const PAGE_PAD_X = 40;
 const PAGE_PAD_Y = 28;
-const HEADER_BLOCK_H = 148;
-const FOOTER_BLOCK_H = 58;
+const HEADER_BLOCK_H = 186;
+const FOOTER_BLOCK_H = 78;
 const BODY_MAX_H = PAGE_HEIGHT - PAGE_PAD_Y * 2 - HEADER_BLOCK_H - FOOTER_BLOCK_H;
 
 const H_META = 118;
@@ -229,70 +236,20 @@ function paginateBlocks(blocks: ContentBlock[]): PageModel[] {
 }
 
 function PageHeader({
-  companyName,
-  logoUrl,
+  letterhead,
   statementNo,
 }: {
-  companyName: string;
-  logoUrl: string;
+  letterhead: PdfCompanyLetterhead;
   statementNo: string;
 }) {
   return (
     <header style={{ flexShrink: 0, marginBottom: "10px" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "14px",
-          marginBottom: "10px",
-        }}
-      >
-        <img
-          src={logoUrl}
-          alt={companyName}
-          crossOrigin="anonymous"
-          style={{
-            width: "112px",
-            height: "46px",
-            objectFit: "contain",
-            objectPosition: "left center",
-            flexShrink: 0,
-          }}
-        />
-        <div style={{ flex: 1, textAlign: "center" }}>
-          <div
-            style={{
-              fontSize: "22px",
-              fontWeight: 700,
-              color: "#1e3a5f",
-              letterSpacing: "0.02em",
-            }}
-          >
-            {companyName}
-          </div>
-          <div
-            style={{
-              marginTop: "3px",
-              fontSize: "10px",
-              color: "#64748b",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-            }}
-          >
-            Order Management Portal
-          </div>
-        </div>
-        <div style={{ width: "112px", flexShrink: 0 }} aria-hidden />
+      <div style={{ marginBottom: "10px" }}>
+        <PdfLetterheadBrand letterhead={letterhead} />
       </div>
-      <div
-        style={{
-          height: "3px",
-          background:
-            "linear-gradient(90deg, #1e3a5f 0%, #3b82f6 50%, #1e3a5f 100%)",
-          borderRadius: "2px",
-          marginBottom: "12px",
-        }}
-      />
+      <div style={{ marginBottom: "12px" }}>
+        <PdfLetterheadRule />
+      </div>
       <h1
         style={{
           margin: 0,
@@ -311,14 +268,14 @@ function PageHeader({
 }
 
 function PageFooter({
-  companyName,
+  letterhead,
   portalLabel,
   downloadedBy,
   generatedAt,
   pageNo,
   pageCount,
 }: {
-  companyName: string;
+  letterhead: PdfCompanyLetterhead;
   portalLabel: string;
   downloadedBy: string;
   generatedAt: string;
@@ -340,33 +297,19 @@ function PageFooter({
         style={{
           display: "flex",
           justifyContent: "space-between",
-          gap: "10px",
-          marginBottom: "4px",
-          fontWeight: 600,
-          color: "#334155",
+          gap: "12px",
+          alignItems: "flex-end",
         }}
       >
-        <span style={{ minWidth: 0 }}>Portal: {portalLabel}</span>
-        <span style={{ minWidth: 0, textAlign: "center" }}>
-          Downloaded by: {downloadedBy}
-        </span>
-        <span style={{ minWidth: 0, textAlign: "right" }}>{generatedAt}</span>
-      </div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "10px",
-          color: "#94a3b8",
-        }}
-      >
-        <span>
-          Generated electronically by {companyName} OPMS — no signature
-          required.
-        </span>
-        <span>
-          Page {pageNo} of {pageCount}
-        </span>
+        <PdfLetterheadFooterCopy letterhead={letterhead} />
+        <div style={{ textAlign: "right", flexShrink: 0, fontSize: "8px", color: "#94a3b8" }}>
+          <div>Portal: {portalLabel}</div>
+          <div>Downloaded by: {downloadedBy}</div>
+          <div>{generatedAt}</div>
+          <div>
+            Page {pageNo} of {pageCount}
+          </div>
+        </div>
       </div>
     </footer>
   );
@@ -839,9 +782,8 @@ function PageBody({
 export function FinalOrderStatementPdfTemplate(
   props: FinalOrderStatementPdfTemplateProps,
 ) {
+  const letterhead = usePdfCompanyLetterhead();
   const {
-    companyName,
-    logoUrl,
     statementNo,
     lines,
     partyGstin,
@@ -870,14 +812,10 @@ export function FinalOrderStatementPdfTemplate(
             marginBottom: idx < pages.length - 1 ? "12px" : 0,
           }}
         >
-          <PageHeader
-            companyName={companyName}
-            logoUrl={logoUrl}
-            statementNo={statementNo}
-          />
+          <PageHeader letterhead={letterhead} statementNo={statementNo} />
           <PageBody blocks={page.blocks} props={props} />
           <PageFooter
-            companyName={companyName}
+            letterhead={letterhead}
             portalLabel={portalLabel}
             downloadedBy={downloadedBy}
             generatedAt={generatedAt}

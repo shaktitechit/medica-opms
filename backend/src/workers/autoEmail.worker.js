@@ -16,7 +16,9 @@ function start() {
       const emailHelper = require('../modules/messages/helpers/email.helper');
 
       try {
-        await emailHelper.sendTemplateEmail(recipient, templateName, templateParams || {});
+        const attachments = job.data.attachments || templateParams?.attachments || [];
+        const cc = job.data.cc || templateParams?.cc || [];
+        await emailHelper.sendTemplateEmail(recipient, templateName, templateParams || {}, attachments, cc);
         logger.info(`[AutoEmail Worker] Job ${job.id} completed successfully`);
       } catch (err) {
         logger.error(`[AutoEmail Worker] Attempt failed for job ${job.id}: ${err.message}`);

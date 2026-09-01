@@ -28,6 +28,14 @@ export type CompanyInfoRecord = {
   timezone: string;
   financial_year: string;
   invoice_footer_note: string;
+  bank_name?: string;
+  account_name?: string;
+  account_number?: string;
+  ifsc_code?: string;
+  branch_name?: string;
+  account_type?: string;
+  upi_id?: string;
+  swift_code?: string;
   is_default?: boolean;
   updated_by?: string;
   createdAt?: string;

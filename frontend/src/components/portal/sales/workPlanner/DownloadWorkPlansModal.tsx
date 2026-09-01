@@ -7,11 +7,7 @@ import { usePathname } from "next/navigation";
 import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { toast } from "@/lib/toast";
-import {
-  companyLetterheadLogoUrl,
-  companyLetterheadName,
-  resolvePublicAssetUrl,
-} from "@/lib/env";
+import { usePdfCompanyLetterhead } from "@/components/portal/shared/pdfCompanyLetterhead";
 import { useAppSelector } from "@/store/hooks";
 import {
   useLazyGetWorkPlanQuery,
@@ -175,8 +171,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
     return "Admin";
   }, [pathname]);
 
-  const companyName = companyLetterheadName();
-  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
+  const letterhead = usePdfCompanyLetterhead();
 
   const range = useMemo(() => {
     if (preset === "today") return todayRange();
@@ -343,8 +338,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
       const dateStamp = new Date().toISOString().slice(0, 10);
       const filename = `sales_work_plans_${dateStamp}.pdf`;
       const pdf = await buildWorkPlansReportPdf({
-        companyName,
-        logoUrl,
+        letterhead,
         portalLabel,
         downloadedBy: salesUserLabel,
         generatedAt: stamp,
@@ -365,8 +359,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
     }
   }, [
     rows,
-    companyName,
-    logoUrl,
+    letterhead,
     portalLabel,
     salesUserLabel,
     range.from,

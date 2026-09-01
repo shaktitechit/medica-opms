@@ -36,6 +36,7 @@ const activityLogSchema = new mongoose.Schema(
         "transport_plan",
         "lead",
         "lead_follow_up",
+        "lead_quotation",
         "lead_source",
         "lead_stage",
         "lead_lost_reason",

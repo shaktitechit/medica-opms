@@ -45,3 +45,4 @@ export * from "./slices/leadsApi";
 export * from "./slices/leadMastersApi";
 export * from "./slices/zonesApi";
 export * from "./slices/companyInfoApi";
+export * from "./slices/leadQuotationsApi";

@@ -1,21 +1,15 @@
 "use client";
 
 import { LargeModalPortal } from "./LargeModalPortal";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useGetFinalOrderStatementQuery } from "@/store/api";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { toast } from "@/lib/toast";
-import {
-  companyLetterheadLogoUrl,
-  companyLetterheadName,
-  resolvePublicAssetUrl,
-} from "@/lib/env";
-import { downloadOrderItemsPdf } from "@/components/portal/shared/downloadOrderItemsPdf";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
-import FinalOrderStatementPdfTemplate, {
-  type FinalOrderStatementPdfLine,
-} from "@/components/portal/shared/FinalOrderStatementPdfTemplate";
+import { type FinalOrderStatementPdfLine } from "@/components/portal/shared/FinalOrderStatementPdfTemplate";
+import { buildFinalOrderStatementPdf } from "@/components/portal/shared/buildFinalOrderStatementPdf";
+import { usePdfCompanyLetterhead } from "@/components/portal/shared/pdfCompanyLetterhead";
 import { useAppSelector } from "@/store/hooks";
 
 type FinalOrderStatementModalProps = {
@@ -158,8 +152,8 @@ export default function FinalOrderStatementModal({
   onClose,
   portalLabel = "Portal",
 }: FinalOrderStatementModalProps) {
-  const pdfTemplateRef = useRef<HTMLDivElement>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const letterhead = usePdfCompanyLetterhead();
 
   const authUser = useAppSelector((s) => s.auth.user);
   const downloadedBy = useMemo(() => {
@@ -173,9 +167,6 @@ export default function FinalOrderStatementModal({
   const { data, isLoading, isFetching, isError, error, refetch } = useGetFinalOrderStatementQuery(orderId, {
     skip: !isOpen || !orderId,
   });
-
-  const companyName = companyLetterheadName();
-  const logoUrl = resolvePublicAssetUrl(companyLetterheadLogoUrl());
   const pathname = usePathname() || "";
   const pdfPortalLabel = useMemo(() => {
     if (pathname.includes("/distributor")) return "Distributor Portal";
@@ -239,15 +230,50 @@ export default function FinalOrderStatementModal({
   const statementNo = String(statement.statement_no || `FOS-${orderNo}`);
 
   const handleDownloadPdf = useCallback(async () => {
-    if (!canDownloadPdf || !pdfTemplateRef.current) return;
+    if (!canDownloadPdf) return;
     setIsDownloadingPdf(true);
     try {
       const safeOrder = orderNo.replace(/\s+/g, "-");
       const safeStatement = statementNo.replace(/\s+/g, "-");
-      await downloadOrderItemsPdf(
-        pdfTemplateRef.current,
-        `${safeOrder}-${safeStatement}.pdf`,
-      );
+      const pdf = await buildFinalOrderStatementPdf({
+        letterhead,
+        statementNo,
+        orderNo,
+        partyName: String(party.party_name || "—"),
+        partyCode: party.party_code ? String(party.party_code) : undefined,
+        partyGstin: party.gstin ? String(party.gstin) : undefined,
+        orderDate: formatDateShort(order.order_date),
+        closedAt: formatDate(order.closed_at),
+        closedBy: String(closedBy.name || "—"),
+        closureRemarks: order.closure_remarks ? String(order.closure_remarks) : undefined,
+        lines: pdfLines,
+        quantityTotals: {
+          ordered: String(num(qty.ordered)),
+          approved: String(num(qty.approved)),
+          dispatched: String(num(qty.dispatched)),
+          delivered: String(num(qty.delivered)),
+          returned: String(num(qty.returned)),
+          net: String(num(qty.net_delivered)),
+          gstAmount: pdfMoney(totalLineGst || num(fin.gst_amount)),
+          grandTotal: pdfMoney(num(fin.grand_total)),
+        },
+        financialSummary: {
+          subtotal: pdfMoney(num(fin.subtotal)),
+          lineDiscountTotal: pdfMoney(num(fin.line_discount_total)),
+          taxableAmount: pdfMoney(num(fin.taxable_amount) || num(fin.subtotal)),
+          gst: pdfMoney(num(fin.gst_amount)),
+          headerDiscount: pdfMoney(num(fin.header_discount_amount)),
+          extraCharges: pdfMoney(num(fin.extra_charges)),
+          penaltyAmount: pdfMoney(num(fin.penalty_amount)),
+          damageCharge: pdfMoney(num(fin.damage_charge)),
+          grandTotal: pdfMoney(num(fin.grand_total)),
+          paymentStatus: String(fin.payment_status || "—"),
+        },
+        generatedAt: formatDate(statement.generated_at || new Date()),
+        portalLabel: pdfPortalLabel,
+        downloadedBy,
+      });
+      pdf.save(`${safeOrder}-${safeStatement}.pdf`);
       toast.success("Final order statement PDF downloaded.");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not generate PDF.";
@@ -255,7 +281,26 @@ export default function FinalOrderStatementModal({
     } finally {
       setIsDownloadingPdf(false);
     }
-  }, [canDownloadPdf, orderNo, statementNo]);
+  }, [
+    canDownloadPdf,
+    closedBy.name,
+    downloadedBy,
+    fin,
+    letterhead,
+    order.closed_at,
+    order.closure_remarks,
+    order.order_date,
+    orderNo,
+    party.gstin,
+    party.party_code,
+    party.party_name,
+    pdfLines,
+    pdfPortalLabel,
+    qty,
+    statement.generated_at,
+    statementNo,
+    totalLineGst,
+  ]);
 
   if (!isOpen) return null;
 
@@ -263,57 +308,6 @@ export default function FinalOrderStatementModal({
     <LargeModalPortal>
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
       <PortalBusyOverlay active={isLoading} message="Loading final statement…" />
-      <div
-        aria-hidden
-        className="pointer-events-none fixed -left-[9999px] top-0 overflow-hidden"
-      >
-        {canDownloadPdf ? (
-          <div ref={pdfTemplateRef}>
-            <FinalOrderStatementPdfTemplate
-              companyName={companyName}
-              logoUrl={logoUrl}
-              statementNo={statementNo}
-              orderNo={orderNo}
-              partyName={String(party.party_name || "—")}
-              partyCode={party.party_code ? String(party.party_code) : undefined}
-              partyGstin={party.gstin ? String(party.gstin) : undefined}
-              orderDate={formatDateShort(order.order_date)}
-              closedAt={formatDate(order.closed_at)}
-              closedBy={String(closedBy.name || "—")}
-              closureRemarks={
-                order.closure_remarks ? String(order.closure_remarks) : undefined
-              }
-              lines={pdfLines}
-              quantityTotals={{
-                ordered: String(num(qty.ordered)),
-                approved: String(num(qty.approved)),
-                dispatched: String(num(qty.dispatched)),
-                delivered: String(num(qty.delivered)),
-                returned: String(num(qty.returned)),
-                net: String(num(qty.net_delivered)),
-                gstAmount: pdfMoney(totalLineGst || num(fin.gst_amount)),
-                grandTotal: pdfMoney(num(fin.grand_total)),
-              }}
-              financialSummary={{
-                subtotal: pdfMoney(num(fin.subtotal)),
-                lineDiscountTotal: pdfMoney(num(fin.line_discount_total)),
-                taxableAmount: pdfMoney(num(fin.taxable_amount) || num(fin.subtotal)),
-                gst: pdfMoney(num(fin.gst_amount)),
-                headerDiscount: pdfMoney(num(fin.header_discount_amount)),
-                extraCharges: pdfMoney(num(fin.extra_charges)),
-                penaltyAmount: pdfMoney(num(fin.penalty_amount)),
-                damageCharge: pdfMoney(num(fin.damage_charge)),
-                grandTotal: pdfMoney(num(fin.grand_total)),
-                paymentStatus: String(fin.payment_status || "—"),
-              }}
-              generatedAt={formatDate(statement.generated_at || new Date())}
-              portalLabel={pdfPortalLabel}
-              downloadedBy={downloadedBy}
-            />
-          </div>
-        ) : null}
-      </div>
-
       <div className="w-full max-w-6xl rounded-xl border border-slate-200/90 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900 max-h-[92vh] flex flex-col font-sans">
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-white/5">
           <div>

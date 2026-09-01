@@ -29,7 +29,7 @@ import {
   type LeadSalesPerformance,
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
-import { formatCurrencyINR, isLeadAdmin } from "./leadUtils";
+import { formatCurrencyINR, isLeadAdmin, canViewLeadPricing } from "./leadUtils";
 import { ExecutiveLeadDetailsModal } from "./ExecutiveLeadDetailsModal";
 
 type Props = {
@@ -43,6 +43,7 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
 
   const isAdmin = isLeadAdmin(authUser, portalHome);
   const isSales = !isAdmin;
+  const showPricing = canViewLeadPricing(authUser, portalHome);
 
   const authUserId = authUser?._id
     ? String(authUser._id)
@@ -194,7 +195,7 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
               Active Pipeline Quantity
             </div>
             <span className="rounded-lg bg-indigo-100/80 px-2 py-0.5 text-xs font-bold text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200">
-              {formatCurrencyINR(stats?.totalPipelineValue)}
+              {showPricing ? formatCurrencyINR(stats?.totalPipelineValue) : `${(stats?.totalPipelineQuantity ?? 0).toLocaleString()} units`}
             </span>
           </div>
           <div className="mt-2 text-3xl font-extrabold text-slate-900 dark:text-white">
@@ -204,7 +205,8 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Cumulative required item quantity across active pipeline leads (Estimated Value: {formatCurrencyINR(stats?.totalPipelineValue)})
+            Cumulative required item quantity across active pipeline leads
+            {showPricing ? ` (Estimated Value: ${formatCurrencyINR(stats?.totalPipelineValue)})` : ""}
           </p>
         </div>
 
@@ -215,7 +217,7 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
               Total Won / Converted Quantity
             </div>
             <span className="rounded-lg bg-emerald-100/80 px-2 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200">
-              {formatCurrencyINR(stats?.totalWonValue)}
+              {showPricing ? formatCurrencyINR(stats?.totalWonValue) : `${(stats?.totalWonQuantity ?? 0).toLocaleString()} units`}
             </span>
           </div>
           <div className="mt-2 text-3xl font-extrabold text-slate-900 dark:text-white">
@@ -225,7 +227,8 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Total product item quantity successfully closed and converted into OPMS customer orders (Won Revenue: {formatCurrencyINR(stats?.totalWonValue)})
+            Total product item quantity successfully closed and converted into OPMS customer orders
+            {showPricing ? ` (Won Revenue: ${formatCurrencyINR(stats?.totalWonValue)})` : ""}
           </p>
         </div>
       </div>
@@ -254,6 +257,11 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
                     <span className="font-semibold text-slate-900 dark:text-white">
                       {(stage.quantity ?? 0).toLocaleString()} Units / Qty
                     </span>
+                    {showPricing && (
+                      <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                        {formatCurrencyINR(stage.estimated_value)}
+                      </span>
+                    )}
                     <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                       {stage.percentage}%
                     </span>
@@ -356,7 +364,9 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
                   <th className="px-4 py-3 text-center">Lost</th>
                   <th className="px-4 py-3 text-center">Conv. Rate</th>
                   <th className="px-4 py-3 text-center">Pipeline Qty</th>
+                  {showPricing && <th className="px-4 py-3 text-right">Pipeline Value</th>}
                   <th className="px-4 py-3 text-center">Won Qty</th>
+                  {showPricing && <th className="px-4 py-3 text-right">Won Value</th>}
                   <th className="px-4 py-3 text-center">Lost Qty</th>
                   <th className="px-4 py-3 text-center">Follow-ups Done</th>
                   <th className="px-4 py-3 text-center">Action</th>
@@ -365,7 +375,7 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                 {!salesPerf || salesPerf.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="py-8 text-center text-slate-400">
+                    <td colSpan={showPricing ? 13 : 11} className="py-8 text-center text-slate-400">
                       No sales executive performance data available.
                     </td>
                   </tr>
@@ -392,9 +402,19 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
                       <td className="px-4 py-3 text-center font-semibold text-indigo-600 dark:text-indigo-400">
                         {(sp.pipeline_qty ?? sp.pipeline_quantity ?? 0).toLocaleString()}
                       </td>
+                      {showPricing && (
+                        <td className="px-4 py-3 text-right font-semibold text-indigo-700 dark:text-indigo-300">
+                          {formatCurrencyINR(sp.pipeline_value)}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-center font-bold text-emerald-600 dark:text-emerald-400">
                         {(sp.won_qty ?? sp.won_quantity ?? 0).toLocaleString()}
                       </td>
+                      {showPricing && (
+                        <td className="px-4 py-3 text-right font-bold text-emerald-700 dark:text-emerald-300">
+                          {formatCurrencyINR(sp.won_value)}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-center font-semibold text-rose-600 dark:text-rose-400">
                         {(sp.lost_qty ?? sp.lost_quantity ?? 0).toLocaleString()}
                       </td>
@@ -442,14 +462,16 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
                 <th className="px-4 py-3 text-center">Lost Deals</th>
                 <th className="px-4 py-3 text-center">Conversion %</th>
                 <th className="px-4 py-3 text-center">Pipeline Qty</th>
+                {showPricing && <th className="px-4 py-3 text-right">Pipeline Value</th>}
                 <th className="px-4 py-3 text-center">Won Qty</th>
+                {showPricing && <th className="px-4 py-3 text-right">Won Value</th>}
                 <th className="px-4 py-3 text-center">Lost Qty</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-white/5">
               {!sourcePerf || sourcePerf.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400">
+                  <td colSpan={showPricing ? 11 : 9} className="py-8 text-center text-slate-400">
                     No lead source performance data available.
                   </td>
                 </tr>
@@ -475,9 +497,19 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
                     <td className="px-4 py-3 text-center font-semibold text-indigo-600 dark:text-indigo-400">
                       {(src.pipeline_qty ?? src.pipeline_quantity ?? 0).toLocaleString()}
                     </td>
+                    {showPricing && (
+                      <td className="px-4 py-3 text-right font-semibold text-indigo-700 dark:text-indigo-300">
+                        {formatCurrencyINR(src.pipeline_value)}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-center font-bold text-emerald-600 dark:text-emerald-400">
                       {(src.won_qty ?? src.won_quantity ?? 0).toLocaleString()}
                     </td>
+                    {showPricing && (
+                      <td className="px-4 py-3 text-right font-bold text-emerald-700 dark:text-emerald-300">
+                        {formatCurrencyINR(src.won_value)}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-center font-semibold text-rose-600 dark:text-rose-400">
                       {(src.lost_qty ?? src.lost_quantity ?? 0).toLocaleString()}
                     </td>

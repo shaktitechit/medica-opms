@@ -24,6 +24,7 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
+  Banknote,
   type LucideIcon,
 } from "lucide-react";
 
@@ -41,9 +42,12 @@ import {
 import {
   formatLeadDate,
   formatLeadDateTime,
+  formatCurrencyINR,
   FOLLOWUP_TYPE_CONFIG,
   LEAD_STATUS_CONFIG,
+  canViewLeadPricing,
 } from "./leadUtils";
+import { useAppSelector } from "@/store/hooks";
 
 type LeadManagerStatsWidgetsProps = {
   portalHome: "/sales" | "/admin" | "/super_admin" | string;
@@ -91,6 +95,8 @@ export default function LeadManagerStatsWidgets({
   selectedMonths,
 }: LeadManagerStatsWidgetsProps) {
   const [showFollowUpsTable, setShowFollowUpsTable] = useState(true);
+  const authUser = useAppSelector((state) => state.auth.user);
+  const showPricing = canViewLeadPricing(authUser, portalHome);
 
   const hasPeriod =
     dateFilter != null || selectedYears != null || selectedMonths != null;
@@ -147,43 +153,53 @@ export default function LeadManagerStatsWidgets({
       Icon: Users,
     },
     {
-      key: "new_assigned",
-      label: "New & Assigned",
-      value: (data?.newLeads ?? 0) + (data?.assignedLeads ?? 0),
+      key: "new",
+      label: "New Leads",
+      value: data?.newLeads ?? 0,
       href: `${portalHome}/leads?status=new`,
-      accent: "bg-indigo-500",
-      iconWrap: "bg-indigo-50 dark:bg-indigo-950/30",
-      iconTone: "text-indigo-600 dark:text-indigo-400",
-      Icon: UserCheck,
-    },
-    {
-      key: "qualified",
-      label: "Qualified Leads",
-      value: data?.qualifiedLeads ?? 0,
-      href: `${portalHome}/leads?status=qualified`,
       accent: "bg-blue-500",
       iconWrap: "bg-blue-50 dark:bg-blue-950/30",
       iconTone: "text-blue-600 dark:text-blue-400",
-      Icon: CheckCircle2,
+      Icon: UserCheck,
     },
     {
-      key: "quotations",
-      label: "Active Deals",
-      value: (data?.quotationLeads ?? 0) + (data?.negotiationLeads ?? 0),
-      href: `${portalHome}/leads?status=quotation`,
+      key: "follow_up",
+      label: "Follow Up Leads",
+      value: data?.followUpLeads ?? 0,
+      href: `${portalHome}/leads?status=follow_up`,
       accent: "bg-amber-500",
       iconWrap: "bg-amber-50 dark:bg-amber-950/30",
       iconTone: "text-amber-600 dark:text-amber-400",
+      Icon: CheckCircle2,
+    },
+    {
+      key: "quotation",
+      label: "Quotations",
+      value: data?.quotationLeads ?? 0,
+      href: `${portalHome}/leads?status=quotation`,
+      accent: "bg-purple-500",
+      iconWrap: "bg-purple-50 dark:bg-purple-950/30",
+      iconTone: "text-purple-600 dark:text-purple-400",
       Icon: FileText,
     },
     {
       key: "won",
-      label: "Won / Converted",
-      value: (data?.wonLeads ?? 0) + (data?.convertedLeads ?? 0),
+      label: "Won Leads",
+      value: data?.wonLeads ?? 0,
       href: `${portalHome}/leads?status=won`,
       accent: "bg-emerald-500",
       iconWrap: "bg-emerald-50 dark:bg-emerald-950/30",
       iconTone: "text-emerald-600 dark:text-emerald-400",
+      Icon: Trophy,
+    },
+    {
+      key: "converted",
+      label: "Converted Leads",
+      value: data?.convertedLeads ?? 0,
+      href: `${portalHome}/leads?status=converted`,
+      accent: "bg-teal-500",
+      iconWrap: "bg-teal-50 dark:bg-teal-950/30",
+      iconTone: "text-teal-600 dark:text-teal-400",
       Icon: Trophy,
     },
     {
@@ -207,6 +223,30 @@ export default function LeadManagerStatsWidgets({
       iconTone: "text-violet-600 dark:text-violet-400",
       Icon: Package,
     },
+    ...(showPricing
+      ? [
+          {
+            key: "pipeline_value",
+            label: "Pipeline Value",
+            value: formatCurrencyINR(data?.totalPipelineValue),
+            href: `${portalHome}/leads/reports`,
+            accent: "bg-indigo-500",
+            iconWrap: "bg-indigo-50 dark:bg-indigo-950/30",
+            iconTone: "text-indigo-600 dark:text-indigo-400",
+            Icon: Banknote,
+          } satisfies StatCard,
+          {
+            key: "won_value",
+            label: "Won Value",
+            value: formatCurrencyINR(data?.totalWonValue),
+            href: `${portalHome}/leads?status=won`,
+            accent: "bg-emerald-600",
+            iconWrap: "bg-emerald-50 dark:bg-emerald-950/30",
+            iconTone: "text-emerald-600 dark:text-emerald-400",
+            Icon: Banknote,
+          } satisfies StatCard,
+        ]
+      : []),
     {
       key: "followups",
       label: "Today's Follow-ups",
@@ -252,7 +292,7 @@ export default function LeadManagerStatsWidgets({
       </div>
 
       {/* 8-Card Stat Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+      <div className={`grid grid-cols-2 sm:grid-cols-4 ${showPricing ? "lg:grid-cols-5" : "lg:grid-cols-8"} gap-3`}>
         {cards.map(
           ({
             key,

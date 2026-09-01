@@ -77,11 +77,8 @@ async function getDashboardStats(query = {}, user) {
 
   let totalLeads = allLeads.length;
   let newLeads = 0;
-  let assignedLeads = 0;
-  let contactedLeads = 0;
-  let qualifiedLeads = 0;
+  let followUpLeads = 0;
   let quotationLeads = 0;
-  let negotiationLeads = 0;
   let wonLeads = 0;
   let lostLeads = 0;
   let convertedLeads = 0;
@@ -100,11 +97,8 @@ async function getDashboardStats(query = {}, user) {
       : 0;
 
     if (st === 'new') newLeads++;
-    else if (st === 'assigned') assignedLeads++;
-    else if (st === 'contacted') contactedLeads++;
-    else if (st === 'qualified') qualifiedLeads++;
+    else if (st === 'follow_up') followUpLeads++;
     else if (st === 'quotation') quotationLeads++;
-    else if (st === 'negotiation') negotiationLeads++;
     else if (st === 'won') wonLeads++;
     else if (st === 'lost') lostLeads++;
     else if (st === 'converted') convertedLeads++;
@@ -118,7 +112,7 @@ async function getDashboardStats(query = {}, user) {
       }
     }
 
-    if (['new', 'assigned', 'contacted', 'qualified', 'follow_up', 'quotation', 'negotiation'].includes(st)) {
+    if (['new', 'follow_up', 'quotation'].includes(st)) {
       totalPipelineValue += estVal;
       totalPipelineQuantity += leadQty;
     } else if (['won', 'converted'].includes(st)) {
@@ -130,11 +124,8 @@ async function getDashboardStats(query = {}, user) {
   return {
     totalLeads,
     newLeads,
-    assignedLeads,
-    contactedLeads,
-    qualifiedLeads,
+    followUpLeads,
     quotationLeads,
-    negotiationLeads,
     wonLeads,
     lostLeads,
     convertedLeads,
@@ -178,12 +169,12 @@ async function getSalesFunnel(query = {}, user) {
   const total = leads.length || 1;
 
   const stageDefs = [
-    { key: 'new', label: 'New', statuses: ['new', 'assigned'] },
-    { key: 'contacted', label: 'Contacted', statuses: ['contacted', 'follow_up'] },
-    { key: 'qualified', label: 'Qualified', statuses: ['qualified'] },
+    { key: 'new', label: 'New', statuses: ['new'] },
+    { key: 'follow_up', label: 'Follow Up', statuses: ['follow_up'] },
     { key: 'quotation', label: 'Quotation', statuses: ['quotation'] },
-    { key: 'negotiation', label: 'Negotiation', statuses: ['negotiation'] },
-    { key: 'won', label: 'Won / Converted', statuses: ['won', 'converted'] },
+    { key: 'won', label: 'Won', statuses: ['won'] },
+    { key: 'lost', label: 'Lost', statuses: ['lost'] },
+    { key: 'converted', label: 'Converted', statuses: ['converted'] },
   ];
 
   const stages = stageDefs.map((def) => {
@@ -260,7 +251,7 @@ async function getSalesPerformance(query = {}, user) {
     const totalLeads = userLeads.length;
 
     const qualifiedLeads = userLeads.filter((l) =>
-      ['qualified', 'quotation', 'negotiation', 'won', 'converted'].includes(l.status)
+      ['quotation', 'won', 'converted'].includes(l.status)
     ).length;
 
     const quotations = userLeads.filter((l) => l.status === 'quotation').length;
@@ -271,9 +262,7 @@ async function getSalesPerformance(query = {}, user) {
 
     const pipelineQty = userLeads
       .filter((l) =>
-        ['new', 'assigned', 'contacted', 'qualified', 'follow_up', 'quotation', 'negotiation'].includes(
-          l.status
-        )
+        ['new', 'follow_up', 'quotation'].includes(l.status)
       )
       .reduce(
         (sum, l) =>
@@ -308,9 +297,7 @@ async function getSalesPerformance(query = {}, user) {
 
     const pipelineValue = userLeads
       .filter((l) =>
-        ['new', 'assigned', 'contacted', 'qualified', 'follow_up', 'quotation', 'negotiation'].includes(
-          l.status
-        )
+        ['new', 'follow_up', 'quotation'].includes(l.status)
       )
       .reduce((sum, l) => sum + (Number(l.estimated_value) || 0), 0);
 
@@ -357,14 +344,30 @@ async function getSalesPerformance(query = {}, user) {
 }
 
 /**
- * Get lead performance breakdown by Lead Source.
+ * Get lead sources performance report.
  */
-async function getSourcePerformance(query = {}, user) {
+async function getLeadSourcePerformance(query = {}, user) {
   const { Lead, LeadSource } = getModels();
   const q = { deletedAt: null };
 
-  if (!isLeadManager(user)) {
-    q.assigned_to = user._id;
+  const canManageAll = isLeadManager(user);
+
+  if (!canManageAll) {
+    const userObjectId = (user && user._id && mongoose.Types.ObjectId.isValid(user._id))
+      ? new mongoose.Types.ObjectId(user._id)
+      : null;
+
+    q.$or = [
+      { assigned_to: userObjectId || user._id },
+      { assigned_to: String(user._id) },
+      { created_by: userObjectId || user._id },
+      { created_by: String(user._id) },
+    ];
+  } else if (query.assigned_to && query.assigned_to !== 'all') {
+    const assignedObjId = mongoose.Types.ObjectId.isValid(query.assigned_to)
+      ? new mongoose.Types.ObjectId(query.assigned_to)
+      : query.assigned_to;
+    q.$or = [{ assigned_to: assignedObjId }, { assigned_to: String(query.assigned_to) }];
   }
 
   const [leads, sources] = await Promise.all([
@@ -387,7 +390,7 @@ async function getSourcePerformance(query = {}, user) {
     const totalLeads = srcLeads.length;
 
     const qualifiedLeads = srcLeads.filter((l) =>
-      ['qualified', 'quotation', 'negotiation', 'won', 'converted'].includes(l.status)
+      ['quotation', 'won', 'converted'].includes(l.status)
     ).length;
 
     const wonLeads = srcLeads.filter((l) => ['won', 'converted'].includes(l.status)).length;
@@ -397,9 +400,7 @@ async function getSourcePerformance(query = {}, user) {
 
     const pipelineQty = srcLeads
       .filter((l) =>
-        ['new', 'assigned', 'contacted', 'qualified', 'follow_up', 'quotation', 'negotiation'].includes(
-          l.status
-        )
+        ['new', 'follow_up', 'quotation'].includes(l.status)
       )
       .reduce(
         (sum, l) =>
@@ -434,9 +435,7 @@ async function getSourcePerformance(query = {}, user) {
 
     const pipelineValue = srcLeads
       .filter((l) =>
-        ['new', 'assigned', 'contacted', 'qualified', 'follow_up', 'quotation', 'negotiation'].includes(
-          l.status
-        )
+        ['new', 'follow_up', 'quotation'].includes(l.status)
       )
       .reduce((sum, l) => sum + (Number(l.estimated_value) || 0), 0);
 
@@ -472,5 +471,6 @@ module.exports = {
   getDashboardStats,
   getSalesFunnel,
   getSalesPerformance,
-  getSourcePerformance,
+  getSourcePerformance: getLeadSourcePerformance,
+  getLeadSourcePerformance,
 };

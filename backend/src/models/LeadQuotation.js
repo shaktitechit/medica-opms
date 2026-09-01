@@ -1,0 +1,85 @@
+/**
+ * @fileoverview ESM mongoose mirror for LeadQuotation.
+ * @module models/LeadQuotation
+ */
+import mongoose from "mongoose";
+
+const leadQuotationSchema = new mongoose.Schema(
+  {
+    quotation_no: { type: String, required: true, unique: true, index: true },
+    ref_no: { type: String, trim: true, default: "" },
+    lead: { type: mongoose.Schema.Types.ObjectId, ref: "Lead", required: true, index: true },
+    party_id: { type: mongoose.Schema.Types.ObjectId, ref: "Party", default: null },
+    quotation_date: { type: Date, default: Date.now },
+    valid_until: { type: Date },
+    validity_days: { type: Number, default: 15 },
+    subject: { type: String, trim: true, default: "" },
+    customer_name: { type: String, trim: true, default: "" },
+    kind_attn: { type: String, trim: true, default: "" },
+    phone: { type: String, trim: true, default: "" },
+    cell: { type: String, trim: true, default: "" },
+    email: { type: String, trim: true, default: "" },
+    gstin: { type: String, trim: true, uppercase: true, default: "" },
+    address: {
+      address_line_1: { type: String, default: "" },
+      city: { type: String, default: "" },
+      state: { type: String, default: "" },
+      pincode: { type: String, default: "" },
+      country: { type: String, default: "India" },
+    },
+    items: [
+      {
+        product: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+        product_name: { type: String, required: true },
+        description: { type: String, default: "" },
+        hsn_code: { type: String, default: "" },
+        quantity: { type: Number, required: true, default: 1 },
+        unit: { type: String, default: "Nos" },
+        rate: { type: Number, required: true, default: 0 },
+        taxable_amount: { type: Number, required: true, default: 0 },
+        gst_rate: { type: Number, default: 0 },
+        cgst_rate: { type: Number, default: 0 },
+        cgst_amount: { type: Number, default: 0 },
+        sgst_rate: { type: Number, default: 0 },
+        sgst_amount: { type: Number, default: 0 },
+        igst_rate: { type: Number, default: 0 },
+        igst_amount: { type: Number, default: 0 },
+        total_gst_amount: { type: Number, default: 0 },
+        line_total: { type: Number, required: true, default: 0 },
+      },
+    ],
+    subtotal: { type: Number, default: 0 },
+    total_gst: { type: Number, default: 0 },
+    round_off: { type: Number, default: 0 },
+    grand_total: { type: Number, default: 0 },
+    amount_in_words: { type: String, default: "" },
+    terms_and_conditions: [{ type: String }],
+    company_name: { type: String, default: "" },
+    company_regd_address: { type: String, default: "" },
+    company_phone: { type: String, default: "" },
+    company_email: { type: String, default: "" },
+    company_gstin: { type: String, default: "" },
+    bank_name: { type: String, default: "" },
+    account_name: { type: String, default: "" },
+    account_number: { type: String, default: "" },
+    ifsc_code: { type: String, default: "" },
+    branch_name: { type: String, default: "" },
+    account_type: { type: String, default: "" },
+    signatory_name: { type: String, default: "" },
+    signatory_phone: { type: String, default: "" },
+    signatory_email: { type: String, default: "" },
+    signatory_designation: { type: String, default: "" },
+    status: {
+      type: String,
+      enum: ["draft", "sent", "accepted", "rejected", "expired"],
+      default: "draft",
+      index: true,
+    },
+    created_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    updated_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    deletedAt: { type: Date, default: null, index: true },
+  },
+  { timestamps: true }
+);
+
+export default mongoose.models.LeadQuotation || mongoose.model("LeadQuotation", leadQuotationSchema);
