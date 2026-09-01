@@ -456,6 +456,191 @@ async function bootstrap() {
     });
   }
 
+  const { LeadSource, LeadLostReason } = getModels();
+  const DEFAULT_LEAD_SOURCES = [
+    'Website',
+    'Google Ads',
+    'Meta Ads',
+    'WhatsApp',
+    'Phone Call',
+    'Email',
+    'Referral',
+    'Existing Customer',
+    'Sales Executive',
+    'Exhibition',
+    'Walk-in',
+    'Other',
+  ];
+  for (const src of DEFAULT_LEAD_SOURCES) {
+    const exists = await LeadSource.findOne({ name: src, deletedAt: null });
+    if (!exists) {
+      await LeadSource.create({
+        name: src,
+        code: src.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+        is_system: true,
+        is_active: true,
+        created_by: admin ? admin._id : undefined,
+      });
+    }
+  }
+
+  const DEFAULT_LOST_REASONS = [
+    'Price',
+    'Competitor',
+    'No Requirement',
+    'Budget Issue',
+    'Not Reachable',
+    'Delayed Decision',
+    'Duplicate Lead',
+    'Invalid Lead',
+    'Other',
+  ];
+  for (const rsn of DEFAULT_LOST_REASONS) {
+    const exists = await LeadLostReason.findOne({ name: rsn, deletedAt: null });
+    if (!exists) {
+      await LeadLostReason.create({
+        name: rsn,
+        code: rsn.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+        is_system: true,
+        is_active: true,
+        created_by: admin ? admin._id : undefined,
+      });
+    }
+  }
+
+  const { Lead, Product: ProductModel, User: UserModel } = getModels();
+  const leadCount = await Lead.countDocuments({ deletedAt: null });
+  if (leadCount === 0) {
+    const salesUser = await UserModel.findOne({ department: 'sales', deletedAt: null });
+    const anyProduct = await ProductModel.findOne({ deletedAt: null });
+
+    const SAMPLE_LEADS = [
+      {
+        lead_no: 'LD-20260901-0001',
+        name: 'Dr. Rajesh Sharma',
+        company_name: 'City Heart & Multispeciality Clinic',
+        phone: '+919820112233',
+        email: 'dr.rajesh@cityheart.example',
+        source: 'Website',
+        status: 'qualified',
+        priority: 'high',
+        estimated_value: 450000,
+        assigned_to: salesUser ? salesUser._id : (admin ? admin._id : undefined),
+        created_by: admin ? admin._id : undefined,
+        billing_address: {
+          address_line_1: '102 Medical Enclave, Andheri West',
+          city: 'Mumbai',
+          state: 'Maharashtra',
+          pincode: '400053',
+          country: 'India',
+        },
+        industry: 'Cardiology & Diagnostic',
+        requirement: 'Surgical monitors and ECG disposable electrodes bulk order',
+        next_follow_up_at: new Date(Date.now() + 24 * 3600 * 1000),
+        products: anyProduct ? [{ product: anyProduct._id, product_name: anyProduct.product_name, quantity: 50, target_price: 9000 }] : [],
+      },
+      {
+        lead_no: 'LD-20260901-0002',
+        name: 'Sunita Patel',
+        company_name: 'Metro Diagnostics & Labs',
+        phone: '+919876543210',
+        email: 'procurement@metrodiag.example',
+        source: 'Google Ads',
+        status: 'contacted',
+        priority: 'medium',
+        estimated_value: 180000,
+        assigned_to: salesUser ? salesUser._id : (admin ? admin._id : undefined),
+        created_by: admin ? admin._id : undefined,
+        billing_address: {
+          address_line_1: 'Plot 45, FC Road',
+          city: 'Pune',
+          state: 'Maharashtra',
+          pincode: '411004',
+          country: 'India',
+        },
+        industry: 'Pathology & Diagnostic',
+        requirement: 'Rapid test kits and laboratory consumables',
+        next_follow_up_at: new Date(Date.now() + 48 * 3600 * 1000),
+        products: anyProduct ? [{ product: anyProduct._id, product_name: anyProduct.product_name, quantity: 200, target_price: 900 }] : [],
+      },
+      {
+        lead_no: 'LD-20260901-0003',
+        name: 'Vikram Malhotra',
+        company_name: 'Apex Ortho Surgical Centre',
+        phone: '+919911223344',
+        email: 'vikram@apexortho.example',
+        source: 'Referral',
+        status: 'quotation',
+        priority: 'urgent',
+        estimated_value: 850000,
+        assigned_to: salesUser ? salesUser._id : (admin ? admin._id : undefined),
+        created_by: admin ? admin._id : undefined,
+        billing_address: {
+          address_line_1: 'Sector 18',
+          city: 'Noida',
+          state: 'Uttar Pradesh',
+          pincode: '201301',
+          country: 'India',
+        },
+        industry: 'Orthopedic Surgery',
+        requirement: 'Orthopedic implants, surgical power tools and sterilization containers',
+        next_follow_up_at: new Date(Date.now() + 12 * 3600 * 1000),
+        products: anyProduct ? [{ product: anyProduct._id, product_name: anyProduct.product_name, quantity: 15, target_price: 56000 }] : [],
+      },
+      {
+        lead_no: 'LD-20260901-0004',
+        name: 'Dr. Anand Verma',
+        company_name: 'CareWell Life Hospital',
+        phone: '+919712345678',
+        email: 'anand.verma@carewell.example',
+        source: 'Exhibition',
+        status: 'negotiation',
+        priority: 'high',
+        estimated_value: 620000,
+        assigned_to: salesUser ? salesUser._id : (admin ? admin._id : undefined),
+        created_by: admin ? admin._id : undefined,
+        billing_address: {
+          address_line_1: 'Indiranagar 100ft Road',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          pincode: '560038',
+          country: 'India',
+        },
+        industry: 'General Hospital',
+        requirement: 'ICU patient monitors, syringe pumps and crash carts',
+        next_follow_up_at: new Date(Date.now() - 3600 * 1000),
+        products: anyProduct ? [{ product: anyProduct._id, product_name: anyProduct.product_name, quantity: 10, target_price: 62000 }] : [],
+      },
+      {
+        lead_no: 'LD-20260901-0005',
+        name: 'Pooja Deshmukh',
+        company_name: 'Sahyadri Pharma Distribution',
+        phone: '+919823456789',
+        email: 'pooja@sahyadripharma.example',
+        source: 'Phone Call',
+        status: 'won',
+        priority: 'medium',
+        estimated_value: 320000,
+        assigned_to: salesUser ? salesUser._id : (admin ? admin._id : undefined),
+        created_by: admin ? admin._id : undefined,
+        billing_address: {
+          address_line_1: 'MIDC Satpur',
+          city: 'Nashik',
+          state: 'Maharashtra',
+          pincode: '422007',
+          country: 'India',
+        },
+        industry: 'Pharma Wholesale',
+        requirement: 'Surgical gloves, IV sets, and cannula supplies',
+        products: anyProduct ? [{ product: anyProduct._id, product_name: anyProduct.product_name, quantity: 1000, target_price: 320 }] : [],
+      },
+    ];
+
+    for (const item of SAMPLE_LEADS) {
+      await Lead.create(item);
+    }
+  }
+
   logger.info('[seedMongo] Mongo bootstrap complete', catalog);
   return { ran: true, catalog };
 }

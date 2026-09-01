@@ -62,6 +62,13 @@ function formatMoney(v: number): string {
   });
 }
 
+function formatQty(v: number): string {
+  return v.toLocaleString("en-IN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 function sumStats(stats: OrderWorkflowTabStat[]): OrderWorkflowTabStat {
   return stats.reduce(
     (acc, row) => ({
@@ -268,16 +275,16 @@ export default function OverviewWidgets({
       isSales
         ? [
             card.label,
-            card.quantity.toLocaleString(),
-            card.kitQuantity.toLocaleString(),
-            card.count.toLocaleString(),
+            formatQty(card.quantity),
+            formatQty(card.kitQuantity),
+            card.count.toLocaleString("en-IN"),
           ]
         : [
             card.label,
             `₹${formatMoney(card.amount)}`,
-            card.quantity.toLocaleString(),
-            card.kitQuantity.toLocaleString(),
-            card.count.toLocaleString(),
+            formatQty(card.quantity),
+            formatQty(card.kitQuantity),
+            card.count.toLocaleString("en-IN"),
           ],
     );
 
@@ -321,12 +328,12 @@ export default function OverviewWidgets({
           {cards.map((card) => {
             const { Icon } = card;
             const isSales = role === "sales";
-            const orderLabel = `${card.count.toLocaleString()} ${
+            const orderLabel = `${card.count.toLocaleString("en-IN")} ${
               card.count === 1 ? "order" : "orders"
             }`;
             const kitLabel =
               card.kitQuantity > 0
-                ? `${card.kitQuantity.toLocaleString()} ${
+                ? `${formatQty(card.kitQuantity)} ${
                     card.kitQuantity === 1 ? "kit" : "kits"
                   }`
                 : null;
@@ -349,7 +356,7 @@ export default function OverviewWidgets({
                     {isOrdersFetching ? (
                       <span className="inline-block h-6 w-24 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
                     ) : isSales ? (
-                      card.quantity.toLocaleString()
+                      formatQty(card.quantity)
                     ) : (
                       `₹${formatMoney(card.amount)}`
                     )}
@@ -368,7 +375,7 @@ export default function OverviewWidgets({
                       </>
                     ) : (
                       <>
-                        {card.quantity.toLocaleString()} items
+                        {formatQty(card.quantity)} items
                         {kitLabel ? (
                           <span className="text-violet-600 dark:text-violet-400">
                             {" "}

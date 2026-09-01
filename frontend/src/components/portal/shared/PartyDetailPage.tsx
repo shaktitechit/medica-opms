@@ -61,7 +61,21 @@ import {
   useListProductsQuery,
   useListOrdersQuery,
   useDeleteOrderMutation,
+  useListUsersQuery,
 } from "@/store/api";
+import {
+  formatDateTime,
+  renderWorkflowStatusBadge,
+} from "./orderList/orderListDisplay";
+import { orderMatchesDateFilter } from "./orderList/orderListDateFilter";
+import { OrderListSearchDatePanel } from "./orderList/OrderListSearchDatePanel";
+import { OrderListPaginationBar } from "./orderList/OrderListPaginationBar";
+import { getOrderTabCategory } from "@/components/portal/sales/orderUtils";
+import { useOrderWorkflowCategoryOptions } from "./orderList/useOrderWorkflowCategoryOptions";
+import {
+  buildUserNameById,
+  resolveUserDisplay,
+} from "@/components/portal/shared/userDisplay";
 import { PartyContactsDisplay } from "./PartyContactsDisplay";
 import { PartyDetailModal } from "./PartyDetailModal";
 import { contactsFromParty } from "@/lib/partyContacts";
@@ -219,161 +233,19 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
     skip: !id,
   });
 
+  const salesUsersQ = useListUsersQuery({ department: "sales" });
+  const salesUserNameById = useMemo(
+    () => buildUserNameById(salesUsersQ.data),
+    [salesUsersQ.data],
+  );
+
   // Modal & Tab states
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editModalTab, setEditModalTab] = useState<"details" | "contacts" | "address">("details");
   const [activeTab, setActiveTab] = useState<"profile" | "contacts" | "addresses" | "products" | "orders">("profile");
 
-  // Orders related state
-  const [orderSearchQuery, setOrderSearchQuery] = useState("");
-  const [debouncedOrderSearch, setDebouncedOrderSearch] = useState("");
-  const [orderStageTab, setOrderStageTab] = useState<PartyOrderStageTab>("all");
-  const [orderPriorityFilter, setOrderPriorityFilter] = useState("all");
-  const [orderCurrentPage, setOrderCurrentPage] = useState(1);
-  const [orderItemsPerPage, setOrderItemsPerPage] = useState(10);
-  const [deleteOrderTarget, setDeleteOrderTarget] = useState<{ id: string; label: string } | null>(null);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedOrderSearch(orderSearchQuery);
-    }, 350);
-    return () => clearTimeout(handler);
-  }, [orderSearchQuery]);
-
-  const queryParams = useMemo(() => {
-    const params: Record<string, string> = {
-      party: id,
-      paginate: "true",
-      page: String(orderCurrentPage),
-      limit: String(orderItemsPerPage),
-    };
-    if (debouncedOrderSearch.trim()) {
-      params.search = debouncedOrderSearch.trim();
-    }
-    if (orderStageTab !== "all") {
-      params.status = orderStageTab;
-    }
-    if (orderPriorityFilter !== "all") {
-      params.priority = orderPriorityFilter;
-    }
-    return params;
-  }, [id, orderCurrentPage, orderItemsPerPage, debouncedOrderSearch, orderStageTab, orderPriorityFilter]);
-
-  const { data: rawOrders, isFetching: isOrdersFetching, isError: isOrdersError, refetch: refetchOrders } = useListOrdersQuery(queryParams);
   const { data: rawAllPartyOrders } = useListOrdersQuery({ party: id });
-
-  const [deleteOrder, { isLoading: isDeletingOrder }] = useDeleteOrderMutation();
-
-  const closeDeleteOrderModal = useCallback(() => setDeleteOrderTarget(null), []);
-
-  const confirmDeleteOrderDraft = useCallback(async () => {
-    if (!deleteOrderTarget) return;
-    const { id } = deleteOrderTarget;
-    try {
-      await deleteOrder(id).unwrap();
-      toast.success(mutationSuccessCopy("deleteOrder"));
-      setDeleteOrderTarget(null);
-      refetchOrders();
-    } catch (rejected) {
-      toast.error(mutationRejectedMessage(rejected));
-    }
-  }, [deleteOrder, deleteOrderTarget, refetchOrders]);
-
   const allPartyOrders = useMemo(() => pickOrders(rawAllPartyOrders) as any[], [rawAllPartyOrders]);
-
-  const orderMetrics = useMemo(() => {
-    let totalSpent = 0;
-    let openCount = 0;
-    let closedCount = 0;
-    let totalItems = 0;
-    let deliveredItems = 0;
-
-    allPartyOrders.forEach((o) => {
-      const total = Number(o.grand_total ?? o.total ?? 0);
-      if (Number.isFinite(total)) {
-        totalSpent += total;
-      }
-
-      const cat = getPartyOrderTabCategory(o, portal);
-      if (!cat) return;
-      if (cat === "open_dispatched" || cat === "on_hold") {
-        openCount++;
-      } else if (cat === "closed_delivered") {
-        closedCount++;
-      }
-
-      const items = Array.isArray(o.order_items) ? o.order_items : [];
-      items.forEach((item: any) => {
-        const qty = Number(item.ordered_quantity ?? item.quantity ?? 0);
-        const del = Number(item.delivered_quantity ?? 0);
-        totalItems += qty;
-        deliveredItems += del;
-      });
-    });
-
-    const fulfillmentRate = totalItems > 0 ? Math.min(100, Math.round((deliveredItems / totalItems) * 100)) : 0;
-
-    return {
-      totalCount: allPartyOrders.length,
-      totalSpent,
-      openCount,
-      closedCount,
-      fulfillmentRate,
-    };
-  }, [allPartyOrders, portal]);
-
-  const tabCounts = useMemo(() => {
-    const counts = Object.fromEntries(
-      PARTY_ORDER_TABS.map(({ id }) => [id, 0]),
-    ) as Record<PartyOrderStageTab, number>;
-
-    allPartyOrders.forEach((o) => {
-      if (orderPriorityFilter !== "all" && (o.priority || "").toLowerCase() !== orderPriorityFilter.toLowerCase()) {
-        return;
-      }
-      if (orderSearchQuery.trim()) {
-        const query = orderSearchQuery.toLowerCase();
-        const oid = orderKey(o);
-        const ref = (
-          typeof o.order_no === "string"
-            ? o.order_no
-            : typeof o.order_number === "string"
-              ? o.order_number
-              : oid || ""
-        ).toLowerCase();
-        if (!ref.includes(query)) return;
-      }
-
-      counts.all++;
-      const cat = getPartyOrderTabCategory(o, portal);
-      if (cat) {
-        counts[cat]++;
-      }
-    });
-
-    return counts;
-  }, [allPartyOrders, orderPriorityFilter, orderSearchQuery, portal]);
-
-  const filteredOrders = useMemo(() => pickOrders(rawOrders) as any[], [rawOrders]);
-
-  const paginatedOrders = filteredOrders;
-
-  const totalFilteredCount = useMemo(() => {
-    if (rawOrders && typeof rawOrders === "object" && "total" in rawOrders) {
-      return Number((rawOrders as any).total) || 0;
-    }
-    return filteredOrders.length;
-  }, [rawOrders, filteredOrders]);
-
-  const orderTotalPages = useMemo(() => {
-    if (rawOrders && typeof rawOrders === "object" && "pages" in rawOrders) {
-      return Number((rawOrders as any).pages) || 1;
-    }
-    return 1;
-  }, [rawOrders]);
-
-  const orderStartEntry = totalFilteredCount > 0 ? (orderCurrentPage - 1) * orderItemsPerPage + 1 : 0;
-  const orderEndEntry = Math.min(orderCurrentPage * orderItemsPerPage, totalFilteredCount);
 
   // Party-Product Mappings State
   const [productSearchQuery, setProductSearchQuery] = useState("");
@@ -1124,455 +996,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
         )}
 
         {activeTab === "orders" && (
-          <div className="space-y-6">
-            {/* Summary Metrics Grid */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {/* Card 1: Total Orders */}
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 flex items-center gap-4">
-                <div className="rounded-lg bg-blue-50 p-2.5 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Orders</p>
-                  <h4 className="text-xl font-bold text-slate-900 dark:text-slate-50 mt-0.5">{orderMetrics.totalCount}</h4>
-                </div>
-              </div>
-
-              {/* Card 2: Total Volume */}
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 flex items-center gap-4">
-                <div className="rounded-lg bg-emerald-50 p-2.5 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
-                  <DollarSign className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Volume</p>
-                  <h4 className="text-xl font-bold text-slate-900 dark:text-slate-50 mt-0.5">
-                    ${orderMetrics.totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </h4>
-                </div>
-              </div>
-
-              {/* Card 3: Open Orders */}
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 flex items-center gap-4">
-                <div className="rounded-lg bg-amber-50 p-2.5 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400">
-                  <Package className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Open Orders</p>
-                  <h4 className="text-xl font-bold text-slate-900 dark:text-slate-50 mt-0.5">{orderMetrics.openCount}</h4>
-                </div>
-              </div>
-
-              {/* Card 4: Fulfillment Rate */}
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 flex items-center gap-4">
-                <div className="rounded-lg bg-purple-50 p-2.5 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400">
-                  <Truck className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Fulfillment Rate</p>
-                  <h4 className="text-xl font-bold text-slate-900 dark:text-slate-50 mt-0.5">{orderMetrics.fulfillmentRate}%</h4>
-                </div>
-              </div>
-            </div>
-
-            {/* Search and Filters */}
-            <div className="flex flex-col gap-4">
-              {/* Universal Search Bar */}
-              <div className="relative rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm p-4">
-                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">
-                  Search Orders
-                </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
-                    <Search className="h-4 w-4" />
-                  </span>
-                  <input
-                    type="text"
-                    value={orderSearchQuery}
-                    onChange={(e) => {
-                      setOrderSearchQuery(e.target.value);
-                      setOrderCurrentPage(1);
-                    }}
-                    placeholder="Search by order #..."
-                    className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/15 dark:bg-slate-955 dark:text-slate-50 dark:focus:border-blue-500"
-                  />
-                  {orderSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOrderSearchQuery("");
-                        setOrderCurrentPage(1);
-                      }}
-                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 cursor-pointer"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Horizontal Nav Tabs & Priority Filter */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/10 pb-2 md:pb-0">
-                {orderSearchQuery.trim() ? (
-                  <div className="flex items-center gap-2.5 py-3">
-                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                      Showing <span className="font-bold text-blue-600 dark:text-blue-400">{totalFilteredCount}</span> search results for <span className="italic font-bold text-slate-900 dark:text-slate-100">"{orderSearchQuery}"</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOrderSearchQuery("");
-                        setOrderCurrentPage(1);
-                      }}
-                      className="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer"
-                    >
-                      <X className="h-3 w-3" />
-                      Clear
-                    </button>
-                  </div>
-                ) : (
-                  <nav className="-mb-px flex space-x-6 overflow-x-auto pb-px scrollbar-none" aria-label="Order stages">
-                    {PARTY_ORDER_TABS.map((tab) => {
-                      const isActive = orderStageTab === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => {
-                            setOrderStageTab(tab.id);
-                            setOrderCurrentPage(1);
-                          }}
-                          className={`group border-b-2 py-4 px-1 text-sm font-semibold transition whitespace-nowrap inline-flex items-center gap-2 cursor-pointer ${
-                            isActive
-                              ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
-                              : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                          }`}
-                        >
-                          <span>{tab.label}</span>
-                          {!isOrdersFetching && (
-                            <span className={`rounded-full px-2 py-0.5 text-2xs font-bold ${
-                              isActive
-                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                                : "bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-400"
-                            }`}>
-                              {tabCounts[tab.id] ?? 0}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </nav>
-                )}
-
-                <div className="flex items-center gap-2 self-start md:self-center pb-2 md:pb-0">
-                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                    Priority:
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={orderPriorityFilter}
-                      onChange={(e) => {
-                        setOrderPriorityFilter(e.target.value);
-                        setOrderCurrentPage(1);
-                      }}
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100 cursor-pointer"
-                    >
-                      <option value="all">All Priorities</option>
-                      {PRIORITY_OPTIONS.map((pr) => (
-                        <option key={pr.value} value={pr.value}>
-                          {pr.label}
-                        </option>
-                      ))}
-                    </select>
-                    {(orderSearchQuery || orderStageTab !== "all" || orderPriorityFilter !== "all") && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOrderSearchQuery("");
-                          setOrderStageTab("all");
-                          setOrderPriorityFilter("all");
-                          setOrderCurrentPage(1);
-                        }}
-                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 pl-1 cursor-pointer"
-                      >
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Orders Cards List */}
-            <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900 shadow-sm overflow-hidden">
-              {isOrdersFetching && (
-                <div className="flex flex-col items-center justify-center py-16 space-y-2">
-                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-                  <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Loading orders...</p>
-                </div>
-              )}
-
-              {isOrdersError && (
-                <div className="text-center py-16 px-4">
-                  <span className="text-2xl">⚠️</span>
-                  <h3 className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
-                    Failed to load orders
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Please try refreshing the page.
-                  </p>
-                </div>
-              )}
-
-              {!isOrdersFetching && !isOrdersError && filteredOrders.length === 0 && (
-                <div className="text-center py-16 px-4">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-slate-50 dark:bg-slate-955 text-slate-400 text-xl border border-slate-100 dark:border-white/5">
-                    📋
-                  </div>
-                  <h3 className="mt-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    No orders found
-                  </h3>
-                  <p className="mt-1.5 text-xs text-slate-500 max-w-xs mx-auto">
-                    {allPartyOrders.length === 0
-                      ? "No orders exist for this party."
-                      : "No orders match your search and filter parameters."}
-                  </p>
-                </div>
-              )}
-
-              {!isOrdersFetching && !isOrdersError && filteredOrders.length > 0 && (
-                <>
-                  <div className="p-4 flex flex-col gap-3.5 bg-slate-50/10 dark:bg-slate-955/10">
-                    {paginatedOrders.map((o) => {
-                      const oid = orderKey(o);
-                      const ref =
-                        typeof o.order_no === "string"
-                          ? o.order_no
-                          : typeof o.order_number === "string"
-                            ? o.order_number
-                            : oid || "—";
-                      const total = Number(o.grand_total ?? o.total ?? 0);
-                      const pri = typeof o.priority === "string" ? o.priority : "normal";
-                      const deptBoxes = computeDepartmentStageBoxes(
-                        o as Record<string, unknown>,
-                        null,
-                      );
-                      const adminBox = deptBoxes.find((b) => b.id === "admin");
-                      const financeBox = deptBoxes.find((b) => b.id === "finance");
-                      const dispatchBox = deptBoxes.find((b) => b.id === "dispatch");
-                      const accountBox = deptBoxes.find((b) => b.id === "account");
-  const deliveryBox = deptBoxes.find((b) => b.id === "delivery");
-
-                      const adminStatusDim = adminBox?.status;
-                      const financeStatusDim = financeBox?.status;
-                      const dispatchStatusDim = dispatchBox?.status;
-                      const accountStatusDim = accountBox?.status;
-  const deliveryStatusDim = deliveryBox?.status;
-
-                      const orderItems = Array.isArray(o.order_items) ? o.order_items : [];
-                      const orderedQty = Math.max(1, orderItems.reduce((acc: number, item: any) => {
-                        return acc + (Number(item.ordered_quantity ?? item.quantity) || 0);
-                      }, 0));
-
-                      const statusRaw = deriveOrderWorkflowStatus(o) || "draft";
-                      const isDraftRow = statusRaw === "draft";
-                      const orderDateStr = formatDateShort(o.order_date ?? o.created_at ?? o.createdAt);
-                      const expectedDeliveryStr = formatDateShort(o.expected_delivery_date);
-
-                      let stripeColor = "bg-slate-350 dark:bg-slate-700";
-                      if (pri === "urgent") stripeColor = "bg-rose-500";
-                      else if (pri === "high") stripeColor = "bg-amber-500";
-                      else if (pri === "normal") stripeColor = "bg-blue-500";
-
-                      return (
-                        <div
-                          key={oid || ref}
-                          onClick={() => {
-                            if (oid) {
-                              router.push(`${portalHome}/order/${oid}`);
-                            }
-                          }}
-                          className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 transition-all duration-300 hover:shadow-md hover:border-blue-500/20 dark:border-white/10 dark:bg-slate-900 flex flex-col gap-4 pl-5 animate-fadeIn cursor-pointer"
-                        >
-                          {/* Priority Accent Stripe */}
-                          <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${stripeColor}`} />
-
-                          {/* Top Row: Ref, Badges, Financials & Dates, Actions */}
-                          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full border-b border-slate-100/60 pb-3 dark:border-white/5">
-                            {/* Ref & Badges */}
-                            <div className="flex items-center justify-between lg:justify-start lg:gap-2 lg:w-[130px] lg:shrink-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-50">
-                                  {ref}
-                                </span>
-                                {renderPriorityBadge(pri)}
-                              </div>
-
-                              {/* Mobile Actions (hidden on lg and up) */}
-                              {isDraftRow && oid ? (
-                                <div className="flex items-center gap-2 lg:hidden">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDeleteOrderTarget({ id: oid, label: ref });
-                                    }}
-                                    disabled={isDeletingOrder}
-                                    className="inline-flex items-center justify-center rounded border border-slate-200 hover:border-rose-350 p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                                    title="Delete Draft Order"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-
-                            {/* Party Title (Already on Party's Detail Page, but keep label for consistent horizontal spacing / layout) */}
-                            <span
-                              className="text-xs font-semibold text-slate-500 dark:text-slate-400 lg:flex-1 break-words whitespace-normal"
-                            >
-                              Party Order
-                            </span>
-
-                            {/* Financials & Dates */}
-                            <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-8 lg:w-[280px] lg:shrink-0 text-xs text-slate-500 dark:text-slate-400">
-                              <div className="flex flex-col min-w-[90px]">
-                                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                  Grand Total
-                                </span>
-                                <span className="mt-0.5 font-bold tabular-nums text-slate-900 dark:text-slate-50 text-xs">
-                                  ${Number.isFinite(total) ? total.toFixed(2) : "0.00"}
-                                </span>
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                  Created
-                                </span>
-                                <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
-                                  {orderDateStr}
-                                </span>
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                  Expected Delivery
-                                </span>
-                                <span className="mt-0.5 font-semibold tabular-nums text-slate-700 dark:text-slate-355">
-                                  {expectedDeliveryStr}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Desktop Actions (hidden on lg and below) */}
-                            <div className="hidden lg:flex lg:items-center lg:gap-2 lg:w-[40px] lg:shrink-0 lg:justify-end">
-                              {isDraftRow && oid ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setDeleteOrderTarget({ id: oid, label: ref });
-                                  }}
-                                  disabled={isDeletingOrder}
-                                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 hover:border-rose-350 p-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                                  title="Delete Draft Order"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          {/* Bottom Row: Pipeline */}
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/30 p-2.5 rounded-lg dark:bg-slate-955/5 border border-slate-100/50 dark:border-white/5">
-                            <span className="text-slate-400 dark:text-slate-500 font-bold text-2xs uppercase tracking-wider">
-                              Fulfillment Pipeline
-                            </span>
-                            <div className="flex items-center gap-4 sm:gap-6">
-                              <FulfillmentCircleStep label="Admin" status={adminStatusDim} completed={adminBox?.completedQty} total={orderedQty} icon={UserCheck} />
-                              <FulfillmentCircleStep label="Finance" status={financeStatusDim} completed={financeBox?.completedQty} total={orderedQty} icon={DollarSign} />
-                              <FulfillmentCircleStep label="Dispatch" status={dispatchStatusDim} completed={dispatchBox?.completedQty} total={orderedQty} icon={Package} />
-                              <FulfillmentCircleStep label="Delivery" status={deliveryStatusDim} completed={deliveryBox?.completedQty} total={orderedQty} icon={Truck} />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Pagination Navigation Footer */}
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-t border-slate-200/60 dark:border-white/5 bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className="text-xs">
-                        Showing <span className="font-semibold text-slate-800 dark:text-slate-200">{orderStartEntry}</span> to{" "}
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">{orderEndEntry}</span> of{" "}
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">{totalFilteredCount}</span> entries
-                      </span>
-                      <span className="text-slate-350 dark:text-slate-700">|</span>
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs font-medium text-slate-500">Rows per page:</span>
-                        <select
-                          value={orderItemsPerPage}
-                          onChange={(e) => {
-                            setOrderItemsPerPage(Number(e.target.value));
-                            setOrderCurrentPage(1);
-                          }}
-                          className="rounded bg-transparent border-none py-0.5 text-xs font-semibold text-slate-750 focus:ring-0 cursor-pointer dark:text-slate-200"
-                        >
-                          <option value={10}>10</option>
-                          <option value={25}>25</option>
-                          <option value={50}>50</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 self-center sm:self-auto">
-                      <button
-                        type="button"
-                        onClick={() => setOrderCurrentPage(1)}
-                        disabled={orderCurrentPage === 1}
-                        className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                        title="First Page"
-                      >
-                        <ChevronsLeft className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setOrderCurrentPage((pg) => Math.max(1, pg - 1))}
-                        disabled={orderCurrentPage === 1}
-                        className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                        title="Previous Page"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
-
-                      <span className="text-xs font-semibold px-2">
-                        Page {orderCurrentPage} of {orderTotalPages || 1}
-                      </span>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOrderCurrentPage((pg) => Math.min(orderTotalPages, pg + 1))
-                        }
-                        disabled={orderCurrentPage === orderTotalPages || orderTotalPages === 0}
-                        className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                        title="Next Page"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setOrderCurrentPage(orderTotalPages)}
-                        disabled={orderCurrentPage === orderTotalPages || orderTotalPages === 0}
-                        className="rounded-lg p-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 cursor-pointer transition-colors"
-                        title="Last Page"
-                      >
-                        <ChevronsRight className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+          <PartyOrdersTab partyId={id} portalHome={portalHome} />
         )}
       </div>
 
@@ -1641,14 +1065,7 @@ export default function PartyDetailPage({ id, portalHome }: PartyDetailPageProps
         />
       )}
 
-      {/* Delete Order Confirmation */}
-      <ConfirmDeleteDraftModal
-        orderId={deleteOrderTarget?.id ?? null}
-        orderLabel={deleteOrderTarget?.label ?? ""}
-        isDeleting={isDeletingOrder}
-        onClose={closeDeleteOrderModal}
-        onConfirm={confirmDeleteOrderDraft}
-      />
+
     </div>
   );
 }
@@ -2821,5 +2238,280 @@ function ConfirmDeleteRateModal({
       </div>
     </div>
     </LargeModalPortal>
+  );
+}
+
+function PartyOrdersTab({
+  partyId,
+  portalHome,
+}: {
+  partyId: string;
+  portalHome: string;
+}) {
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+
+  const { data: rawOrders, isLoading, isError, refetch } = useListOrdersQuery({
+    party: partyId,
+  });
+  const salesUsersQ = useListUsersQuery({ department: "sales" });
+  const categoryOptions = useOrderWorkflowCategoryOptions();
+
+  const salesUserNameById = useMemo(
+    () => buildUserNameById(salesUsersQ.data),
+    [salesUsersQ.data],
+  );
+
+  const [deleteOrder, { isLoading: isDeletingOrder }] = useDeleteOrderMutation();
+
+  const orders = useMemo(() => {
+    return pickOrders(rawOrders) as any[];
+  }, [rawOrders]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, dateFilter, customDateFrom, customDateTo]);
+
+  const filteredOrders = useMemo(() => {
+    return orders.filter((o: any) => {
+      // 1. Search Query
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const id = orderKey(o);
+        const ref = (o.order_no || o.order_number || id || "").toLowerCase();
+        const salesPersonLabel = resolveUserDisplay(o.assigned_sales_user, salesUserNameById).toLowerCase();
+        if (!ref.includes(query) && !salesPersonLabel.includes(query)) {
+          return false;
+        }
+      }
+      // 2. Date Filter
+      if (!orderMatchesDateFilter(o, dateFilter, customDateFrom, customDateTo)) {
+        return false;
+      }
+      return true;
+    });
+  }, [orders, searchQuery, dateFilter, customDateFrom, customDateTo, salesUserNameById]);
+
+  const totalEntries = filteredOrders.length;
+  const totalPages = Math.max(1, Math.ceil(totalEntries / itemsPerPage) || 1);
+
+  const paginatedOrders = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredOrders.slice(start, start + itemsPerPage);
+  }, [filteredOrders, currentPage, itemsPerPage]);
+
+  const startEntry = totalEntries > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
+  const endEntry = Math.min(currentPage * itemsPerPage, totalEntries);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await deleteOrder(deleteTarget.id).unwrap();
+      toast.success(mutationSuccessCopy("deleteOrder"));
+      setDeleteTarget(null);
+      refetch();
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  };
+
+  if (isLoading || salesUsersQ.isLoading) {
+    return (
+      <div className="text-center py-10 text-xs text-slate-500">
+        Loading orders...
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="text-center py-10 text-xs text-rose-500">
+        Failed to load orders.
+      </div>
+    );
+  }
+
+  if (orders.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-12 text-center dark:border-white/10 dark:bg-slate-900">
+        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+          No orders exist for this party.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <OrderListSearchDatePanel
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        dateFilter={dateFilter}
+        onDateFilterChange={setDateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        onCustomDateFromChange={setCustomDateFrom}
+        onCustomDateToChange={setCustomDateTo}
+        desktopPlaceholder="Search by order # or sales person..."
+        mobilePlaceholder="Search order # or sales..."
+        compact
+      />
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900 overflow-hidden">
+        {totalEntries === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              No matching orders found
+            </h3>
+            <p className="mx-auto mt-1.5 max-w-xs text-xs text-slate-500">
+              No orders match your search and filter parameters.
+            </p>
+          </div>
+        ) : (
+          <>
+            <OrderListPaginationBar
+              startEntry={startEntry}
+              endEntry={endEntry}
+              totalEntries={totalEntries}
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={(value) => {
+                setItemsPerPage(value);
+                setCurrentPage(1);
+              }}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+            />
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50 dark:border-white/5 dark:bg-slate-900/50">
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Order No
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Sales Person
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Grand Total
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Order Date
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Expected Delivery
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Priority
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-right font-semibold uppercase tracking-wider text-slate-500">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                  {paginatedOrders.map((o: any) => {
+                    const id = orderKey(o);
+                    const ref = o.order_no || o.order_number || id || "—";
+                    const salesPersonLabel = resolveUserDisplay(
+                      o.assigned_sales_user,
+                      salesUserNameById,
+                    );
+                    const total = Number(o.grand_total ?? o.total ?? 0);
+                    const pri = typeof o.priority === "string" ? o.priority : "normal";
+                    const orderDateStr = formatDateTime(
+                      o.order_date ?? o.created_at ?? o.createdAt,
+                    );
+                    const expectedDeliveryStr = formatDateShort(
+                      o.expected_delivery_date,
+                    );
+                    const statusRaw = getOrderTabCategory(o, categoryOptions);
+                    const isDraftRow = statusRaw === "draft";
+
+                    return (
+                      <tr
+                        key={id || ref}
+                        className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors animate-fadeIn cursor-pointer"
+                        onClick={() => {
+                          if (id) router.push(`${portalHome}/order/${id}`);
+                        }}
+                      >
+                        <td className="whitespace-nowrap px-4 py-3 font-mono font-bold text-slate-900 dark:text-slate-100">
+                          {ref}
+                        </td>
+                        <td className="px-4 py-3 text-slate-655 dark:text-slate-355">
+                          {salesPersonLabel}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-bold text-slate-900 dark:text-slate-50 tabular-nums">
+                          ₹{total.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-500 dark:text-slate-400">
+                          {orderDateStr}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-500 dark:text-slate-400">
+                          {expectedDeliveryStr}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
+                          {renderPriorityBadge(pri)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
+                          {renderWorkflowStatusBadge(statusRaw as any)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (id) router.push(`${portalHome}/order/${id}`);
+                              }}
+                              className="rounded border border-slate-200 px-2 py-1 font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+                            >
+                              View
+                            </button>
+                            {isDraftRow && id && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTarget({ id, label: ref });
+                                }}
+                                disabled={isDeletingOrder}
+                                className="inline-flex cursor-pointer items-center justify-center rounded border border-slate-200 p-1 text-rose-600 transition hover:border-rose-350 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:text-rose-455 dark:hover:bg-rose-955/30"
+                                title="Delete Draft Order"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+
+      <ConfirmDeleteDraftModal
+        orderId={deleteTarget?.id ?? null}
+        orderLabel={deleteTarget?.label ?? ""}
+        isDeleting={isDeletingOrder}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+      />
+    </div>
   );
 }

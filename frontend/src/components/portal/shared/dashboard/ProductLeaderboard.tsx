@@ -28,6 +28,7 @@ import {
   normalizeRateType,
   itemMetricValue,
   formatMetricValue,
+  roundToTwo,
 } from "./leaderboardUtils";
 import { isKitShellOrderLine } from "@/components/portal/shared/orderLineQuantities";
 
@@ -161,7 +162,13 @@ export default function ProductLeaderboard({
   const handleDownload = () => {
     if (productRows.length === 0) return;
     const headers = ["Product", valueLabel, "SR", "SRA", "CR"];
-    const rows = productRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
+    const rows = productRows.map((r) => [
+      r.name,
+      roundToTwo(r.total),
+      roundToTwo(r.sr),
+      roundToTwo(r.sra),
+      roundToTwo(r.cr),
+    ]);
     const meta = [
       `Report: ProductLeaderboard`,
       `Period: ${formatPeriodLabel(selectedYears, selectedMonths)}`,
@@ -170,8 +177,8 @@ export default function ProductLeaderboard({
     ];
     if (metric === "quantity") {
       meta.push(
-        `Footer item qty (excl. kits): ${footerTotals.total}`,
-        `Footer kit qty: ${footerTotals.kitTotal}`,
+        `Footer item qty (excl. kits): ${roundToTwo(footerTotals.total)}`,
+        `Footer kit qty: ${roundToTwo(footerTotals.kitTotal)}`,
       );
     }
     downloadCsvFile(

@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 
 const vehicleSchema = new mongoose.Schema(
   {
+    company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
     vehicle_no: {
       type: String,
       required: true,

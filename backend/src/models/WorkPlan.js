@@ -9,6 +9,7 @@ const WORK_PLAN_STATUSES = ["draft", "submitted", "approved", "rejected", "compl
 
 const workPlanSchema = new mongoose.Schema(
   {
+    company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
     plan_date: { type: Date, required: true, index: true },
     sales_user: {
       type: mongoose.Schema.Types.ObjectId,
@@ -20,6 +21,12 @@ const workPlanSchema = new mongoose.Schema(
       type: String,
       enum: WORK_PLAN_STATUSES,
       default: "draft",
+      index: true,
+    },
+    plan_type: {
+      type: String,
+      enum: ["Visits", "Leave", "Work From Home", "Work From Office"],
+      default: "Visits",
       index: true,
     },
     remarks: { type: String, trim: true },

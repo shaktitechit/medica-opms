@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/admin/workPlanner/WorkPlannerStatsWidgets";
 import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
+import LeadManagerStatsWidgets from "@/components/portal/shared/leads/LeadManagerStatsWidgets";
 import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
 import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
@@ -18,6 +19,7 @@ import { useOrderWorkflowCategoryOptions } from "@/components/portal/shared/orde
 import {
   useGetDashboardSuperQuery,
   useGetTransportPlanStatsQuery,
+  useGetCompanyDataQuery,
   useListOrdersQuery,
   useListPartiesQuery,
   useListUsersQuery,
@@ -27,9 +29,21 @@ import { useAppSelector } from "@/store/hooks";
 import { pickOrders } from "@/components/portal/shared/pickOrders";
 import { buildPartyNameById } from "@/components/portal/sales/partyDisplay";
 import { buildUserNameById } from "@/components/portal/shared/userDisplay";
-import { FilePlus, RefreshCw } from "lucide-react";
+import {
+  Building2,
+  FilePlus,
+  RefreshCw,
+  Users,
+  Package,
+  ShoppingCart,
+  Truck,
+  ClipboardList,
+  ShieldCheck,
+  ChevronRight,
+} from "lucide-react";
 import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
 import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
+import { dashboardPeriodToStatsQuery } from "@/components/portal/shared/dashboard/periodFilterUtils";
 
 const PORTAL_HOME = "/super_admin" as const;
 
@@ -44,9 +58,10 @@ export default function SuperAdminOverview() {
   } = useGetDashboardSuperQuery();
 
   const {
-    isFetching: isTransportPlanStatsFetching,
-    refetch: refetchTransportPlanStats,
-  } = useGetTransportPlanStatsQuery({});
+    data: parentCompanyData,
+    isFetching: isParentDataFetching,
+    refetch: refetchParentData,
+  } = useGetCompanyDataQuery();
 
   const {
     data: ordersData,
@@ -88,6 +103,23 @@ export default function SuperAdminOverview() {
     );
   }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
 
+  const periodStatsQuery = useMemo(
+    () =>
+      dashboardPeriodToStatsQuery({
+        dateFilter,
+        customDateFrom,
+        customDateTo,
+        selectedYears,
+        selectedMonths,
+      }),
+    [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths],
+  );
+
+  const {
+    isFetching: isTransportPlanStatsFetching,
+    refetch: refetchTransportPlanStats,
+  } = useGetTransportPlanStatsQuery(periodStatsQuery);
+
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
     [partiesData],
@@ -106,6 +138,7 @@ export default function SuperAdminOverview() {
         refetchKpi().unwrap(),
         refetchOrders().unwrap(),
         refetchTransportPlanStats().unwrap(),
+        refetchParentData().unwrap(),
       ]);
     } catch {
       // Ignore errors
@@ -119,7 +152,11 @@ export default function SuperAdminOverview() {
     isOrdersFetching ||
     isPartiesFetching ||
     isUsersFetching ||
-    isTransportPlanStatsFetching;
+    isTransportPlanStatsFetching ||
+    isParentDataFetching;
+
+  const company = parentCompanyData?.company_info;
+  const metrics = parentCompanyData?.metrics;
 
   return (
     <div className="space-y-8 pb-10">
@@ -139,6 +176,14 @@ export default function SuperAdminOverview() {
 
         <div className="flex flex-wrap items-center gap-3">
           <OverviewFlagsWidget currentDepartment="admin" variant="headerButton" />
+
+          <Link
+            href={`${PORTAL_HOME}/profile?tab=company`}
+            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+          >
+            <Building2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            Company Info & Data
+          </Link>
 
           <button
             type="button"
@@ -161,6 +206,101 @@ export default function SuperAdminOverview() {
             <FilePlus className="h-4 w-4" />
             New Order Draft
           </Link>
+        </div>
+      </div>
+
+      {/* ── PARENT COMPANY DATA SUMMARY BANNER ── */}
+      <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-slate-50 p-5 shadow-sm dark:border-blue-900/30 dark:from-blue-950/20 dark:via-indigo-950/10 dark:to-slate-900/40">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-md">
+              <Building2 className="size-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900 dark:text-slate-50">
+                  {company?.legal_name || company?.trade_name || "Parent Company Organization Root"}
+                </h2>
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800 dark:bg-blue-950/50 dark:text-blue-300">
+                  <ShieldCheck className="size-3" /> Parent Entity
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                Central parent of all data across Users, Products, Parties, Orders, Logistics & Operations.
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href={`${PORTAL_HOME}/profile?tab=company`}
+            className="flex items-center gap-1.5 self-start md:self-auto rounded-xl border border-blue-200 bg-white px-3.5 py-2 text-xs font-semibold text-blue-700 shadow-sm transition hover:bg-blue-50 dark:border-blue-800/40 dark:bg-slate-800 dark:text-blue-300 dark:hover:bg-slate-700"
+          >
+            Manage Company Profile & Full Data
+            <ChevronRight className="size-3.5" />
+          </Link>
+        </div>
+
+        {/* Quick KPI Row */}
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 pt-4 border-t border-blue-100/80 dark:border-white/5">
+          <div className="rounded-lg bg-white/80 p-2.5 shadow-2xs dark:bg-slate-900/60">
+            <div className="flex items-center justify-between text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              <span>Users</span>
+              <Users className="size-3.5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div className="text-base font-bold text-slate-900 dark:text-slate-100 mt-1">
+              {metrics?.users?.total ?? 0}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-white/80 p-2.5 shadow-2xs dark:bg-slate-900/60">
+            <div className="flex items-center justify-between text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              <span>Parties</span>
+              <Building2 className="size-3.5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div className="text-base font-bold text-slate-900 dark:text-slate-100 mt-1">
+              {metrics?.parties?.total ?? 0}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-white/80 p-2.5 shadow-2xs dark:bg-slate-900/60">
+            <div className="flex items-center justify-between text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              <span>Products</span>
+              <Package className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div className="text-base font-bold text-slate-900 dark:text-slate-100 mt-1">
+              {metrics?.catalog?.total_products ?? 0}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-white/80 p-2.5 shadow-2xs dark:bg-slate-900/60">
+            <div className="flex items-center justify-between text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              <span>Orders</span>
+              <ShoppingCart className="size-3.5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="text-base font-bold text-slate-900 dark:text-slate-100 mt-1">
+              {metrics?.orders?.total ?? 0}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-white/80 p-2.5 shadow-2xs dark:bg-slate-900/60">
+            <div className="flex items-center justify-between text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              <span>Fleet</span>
+              <Truck className="size-3.5 text-purple-600 dark:text-purple-400" />
+            </div>
+            <div className="text-base font-bold text-slate-900 dark:text-slate-100 mt-1">
+              {metrics?.fleet?.vehicles ?? 0}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-white/80 p-2.5 shadow-2xs dark:bg-slate-900/60">
+            <div className="flex items-center justify-between text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              <span>Work Plans</span>
+              <ClipboardList className="size-3.5 text-cyan-600 dark:text-cyan-400" />
+            </div>
+            <div className="text-base font-bold text-slate-900 dark:text-slate-100 mt-1">
+              {metrics?.field_operations?.work_plans ?? 0}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -197,9 +337,32 @@ export default function SuperAdminOverview() {
         qtyBasis={qtyBasis}
       />
 
-      <WorkPlannerStatsWidgets portalHome={PORTAL_HOME} />
+      <WorkPlannerStatsWidgets
+        portalHome={PORTAL_HOME}
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
 
-      <TransportPlannerStatsWidgets portalHome={PORTAL_HOME} />
+      <TransportPlannerStatsWidgets
+        portalHome={PORTAL_HOME}
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
+
+      <LeadManagerStatsWidgets
+        portalHome={PORTAL_HOME}
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
 
       <MonthlyPerformanceChart
         orders={orders}

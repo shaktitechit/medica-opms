@@ -20,6 +20,7 @@ const PRODUCT_TYPE_ENUM = ["individual", "kit"];
 
 const productSchema = new mongoose.Schema(
   {
+    company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
     /* -------------------------------------------------------
      * BASIC INFO
      * ----------------------------------------------------- */

@@ -26,6 +26,7 @@ const notificationSchema = new mongoose.Schema(
         "transport",
         "flag",
         "system",
+        "lead",
       ],
       default: "system",
     },

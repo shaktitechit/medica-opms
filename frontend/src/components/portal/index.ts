@@ -74,6 +74,13 @@ export { default as ListSuperAdminOrdersPage } from "./super_admin/order/ListSup
 export { default as SuperAdminOrderDetail } from "./super_admin/order/SuperAdminOrderDetail";
 export { default as SuperAdminCreateOrderPage } from "./super_admin/SuperAdminCreateOrderPage";
 
+export { ListLeadsPage } from "./shared/leads/ListLeadsPage";
+export { LeadFormPage } from "./shared/leads/LeadFormPage";
+export { LeadDetailPage } from "./shared/leads/LeadDetailPage";
+export { LeadFollowUpsPage } from "./shared/leads/LeadFollowUpsPage";
+export { LeadReportsDashboard } from "./shared/leads/LeadReportsDashboard";
+export { default as LeadManagerStatsWidgets } from "./shared/leads/LeadManagerStatsWidgets";
+
 export { default as ProfilePage } from "./shared/ProfilePage";
 export { default as PortalOverviewShell } from "./shared/PortalOverviewShell";
 export { usePortalDashboardKpi } from "./shared/usePortalDashboardKpi";

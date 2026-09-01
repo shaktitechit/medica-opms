@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
 import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
+import { dashboardPeriodToStatsQuery } from "@/components/portal/shared/dashboard/periodFilterUtils";
 
 const TRANSPORT_PENDING_PUSH_INTERVAL_MS = 300_000;
 const TRANSPORT_PENDING_ALERT_URL =
@@ -53,11 +54,6 @@ export default function DispatchOverview() {
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardDispatchQuery();
-
-  const {
-    isFetching: isTransportPlanStatsFetching,
-    refetch: refetchTransportPlanStats,
-  } = useGetTransportPlanStatsQuery({});
 
   const {
     data: ordersData,
@@ -113,6 +109,23 @@ export default function DispatchOverview() {
     setCustomDateTo,
     filteredOrders,
   } = usePeriodFilter(orders);
+
+  const periodStatsQuery = useMemo(
+    () =>
+      dashboardPeriodToStatsQuery({
+        dateFilter,
+        customDateFrom,
+        customDateTo,
+        selectedYears,
+        selectedMonths,
+      }),
+    [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths],
+  );
+
+  const {
+    isFetching: isTransportPlanStatsFetching,
+    refetch: refetchTransportPlanStats,
+  } = useGetTransportPlanStatsQuery(periodStatsQuery);
 
   const orderStats = useMemo(
     () => computeDispatchOrderStats(orders, categoryOptions),
@@ -474,7 +487,14 @@ export default function DispatchOverview() {
         qtyBasis={qtyBasis}
       />
 
-      <TransportPlannerStatsWidgets portalHome="/dispatch" />
+      <TransportPlannerStatsWidgets
+        portalHome="/dispatch"
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
     </div>
   );
 }

@@ -29,6 +29,7 @@ import {
   normalizeRateType,
   itemMetricValue,
   formatMetricValue,
+  roundToTwo,
 } from "./leaderboardUtils";
 
 function resolveSalesPersonName(
@@ -146,7 +147,13 @@ export default function SalesLeaderboard({
   const handleDownload = () => {
     if (salesRows.length === 0) return;
     const headers = ["Sales Person", valueLabel, "SR", "SRA", "CR"];
-    const rows = salesRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
+    const rows = salesRows.map((r) => [
+      r.name,
+      roundToTwo(r.total),
+      roundToTwo(r.sr),
+      roundToTwo(r.sra),
+      roundToTwo(r.cr),
+    ]);
     downloadCsvFile(
       reportFilename("sales_leaderboard", selectedYears, selectedMonths),
       headers,

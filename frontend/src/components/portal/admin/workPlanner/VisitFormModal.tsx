@@ -4,9 +4,12 @@ import { LargeModalPortal } from "@/components/portal/shared/LargeModalPortal";
 import {
   useListPartiesQuery,
   useListUsersQuery,
+  useListLeadsQuery,
+  type LeadRecord,
   type WorkPlanVisitPartyType,
   type WorkPlanVisitRecord,
 } from "@/store/api";
+import { useAppSelector } from "@/store/hooks";
 import { useEffect, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 
@@ -58,6 +61,7 @@ type PartyRow = {
 
 const PARTY_TYPE_OPTIONS: Array<{ value: WorkPlanVisitPartyType; label: string }> = [
   { value: "existing", label: "Existing Party" },
+  { value: "existing_lead", label: "Existing Leads" },
   { value: "new_party", label: "New Party" },
   { value: "new_lead", label: "New Leads" },
 ];
@@ -78,10 +82,26 @@ export function VisitFormModal({
   salesUserLabel: salesUserLabelProp,
   disablePartyEdit = false,
 }: VisitFormModalProps) {
+  const authUser = useAppSelector((state) => state.auth.user);
+  const [salesUserId, setSalesUserId] = useState("");
+  const [salesSearch, setSalesSearch] = useState("");
+
+  const effectiveSalesUserId =
+    salesUserId ||
+    salesUserIdProp ||
+    (authUser?._id ? String(authUser._id) : authUser?.id ? String(authUser.id) : undefined);
+
   const partiesQ = useListPartiesQuery({ status: "active" }, { skip: !open });
   const usersQ = useListUsersQuery(
     { department: "sales" },
     { skip: !open || !allowSalesUserSelect },
+  );
+  const leadsQ = useListLeadsQuery(
+    {
+      paginate: "false",
+      ...(effectiveSalesUserId ? { assigned_to: effectiveSalesUserId } : {}),
+    },
+    { skip: !open }
   );
 
   const parties = useMemo(() => {
@@ -92,6 +112,31 @@ export function VisitFormModal({
     }
     return [] as PartyRow[];
   }, [partiesQ.data]);
+
+  const activeLeads = useMemo(() => {
+    const raw = leadsQ.data;
+    let list: LeadRecord[] = [];
+    if (Array.isArray(raw)) list = raw;
+    else if (raw && typeof raw === "object" && Array.isArray((raw as any).items)) list = (raw as any).items;
+    else if (raw && typeof raw === "object" && Array.isArray((raw as any).data)) list = (raw as any).data;
+
+    // Filter ONLY active pipeline leads (do not fetch won, lost and converted)
+    // and scoped to the sales user at work plan level
+    return list.filter((l) => {
+      const isNotClosed = l.status !== "won" && l.status !== "lost" && l.status !== "converted";
+      if (!isNotClosed) return false;
+      if (effectiveSalesUserId) {
+        const assignedId =
+          typeof l.assigned_to === "object" && l.assigned_to !== null
+            ? String(l.assigned_to._id || (l.assigned_to as any).id || "")
+            : l.assigned_to
+            ? String(l.assigned_to)
+            : "";
+        return assignedId === effectiveSalesUserId;
+      }
+      return true;
+    });
+  }, [leadsQ.data, effectiveSalesUserId]);
 
   const salesUsers = useMemo(() => {
     const raw = usersQ.data;
@@ -106,8 +151,8 @@ export function VisitFormModal({
   const [partySearch, setPartySearch] = useState("");
   const [partyId, setPartyId] = useState("");
   const [partyName, setPartyName] = useState("");
-  const [salesSearch, setSalesSearch] = useState("");
-  const [salesUserId, setSalesUserId] = useState("");
+  const [selectedLeadId, setSelectedLeadId] = useState("");
+  const [leadSearch, setLeadSearch] = useState("");
   const [contacts, setContacts] = useState<Array<{
     contact_person: string;
     contact_number: string;
@@ -130,6 +175,8 @@ export function VisitFormModal({
       (typeof initial?.party === "object" ? initial.party?.party_name || "" : "") ||
       "",
     );
+    setSelectedLeadId("");
+    setLeadSearch(initialType === "existing_lead" ? initial?.party_name || "" : "");
     const initialContacts = initial?.contacts && initial.contacts.length > 0
       ? initial.contacts.map((c) => ({
           contact_person: c.contact_person || "",
@@ -197,6 +244,27 @@ export function VisitFormModal({
       .slice(0, 20);
   }, [parties, partySearch]);
 
+  const filteredActiveLeads = useMemo(() => {
+    const q = leadSearch.trim().toLowerCase();
+    if (!q) return activeLeads.slice(0, 20);
+    return activeLeads
+      .filter((l) => {
+        const leadNo = String(l.lead_no || "").toLowerCase();
+        const name = String(l.name || "").toLowerCase();
+        const company = String(l.company_name || "").toLowerCase();
+        const phone = String(l.phone || "").toLowerCase();
+        const city = String(l.billing_address?.city || "").toLowerCase();
+        return (
+          leadNo.includes(q) ||
+          name.includes(q) ||
+          company.includes(q) ||
+          phone.includes(q) ||
+          city.includes(q)
+        );
+      })
+      .slice(0, 20);
+  }, [activeLeads, leadSearch]);
+
   const filteredSalesUsers = useMemo(() => {
     const q = salesSearch.trim().toLowerCase();
     if (!q) return salesUsers.slice(0, 20);
@@ -214,7 +282,9 @@ export function VisitFormModal({
     setPartyType(next);
     setPartyId("");
     setPartySearch("");
-    if (next !== "existing") {
+    setSelectedLeadId("");
+    setLeadSearch("");
+    if (next !== "existing" && next !== "existing_lead") {
       // Keep manually entered contact fields when switching between new party / lead.
     } else {
       setPartyName("");
@@ -392,6 +462,89 @@ export function VisitFormModal({
                   </p>
                 ) : (
                   <p className="mt-1 text-2xs text-slate-500">Select an existing party</p>
+                )}
+              </div>
+            ) : partyType === "existing_lead" ? (
+              <div>
+                <label className={labelClass}>
+                  Existing Lead <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={leadSearch}
+                  onChange={(e) => {
+                    setLeadSearch(e.target.value);
+                    setSelectedLeadId("");
+                    setPartyName("");
+                  }}
+                  disabled={isSaving || disablePartyEdit}
+                  placeholder="Search active lead by No, Name, Company, City..."
+                  className={inputClass}
+                />
+                {leadSearch && !selectedLeadId ? (
+                  <ul className="mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10 divide-y divide-slate-100 dark:divide-white/5 bg-white dark:bg-slate-900 shadow-md">
+                    {filteredActiveLeads.length === 0 ? (
+                      <li className="px-3 py-2 text-sm text-slate-500">
+                        No active pipeline leads found
+                      </li>
+                    ) : (
+                      filteredActiveLeads.map((l) => (
+                        <li key={l._id}>
+                          <button
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-white/5 transition"
+                            onClick={() => {
+                              setSelectedLeadId(l._id);
+                              const displayName = l.company_name
+                                ? `${l.company_name} (${l.name})`
+                                : l.name;
+                              setLeadSearch(`${l.lead_no} - ${displayName}`);
+                              setPartyName(displayName);
+
+                              const leadContacts =
+                                l.contacts && l.contacts.length > 0
+                                  ? l.contacts.map((c) => ({
+                                      contact_person: c.name || "",
+                                      contact_number: c.phone || "",
+                                      contact_email: c.email || "",
+                                    }))
+                                  : [
+                                      {
+                                        contact_person: l.name || "",
+                                        contact_number: l.phone || "",
+                                        contact_email: l.email || "",
+                                      },
+                                    ];
+                              setContacts(leadContacts);
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                                {l.lead_no} · {l.company_name || l.name}
+                              </span>
+                              <span className="rounded bg-blue-100 dark:bg-blue-950/60 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-300 uppercase">
+                                {l.status}
+                              </span>
+                            </div>
+                            <div className="text-2xs text-slate-500 mt-0.5">
+                              {[l.name, l.phone, l.billing_address?.city]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </div>
+                          </button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                ) : null}
+                {selectedLeadId ? (
+                  <p className="mt-1 text-2xs text-emerald-700 dark:text-emerald-400">
+                    Lead selected — contact details auto-filled and editable below
+                  </p>
+                ) : (
+                  <p className="mt-1 text-2xs text-slate-500">
+                    Select an active pipeline lead (Won, Lost & Converted excluded)
+                  </p>
                 )}
               </div>
             ) : (

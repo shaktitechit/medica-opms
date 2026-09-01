@@ -18,9 +18,14 @@ import {
   usePatchWorkPlanMutation,
   usePatchWorkPlanVisitMutation,
   useSubmitWorkPlanMutation,
+  useAddWorkPlanWorkMutation,
+  usePatchWorkPlanWorkMutation,
+  useDeleteWorkPlanWorkMutation,
   type WorkPlanVisitRecord,
+  type WorkPlanWorkRecord,
 } from "@/store/api";
 import { VisitFormModal } from "./VisitFormModal";
+import { WorkFormModal } from "./WorkFormModal";
 import {
   canEditPlan,
   formatDateTime,
@@ -54,12 +59,15 @@ export default function AdminWorkPlanFormPage({
   const [planDate, setPlanDate] = useState(initialPlanDate);
   const [remarks, setRemarks] = useState("");
   const [location, setLocation] = useState("");
+  const [planType, setPlanType] = useState("Visits");
   const [salesUserId, setSalesUserId] = useState("");
   const [salesSearch, setSalesSearch] = useState("");
   const [visitModalOpen, setVisitModalOpen] = useState(false);
   const [editingVisit, setEditingVisit] = useState<WorkPlanVisitRecord | null>(
     null
   );
+  const [workModalOpen, setWorkModalOpen] = useState(false);
+  const [editingWork, setEditingWork] = useState<WorkPlanWorkRecord | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
 
   const effectiveId = mode === "edit" ? planId : createdId || "";
@@ -99,6 +107,9 @@ export default function AdminWorkPlanFormPage({
   const [addVisit, addVisitState] = useAddWorkPlanVisitMutation();
   const [patchVisit, patchVisitState] = usePatchWorkPlanVisitMutation();
   const [deleteVisit, deleteVisitState] = useDeleteWorkPlanVisitMutation();
+  const [addWork, addWorkState] = useAddWorkPlanWorkMutation();
+  const [patchWork, patchWorkState] = usePatchWorkPlanWorkMutation();
+  const [deleteWork, deleteWorkState] = useDeleteWorkPlanWorkMutation();
 
   const hydrated = Boolean(plan);
 
@@ -109,6 +120,7 @@ export default function AdminWorkPlanFormPage({
     }
     setRemarks(plan.remarks || "");
     setLocation(plan.location || "");
+    setPlanType(plan.plan_type || "Visits");
     if (plan.sales_user) {
       const id =
         typeof plan.sales_user === "string"
@@ -120,6 +132,7 @@ export default function AdminWorkPlanFormPage({
   }, [plan]);
 
   const visits = plan?.visits ?? [];
+  const works = plan?.works ?? [];
   const status = plan?.status || "draft";
   const editable = mode === "create" || canEditPlan(status, { isAdmin });
   const busy =
@@ -130,6 +143,9 @@ export default function AdminWorkPlanFormPage({
     addVisitState.isLoading ||
     patchVisitState.isLoading ||
     deleteVisitState.isLoading ||
+    addWorkState.isLoading ||
+    patchWorkState.isLoading ||
+    deleteWorkState.isLoading ||
     planQ.isFetching;
 
   async function ensurePlan(overrideSalesUserId?: string): Promise<string | null> {
@@ -146,7 +162,7 @@ export default function AdminWorkPlanFormPage({
       try {
         await patchPlan({
           id: effectiveId,
-          patch: { plan_date: planDate, remarks, location },
+          patch: { plan_date: planDate, remarks, location, plan_type: planType },
         }).unwrap();
         return effectiveId;
       } catch (rejected) {
@@ -159,6 +175,7 @@ export default function AdminWorkPlanFormPage({
         plan_date: planDate,
         remarks: remarks || undefined,
         location: location || undefined,
+        plan_type: planType,
         ...(isAdmin && salesId ? { sales_user: salesId } : {}),
       }).unwrap();
       const id = planIdOf(created);
@@ -183,8 +200,12 @@ export default function AdminWorkPlanFormPage({
     }
     if (!id) return;
 
-    if (visits.length < 1) {
+    if (planType === "Visits" && visits.length < 1) {
       toast.error("Add at least one visit before saving");
+      return;
+    }
+    if ((planType === "Work From Home" || planType === "Work From Office") && works.length < 1) {
+      toast.error("Add at least one work task before saving");
       return;
     }
 
@@ -247,6 +268,39 @@ export default function AdminWorkPlanFormPage({
     }
   }
 
+  async function handleWorkSubmit(body: Record<string, unknown>) {
+    let id = effectiveId;
+    if (!id) {
+      id = (await ensurePlan()) || "";
+    }
+    if (!id) return;
+    try {
+      if (editingWork) {
+        const workId = planIdOf(editingWork);
+        await patchWork({ id, workId, patch: body }).unwrap();
+        toast.success("Work task updated");
+      } else {
+        await addWork({ id, body }).unwrap();
+        toast.success("Work task added");
+      }
+      setWorkModalOpen(false);
+      setEditingWork(null);
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }
+
+  async function handleDeleteWork(work: WorkPlanWorkRecord) {
+    if (!effectiveId) return;
+    const workId = planIdOf(work);
+    try {
+      await deleteWork({ id: effectiveId, workId }).unwrap();
+      toast.success("Work task removed");
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }
+
   return (
     <div className="relative mx-auto flex w-full max-w-5xl flex-col gap-4 p-3 sm:p-4">
       <PortalBusyOverlay active={busy && hydrated} message="Saving…" />
@@ -277,7 +331,7 @@ export default function AdminWorkPlanFormPage({
             disabled={
               !editable ||
               busy ||
-              (effectiveId ? visits.length < 1 : false) ||
+              (effectiveId ? planType === "Visits" && visits.length < 1 : false) ||
               (isAdmin && !effectiveId && !salesUserId)
             }
             onClick={() => void handleSave()}
@@ -309,6 +363,22 @@ export default function AdminWorkPlanFormPage({
               onChange={(e) => setPlanDate(e.target.value)}
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
             />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+              Plan Type
+            </label>
+            <select
+              value={planType}
+              disabled={!editable}
+              onChange={(e) => setPlanType(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-white/15 dark:bg-slate-950 dark:text-slate-50"
+            >
+              <option value="Visits">Visits</option>
+              <option value="Leave">Leave</option>
+              <option value="Work From Home">Work From Home</option>
+              <option value="Work From Office">Work From Office</option>
+            </select>
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
@@ -404,101 +474,193 @@ export default function AdminWorkPlanFormPage({
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-white/10">
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-            Visits ({visits.length})
-          </h2>
-          <button
-            type="button"
-            disabled={!editable || busy}
-            onClick={() => {
-              setEditingVisit(null);
-              setVisitModalOpen(true);
-            }}
-            className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add visit
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-xs">
-            <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-950 dark:text-slate-400">
-              <tr>
-                <th className="px-3 py-2 font-semibold">#</th>
-                <th className="px-3 py-2 font-semibold">Party</th>
-                <th className="px-3 py-2 font-semibold">Contact</th>
-                <th className="px-3 py-2 font-semibold">Window</th>
-                <th className="px-3 py-2 font-semibold">Purpose</th>
-                <th className="px-3 py-2 font-semibold">Status</th>
-                <th className="px-3 py-2 font-semibold text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visits.length === 0 ? (
+      {planType === "Visits" ? (
+        <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-white/10">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+              Visits ({visits.length})
+            </h2>
+            <button
+              type="button"
+              disabled={!editable || busy}
+              onClick={() => {
+                setEditingVisit(null);
+                setVisitModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add visit
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-950 dark:text-slate-400">
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
-                    Add at least one visit before saving.
-                  </td>
+                  <th className="px-3 py-2 font-semibold">#</th>
+                  <th className="px-3 py-2 font-semibold">Party</th>
+                  <th className="px-3 py-2 font-semibold">Contact</th>
+                  <th className="px-3 py-2 font-semibold">Window</th>
+                  <th className="px-3 py-2 font-semibold">Purpose</th>
+                  <th className="px-3 py-2 font-semibold">Status</th>
+                  <th className="px-3 py-2 font-semibold text-right">Actions</th>
                 </tr>
-              ) : (
-                visits.map((v) => (
-                  <tr
-                    key={planIdOf(v)}
-                    className="border-t border-slate-100 dark:border-white/5"
-                  >
-                    <td className="px-3 py-2">{v.sequence}</td>
-                    <td className="px-3 py-2 font-medium">{visitPartyLabel(v)}</td>
-                    <td className="px-3 py-2">
-                      {v.contact_person || "—"}
-                      {v.contact_number ? (
-                        <div className="text-slate-500">{v.contact_number}</div>
-                      ) : null}
-                      {v.contact_email ? (
-                        <div className="text-slate-500">{v.contact_email}</div>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2">
-                      {formatDateTime(v.planned_start_time)}
-                      <div className="text-slate-500">
-                        {formatDateTime(v.planned_end_time)}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">{v.purpose || "—"}</td>
-                    <td className="px-3 py-2">{renderVisitStatusBadge(v.status)}</td>
-                    <td className="px-3 py-2 text-right">
-                      {editable ? (
-                        <div className="flex justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingVisit(v);
-                              setVisitModalOpen(true);
-                            }}
-                            className="rounded border border-slate-200 px-2 py-1 text-[11px] dark:border-white/15"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleDeleteVisit(v)}
-                            className="rounded border border-rose-200 px-2 py-1 text-rose-600 dark:border-rose-900/40"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
-                      ) : (
-                        "—"
-                      )}
+              </thead>
+              <tbody>
+                {visits.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
+                      Add at least one visit before saving.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  visits.map((v) => (
+                    <tr
+                      key={planIdOf(v)}
+                      className="border-t border-slate-100 dark:border-white/5"
+                    >
+                      <td className="px-3 py-2">{v.sequence}</td>
+                      <td className="px-3 py-2 font-medium">{visitPartyLabel(v)}</td>
+                      <td className="px-3 py-2">
+                        {v.contact_person || "—"}
+                        {v.contact_number ? (
+                          <div className="text-slate-500">{v.contact_number}</div>
+                        ) : null}
+                        {v.contact_email ? (
+                          <div className="text-slate-500">{v.contact_email}</div>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2">
+                        {formatDateTime(v.planned_start_time)}
+                        <div className="text-slate-500">
+                          {formatDateTime(v.planned_end_time)}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">{v.purpose || "—"}</td>
+                      <td className="px-3 py-2">{renderVisitStatusBadge(v.status)}</td>
+                      <td className="px-3 py-2 text-right">
+                        {editable ? (
+                          <div className="flex justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingVisit(v);
+                                setVisitModalOpen(true);
+                              }}
+                              className="rounded border border-slate-200 px-2 py-1 text-[11px] dark:border-white/15"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteVisit(v)}
+                              className="rounded border border-rose-200 px-2 py-1 text-rose-600 dark:border-rose-900/40"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      ) : null}
+
+      {planType === "Work From Home" || planType === "Work From Office" ? (
+        <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-white/10">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+              Work Tasks ({works.length})
+            </h2>
+            <button
+              type="button"
+              disabled={!editable || busy}
+              onClick={() => {
+                setEditingWork(null);
+                setWorkModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add task
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">#</th>
+                  <th className="px-3 py-2 font-semibold">Title</th>
+                  <th className="px-3 py-2 font-semibold">Description</th>
+                  <th className="px-3 py-2 font-semibold">Planned Time</th>
+                  <th className="px-3 py-2 font-semibold">Status</th>
+                  <th className="px-3 py-2 font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {works.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                      Add at least one task before submitting.
+                    </td>
+                  </tr>
+                ) : (
+                  works.map((w) => (
+                    <tr
+                      key={planIdOf(w)}
+                      className="border-t border-slate-100 dark:border-white/5"
+                    >
+                      <td className="px-3 py-2">{w.sequence}</td>
+                      <td className="px-3 py-2 font-medium">{w.title}</td>
+                      <td className="px-3 py-2 text-slate-500 truncate max-w-[200px]">
+                        {w.description || "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        {w.planned_start_time ? formatDateTime(w.planned_start_time) : "—"}
+                        <div className="text-slate-500">
+                          {w.planned_end_time ? formatDateTime(w.planned_end_time) : ""}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 capitalize">{w.status || "pending"}</td>
+                      <td className="px-3 py-2 text-right">
+                        {editable ? (
+                          <div className="flex justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingWork(w);
+                                setWorkModalOpen(true);
+                              }}
+                              className="rounded border border-slate-200 px-2 py-1 text-[11px] dark:border-white/15"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteWork(w)}
+                              className="rounded border border-rose-200 px-2 py-1 text-rose-600 dark:border-rose-900/40"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
 
       <VisitFormModal
         open={visitModalOpen}
@@ -513,6 +675,19 @@ export default function AdminWorkPlanFormPage({
           setEditingVisit(null);
         }}
         onSubmit={handleVisitSubmit}
+      />
+
+      <WorkFormModal
+        open={workModalOpen}
+        mode={editingWork ? "edit" : "create"}
+        initial={editingWork}
+        planDate={planDate}
+        isSaving={addWorkState.isLoading || patchWorkState.isLoading}
+        onClose={() => {
+          setWorkModalOpen(false);
+          setEditingWork(null);
+        }}
+        onSubmit={handleWorkSubmit}
       />
     </div>
   );

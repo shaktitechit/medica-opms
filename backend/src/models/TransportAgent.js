@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 
 const transportAgentSchema = new mongoose.Schema(
   {
+    company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
     agent_code: {
       type: String,
       required: true,

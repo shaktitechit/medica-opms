@@ -92,13 +92,19 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
               href={linkHref}
               title={leaf.label}
               className={[
-                "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition",
+                "group flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-all",
                 active
-                  ? "bg-primary-muted text-foreground ring-1 ring-primary/30"
-                  : "text-muted hover:bg-surface-muted hover:text-foreground",
+                  ? "bg-primary-muted font-semibold text-primary ring-1 ring-primary/25"
+                  : "text-slate-600 dark:text-slate-300 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary",
               ].join(" ")}
             >
-              <NavIcon name={leaf.icon} className="size-3.5 shrink-0" strokeWidth={2} />
+              <NavIcon
+                name={leaf.icon}
+                className={`size-3.5 shrink-0 transition-colors ${
+                  active ? "text-primary" : "text-slate-400 group-hover:text-primary"
+                }`}
+                strokeWidth={2}
+              />
               <span>{leaf.label}</span>
             </Link>
           );
@@ -123,16 +129,28 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
               aria-haspopup="menu"
               onClick={() => setOpenKey(isOpen ? null : key)}
               className={[
-                "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition cursor-pointer",
+                "group flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-all cursor-pointer",
                 active || isOpen
-                  ? "bg-primary-muted text-foreground ring-1 ring-primary/30"
-                  : "text-muted hover:bg-surface-muted hover:text-foreground",
+                  ? "bg-primary-muted font-semibold text-primary ring-1 ring-primary/25"
+                  : "text-slate-600 dark:text-slate-300 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary",
               ].join(" ")}
             >
-              <NavIcon name={leaf.icon} className="size-3.5 shrink-0" strokeWidth={2} />
+              <NavIcon
+                name={leaf.icon}
+                className={`size-3.5 shrink-0 transition-colors ${
+                  active || isOpen
+                    ? "text-primary"
+                    : "text-slate-400 group-hover:text-primary"
+                }`}
+                strokeWidth={2}
+              />
               <span>{leaf.label}</span>
               <ChevronDown
-                className={`size-3.5 shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                className={`size-3.5 shrink-0 transition-transform ${
+                  active || isOpen
+                    ? "text-primary"
+                    : "text-muted group-hover:text-primary"
+                } ${isOpen ? "rotate-180" : ""}`}
                 strokeWidth={2.5}
                 aria-hidden
               />
@@ -141,7 +159,7 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
             {isOpen && (
               <div
                 role="menu"
-                className="absolute left-0 top-full z-50 mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg"
+                className="absolute left-0 top-full z-50 mt-1 min-w-[12rem] overflow-hidden rounded-xl border border-border bg-card py-1.5 shadow-2xl backdrop-blur-md"
               >
                 {children.map((child) => {
                   const [qKey, qVal] = child.query.split("=");
@@ -155,13 +173,21 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
                       href={`${href}?${child.query}`}
                       onClick={() => setOpenKey(null)}
                       className={[
-                        "flex items-center gap-2 px-3 py-2 text-sm font-medium transition",
+                        "group flex items-center gap-2 px-3.5 py-2 text-xs font-medium transition-colors",
                         childActive
-                          ? "bg-primary-muted text-foreground"
-                          : "text-foreground/80 hover:bg-surface-muted",
+                          ? "bg-primary-muted font-semibold text-primary"
+                          : "text-slate-600 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary dark:text-slate-300",
                       ].join(" ")}
                     >
-                      <NavIcon name={child.icon} className="size-3.5 shrink-0" strokeWidth={2} />
+                      <NavIcon
+                        name={child.icon}
+                        className={`size-3.5 shrink-0 transition-colors ${
+                          childActive
+                            ? "text-primary"
+                            : "text-slate-400 group-hover:text-primary"
+                        }`}
+                        strokeWidth={2}
+                      />
                       <span>{child.label}</span>
                     </Link>
                   );

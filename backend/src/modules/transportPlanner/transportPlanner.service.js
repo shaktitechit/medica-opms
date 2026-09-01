@@ -33,6 +33,38 @@ function sameId(a, b) {
   return String(a) === String(b);
 }
 
+function parseCsvInts(value) {
+  if (value == null || value === '') return [];
+  const parts = Array.isArray(value) ? value : String(value).split(',');
+  return parts
+    .map((part) => parseInt(String(part).trim(), 10))
+    .filter((n) => Number.isFinite(n));
+}
+
+/** Date-range (`from`/`to`) or year+month (`years`, `months` 1–12) match on a date field. */
+function planDatePeriodMatch(query = {}, datePath = 'plan_date') {
+  if (query.from || query.to) {
+    const range = {};
+    if (query.from) range.$gte = startOfDay(query.from);
+    if (query.to) range.$lte = endOfDay(query.to);
+    return { [datePath]: range };
+  }
+
+  if (query.years == null && query.months == null) return {};
+
+  const years = parseCsvInts(query.years);
+  const months = parseCsvInts(query.months);
+  if (years.length === 0 || months.length === 0) {
+    return { $expr: { $eq: [0, 1] } };
+  }
+
+  const clauses = [
+    { $in: [{ $year: `$${datePath}` }, years] },
+    { $in: [{ $month: `$${datePath}` }, months] },
+  ];
+  return { $expr: { $and: clauses } };
+}
+
 async function logActivity(user, planId, action, message, extra = {}) {
   await activityService.create({
     actor: userId(user),
@@ -1286,17 +1318,18 @@ async function listEligibleOrders(query = {}, user) {
 async function stats(query = {}, _user) {
   const { TransportPlan, TransportPlanOrder } = getModels();
   const filter = { deletedAt: null };
-
-  if (query.from || query.to) {
-    filter.plan_date = {};
-    if (query.from) filter.plan_date.$gte = startOfDay(query.from);
-    if (query.to) filter.plan_date.$lte = endOfDay(query.to);
-  }
+  Object.assign(filter, planDatePeriodMatch(query));
 
   const today = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
+  const nestedPlanDateMatch = planDatePeriodMatch(query, 'plan.plan_date');
+  const todayFilter = {
+    deletedAt: null,
+    plan_date: { $gte: today, $lte: todayEnd },
+  };
 
   const [
+    totalPlans,
     todayPlans,
     pendingDispatch,
     inTransit,
@@ -1307,7 +1340,8 @@ async function stats(query = {}, _user) {
     monthlyTrend,
     agentPerf,
   ] = await Promise.all([
-    TransportPlan.countDocuments({ ...filter, plan_date: { $gte: today, $lte: todayEnd } }),
+    TransportPlan.countDocuments(filter),
+    TransportPlan.countDocuments(todayFilter),
     TransportPlan.countDocuments({ ...filter, status: 'submitted' }),
     TransportPlan.countDocuments({ ...filter, status: 'in_transit' }),
     TransportPlan.countDocuments({ ...filter, status: 'completed' }),
@@ -1331,7 +1365,7 @@ async function stats(query = {}, _user) {
           deletedAt: null,
           status: { $ne: 'cancelled' },
           'plan.deletedAt': null,
-          ...(filter.plan_date ? { 'plan.plan_date': filter.plan_date } : {}),
+          ...nestedPlanDateMatch,
         },
       },
       {
@@ -1398,6 +1432,7 @@ async function stats(query = {}, _user) {
   const agentMap = new Map(agents.map((a) => [String(a._id), a]));
 
   return {
+    total_plans: totalPlans,
     today_plans: todayPlans,
     pending_dispatch: pendingDispatch,
     in_transit: inTransit,

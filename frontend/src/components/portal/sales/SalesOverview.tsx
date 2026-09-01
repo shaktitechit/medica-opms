@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/sales/workPlanner/WorkPlannerStatsWidgets";
+import LeadManagerStatsWidgets from "@/components/portal/shared/leads/LeadManagerStatsWidgets";
 import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
 import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
@@ -28,6 +29,7 @@ import {
 
 import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
 import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
+import { dashboardPeriodToStatsQuery } from "@/components/portal/shared/dashboard/periodFilterUtils";
 
 export default function SalesOverview() {
   const user = useAppSelector((state) => state.auth.user);
@@ -38,11 +40,6 @@ export default function SalesOverview() {
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardSalesQuery();
-
-  const {
-    isFetching: isWorkPlanStatsFetching,
-    refetch: refetchWorkPlanStats,
-  } = useGetWorkPlanStatsQuery({});
 
   const {
     data: ordersData,
@@ -88,6 +85,21 @@ export default function SalesOverview() {
       selectedMonths,
     );
   }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
+
+  const workPlanStatsQuery = useMemo(
+    () =>
+      dashboardPeriodToStatsQuery({
+        dateFilter,
+        customDateFrom,
+        customDateTo,
+        selectedYears,
+        selectedMonths,
+      }),
+    [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths],
+  );
+
+  const { isFetching: isWorkPlanStatsFetching } =
+    useGetWorkPlanStatsQuery(workPlanStatsQuery);
 
   const partyNameById = useMemo(
     () => buildPartyNameById(partiesData),
@@ -185,7 +197,22 @@ export default function SalesOverview() {
         qtyBasis={qtyBasis}
       />
 
-      <WorkPlannerStatsWidgets />
+      <WorkPlannerStatsWidgets
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
+
+      <LeadManagerStatsWidgets
+        portalHome="/sales"
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
 
       <MonthlyPerformanceChart
         orders={orders}

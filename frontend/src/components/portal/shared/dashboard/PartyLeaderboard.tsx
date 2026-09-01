@@ -30,6 +30,7 @@ import {
   normalizeRateType,
   itemMetricValue,
   formatMetricValue,
+  roundToTwo,
 } from "./leaderboardUtils";
 
 export default function PartyLeaderboard({
@@ -142,7 +143,13 @@ export default function PartyLeaderboard({
   const handleDownload = () => {
     if (partyRows.length === 0) return;
     const headers = ["Party", valueLabel, "SR", "SRA", "CR"];
-    const rows = partyRows.map((r) => [r.name, r.total, r.sr, r.sra, r.cr]);
+    const rows = partyRows.map((r) => [
+      r.name,
+      roundToTwo(r.total),
+      roundToTwo(r.sr),
+      roundToTwo(r.sra),
+      roundToTwo(r.cr),
+    ]);
     downloadCsvFile(
       reportFilename("party_leaderboard", selectedYears, selectedMonths),
       headers,

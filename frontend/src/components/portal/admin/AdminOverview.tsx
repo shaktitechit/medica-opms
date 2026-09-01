@@ -6,6 +6,7 @@ import { useAdminTabAlertOverride } from "./AdminTabAlert";
 import OverviewWidgets from "@/components/portal/shared/dashboard/OverviewWidgets";
 import WorkPlannerStatsWidgets from "@/components/portal/admin/workPlanner/WorkPlannerStatsWidgets";
 import TransportPlannerStatsWidgets from "@/components/portal/shared/transportPlanner/TransportPlannerStatsWidgets";
+import LeadManagerStatsWidgets from "@/components/portal/shared/leads/LeadManagerStatsWidgets";
 import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/MonthlyPerformanceChart";
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
 import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
@@ -49,6 +50,7 @@ import {
 } from "lucide-react";
 import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
 import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
+import { dashboardPeriodToStatsQuery } from "@/components/portal/shared/dashboard/periodFilterUtils";
 
 const ADMIN_PENDING_PUSH_INTERVAL_MS = 300_000;
 const ADMIN_PENDING_ALERT_URL = "/admin/orders?tab=pending_admin_approval";
@@ -66,16 +68,6 @@ export default function AdminOverview() {
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardAdminQuery();
-
-  const {
-    isFetching: isWorkPlanStatsFetching,
-    refetch: refetchWorkPlanStats,
-  } = useGetWorkPlanStatsQuery({});
-
-  const {
-    isFetching: isTransportPlanStatsFetching,
-    refetch: refetchTransportPlanStats,
-  } = useGetTransportPlanStatsQuery({});
 
   const {
     data: ordersData,
@@ -136,6 +128,28 @@ export default function AdminOverview() {
       selectedMonths
     );
   }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
+
+  const workPlanStatsQuery = useMemo(
+    () =>
+      dashboardPeriodToStatsQuery({
+        dateFilter,
+        customDateFrom,
+        customDateTo,
+        selectedYears,
+        selectedMonths,
+      }),
+    [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths],
+  );
+
+  const {
+    isFetching: isWorkPlanStatsFetching,
+    refetch: refetchWorkPlanStats,
+  } = useGetWorkPlanStatsQuery(workPlanStatsQuery);
+
+  const {
+    isFetching: isTransportPlanStatsFetching,
+    refetch: refetchTransportPlanStats,
+  } = useGetTransportPlanStatsQuery(workPlanStatsQuery);
 
   const orderStats = useMemo(
     () => computeAdminOrderStats(orders, categoryOptions),
@@ -516,9 +530,32 @@ export default function AdminOverview() {
         qtyBasis={qtyBasis}
       />
 
-      <WorkPlannerStatsWidgets portalHome="/admin" />
+      <WorkPlannerStatsWidgets
+        portalHome="/admin"
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
 
-      <TransportPlannerStatsWidgets portalHome="/admin" />
+      <TransportPlannerStatsWidgets
+        portalHome="/admin"
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
+
+      <LeadManagerStatsWidgets
+        portalHome="/admin"
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
 
       <MonthlyPerformanceChart
         orders={orders}

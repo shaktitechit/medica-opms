@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, CalendarPlus, Check, LogIn, LogOut, Pencil, Plus, Receipt, Route, X } from "lucide-react";
 
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
@@ -19,13 +19,19 @@ import {
   useRejectWorkPlanMutation,
   useScheduleNextWorkPlanVisitMutation,
   useSubmitWorkPlanMutation,
+  useAddWorkPlanWorkMutation,
+  usePatchWorkPlanWorkMutation,
+  useDeleteWorkPlanWorkMutation,
   type WorkPlanVisitRecord,
+  type WorkPlanWorkRecord,
 } from "@/store/api";
 import { CompleteVisitModal } from "./CompleteVisitModal";
+import { CompleteWorkModal } from "./CompleteWorkModal";
 import { ExpenseListSection } from "./ExpenseListSection";
 import { NextVisitPlanModal } from "./NextVisitPlanModal";
 import { RejectWorkPlanModal } from "./RejectWorkPlanModal";
 import { VisitFormModal } from "./VisitFormModal";
+import { WorkFormModal } from "./WorkFormModal";
 import {
   canEditPlan,
   formatDateTime,
@@ -72,11 +78,34 @@ export default function SalesWorkPlanDetailPage({
   const [nextVisitTarget, setNextVisitTarget] = useState<WorkPlanVisitRecord | null>(
     null
   );
-  const initialTab =
-    searchParams.get("tab") === "expenses" ? "expenses" : "visits";
-  const [activeTab, setActiveTab] = useState<"visits" | "expenses">(initialTab);
+  const [activeTab, setActiveTab] = useState<"visits" | "works" | "expenses">("visits");
+  const [workModalOpen, setWorkModalOpen] = useState(false);
+  const [editingWork, setEditingWork] = useState<WorkPlanWorkRecord | null>(null);
+  const [completeWorkTarget, setCompleteWorkTarget] =
+    useState<WorkPlanWorkRecord | null>(null);
+
+  const [addWork, addWorkState] = useAddWorkPlanWorkMutation();
+  const [patchWork, patchWorkState] = usePatchWorkPlanWorkMutation();
+  const [deleteWork, deleteWorkState] = useDeleteWorkPlanWorkMutation();
+
+  const hasVisitsTab = !plan || plan.plan_type === "Visits" || !plan.plan_type;
+  const hasWorksTab = plan && (plan.plan_type === "Work From Home" || plan.plan_type === "Work From Office");
+  const hasExpensesTab = hasVisitsTab;
+
+  useEffect(() => {
+    if (plan && plan.plan_type) {
+      if (plan.plan_type === "Visits") {
+        setActiveTab("visits");
+      } else if (plan.plan_type === "Work From Home" || plan.plan_type === "Work From Office") {
+        setActiveTab("works");
+      } else {
+        setActiveTab("visits");
+      }
+    }
+  }, [plan]);
 
   const visits = plan?.visits ?? [];
+  const works = plan?.works ?? [];
   const busy =
     isLoading ||
     isFetching ||
@@ -88,7 +117,10 @@ export default function SalesWorkPlanDetailPage({
     completeState.isLoading ||
     scheduleNextState.isLoading ||
     addVisitState.isLoading ||
-    patchVisitState.isLoading;
+    patchVisitState.isLoading ||
+    addWorkState.isLoading ||
+    patchWorkState.isLoading ||
+    deleteWorkState.isLoading;
 
   const currentPlanDateYmd = plan?.plan_date
     ? new Date(plan.plan_date).toISOString().slice(0, 10)
@@ -165,6 +197,48 @@ export default function SalesWorkPlanDetailPage({
       }).unwrap();
       toast.success("Visit updated successfully");
       setEditingVisit(null);
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }
+
+  async function handleWorkSubmit(body: Record<string, unknown>) {
+    try {
+      if (editingWork) {
+        const workId = planIdOf(editingWork);
+        await patchWork({ id: planId, workId, patch: body }).unwrap();
+        toast.success("Work task updated");
+      } else {
+        await addWork({ id: planId, body }).unwrap();
+        toast.success("Work task added");
+      }
+      setWorkModalOpen(false);
+      setEditingWork(null);
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }
+
+  async function handleDeleteWork(work: WorkPlanWorkRecord) {
+    const workId = planIdOf(work);
+    try {
+      await deleteWork({ id: planId, workId }).unwrap();
+      toast.success("Work task removed");
+    } catch (rejected) {
+      toast.error(mutationRejectedMessage(rejected));
+    }
+  }
+
+  async function handleCompleteWork(remarks: string) {
+    if (!completeWorkTarget) return;
+    try {
+      await patchWork({
+        id: planId,
+        workId: planIdOf(completeWorkTarget),
+        patch: { status: "completed", completion_remarks: remarks },
+      }).unwrap();
+      toast.success("Work task completed");
+      setCompleteWorkTarget(null);
     } catch (rejected) {
       toast.error(mutationRejectedMessage(rejected));
     }
@@ -259,6 +333,14 @@ export default function SalesWorkPlanDetailPage({
             </div>
             <div>
               <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                Plan Type
+              </div>
+              <div className="mt-0.5 font-medium text-slate-900 dark:text-slate-100">
+                {plan.plan_type || "Visits"}
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
                 Location / City
               </div>
               <div className="mt-0.5 text-slate-700 dark:text-slate-300">
@@ -273,19 +355,21 @@ export default function SalesWorkPlanDetailPage({
                 {plan.remarks || "—"}
               </div>
             </div>
-            <div>
-              <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                Expenses
+            {hasExpensesTab ? (
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                  Expenses
+                </div>
+                <div className="mt-0.5 font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                  {(plan.expense_total ?? 0).toLocaleString()}
+                  {plan.expense_approved_total != null ? (
+                    <span className="ml-2 text-xs font-normal text-slate-500">
+                      (approved {(plan.expense_approved_total ?? 0).toLocaleString()})
+                    </span>
+                  ) : null}
+                </div>
               </div>
-              <div className="mt-0.5 font-medium tabular-nums text-slate-900 dark:text-slate-100">
-                {(plan.expense_total ?? 0).toLocaleString()}
-                {plan.expense_approved_total != null ? (
-                  <span className="ml-2 text-xs font-normal text-slate-500">
-                    (approved {(plan.expense_approved_total ?? 0).toLocaleString()})
-                  </span>
-                ) : null}
-              </div>
-            </div>
+            ) : null}
             {plan.submitted_at ? (
               <div>
                 <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
@@ -328,223 +412,316 @@ export default function SalesWorkPlanDetailPage({
                 Review the visit sequence below, then approve or reject this plan.
               </p>
             </div>
-          ) : null}
-
-          <div className="flex border-b border-slate-200 dark:border-white/10">
-            <button
-              type="button"
-              onClick={() => setActiveTab("visits")}
-              className={`-mb-px flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-semibold transition ${
-                activeTab === "visits"
-                  ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
-                  : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              <Route className="h-4 w-4" />
-              Visits ({visits.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("expenses")}
-              className={`-mb-px flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-semibold transition ${
-                activeTab === "expenses"
-                  ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
-                  : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              <Receipt className="h-4 w-4" />
-              Expenses ({plan.expenses?.length ?? 0})
-            </button>
-          </div>
-
-          {activeTab === "visits" ? (
-          <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-white/10">
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+          ) : <div className="flex border-b border-slate-200 dark:border-white/10">
+            {hasVisitsTab && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("visits")}
+                className={`-mb-px flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-semibold transition ${
+                  activeTab === "visits"
+                    ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
+                    : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                }`}
+              >
+                <Route className="h-4 w-4" />
                 Visits ({visits.length})
-              </h2>
-              {canAddVisit ? (
-                <button
-                  type="button"
-                  onClick={() => setAddVisitOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Visit
-                </button>
-              ) : null}
+              </button>
+            )}
+            {hasWorksTab && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("works")}
+                className={`-mb-px flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-semibold transition ${
+                  activeTab === "works"
+                    ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
+                    : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                }`}
+              >
+                <Check className="h-4 w-4" />
+                Work Tasks ({works.length})
+              </button>
+            )}
+            {hasExpensesTab && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("expenses")}
+                className={`-mb-px flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-semibold transition ${
+                  activeTab === "expenses"
+                    ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
+                    : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                }`}
+              >
+                <Receipt className="h-4 w-4" />
+                Expenses ({plan.expenses?.length ?? 0})
+              </button>
+            )}
+          </div>}
+
+          {activeTab === "visits" && hasVisitsTab ? (
+            <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-white/10">
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                  Visits ({visits.length})
+                </h2>
+                {canAddVisit ? (
+                  <button
+                    type="button"
+                    onClick={() => setAddVisitOpen(true)}
+                    className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Visit
+                  </button>
+                ) : null}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-xs">
+                  <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+                    <tr>
+                      <th className="px-3 py-2 font-semibold">#</th>
+                      <th className="px-3 py-2 font-semibold">Party</th>
+                      <th className="px-3 py-2 font-semibold">Purpose</th>
+                      <th className="px-3 py-2 font-semibold">Planned</th>
+                      <th className="px-3 py-2 font-semibold">Status</th>
+                      <th className="px-3 py-2 font-semibold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visits.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                          No visits scheduled.
+                        </td>
+                      </tr>
+                    ) : (
+                      visits.map((v) => {
+                        const visitId = planIdOf(v);
+                        const canExecute = plan.status === "approved";
+                        return (
+                          <tr
+                            key={visitId}
+                            className="border-t border-slate-100 dark:border-white/5"
+                          >
+                            <td className="px-3 py-2">{v.sequence}</td>
+                            <td className="px-3 py-2 font-medium">
+                              {visitPartyLabel(v)}
+                              {v.address ? (
+                                <div className="mt-0.5 text-[10px] font-normal text-slate-500">
+                                  {v.address}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2">{v.purpose || "—"}</td>
+                            <td className="px-3 py-2">
+                              {v.planned_start_time ? formatDateTime(v.planned_start_time) : "—"}
+                              <div className="text-slate-500">
+                                {v.planned_end_time ? formatDateTime(v.planned_end_time) : ""}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">{renderVisitStatusBadge(v.status)}</td>
+                            <td className="px-3 py-2 text-right">
+                              <div className="flex justify-end gap-1">
+                                {canAddVisit &&
+                                ["pending", "rescheduled", "checked_in"].includes(v.status || "") ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingVisit(v)}
+                                    className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700 dark:border-white/15 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                    Edit
+                                  </button>
+                                ) : null}
+                                {canExecute &&
+                                (v.status === "pending" || v.status === "rescheduled") ? (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        await checkIn({ id: planId, visitId }).unwrap();
+                                        toast.success("Checked in");
+                                      } catch (rejected) {
+                                        toast.error(mutationRejectedMessage(rejected));
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-1 rounded border border-amber-200 px-2 py-1 text-[11px] font-medium text-amber-800 dark:border-amber-900/40"
+                                  >
+                                    <LogIn className="h-3 w-3" />
+                                    Check in
+                                  </button>
+                                ) : null}
+                                {canExecute && v.status === "checked_in" ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        try {
+                                          await checkOut({ id: planId, visitId }).unwrap();
+                                          toast.success("Checked out");
+                                        } catch (rejected) {
+                                          toast.error(mutationRejectedMessage(rejected));
+                                        }
+                                      }}
+                                      className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-[11px] dark:border-white/15"
+                                    >
+                                      <LogOut className="h-3 w-3" />
+                                      Out
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCompleteTarget(v)}
+                                      className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white"
+                                    >
+                                      Complete
+                                    </button>
+                                  </>
+                                ) : null}
+                                {canExecute && v.status === "pending" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setCompleteTarget(v)}
+                                    className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white"
+                                  >
+                                    Complete
+                                  </button>
+                                ) : null}
+                                {v.status === "completed" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setNextVisitTarget(v)}
+                                    className="inline-flex items-center gap-1 rounded bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700"
+                                  >
+                                    <CalendarPlus className="h-3 w-3" />
+                                    Next Visit Plan
+                                  </button>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-xs">
-                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-950 dark:text-slate-400">
-                  <tr>
-                    <th className="px-3 py-2 font-semibold">#</th>
-                    <th className="px-3 py-2 font-semibold">Party</th>
-                    <th className="px-3 py-2 font-semibold">Purpose</th>
-                    <th className="px-3 py-2 font-semibold">Planned</th>
-                    <th className="px-3 py-2 font-semibold">Status</th>
-                    <th className="px-3 py-2 font-semibold">Expense</th>
-                    <th className="px-3 py-2 font-semibold">Execution</th>
-                    <th className="px-3 py-2 font-semibold text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visits.map((v) => {
-                    const visitId = planIdOf(v);
-                    const canExecute = plan.status === "approved";
-                    return (
-                      <tr
-                        key={visitId}
-                        className="border-t border-slate-100 dark:border-white/5"
-                      >
-                        <td className="px-3 py-2">{v.sequence}</td>
-                        <td className="px-3 py-2">
-                          <div className="font-medium">{visitPartyLabel(v)}</div>
-                          <div className="text-slate-500">
-                            {v.contact_person || "—"}
-                            {v.contact_number ? ` · ${v.contact_number}` : ""}
-                            {v.contact_email ? ` · ${v.contact_email}` : ""}
-                          </div>
+          ) : activeTab === "works" && hasWorksTab ? (
+            <div className="rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-white/10">
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                  Work Tasks ({works.length})
+                </h2>
+                {canAddVisit ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingWork(null);
+                      setWorkModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Task
+                  </button>
+                ) : null}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-xs">
+                  <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+                    <tr>
+                      <th className="px-3 py-2 font-semibold">#</th>
+                      <th className="px-3 py-2 font-semibold">Title</th>
+                      <th className="px-3 py-2 font-semibold">Description</th>
+                      <th className="px-3 py-2 font-semibold">Planned Time</th>
+                      <th className="px-3 py-2 font-semibold">Status</th>
+                      <th className="px-3 py-2 font-semibold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {works.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                          No work tasks defined.
                         </td>
-                        <td className="px-3 py-2">{v.purpose || "—"}</td>
-                        <td className="px-3 py-2">
-                          {formatDateTime(v.planned_start_time)}
-                        </td>
-                        <td className="px-3 py-2">
-                          {renderVisitStatusBadge(v.status)}
-                        </td>
-                        <td className="px-3 py-2 tabular-nums text-slate-700 dark:text-slate-300">
-                          {(
-                            plan.visit_expense_totals?.[visitId] ?? 0
-                          ).toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                          {v.actual_check_in
-                            ? `In: ${formatDateTime(v.actual_check_in)}`
-                            : "—"}
-                          {v.actual_check_out ? (
-                            <div>Out: {formatDateTime(v.actual_check_out)}</div>
-                          ) : null}
-                          {v.meeting_with_doctor != null ? (
-                            <div>Doctor: {v.meeting_with_doctor ? "Yes" : "No"}</div>
-                          ) : null}
-                          {v.meeting_with_purchase != null ? (
-                            <div>Purchase: {v.meeting_with_purchase ? "Yes" : "No"}</div>
-                          ) : null}
-                          {v.meeting_with_finance != null ? (
-                            <div>Finance: {v.meeting_with_finance ? "Yes" : "No"}</div>
-                          ) : null}
-                          {v.meeting_with_engineer != null ? (
-                            <div>
-                              Engineer/tech: {v.meeting_with_engineer ? "Yes" : "No"}
-                            </div>
-                          ) : null}
-                          {v.new_product_introduced != null ? (
-                            <div>
-                              New product: {v.new_product_introduced ? "Yes" : "No"}
-                            </div>
-                          ) : null}
-                          {v.order_received != null ? (
-                            <div>Order received: {v.order_received ? "Yes" : "No"}</div>
-                          ) : null}
-                          {v.outcome ? <div>Outcome: {v.outcome}</div> : null}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <div className="flex flex-wrap justify-end items-center gap-1">
-                            {["draft", "rejected", "approved"].includes(plan.status || "") &&
-                            ["pending", "rescheduled", "checked_in"].includes(v.status || "") ? (
-                              <button
-                                type="button"
-                                onClick={() => setEditingVisit(v)}
-                                className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700 dark:border-white/15 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
-                              >
-                                <Pencil className="h-3 w-3" />
-                                Edit
-                              </button>
+                      </tr>
+                    ) : (
+                      works.map((w) => (
+                        <tr
+                          key={planIdOf(w)}
+                          className="border-t border-slate-100 dark:border-white/5"
+                        >
+                          <td className="px-3 py-2">{w.sequence}</td>
+                          <td className="px-3 py-2 font-medium">{w.title}</td>
+                          <td className="px-3 py-2 text-slate-500 max-w-[200px]">
+                            <div className="truncate">{w.description || "—"}</div>
+                            {w.completion_remarks ? (
+                              <div className="mt-0.5 whitespace-normal text-[10px] text-slate-500">
+                                Remarks: {w.completion_remarks}
+                              </div>
                             ) : null}
-                            {canExecute &&
-                            (v.status === "pending" || v.status === "rescheduled") ? (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  try {
-                                    await checkIn({ id: planId, visitId }).unwrap();
-                                    toast.success("Checked in");
-                                  } catch (rejected) {
-                                    toast.error(mutationRejectedMessage(rejected));
-                                  }
-                                }}
-                                className="inline-flex items-center gap-1 rounded border border-amber-200 px-2 py-1 text-[11px] font-medium text-amber-800 dark:border-amber-900/40"
-                              >
-                                <LogIn className="h-3 w-3" />
-                                Check in
-                              </button>
-                            ) : null}
-                            {canExecute && v.status === "checked_in" ? (
-                              <>
+                          </td>
+                          <td className="px-3 py-2">
+                            {w.planned_start_time ? formatDateTime(w.planned_start_time) : "—"}
+                            <div className="text-slate-500">
+                              {w.planned_end_time ? formatDateTime(w.planned_end_time) : ""}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                (w.status || "pending") === "completed"
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                  : (w.status || "pending") === "cancelled"
+                                  ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              }`}
+                            >
+                              {(w.status || "pending").replace(/_/g, " ")}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex justify-end gap-1">
+                              {plan.status === "approved" && (w.status || "pending") === "pending" ? (
                                 <button
                                   type="button"
-                                  onClick={async () => {
-                                    try {
-                                      await checkOut({ id: planId, visitId }).unwrap();
-                                      toast.success("Checked out");
-                                    } catch (rejected) {
-                                      toast.error(mutationRejectedMessage(rejected));
-                                    }
-                                  }}
-                                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-[11px] dark:border-white/15"
-                                >
-                                  <LogOut className="h-3 w-3" />
-                                  Out
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setCompleteTarget(v)}
-                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white"
+                                  onClick={() => setCompleteWorkTarget(w)}
+                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
                                 >
                                   Complete
                                 </button>
-                              </>
-                            ) : null}
-                            {canExecute && v.status === "pending" ? (
-                              <button
-                                type="button"
-                                onClick={() => setCompleteTarget(v)}
-                                className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white"
-                              >
-                                Complete
-                              </button>
-                            ) : null}
-                            {v.status === "completed" ? (
-                              <button
-                                type="button"
-                                onClick={() => setNextVisitTarget(v)}
-                                className="inline-flex items-center gap-1 rounded bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700"
-                              >
-                                <CalendarPlus className="h-3 w-3" />
-                                Next Visit Plan
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                              ) : null}
+                              {canAddVisit && (w.status || "pending") === "pending" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingWork(w);
+                                    setWorkModalOpen(true);
+                                  }}
+                                  className="rounded border border-slate-200 px-2 py-1 text-[11px] dark:border-white/15"
+                                >
+                                  Edit
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-          ) : (
-          <ExpenseListSection
-            planId={planId}
-            planDate={plan.plan_date}
-            expenses={plan.expenses ?? []}
-            visits={visits}
-            expenseTotal={plan.expense_total}
-            expenseApprovedTotal={plan.expense_approved_total}
-            canManage
-          />
-          )}
+          ) : activeTab === "expenses" && hasExpensesTab ? (
+            <ExpenseListSection
+              planId={planId}
+              planDate={plan.plan_date}
+              expenses={plan.expenses ?? []}
+              visits={visits}
+              expenseTotal={plan.expense_total}
+              expenseApprovedTotal={plan.expense_approved_total}
+              canManage
+            />
+          ) : null}
         </>
       ) : null}
 
@@ -573,6 +750,13 @@ export default function SalesWorkPlanDetailPage({
           }
         }}
       />
+      <CompleteWorkModal
+        open={completeWorkTarget != null}
+        isSaving={patchWorkState.isLoading}
+        taskTitle={completeWorkTarget?.title}
+        onClose={() => setCompleteWorkTarget(null)}
+        onConfirm={handleCompleteWork}
+      />
       <NextVisitPlanModal
         open={nextVisitTarget != null}
         isSaving={scheduleNextState.isLoading}
@@ -584,6 +768,13 @@ export default function SalesWorkPlanDetailPage({
       <VisitFormModal
         open={addVisitOpen}
         mode="create"
+        salesUserId={
+          typeof plan?.sales_user === "object" && plan?.sales_user !== null
+            ? String(plan.sales_user._id || (plan.sales_user as any).id || "")
+            : plan?.sales_user
+            ? String(plan.sales_user)
+            : undefined
+        }
         isSaving={addVisitState.isLoading}
         onClose={() => setAddVisitOpen(false)}
         onSubmit={handleAddVisitSubmit}
@@ -592,10 +783,29 @@ export default function SalesWorkPlanDetailPage({
         open={editingVisit != null}
         mode="edit"
         initial={editingVisit}
+        salesUserId={
+          typeof plan?.sales_user === "object" && plan?.sales_user !== null
+            ? String(plan.sales_user._id || (plan.sales_user as any).id || "")
+            : plan?.sales_user
+            ? String(plan.sales_user)
+            : undefined
+        }
         disablePartyEdit
         isSaving={patchVisitState.isLoading}
         onClose={() => setEditingVisit(null)}
         onSubmit={handleEditVisitSubmit}
+      />
+      <WorkFormModal
+        open={workModalOpen}
+        mode={editingWork ? "edit" : "create"}
+        initial={editingWork}
+        planDate={currentPlanDateYmd || plan?.plan_date}
+        isSaving={addWorkState.isLoading || patchWorkState.isLoading}
+        onClose={() => {
+          setWorkModalOpen(false);
+          setEditingWork(null);
+        }}
+        onSubmit={handleWorkSubmit}
       />
     </div>
   );

@@ -36,6 +36,8 @@ const attachmentSchema = new mongoose.Schema(
         "return",
         "order_due_sheet",
         "work_plan_expense",
+        "lead",
+        "lead_follow_up",
       ],
       required: true,
     },

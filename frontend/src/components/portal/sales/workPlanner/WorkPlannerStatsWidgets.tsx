@@ -1,24 +1,36 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import {
+  Building2,
   CalendarDays,
   CheckCircle,
   ClipboardList,
+  Home,
   IndianRupee,
+  MapPin,
+  Sun,
   ShieldCheck,
-  TrendingUp,
   Wallet,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
 
 import { useGetWorkPlanStatsQuery } from "@/store/api";
+import PeriodHeadingCaption from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
+import {
+  dashboardPeriodToStatsQuery,
+  type DashboardPeriodQuery,
+} from "@/components/portal/shared/dashboard/periodFilterUtils";
+
+type WorkPlannerStatsWidgetsProps = DashboardPeriodQuery;
 
 type StatCard = {
   key: string;
   label: string;
   value: number | string;
+  sub?: string;
   href: string;
   accent: string;
   iconWrap: string;
@@ -34,20 +46,87 @@ function formatMoney(n?: number) {
   });
 }
 
-export default function WorkPlannerStatsWidgets() {
+export default function WorkPlannerStatsWidgets({
+  dateFilter,
+  customDateFrom,
+  customDateTo,
+  selectedYears,
+  selectedMonths,
+}: WorkPlannerStatsWidgetsProps) {
   const portalHome = "/sales" as const;
-  const { data, isFetching } = useGetWorkPlanStatsQuery({});
+  const hasPeriod =
+    dateFilter != null || selectedYears != null || selectedMonths != null;
+  const statsQuery = useMemo(
+    () =>
+      dashboardPeriodToStatsQuery({
+        dateFilter,
+        customDateFrom,
+        customDateTo,
+        selectedYears,
+        selectedMonths,
+      }),
+    [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths],
+  );
+  const { data, isFetching } = useGetWorkPlanStatsQuery(
+    hasPeriod ? statsQuery : {},
+  );
+  const typeCounts = data?.by_plan_type ?? {};
+  const isTodayPeriod = !hasPeriod || dateFilter === "today";
+  const planCount = isTodayPeriod
+    ? (data?.today_plans ?? 0)
+    : (data?.total_plans ?? 0);
 
   const cards: StatCard[] = [
     {
       key: "today",
-      label: "Today's Plans",
-      value: data?.today_plans ?? 0,
+      label: isTodayPeriod ? "Today's Plans" : "Plans",
+      value: planCount,
+      sub: `${data?.total_visits ?? 0} visits · ${data?.total_works ?? 0} tasks`,
       href: `${portalHome}/work-planner`,
       accent: "bg-sky-500",
       iconWrap: "bg-sky-50 dark:bg-sky-950/30",
       iconTone: "text-sky-600 dark:text-sky-400",
       Icon: CalendarDays,
+    },
+    {
+      key: "type-visits",
+      label: "Visits",
+      value: typeCounts.Visits ?? 0,
+      href: `${portalHome}/work-planner`,
+      accent: "bg-cyan-500",
+      iconWrap: "bg-cyan-50 dark:bg-cyan-950/30",
+      iconTone: "text-cyan-600 dark:text-cyan-400",
+      Icon: MapPin,
+    },
+    {
+      key: "type-leave",
+      label: "Leave",
+      value: typeCounts.Leave ?? 0,
+      href: `${portalHome}/work-planner`,
+      accent: "bg-orange-500",
+      iconWrap: "bg-orange-50 dark:bg-orange-950/30",
+      iconTone: "text-orange-600 dark:text-orange-400",
+      Icon: Sun,
+    },
+    {
+      key: "type-wfh",
+      label: "Work From Home",
+      value: typeCounts["Work From Home"] ?? 0,
+      href: `${portalHome}/work-planner`,
+      accent: "bg-violet-500",
+      iconWrap: "bg-violet-50 dark:bg-violet-950/30",
+      iconTone: "text-violet-600 dark:text-violet-400",
+      Icon: Home,
+    },
+    {
+      key: "type-wfo",
+      label: "Work From Office",
+      value: typeCounts["Work From Office"] ?? 0,
+      href: `${portalHome}/work-planner`,
+      accent: "bg-teal-500",
+      iconWrap: "bg-teal-50 dark:bg-teal-950/30",
+      iconTone: "text-teal-600 dark:text-teal-400",
+      Icon: Building2,
     },
     {
       key: "pending",
@@ -59,6 +138,9 @@ export default function WorkPlannerStatsWidgets() {
       iconTone: "text-indigo-600 dark:text-indigo-400",
       Icon: ShieldCheck,
     },
+  ];
+
+  const statusCards: StatCard[] = [
     {
       key: "approved",
       label: "Approved",
@@ -88,16 +170,6 @@ export default function WorkPlannerStatsWidgets() {
       iconWrap: "bg-rose-50 dark:bg-rose-950/30",
       iconTone: "text-rose-600 dark:text-rose-400",
       Icon: XCircle,
-    },
-    {
-      key: "avg",
-      label: "Average Visits",
-      value: data?.average_visits ?? 0,
-      href: `${portalHome}/work-planner`,
-      accent: "bg-amber-500",
-      iconWrap: "bg-amber-50 dark:bg-amber-950/30",
-      iconTone: "text-amber-600 dark:text-amber-400",
-      Icon: TrendingUp,
     },
   ];
 
@@ -144,9 +216,19 @@ export default function WorkPlannerStatsWidgets() {
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Work Planner
           </h3>
-          <p className="text-[11px] text-slate-400 dark:text-slate-500">
-            Daily visit plan pipeline
-          </p>
+          {hasPeriod ? (
+            <PeriodHeadingCaption
+              selectedYears={selectedYears ?? []}
+              selectedMonths={selectedMonths}
+              dateFilter={dateFilter}
+              customDateFrom={customDateFrom}
+              customDateTo={customDateTo}
+            />
+          ) : (
+            <p className="text-[11px] text-slate-400 dark:text-slate-500">
+              Visits, leave, WFH and office work plans
+            </p>
+          )}
         </div>
         <Link
           href={`${portalHome}/work-planner`}
@@ -158,6 +240,40 @@ export default function WorkPlannerStatsWidgets() {
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 w-full">
         {cards.map((card) => (
+          <Link
+            key={card.key}
+            href={card.href}
+            className={`group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 dark:border-white/10 dark:bg-slate-900 dark:hover:border-white/20 ${
+              isFetching ? "opacity-70" : ""
+            }`}
+          >
+            <div className={`absolute inset-x-0 top-0 h-0.5 ${card.accent}`} />
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  {card.label}
+                </div>
+                <div className="mt-1 text-xl font-bold tabular-nums text-slate-900 dark:text-slate-50">
+                  {card.value}
+                </div>
+                {card.sub ? (
+                  <div className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">
+                    {card.sub}
+                  </div>
+                ) : null}
+              </div>
+              <div
+                className={`flex h-8 w-8 items-center justify-center rounded-lg ${card.iconWrap}`}
+              >
+                <card.Icon className={`h-4 w-4 ${card.iconTone}`} />
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3 w-full">
+        {statusCards.map((card) => (
           <Link
             key={card.key}
             href={card.href}

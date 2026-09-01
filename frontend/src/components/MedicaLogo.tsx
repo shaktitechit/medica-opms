@@ -1,5 +1,7 @@
+"use client";
+
 import Image from "next/image";
-const LOGO_SRC = "/medica-logo.png";
+import { useGetCompanyInfoQuery } from "@/store/api";
 
 type MedicaLogoProps = {
   className?: string;
@@ -12,12 +14,31 @@ export function MedicaLogo({
   imgClassName = "",
   priority = false,
 }: MedicaLogoProps) {
+  const { data: companyInfo } = useGetCompanyInfoQuery();
+  const logoUrl = companyInfo?.logo_url?.trim();
+  const brandName =
+    companyInfo?.trade_name?.trim() ||
+    companyInfo?.legal_name?.trim() ||
+    "Medica Enterprises";
+
+  if (logoUrl) {
+    return (
+      <span className={`inline-flex items-center bg-transparent ${className}`.trim()}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={logoUrl}
+          alt={brandName}
+          className={`h-auto w-auto max-h-10 max-w-[11rem] bg-transparent object-contain object-left [background:none] ${imgClassName}`.trim()}
+        />
+      </span>
+    );
+  }
+
   return (
-    <span className={`inline-flex bg-transparent ${className}`.trim()}>
-      {/* unoptimized preserves PNG transparency (optimization can occasionally flatten alpha). */}
+    <span className={`inline-flex items-center bg-transparent ${className}`.trim()}>
       <Image
-        src={LOGO_SRC}
-        alt="Medica Enterprises"
+        src="/medica-logo.png"
+        alt={brandName}
         width={220}
         height={64}
         priority={priority}

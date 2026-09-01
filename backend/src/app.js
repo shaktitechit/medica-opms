@@ -51,7 +51,10 @@ const communicationRoutes = require('./modules/communication/communication.route
 const reminderRoutes = require('./modules/reminders/reminder.routes');
 const workPlannerRoutes = require('./modules/workPlanner/workPlanner.routes');
 const transportPlannerRoutes = require('./modules/transportPlanner/transportPlanner.routes');
+const leadRoutes = require('./modules/leads/lead.routes');
+const leadMasterRoutes = require('./modules/leads/leadMaster.routes');
 const pushRoutes = require('./modules/push/push.routes');
+const companyInfoRoutes = require('./modules/companyInfo/companyInfo.routes');
 
 const app = express();
 app.use(cors(corsOptions));
@@ -121,6 +124,9 @@ app.use('/api/communication', communicationRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/work-plans', workPlannerRoutes);
 app.use('/api/transport-plans', transportPlannerRoutes);
+app.use('/api/leads', leadRoutes);
+app.use('/api/lead-masters', leadMasterRoutes);
+app.use('/api/company-info', companyInfoRoutes);
 app.use('/api', pushRoutes);
 app.use('/api', filesRoutes);
 

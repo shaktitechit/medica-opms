@@ -1364,7 +1364,7 @@ export default function OrderDetailsPage({
                     }}
                     className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 px-2 flex-1 min-w-0 transition-colors ${
                       isActive
-                        ? "text-blue-600 dark:text-blue-400"
+                        ? "text-primary dark:text-primary"
                         : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                     }`}
                   >
@@ -1386,13 +1386,13 @@ export default function OrderDetailsPage({
                     </span>
                     <span
                       className={`text-2xs font-semibold leading-none truncate max-w-full ${
-                        isActive ? "text-blue-600 dark:text-blue-400" : ""
+                        isActive ? "text-primary dark:text-primary" : ""
                       }`}
                     >
                       {MOBILE_TAB_SHORT_LABELS[tabId] ?? tabId}
                     </span>
                     {isActive && (
-                      <span className="absolute top-0 left-2 right-2 h-0.5 rounded-full bg-blue-600 dark:bg-blue-400" />
+                      <span className="absolute top-0 left-2 right-2 h-0.5 rounded-full bg-primary" />
                     )}
                   </button>
                 );

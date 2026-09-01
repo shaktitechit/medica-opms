@@ -60,13 +60,13 @@ export type ListOrdersPageConfig = {
 
 const ADMIN_ACCENTS = {
   strip:
-    "border-purple-500/10 bg-gradient-to-r from-purple-600/5 to-indigo-600/10 dark:from-purple-500/5 dark:to-indigo-500/5",
+    "border-primary/10 bg-gradient-to-r from-primary/5 to-primary/10 dark:from-primary/5 dark:to-primary/5",
   searchFocus:
-    "focus:border-purple-600 focus:ring-purple-500/25 dark:focus:border-purple-500",
+    "focus:border-primary focus:ring-primary/25 dark:focus:border-primary",
   tabActive:
-    "border-purple-600 text-purple-600 dark:border-purple-500 dark:text-purple-400",
-  searchResult: "text-purple-600 dark:text-purple-400",
-  countBadge: "bg-purple-600",
+    "border-primary text-primary dark:border-primary dark:text-primary",
+  searchResult: "text-primary dark:text-primary",
+  countBadge: "bg-primary",
 } as const;
 
 export const ADMIN_LIST_ORDERS_CONFIG: ListOrdersPageConfig = {
@@ -115,13 +115,13 @@ export const ACCOUNT_LIST_ORDERS_CONFIG: ListOrdersPageConfig = {
   headerActions: ["unbilled", "sheet", "analytics", "refresh", "dashboard"],
   accents: {
     strip:
-      "border-blue-500/10 bg-gradient-to-r from-blue-600/5 to-teal-600/10 dark:from-blue-500/5 dark:to-teal-500/5",
+      "border-primary/10 bg-gradient-to-r from-primary/5 to-primary/10 dark:from-primary/5 dark:to-primary/5",
     searchFocus:
-      "focus:border-blue-600 focus:ring-blue-500/25 dark:focus:border-blue-500",
+      "focus:border-primary focus:ring-primary/25 dark:focus:border-primary",
     tabActive:
-      "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400",
-    searchResult: "text-blue-600 dark:text-blue-400",
-    countBadge: "bg-blue-600",
+      "border-primary text-primary dark:border-primary dark:text-primary",
+    searchResult: "text-primary dark:text-primary",
+    countBadge: "bg-primary",
   },
   sheetPortal: "account",
   allowDraftDelete: false,
@@ -142,13 +142,13 @@ export const FINANCE_LIST_ORDERS_CONFIG: ListOrdersPageConfig = {
   headerActions: ["unbilled", "sheet", "analytics", "refresh", "dashboard"],
   accents: {
     strip:
-      "border-emerald-500/10 bg-gradient-to-r from-emerald-600/5 to-teal-600/10 dark:from-emerald-500/5 dark:to-teal-500/5",
+      "border-primary/10 bg-gradient-to-r from-primary/5 to-primary/10 dark:from-primary/5 dark:to-primary/5",
     searchFocus:
-      "focus:border-emerald-600 focus:ring-emerald-500/25 dark:focus:border-emerald-500",
+      "focus:border-primary focus:ring-primary/25 dark:focus:border-primary",
     tabActive:
-      "border-emerald-600 text-emerald-600 dark:border-emerald-500 dark:text-emerald-400",
-    searchResult: "text-emerald-600 dark:text-emerald-400",
-    countBadge: "bg-emerald-600",
+      "border-primary text-primary dark:border-primary dark:text-primary",
+    searchResult: "text-primary dark:text-primary",
+    countBadge: "bg-primary",
   },
   sheetPortal: "finance",
   allowDraftDelete: false,
@@ -169,13 +169,13 @@ export const DISPATCH_LIST_ORDERS_CONFIG: ListOrdersPageConfig = {
   headerActions: ["refresh", "dashboard"],
   accents: {
     strip:
-      "border-amber-500/10 bg-gradient-to-r from-amber-600/5 to-orange-600/10 dark:from-amber-500/5 dark:to-orange-500/5",
+      "border-primary/10 bg-gradient-to-r from-primary/5 to-primary/10 dark:from-primary/5 dark:to-primary/5",
     searchFocus:
-      "focus:border-amber-600 focus:ring-amber-500/25 dark:focus:border-amber-500",
+      "focus:border-primary focus:ring-primary/25 dark:focus:border-primary",
     tabActive:
-      "border-amber-600 text-amber-600 dark:border-amber-500 dark:text-amber-400",
-    searchResult: "text-amber-600 dark:text-amber-400",
-    countBadge: "bg-amber-600",
+      "border-primary text-primary dark:border-primary dark:text-primary",
+    searchResult: "text-primary dark:text-primary",
+    countBadge: "bg-primary",
   },
   allowDraftDelete: false,
   allowSuperAdminEdit: false,
@@ -199,13 +199,13 @@ export const SALES_LIST_ORDERS_CONFIG: ListOrdersPageConfig = {
   emptyNoOrdersHint: "Get started by logging your first sales draft order.",
   accents: {
     strip:
-      "border-blue-500/10 bg-gradient-to-r from-blue-600/5 to-indigo-600/10 dark:from-blue-500/5 dark:to-indigo-500/5",
+      "border-primary/10 bg-gradient-to-r from-primary/5 to-primary/10 dark:from-primary/5 dark:to-primary/5",
     searchFocus:
-      "focus:border-blue-600 focus:ring-blue-500/25 dark:focus:border-blue-500",
+      "focus:border-primary focus:ring-primary/25 dark:focus:border-primary",
     tabActive:
-      "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400",
-    searchResult: "text-blue-600 dark:text-blue-400",
-    countBadge: "bg-blue-600",
+      "border-primary text-primary dark:border-primary dark:text-primary",
+    searchResult: "text-primary dark:text-primary",
+    countBadge: "bg-primary",
   },
   allowDraftDelete: true,
   allowSuperAdminEdit: false,

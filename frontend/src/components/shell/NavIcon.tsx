@@ -43,6 +43,7 @@ import {
   UserCog,
   Users,
   UserRound,
+  UserPlus,
   Wallet,
 } from "lucide-react";
 
@@ -90,6 +91,7 @@ export const NAV_ICON_MAP: Record<string, LucideIcon> = {
   Truck,
   UserCog,
   Users,
+  UserPlus,
   UserSquare: UserRound,
   Wallet,
 };

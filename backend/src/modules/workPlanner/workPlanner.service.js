@@ -35,6 +35,38 @@ function asObjectId(id) {
   }
 }
 
+function parseCsvInts(value) {
+  if (value == null || value === '') return [];
+  const parts = Array.isArray(value) ? value : String(value).split(',');
+  return parts
+    .map((part) => parseInt(String(part).trim(), 10))
+    .filter((n) => Number.isFinite(n));
+}
+
+/** Date-range (`from`/`to`) or year+month (`years`, `months` 1–12) match on a date field. */
+function planDatePeriodMatch(query = {}, datePath = 'plan_date') {
+  if (query.from || query.to) {
+    const range = {};
+    if (query.from) range.$gte = startOfDay(query.from);
+    if (query.to) range.$lte = endOfDay(query.to);
+    return { [datePath]: range };
+  }
+
+  if (query.years == null && query.months == null) return {};
+
+  const years = parseCsvInts(query.years);
+  const months = parseCsvInts(query.months);
+  if (years.length === 0 || months.length === 0) {
+    return { $expr: { $eq: [0, 1] } };
+  }
+
+  const clauses = [
+    { $in: [{ $year: `$${datePath}` }, years] },
+    { $in: [{ $month: `$${datePath}` }, months] },
+  ];
+  return { $expr: { $and: clauses } };
+}
+
 function sameId(a, b) {
   return String(a) === String(b);
 }
@@ -149,9 +181,9 @@ function buildExpenseTotals(expenses) {
 
 async function getWithVisits(id) {
   const plan = await loadPlanOrThrow(id);
-  const [visits, expenses] = await Promise.all([loadVisits(id), loadExpenses(id)]);
+  const [visits, works, expenses] = await Promise.all([loadVisits(id), loadWorks(id), loadExpenses(id)]);
   const totals = buildExpenseTotals(expenses);
-  return { ...toPlain(plan), visits, expenses, ...totals };
+  return { ...toPlain(plan), visits, works, expenses, ...totals };
 }
 
 async function renumberVisits(planId) {
@@ -192,8 +224,30 @@ async function maybeCompletePlan(planId, user) {
   await logActivity(user, planId, 'status_changed', 'Work plan marked completed (all visits finished)');
 }
 
+async function maybeCompleteWorkPlan(planId, user) {
+  const { WorkPlan, WorkPlanWork } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan || plan.status !== 'approved') return;
+  if (!['Work From Home', 'Work From Office'].includes(plan.plan_type)) return;
+
+  const totalCount = await WorkPlanWork.countDocuments({ work_plan: planId, deletedAt: null });
+  if (totalCount === 0) return;
+
+  const pendingCount = await WorkPlanWork.countDocuments({
+    work_plan: planId,
+    deletedAt: null,
+    status: { $nin: ['completed', 'cancelled'] },
+  });
+  if (pendingCount > 0) return;
+
+  plan.status = 'completed';
+  plan.updated_by = userId(user);
+  await plan.save();
+  await logActivity(user, planId, 'status_changed', 'Work plan marked completed (all work tasks finished)');
+}
+
 async function list(query = {}, user) {
-  const { WorkPlan, WorkPlanVisit } = getModels();
+  const { WorkPlan, WorkPlanVisit, WorkPlanWork } = getModels();
   const filter = { deletedAt: null };
 
   if (!isAdminDept(user)) {
@@ -203,6 +257,18 @@ async function list(query = {}, user) {
   }
 
   if (query.status) filter.status = query.status;
+  if (query.plan_type && query.plan_type !== 'all') {
+    if (query.plan_type === 'Visits') {
+      filter.$or = [
+        { plan_type: 'Visits' },
+        { plan_type: { $exists: false } },
+        { plan_type: null },
+        { plan_type: '' },
+      ];
+    } else {
+      filter.plan_type = query.plan_type;
+    }
+  }
 
   if (query.date) {
     filter.plan_date = {
@@ -239,17 +305,29 @@ async function list(query = {}, user) {
   ]);
 
   const planIds = rows.map((r) => r._id);
-  const visitCounts = await WorkPlanVisit.aggregate([
-    { $match: { work_plan: { $in: planIds }, deletedAt: null } },
-    { $group: { _id: '$work_plan', count: { $sum: 1 } } },
+  const [visitCounts, workCounts] = await Promise.all([
+    WorkPlanVisit.aggregate([
+      { $match: { work_plan: { $in: planIds }, deletedAt: null } },
+      { $group: { _id: '$work_plan', count: { $sum: 1 } } },
+    ]),
+    WorkPlanWork.aggregate([
+      { $match: { work_plan: { $in: planIds }, deletedAt: null } },
+      { $group: { _id: '$work_plan', count: { $sum: 1 } } },
+    ]),
   ]);
   const countMap = new Map(visitCounts.map((c) => [String(c._id), c.count]));
+  const workCountMap = new Map(workCounts.map((c) => [String(c._id), c.count]));
 
   const includeVisits =
     query.include_visits === '1' ||
     query.include_visits === 1 ||
     query.include_visits === true ||
     query.include_visits === 'true';
+  const includeWorks =
+    query.include_works === '1' ||
+    query.include_works === 1 ||
+    query.include_works === true ||
+    query.include_works === 'true';
 
   const visitsByPlan = new Map();
   if (includeVisits && planIds.length) {
@@ -270,6 +348,21 @@ async function list(query = {}, user) {
     }
   }
 
+  const worksByPlan = new Map();
+  if (includeWorks && planIds.length) {
+    const allWorks = await WorkPlanWork.find({
+      work_plan: { $in: planIds },
+      deletedAt: null,
+    })
+      .sort({ sequence: 1 })
+      .lean();
+    for (const work of allWorks) {
+      const key = String(work.work_plan);
+      if (!worksByPlan.has(key)) worksByPlan.set(key, []);
+      worksByPlan.get(key).push(toPlain(work));
+    }
+  }
+
   return {
     total,
     page,
@@ -278,10 +371,13 @@ async function list(query = {}, user) {
     data: rows.map((r) => {
       const id = String(r._id);
       const visits = includeVisits ? visitsByPlan.get(id) || [] : undefined;
+      const works = includeWorks ? worksByPlan.get(id) || [] : undefined;
       return {
         ...toPlain(r),
         visit_count: countMap.get(id) || (visits ? visits.length : 0),
+        work_count: workCountMap.get(id) || (works ? works.length : 0),
         ...(includeVisits ? { visits } : {}),
+        ...(includeWorks ? { works } : {}),
       };
     }),
   };
@@ -290,9 +386,9 @@ async function list(query = {}, user) {
 async function get(id, user) {
   const plan = await loadPlanOrThrow(id);
   assertCanView(plan, user);
-  const [visits, expenses] = await Promise.all([loadVisits(id), loadExpenses(id)]);
+  const [visits, works, expenses] = await Promise.all([loadVisits(id), loadWorks(id), loadExpenses(id)]);
   const totals = buildExpenseTotals(expenses);
-  return { ...toPlain(plan), visits, expenses, ...totals };
+  return { ...toPlain(plan), visits, works, expenses, ...totals };
 }
 
 async function create(body, user) {
@@ -307,6 +403,7 @@ async function create(body, user) {
       status: 'draft',
       remarks: body.remarks?.trim() || undefined,
       location: body.location?.trim() || undefined,
+      plan_type: body.plan_type?.trim() || 'Visits',
       created_by: userId(user),
       updated_by: userId(user),
     });
@@ -338,6 +435,10 @@ async function update(id, body, user) {
     plan.location =
       typeof body.location === 'string' ? body.location.trim() : body.location;
   }
+  if (body.plan_type !== undefined) {
+    plan.plan_type =
+      typeof body.plan_type === 'string' ? body.plan_type.trim() : body.plan_type;
+  }
   // Rejected plans return to draft when edited
   if (plan.status === 'rejected') {
     plan.status = 'draft';
@@ -363,7 +464,7 @@ async function update(id, body, user) {
 }
 
 async function remove(id, user) {
-  const { WorkPlan, WorkPlanVisit, WorkPlanExpense } = getModels();
+  const { WorkPlan, WorkPlanVisit, WorkPlanWork, WorkPlanExpense } = getModels();
   const plan = await WorkPlan.findOne({ _id: id, deletedAt: null });
   if (!plan) throw new ApiError(404, 'Work plan not found');
 
@@ -379,6 +480,7 @@ async function remove(id, user) {
   plan.updated_by = userId(user);
   await plan.save();
   await WorkPlanVisit.updateMany({ work_plan: id, deletedAt: null }, { $set: { deletedAt: now } });
+  await WorkPlanWork.updateMany({ work_plan: id, deletedAt: null }, { $set: { deletedAt: now } });
   await WorkPlanExpense.updateMany({ work_plan: id, deletedAt: null }, { $set: { deletedAt: now } });
 
   await logActivity(user, plan._id, 'deleted', 'Work plan deleted');
@@ -386,7 +488,7 @@ async function remove(id, user) {
 }
 
 async function submit(id, user) {
-  const { WorkPlan, WorkPlanVisit } = getModels();
+  const { WorkPlan, WorkPlanVisit, WorkPlanWork } = getModels();
   const plan = await WorkPlan.findOne({ _id: id, deletedAt: null });
   if (!plan) throw new ApiError(404, 'Work plan not found');
   if (!isOwner(plan, user) && !isAdminDept(user)) {
@@ -396,9 +498,17 @@ async function submit(id, user) {
     throw new ApiError(400, `Cannot submit a work plan in status "${plan.status}"`);
   }
 
-  const visitCount = await WorkPlanVisit.countDocuments({ work_plan: id, deletedAt: null });
-  if (visitCount < 1) {
-    throw new ApiError(400, 'Work plan cannot be submitted without at least one visit');
+  const planType = plan.plan_type || 'Visits';
+  if (planType === 'Visits') {
+    const visitCount = await WorkPlanVisit.countDocuments({ work_plan: id, deletedAt: null });
+    if (visitCount < 1) {
+      throw new ApiError(400, 'Work plan cannot be submitted without at least one visit');
+    }
+  } else if (planType === 'Work From Home' || planType === 'Work From Office') {
+    const workCount = await WorkPlanWork.countDocuments({ work_plan: id, deletedAt: null });
+    if (workCount < 1) {
+      throw new ApiError(400, 'Work plan cannot be submitted without at least one work task');
+    }
   }
 
   plan.status = 'submitted';
@@ -712,8 +822,8 @@ async function completeVisit(planId, visitId, body, user) {
 }
 
 async function stats(query = {}, user) {
-  const { WorkPlan, WorkPlanVisit, WorkPlanExpense } = getModels();
-  const filter = { deletedAt: null };
+  const { WorkPlan, WorkPlanVisit, WorkPlanWork, WorkPlanExpense } = getModels();
+  const filter = { deletedAt: null, status: { $ne: 'draft' } };
 
   if (!isAdminDept(user)) {
     filter.sales_user = userId(user);
@@ -721,24 +831,29 @@ async function stats(query = {}, user) {
     filter.sales_user = query.sales_user;
   }
 
-  if (query.from || query.to) {
-    filter.plan_date = {};
-    if (query.from) filter.plan_date.$gte = startOfDay(query.from);
-    if (query.to) filter.plan_date.$lte = endOfDay(query.to);
-  }
+  Object.assign(filter, planDatePeriodMatch(query));
 
   const today = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
+  const nestedPlanDateMatch = planDatePeriodMatch(query, 'plan.plan_date');
 
   // Mongoose casts string ids on find/count; aggregation $match does not.
   const salesUserOid = filter.sales_user ? asObjectId(filter.sales_user) : null;
   const salesUserMatch = salesUserOid ? { 'plan.sales_user': salesUserOid } : {};
+  const planNotDraftMatch = { 'plan.status': { $ne: 'draft' } };
   const planAggMatch = {
     ...filter,
     ...(salesUserOid ? { sales_user: salesUserOid } : {}),
   };
+  const todayFilter = {
+    deletedAt: null,
+    status: { $ne: 'draft' },
+    plan_date: { $gte: today, $lte: todayEnd },
+    ...(filter.sales_user ? { sales_user: filter.sales_user } : {}),
+  };
 
   const [
+    totalPlans,
     todayPlans,
     pendingApproval,
     approved,
@@ -746,11 +861,14 @@ async function stats(query = {}, user) {
     rejected,
     statusGroups,
     visitAgg,
+    workAgg,
+    typeGroups,
     monthlyTrend,
     expenseAgg,
     expenseMonthlyTrend,
   ] = await Promise.all([
-    WorkPlan.countDocuments({ ...filter, plan_date: { $gte: today, $lte: todayEnd } }),
+    WorkPlan.countDocuments(filter),
+    WorkPlan.countDocuments(todayFilter),
     WorkPlan.countDocuments({ ...filter, status: 'submitted' }),
     WorkPlan.countDocuments({ ...filter, status: 'approved' }),
     WorkPlan.countDocuments({ ...filter, status: 'completed' }),
@@ -773,6 +891,8 @@ async function stats(query = {}, user) {
         $match: {
           deletedAt: null,
           'plan.deletedAt': null,
+          ...nestedPlanDateMatch,
+          ...planNotDraftMatch,
           ...salesUserMatch,
         },
       },
@@ -787,6 +907,48 @@ async function stats(query = {}, user) {
           _id: null,
           plans_with_visits: { $sum: 1 },
           total_visits: { $sum: '$visit_count' },
+        },
+      },
+    ]),
+    WorkPlanWork.aggregate([
+      {
+        $lookup: {
+          from: WorkPlan.collection.name,
+          localField: 'work_plan',
+          foreignField: '_id',
+          as: 'plan',
+        },
+      },
+      { $unwind: '$plan' },
+      {
+        $match: {
+          deletedAt: null,
+          'plan.deletedAt': null,
+          ...nestedPlanDateMatch,
+          ...planNotDraftMatch,
+          ...salesUserMatch,
+        },
+      },
+      {
+        $group: {
+          _id: '$work_plan',
+          work_count: { $sum: 1 },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          plans_with_works: { $sum: 1 },
+          total_works: { $sum: '$work_count' },
+        },
+      },
+    ]),
+    WorkPlan.aggregate([
+      { $match: planAggMatch },
+      {
+        $group: {
+          _id: { $ifNull: ['$plan_type', 'Visits'] },
+          count: { $sum: 1 },
         },
       },
     ]),
@@ -818,6 +980,8 @@ async function stats(query = {}, user) {
         $match: {
           deletedAt: null,
           'plan.deletedAt': null,
+          ...nestedPlanDateMatch,
+          ...planNotDraftMatch,
           ...salesUserMatch,
         },
       },
@@ -857,6 +1021,8 @@ async function stats(query = {}, user) {
           deletedAt: null,
           status: 'approved',
           'plan.deletedAt': null,
+          ...nestedPlanDateMatch,
+          ...planNotDraftMatch,
           ...salesUserMatch,
         },
       },
@@ -881,7 +1047,16 @@ async function stats(query = {}, user) {
       ? Math.round((visitSummary.total_visits / visitSummary.plans_with_visits) * 10) / 10
       : 0;
 
+  const workSummary = workAgg[0] || { plans_with_works: 0, total_works: 0 };
+  const averageWorks =
+    workSummary.plans_with_works > 0
+      ? Math.round((workSummary.total_works / workSummary.plans_with_works) * 10) / 10
+      : 0;
+
   const byStatus = Object.fromEntries(statusGroups.map((g) => [g._id, g.count]));
+  const byPlanType = Object.fromEntries(
+    typeGroups.map((g) => [g._id || 'Visits', g.count])
+  );
   const expenseSummary = expenseAgg[0] || {
     expense_total: 0,
     expense_pending_approval: 0,
@@ -889,13 +1064,18 @@ async function stats(query = {}, user) {
   };
 
   return {
+    total_plans: totalPlans,
     today_plans: todayPlans,
     pending_approval: pendingApproval,
     approved,
     completed,
     rejected,
     average_visits: averageVisits,
+    average_works: averageWorks,
+    total_visits: visitSummary.total_visits || 0,
+    total_works: workSummary.total_works || 0,
     by_status: byStatus,
+    by_plan_type: byPlanType,
     monthly_trend: monthlyTrend.map((m) => ({
       year: m._id.year,
       month: m._id.month,
@@ -1608,6 +1788,126 @@ async function scheduleNextVisit(planId, visitId, body, user) {
   };
 }
 
+async function loadWorks(planId) {
+  const { WorkPlanWork } = getModels();
+  const rows = await WorkPlanWork.find({ work_plan: planId, deletedAt: null })
+    .sort({ sequence: 1 })
+    .lean();
+  return rows.map(toPlain);
+}
+
+async function renumberWorks(planId) {
+  const { WorkPlanWork } = getModels();
+  const works = await WorkPlanWork.find({ work_plan: planId, deletedAt: null })
+    .sort({ sequence: 1 })
+    .lean();
+  for (let i = 0; i < works.length; i += 1) {
+    await WorkPlanWork.updateOne(
+      { _id: works[i]._id },
+      { $set: { sequence: i + 1 } }
+    );
+  }
+}
+
+async function addWork(planId, body, user) {
+  const { WorkPlan, WorkPlanWork } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+  assertCanEditVisits(plan, user);
+
+  const maxSeq = await WorkPlanWork.findOne({ work_plan: planId, deletedAt: null })
+    .sort({ sequence: -1 })
+    .select('sequence')
+    .lean();
+  const sequence = body.sequence ? Number(body.sequence) : (maxSeq?.sequence || 0) + 1;
+
+  await WorkPlanWork.create({
+    work_plan: planId,
+    sequence,
+    title: body.title.trim(),
+    description: body.description?.trim() || undefined,
+    planned_start_time: body.planned_start_time ? new Date(body.planned_start_time) : undefined,
+    planned_end_time: body.planned_end_time ? new Date(body.planned_end_time) : undefined,
+    status: body.status || 'pending',
+  });
+
+  if (plan.status === 'rejected') {
+    plan.status = 'draft';
+    plan.rejection_reason = undefined;
+    plan.submitted_at = undefined;
+    plan.updated_by = userId(user);
+    await plan.save();
+  }
+
+  await renumberWorks(planId);
+  await logActivity(user, planId, 'updated', `Work task added (sequence ${sequence})`);
+  return getWithVisits(planId);
+}
+
+async function updateWork(planId, workId, body, user) {
+  const { WorkPlan, WorkPlanWork } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+  assertCanEditVisits(plan, user);
+
+  const work = await WorkPlanWork.findOne({ _id: workId, work_plan: planId, deletedAt: null });
+  if (!work) throw new ApiError(404, 'Work task not found');
+
+  if (body.title !== undefined) work.title = body.title.trim();
+  if (body.description !== undefined) work.description = body.description?.trim() || undefined;
+  if (body.planned_start_time !== undefined) {
+    work.planned_start_time = body.planned_start_time ? new Date(body.planned_start_time) : undefined;
+  }
+  if (body.planned_end_time !== undefined) {
+    work.planned_end_time = body.planned_end_time ? new Date(body.planned_end_time) : undefined;
+  }
+  if (body.status !== undefined) work.status = body.status;
+  if (body.completion_remarks !== undefined) {
+    work.completion_remarks = body.completion_remarks?.trim() || undefined;
+  }
+  if (body.sequence !== undefined) work.sequence = Number(body.sequence);
+
+  await work.save();
+
+  if (plan.status === 'rejected') {
+    plan.status = 'draft';
+    plan.rejection_reason = undefined;
+    plan.submitted_at = undefined;
+    plan.updated_by = userId(user);
+    await plan.save();
+  }
+
+  await renumberWorks(planId);
+  await logActivity(user, planId, 'updated', `Work task updated (sequence ${work.sequence})`);
+  await maybeCompleteWorkPlan(planId, user);
+  return getWithVisits(planId);
+}
+
+async function removeWork(planId, workId, user) {
+  const { WorkPlan, WorkPlanWork } = getModels();
+  const plan = await WorkPlan.findOne({ _id: planId, deletedAt: null });
+  if (!plan) throw new ApiError(404, 'Work plan not found');
+  assertCanEditVisits(plan, user);
+
+  const work = await WorkPlanWork.findOne({ _id: workId, work_plan: planId, deletedAt: null });
+  if (!work) throw new ApiError(404, 'Work task not found');
+
+  work.deletedAt = new Date();
+  await work.save();
+
+  if (plan.status === 'rejected') {
+    plan.status = 'draft';
+    plan.rejection_reason = undefined;
+    plan.submitted_at = undefined;
+    plan.updated_by = userId(user);
+    await plan.save();
+  }
+
+  await renumberWorks(planId);
+  await logActivity(user, planId, 'updated', `Work task removed (ID: ${workId})`);
+  return getWithVisits(planId);
+}
+
 module.exports = {
   list,
   get,
@@ -1636,4 +1936,8 @@ module.exports = {
   approveAllExpenses,
   rejectAllExpenses,
   stats,
+  loadWorks,
+  addWork,
+  updateWork,
+  removeWork,
 };

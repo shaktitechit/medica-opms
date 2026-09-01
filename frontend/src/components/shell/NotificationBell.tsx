@@ -114,8 +114,8 @@ function typeVisual(t: unknown) {
     default:
       return {
         Icon: Info,
-        row: "border-l-[3px] border-l-blue-500",
-        fg: "text-blue-600 dark:text-blue-400",
+        row: "border-l-[3px] border-l-primary",
+        fg: "text-primary",
       };
   }
 }

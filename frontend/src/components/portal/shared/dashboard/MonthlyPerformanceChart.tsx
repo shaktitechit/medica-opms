@@ -96,14 +96,14 @@ function orderYearMonth(
 
 function formatAxisValue(v: number, metric: Metric): string {
   if (metric === "volume") {
-    if (v >= 10_000_000) return `₹${(v / 10_000_000).toFixed(1)}Cr`;
-    if (v >= 100_000) return `₹${(v / 100_000).toFixed(1)}L`;
-    if (v >= 1_000) return `₹${(v / 1_000).toFixed(1)}K`;
-    return `₹${Math.round(v)}`;
+    if (v >= 10_000_000) return `₹${(v / 10_000_000).toFixed(2)}Cr`;
+    if (v >= 100_000) return `₹${(v / 100_000).toFixed(2)}L`;
+    if (v >= 1_000) return `₹${(v / 1_000).toFixed(2)}K`;
+    return `₹${Math.round((v + Number.EPSILON) * 100) / 100}`;
   }
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
-  return String(Math.round(v));
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(2)}K`;
+  return String(Math.round((v + Number.EPSILON) * 100) / 100);
 }
 
 function formatTooltipValue(v: number, metric: Metric): string {
@@ -113,7 +113,10 @@ function formatTooltipValue(v: number, metric: Metric): string {
       maximumFractionDigits: 2,
     })}`;
   }
-  return v.toLocaleString();
+  return v.toLocaleString("en-IN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
 }
 
 export default function MonthlyPerformanceChart({
@@ -232,7 +235,11 @@ export default function MonthlyPerformanceChart({
     const headers = ["Month", ...activeYears.map(String)];
     const rows = MONTH_LABELS.map((monthLabel, monthIdx) => [
       monthLabel,
-      ...activeYears.map((year) => monthlyByYear.get(year)?.[monthIdx] ?? 0),
+      ...activeYears.map((year) =>
+        Math.round(
+          ((monthlyByYear.get(year)?.[monthIdx] ?? 0) + Number.EPSILON) * 100,
+        ) / 100,
+      ),
     ]);
     downloadCsvFile(
       reportFilename("monthly_performance", selectedYears),

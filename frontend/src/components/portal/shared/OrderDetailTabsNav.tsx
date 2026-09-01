@@ -35,7 +35,7 @@ export function OrderDetailTabsNav({
               onClick={() => onChange(t.id)}
               className={`relative shrink-0 rounded-lg px-3 py-2.5 text-xs font-semibold transition sm:text-sm ${
                 selected
-                  ? "bg-white text-blue-700 shadow-sm ring-1 ring-slate-200/90 dark:bg-slate-800 dark:text-blue-400 dark:ring-white/10"
+                  ? "bg-white text-primary shadow-sm ring-1 ring-slate-200/90 dark:bg-slate-800 dark:text-primary dark:ring-white/10"
                   : "text-slate-600 hover:bg-white/70 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.07] dark:hover:text-slate-100"
               }`}
             >

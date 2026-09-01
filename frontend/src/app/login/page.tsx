@@ -31,6 +31,7 @@ import {
   useAppSelector,
   useLoginMutation,
 } from "@/store";
+import { useGetCompanyInfoQuery } from "@/store/api";
 
 /**
  * Dept home when `from` is missing/outside portals; preserves ?query on `from`.
@@ -77,6 +78,12 @@ function LoginForm() {
   const [password, setPassword] = useState("");
 
   const [login, { isLoading, reset }] = useLoginMutation();
+  const { data: companyInfo } = useGetCompanyInfoQuery();
+
+  const brandName =
+    companyInfo?.trade_name?.trim() ||
+    companyInfo?.legal_name?.trim() ||
+    "Medica Enterprises";
 
   useEffect(() => {
     if (!token) return;
@@ -118,9 +125,9 @@ function LoginForm() {
         <Link
           href="/"
           className="inline-flex rounded-md ring-offset-4 ring-offset-slate-100 transition hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/55 dark:ring-offset-slate-950"
-          aria-label="Medica Enterprises — home"
+          aria-label={`${brandName} — home`}
         >
-          <MedicaLogo priority className="justify-center" imgClassName="mx-auto max-h-11 max-w-[13rem]" />
+          <MedicaLogo priority className="justify-center" imgClassName="mx-auto max-h-12 max-w-[14rem]" />
         </Link>
         <h1 className="mt-5 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
           Sign in

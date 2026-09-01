@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleUser, LogOut } from "lucide-react";
+import { CircleUser, LogOut, Building2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -90,6 +90,13 @@ export function UserMenuDropdown({ portal, user }: UserMenuDropdownProps) {
   }, [open]);
 
   const profileHref = `/${portal}/profile`;
+  const isSuperAdmin =
+    portal === "super_admin" ||
+    Boolean(
+      user &&
+        typeof user === "object" &&
+        (user as Record<string, unknown>).department === "super_admin",
+    );
 
   return (
     <div className="relative" ref={rootRef}>
@@ -137,16 +144,31 @@ export function UserMenuDropdown({ portal, user }: UserMenuDropdownProps) {
             <Link
               href={profileHref}
               role="menuitem"
-              className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-white/[0.06]"
+              className="group flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-primary-muted hover:text-primary dark:text-slate-200 dark:hover:bg-primary-muted/40"
               onClick={() => setOpen(false)}
             >
               <CircleUser
-                className="size-[18px] shrink-0 text-slate-400"
+                className="size-[18px] shrink-0 text-slate-400 transition-colors group-hover:text-primary"
                 strokeWidth={2}
                 aria-hidden
               />
-              Profile
+              User Profile
             </Link>
+            {isSuperAdmin && (
+              <Link
+                href={`/${portal}/profile?tab=company`}
+                role="menuitem"
+                className="group flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-primary-muted hover:text-primary dark:text-slate-200 dark:hover:bg-primary-muted/40"
+                onClick={() => setOpen(false)}
+              >
+                <Building2
+                  className="size-[18px] shrink-0 text-primary transition-colors"
+                  strokeWidth={2}
+                  aria-hidden
+                />
+                Company & Org Data
+              </Link>
+            )}
             <button
               type="button"
               role="menuitem"

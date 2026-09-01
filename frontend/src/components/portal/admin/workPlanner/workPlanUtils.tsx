@@ -9,6 +9,53 @@ export const WORK_PLAN_STATUS_TABS = [
   { id: "completed", label: "Completed" },
 ] as const;
 
+export const WORK_PLAN_TYPE_TABS = [
+  { id: "all", label: "All types" },
+  { id: "Visits", label: "Visits" },
+  { id: "Leave", label: "Leave" },
+  { id: "Work From Home", label: "Work From Home" },
+  { id: "Work From Office", label: "Work From Office" },
+] as const;
+
+export function planTypeOf(planType?: string | null): string {
+  return (planType && String(planType).trim()) || "Visits";
+}
+
+export function isWorkTaskPlan(planType?: string | null): boolean {
+  const t = planTypeOf(planType);
+  return t === "Work From Home" || t === "Work From Office";
+}
+
+export function isLeavePlan(planType?: string | null): boolean {
+  return planTypeOf(planType) === "Leave";
+}
+
+export function planTypeShort(planType?: string | null): string {
+  const t = planTypeOf(planType);
+  if (t === "Work From Home") return "WFH";
+  if (t === "Work From Office") return "WFO";
+  return t;
+}
+
+export function planActivityLabel(plan: {
+  plan_type?: string | null;
+  visit_count?: number;
+  work_count?: number;
+  works?: unknown[];
+}): string {
+  const type = planTypeOf(plan.plan_type);
+  if (type === "Leave") return "Leave";
+  if (isWorkTaskPlan(type)) {
+    const n =
+      Number(plan.work_count) ||
+      (Array.isArray(plan.works) ? plan.works.length : 0) ||
+      0;
+    return `${n} task${n === 1 ? "" : "s"}`;
+  }
+  const n = Number(plan.visit_count) || 0;
+  return `${n} visit${n === 1 ? "" : "s"}`;
+}
+
 export const WORK_PLAN_EXPENSE_STATUS_TABS = [
   { id: "all", label: "All" },
   { id: "draft", label: "Draft" },

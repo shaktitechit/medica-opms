@@ -16,7 +16,11 @@ export type WorkPlanVisitStatus =
   | "skipped"
   | "rescheduled";
 
-export type WorkPlanVisitPartyType = "existing" | "new_party" | "new_lead";
+export type WorkPlanVisitPartyType =
+  | "existing"
+  | "existing_lead"
+  | "new_party"
+  | "new_lead";
 
 export type WorkPlanExpenseStatus =
   | "draft"
@@ -183,6 +187,7 @@ export type WorkPlanRecord = {
     | string
     | { _id: string; name?: string; email?: string; department?: string };
   status?: WorkPlanStatus;
+  plan_type?: "Visits" | "Leave" | "Work From Home" | "Work From Office";
   remarks?: string;
   /** Location / city for the plan day. */
   location?: string;
@@ -191,11 +196,27 @@ export type WorkPlanRecord = {
   approved_at?: string;
   rejection_reason?: string;
   visit_count?: number;
+  work_count?: number;
   visits?: WorkPlanVisitRecord[];
+  works?: WorkPlanWorkRecord[];
   expenses?: WorkPlanExpenseRecord[];
   expense_total?: number;
   expense_approved_total?: number;
   visit_expense_totals?: Record<string, number>;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type WorkPlanWorkRecord = {
+  _id?: string;
+  id?: string;
+  sequence?: number;
+  title: string;
+  description?: string;
+  planned_start_time?: string;
+  planned_end_time?: string;
+  status?: "pending" | "completed" | "cancelled";
+  completion_remarks?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -209,13 +230,18 @@ export type WorkPlanListResult = {
 };
 
 export type WorkPlanStats = {
+  total_plans?: number;
   today_plans: number;
   pending_approval: number;
   approved: number;
   completed: number;
   rejected: number;
   average_visits: number;
+  average_works?: number;
+  total_visits?: number;
+  total_works?: number;
   by_status?: Record<string, number>;
+  by_plan_type?: Record<string, number>;
   monthly_trend?: Array<{ year: number; month: number; count: number }>;
   expense_total?: number;
   expense_pending_approval?: number;
@@ -412,6 +438,57 @@ export const workPlansApi = medicaApi.injectEndpoints({
     >({
       query: ({ id, visitId }) => ({
         url: `work-plans/${id}/visits/${visitId}`,
+        method: "DELETE",
+      }),
+      transformResponse: (raw: ApiEnvelope<WorkPlanRecord>) =>
+        unwrapEnvelope(raw) as WorkPlanRecord,
+      invalidatesTags: (_r, _e, arg) => [
+        "WorkPlans",
+        { type: "WorkPlans", id: arg.id },
+        { type: "WorkPlans", id: "LIST" },
+        { type: "WorkPlans", id: "STATS" },
+      ],
+    }),
+    addWorkPlanWork: build.mutation<
+      WorkPlanRecord,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({
+        url: `work-plans/${id}/works`,
+        method: "POST",
+        body,
+      }),
+      transformResponse: (raw: ApiEnvelope<WorkPlanRecord>) =>
+        unwrapEnvelope(raw) as WorkPlanRecord,
+      invalidatesTags: (_r, _e, arg) => [
+        "WorkPlans",
+        { type: "WorkPlans", id: arg.id },
+        { type: "WorkPlans", id: "LIST" },
+        { type: "WorkPlans", id: "STATS" },
+      ],
+    }),
+    patchWorkPlanWork: build.mutation<
+      WorkPlanRecord,
+      { id: string; workId: string; patch: Record<string, unknown> }
+    >({
+      query: ({ id, workId, patch }) => ({
+        url: `work-plans/${id}/works/${workId}`,
+        method: "PATCH",
+        body: patch,
+      }),
+      transformResponse: (raw: ApiEnvelope<WorkPlanRecord>) =>
+        unwrapEnvelope(raw) as WorkPlanRecord,
+      invalidatesTags: (_r, _e, arg) => [
+        "WorkPlans",
+        { type: "WorkPlans", id: arg.id },
+      ],
+    }),
+    deleteWorkPlanWork: build.mutation<
+      WorkPlanRecord,
+      { id: string; workId: string }
+    >({
+      query: ({ id, workId }) => ({
+        url: `work-plans/${id}/works/${workId}`,
         method: "DELETE",
       }),
       transformResponse: (raw: ApiEnvelope<WorkPlanRecord>) =>
@@ -685,6 +762,9 @@ export const {
   useAddWorkPlanVisitMutation,
   usePatchWorkPlanVisitMutation,
   useDeleteWorkPlanVisitMutation,
+  useAddWorkPlanWorkMutation,
+  usePatchWorkPlanWorkMutation,
+  useDeleteWorkPlanWorkMutation,
   useCheckInWorkPlanVisitMutation,
   useCheckOutWorkPlanVisitMutation,
   useCompleteWorkPlanVisitMutation,

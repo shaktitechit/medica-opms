@@ -18,6 +18,7 @@ const userSchema = new mongoose.Schema(
     },
 
     roles: [{ type: mongoose.Schema.Types.ObjectId, ref: "Role" }],
+    company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
 
     is_active: { type: Boolean, default: true },
     last_login_at: Date,

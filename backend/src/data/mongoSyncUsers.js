@@ -26,6 +26,9 @@ const ROLE_SEED_DEFS = [
       'dashboard:view',
       'records:delete',
       'work_planner:suite',
+      'leads:read',
+      'leads:write',
+      'leads:assign',
     ],
   },
   {

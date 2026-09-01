@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Edit,
@@ -10,9 +10,35 @@ import {
   Layers,
   Tag,
   Link2,
+  FileText,
 } from "lucide-react";
 
-import { useGetProductQuery } from "@/store/api";
+import {
+  useGetProductQuery,
+  useListOrdersQuery,
+  useListPartiesQuery,
+  useListUsersQuery,
+} from "@/store/api";
+import {
+  formatDateTime,
+  orderKey,
+  renderWorkflowStatusBadge,
+} from "./orderList/orderListDisplay";
+import { getOrderTabCategory } from "@/components/portal/sales/orderUtils";
+import { useOrderWorkflowCategoryOptions } from "./orderList/useOrderWorkflowCategoryOptions";
+import {
+  buildPartyNameById,
+  resolveOrderCounterparty,
+} from "@/components/portal/sales/partyDisplay";
+import {
+  buildUserNameById,
+  resolveUserDisplay,
+} from "@/components/portal/shared/userDisplay";
+import { deriveOrderWorkflowStatus } from "@/components/portal/shared/orderLifecycle";
+import Link from "next/link";
+import { OrderListSearchDatePanel } from "./orderList/OrderListSearchDatePanel";
+import { OrderListPaginationBar } from "./orderList/OrderListPaginationBar";
+import { orderMatchesDateFilter } from "./orderList/orderListDateFilter";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { resolvePortalPresentation } from "@/components/portal/shared/portalPresentation";
 import { ProductDetailModal } from "./ProductDetailModal";
@@ -45,7 +71,7 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
   // Modal & Tab states
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "specifications" | "commercials" | "items"
+    "specifications" | "commercials" | "items" | "orders"
   >("specifications");
 
   if (isError || (!isLoading && !rawProduct)) {
@@ -196,6 +222,17 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
             <Link2 className="h-4 w-4" /> Items Mapping
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => setActiveTab("orders")}
+          className={`border-b-2 px-6 py-3.5 text-sm font-semibold transition -mb-px flex items-center gap-2 ${
+            tab === "orders"
+              ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-500"
+              : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+          }`}
+        >
+          <FileText className="h-4 w-4" /> Orders
+        </button>
       </div>
 
       {/* Main Content Area */}
@@ -371,6 +408,254 @@ export default function ProductDetailPage({ id, portalHome }: ProductDetailPageP
         )}
 
         {isKit && tab === "items" && <ProductKitItemsMapping kitId={id} />}
+        {tab === "orders" && (
+          <ProductOrdersTab productId={id} portalHome={portalHome} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProductOrdersTab({
+  productId,
+  portalHome,
+}: {
+  productId: string;
+  portalHome: string;
+}) {
+  const { data: rawOrders, isLoading, isError } = useListOrdersQuery({
+    product: productId,
+  });
+  const partiesQ = useListPartiesQuery({});
+  const salesUsersQ = useListUsersQuery({ department: "sales" });
+  const categoryOptions = useOrderWorkflowCategoryOptions();
+
+  const partyNameById = useMemo(
+    () => buildPartyNameById(partiesQ.data),
+    [partiesQ.data],
+  );
+  const salesUserNameById = useMemo(
+    () => buildUserNameById(salesUsersQ.data),
+    [salesUsersQ.data],
+  );
+
+  const orders = useMemo(() => {
+    if (!Array.isArray(rawOrders)) return [];
+    return rawOrders;
+  }, [rawOrders]);
+
+  // States
+  const [searchQuery, setSearchQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, dateFilter, customDateFrom, customDateTo]);
+
+  const filteredOrders = useMemo(() => {
+    return orders.filter((o: any) => {
+      // 1. Search Query
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const id = orderKey(o);
+        const ref = (o.order_no || o.order_number || id || "").toLowerCase();
+        const partyLabel = resolveOrderCounterparty(o, partyNameById).toLowerCase();
+        const salesPersonLabel = resolveUserDisplay(o.assigned_sales_user, salesUserNameById).toLowerCase();
+        if (!ref.includes(query) && !partyLabel.includes(query) && !salesPersonLabel.includes(query)) {
+          return false;
+        }
+      }
+      // 2. Date Filter
+      if (!orderMatchesDateFilter(o, dateFilter, customDateFrom, customDateTo)) {
+        return false;
+      }
+      return true;
+    });
+  }, [orders, searchQuery, dateFilter, customDateFrom, customDateTo, partyNameById, salesUserNameById]);
+
+  const totalEntries = filteredOrders.length;
+  const totalPages = Math.max(1, Math.ceil(totalEntries / itemsPerPage) || 1);
+
+  const paginatedOrders = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredOrders.slice(start, start + itemsPerPage);
+  }, [filteredOrders, currentPage, itemsPerPage]);
+
+  const startEntry = totalEntries > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
+  const endEntry = Math.min(currentPage * itemsPerPage, totalEntries);
+
+  if (isLoading || partiesQ.isLoading || salesUsersQ.isLoading) {
+    return (
+      <div className="text-center py-10 text-xs text-slate-500">
+        Loading orders...
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="text-center py-10 text-xs text-rose-500">
+        Failed to load orders.
+      </div>
+    );
+  }
+
+  if (orders.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-200/90 bg-white p-12 text-center dark:border-white/10 dark:bg-slate-900">
+        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+          No orders contain this product.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <OrderListSearchDatePanel
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        dateFilter={dateFilter}
+        onDateFilterChange={setDateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        onCustomDateFromChange={setCustomDateFrom}
+        onCustomDateToChange={setCustomDateTo}
+        desktopPlaceholder="Search by order #, party name, or sales person..."
+        mobilePlaceholder="Search order #, party, or sales..."
+        compact
+      />
+
+      <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900 overflow-hidden">
+        {totalEntries === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              No matching orders found
+            </h3>
+            <p className="mx-auto mt-1.5 max-w-xs text-xs text-slate-500">
+              No orders match your search and filter parameters.
+            </p>
+          </div>
+        ) : (
+          <>
+            <OrderListPaginationBar
+              startEntry={startEntry}
+              endEntry={endEntry}
+              totalEntries={totalEntries}
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={(value) => {
+                setItemsPerPage(value);
+                setCurrentPage(1);
+              }}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+            />
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50 dark:border-white/5 dark:bg-slate-900/50">
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Order No
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Party
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Sales Person
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Quantity
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Amount
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Order Date
+                    </th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wider text-slate-500">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-right font-semibold uppercase tracking-wider text-slate-500">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                  {paginatedOrders.map((o: any) => {
+                    const id = orderKey(o);
+                    const ref = o.order_no || o.order_number || id || "—";
+                    const partyLabel = resolveOrderCounterparty(o, partyNameById);
+                    const salesPersonLabel = resolveUserDisplay(
+                      o.assigned_sales_user,
+                      salesUserNameById,
+                    );
+                    const matchItem = (o.order_items || []).find(
+                      (item: any) => String(item.product?._id || item.product) === productId,
+                    );
+                    const qty = matchItem
+                      ? Number(matchItem.ordered_quantity ?? matchItem.quantity ?? 0)
+                      : 0;
+                    const amount = matchItem
+                      ? Number(matchItem.total_amount ?? qty * (matchItem.unit_price ?? 0))
+                      : 0;
+                    const orderDateStr = formatDateTime(
+                      o.order_date ?? o.created_at ?? o.createdAt,
+                    );
+                    const statusRaw = getOrderTabCategory(o, categoryOptions);
+
+                    return (
+                      <tr
+                        key={id || ref}
+                        className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors animate-fadeIn"
+                      >
+                        <td className="whitespace-nowrap px-4 py-3 font-mono font-bold">
+                          <Link
+                            href={`${portalHome}/order/${id}`}
+                            className="font-bold text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                          >
+                            {ref}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
+                          {partyLabel}
+                        </td>
+                        <td className="px-4 py-3 text-slate-655 dark:text-slate-350">
+                          {salesPersonLabel}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-700 dark:text-slate-300">
+                          {qty}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-bold text-slate-900 dark:text-slate-50 tabular-nums">
+                          {formatMoney(amount)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-500 dark:text-slate-400">
+                          {orderDateStr}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
+                          {renderWorkflowStatusBadge(statusRaw as any)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          <Link
+                            href={`${portalHome}/order/${id}`}
+                            className="rounded border border-slate-200 px-2 py-1 font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+                          >
+                            View
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

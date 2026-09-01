@@ -72,6 +72,29 @@ exports.removeVisit = asyncHandler(async (req, res) => {
   });
 });
 
+exports.addWork = asyncHandler(async (req, res) => {
+  validation.assertWorkCreate(req.body || {});
+  res.status(201).json({
+    success: true,
+    data: await service.addWork(req.params.id, req.body, req.user),
+  });
+});
+
+exports.updateWork = asyncHandler(async (req, res) => {
+  validation.assertWorkUpdate(req.body || {});
+  res.json({
+    success: true,
+    data: await service.updateWork(req.params.id, req.params.workId, req.body, req.user),
+  });
+});
+
+exports.removeWork = asyncHandler(async (req, res) => {
+  res.json({
+    success: true,
+    data: await service.removeWork(req.params.id, req.params.workId, req.user),
+  });
+});
+
 exports.checkIn = asyncHandler(async (req, res) => {
   res.json({
     success: true,

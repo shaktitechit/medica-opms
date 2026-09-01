@@ -241,80 +241,16 @@
           <table class="items-table">
             <thead>
               <tr>
-                <th style="width: 32%;">Item Name</th>
-                <th class="text-center" style="width: 8%;">Qty</th>
-                <th class="text-center" style="width: 8%;">Free</th>
-                <th class="text-center" style="width: 12%;">Rate Type</th>
-                <th class="text-right" style="width: 10%;">Price</th>
-                <th class="text-right" style="width: 10%;">Disc %</th>
-                <th class="text-right" style="width: 10%;">GST %</th>
-                <th class="text-right" style="width: 10%;">Total</th>
+                <th style="width: 60%;">Item Name</th>
+                <th class="text-center" style="width: 20%;">Qty</th>
+                <th class="text-center" style="width: 20%;">Free</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td class="font-semibold">Paracetamol 650mg 10s</td>
-                <td class="text-center">10</td>
-                <td class="text-center">1</td>
-                <td class="text-center">PTS</td>
-                <td class="text-right">₹15.00</td>
-                <td class="text-right">10%</td>
-                <td class="text-right">12%</td>
-                <td class="text-right font-semibold">₹135.00</td>
-              </tr>
-              <tr>
-                <td class="font-semibold">Amoxicillin 500mg Cap</td>
-                <td class="text-center">5</td>
-                <td class="text-center">0</td>
-                <td class="text-center">PTR</td>
-                <td class="text-right">₹45.00</td>
-                <td class="text-right">5%</td>
-                <td class="text-right">12%</td>
-                <td class="text-right font-semibold">₹213.75</td>
-              </tr>
-              <tr>
-                <td class="font-semibold">Pantoprazole 40mg Tab</td>
-                <td class="text-center">2</td>
-                <td class="text-center">0</td>
-                <td class="text-center">MRP</td>
-                <td class="text-right">₹60.00</td>
-                <td class="text-right">0%</td>
-                <td class="text-right">18%</td>
-                <td class="text-right font-semibold">₹141.60</td>
-              </tr>
-              <tr>
-                <td class="font-semibold">Vitamin C 1000mg</td>
-                <td class="text-center">8</td>
-                <td class="text-center">1</td>
-                <td class="text-center">PTR</td>
-                <td class="text-right">₹25.00</td>
-                <td class="text-right">12%</td>
-                <td class="text-right">12%</td>
-                <td class="text-right font-semibold">₹193.60</td>
-              </tr>
+              {{itemsRows}}
             </tbody>
           </table>
         </div>
-
-        <!-- Totals Box -->
-        <table style="width: 100%; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 24px; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 4px 0; font-size: 13px; color: #64748b;">Subtotal:</td>
-            <td style="padding: 4px 0; font-size: 13px; color: #0f172a; text-align: right;">₹610.00</td>
-          </tr>
-          <tr>
-            <td style="padding: 4px 0; font-size: 13px; color: #64748b;">Total Discount:</td>
-            <td style="padding: 4px 0; font-size: 13px; color: #1e40af; text-align: right;">-₹48.75</td>
-          </tr>
-          <tr>
-            <td style="padding: 4px 0; font-size: 13px; color: #64748b;">GST Amount:</td>
-            <td style="padding: 4px 0; font-size: 13px; color: #0f172a; text-align: right;">+₹122.70</td>
-          </tr>
-          <tr>
-            <td style="padding: 10px 0 4px 0; font-size: 15px; font-weight: 700; color: #0f172a; border-top: 2px solid #e2e8f0;">Grand Total:</td>
-            <td style="padding: 10px 0 4px 0; font-size: 16px; font-weight: 700; color: #1e40af; text-align: right; border-top: 2px solid #e2e8f0;">₹683.95</td>
-          </tr>
-        </table>
 
         <!-- Delivery Address -->
         <div class="section-title">Delivery Address</div>

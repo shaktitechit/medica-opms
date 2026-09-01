@@ -69,6 +69,7 @@ import {
 } from "./filterListOrders";
 import {
   formatDateShort,
+  formatDateTime,
   formatMoney,
   orderKey,
   renderPendingApprovalBadge,
@@ -619,10 +620,10 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
                     );
                     const statusRaw = deriveOrderWorkflowStatus(o) || "draft";
                     const isDraftRow = statusRaw === "draft";
-                    const orderDateStr = formatDateShort(
+                    const orderDateStr = formatDateTime(
                       o.order_date ?? o.created_at ?? o.createdAt,
                     );
-                    const billingDateStr = formatDateShort(
+                    const billingDateStr = formatDateTime(
                       o.billing_date,
                     );
                     const expectedDeliveryStr = formatDateShort(

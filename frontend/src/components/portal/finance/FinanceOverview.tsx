@@ -482,7 +482,14 @@ export default function FinanceOverview() {
         qtyBasis={qtyBasis}
       />
 
-      <WorkPlannerStatsWidgets portalHome="/finance" />
+      <WorkPlannerStatsWidgets
+        portalHome="/finance"
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
 
       <MonthlyPerformanceChart
         orders={orders}

@@ -16,6 +16,7 @@ const TRANSPORT_PLAN_STATUSES = [
 
 const transportPlanSchema = new mongoose.Schema(
   {
+    company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
     plan_date: { type: Date, required: true, index: true },
     transport_agent: {
       type: mongoose.Schema.Types.ObjectId,

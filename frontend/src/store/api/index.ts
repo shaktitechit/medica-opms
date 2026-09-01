@@ -41,4 +41,7 @@ export * from "./slices/finalOrderStatementApi";
 export * from "./slices/remindersApi";
 export * from "./slices/workPlansApi";
 export * from "./slices/transportPlansApi";
+export * from "./slices/leadsApi";
+export * from "./slices/leadMastersApi";
 export * from "./slices/zonesApi";
+export * from "./slices/companyInfoApi";

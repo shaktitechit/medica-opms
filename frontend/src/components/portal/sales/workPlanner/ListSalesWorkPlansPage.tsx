@@ -20,6 +20,7 @@ import { ConfirmDeleteWorkPlanModal } from "./ConfirmDeleteWorkPlanModal";
 import { DownloadWorkPlansModal } from "./DownloadWorkPlansModal";
 import {
   WORK_PLAN_STATUS_TABS,
+  WORK_PLAN_TYPE_TABS,
   canEditPlan,
   formatPlanDate,
   planIdOf,
@@ -36,7 +37,9 @@ export default function ListSalesWorkPlansPage() {
   const isAdmin = false;
 
   const initialStatus = searchParams.get("status") || "all";
+  const initialPlanType = searchParams.get("plan_type") || "all";
   const [statusFilter, setStatusFilter] = useState(initialStatus);
+  const [planTypeFilter, setPlanTypeFilter] = useState(initialPlanType);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -55,11 +58,12 @@ export default function ListSalesWorkPlansPage() {
       limit: itemsPerPage,
     };
     if (statusFilter && statusFilter !== "all") q.status = statusFilter;
+    if (planTypeFilter && planTypeFilter !== "all") q.plan_type = planTypeFilter;
     if (dateFrom) q.from = dateFrom;
     if (dateTo) q.to = dateTo;
     if (isAdmin && salesUserFilter) q.sales_user = salesUserFilter;
     return q;
-  }, [currentPage, itemsPerPage, statusFilter, dateFrom, dateTo, isAdmin, salesUserFilter]);
+  }, [currentPage, itemsPerPage, statusFilter, planTypeFilter, dateFrom, dateTo, isAdmin, salesUserFilter]);
 
   const { data, isLoading, isFetching, isError, refetch } =
     useListWorkPlansQuery(queryArgs);
@@ -89,11 +93,13 @@ export default function ListSalesWorkPlansPage() {
       const remarks = (r.remarks || "").toLowerCase();
       const location = (r.location || "").toLowerCase();
       const status = (r.status || "").toLowerCase();
+      const planType = (r.plan_type || "visits").toLowerCase();
       return (
         sales.includes(q) ||
         remarks.includes(q) ||
         location.includes(q) ||
-        status.includes(q)
+        status.includes(q) ||
+        planType.includes(q)
       );
     });
   }, [rows, searchQuery]);
@@ -191,6 +197,25 @@ export default function ListSalesWorkPlansPage() {
             className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-white/15 dark:bg-slate-950"
           />
         </div>
+        <div>
+          <label className="mb-1 block text-[11px] font-medium text-slate-500">
+            Plan type
+          </label>
+          <select
+            value={planTypeFilter}
+            onChange={(e) => {
+              setPlanTypeFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="min-w-[160px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-white/15 dark:bg-slate-950"
+          >
+            {WORK_PLAN_TYPE_TABS.map((tab) => (
+              <option key={tab.id} value={tab.id}>
+                {tab.label}
+              </option>
+            ))}
+          </select>
+        </div>
         {isAdmin ? (
           <div>
             <label className="mb-1 block text-[11px] font-medium text-slate-500">
@@ -232,8 +257,9 @@ export default function ListSalesWorkPlansPage() {
                 {isAdmin ? (
                   <th className="px-3 py-2.5 font-semibold">Sales executive</th>
                 ) : null}
+                <th className="px-3 py-2.5 font-semibold">Plan Type</th>
                 <th className="px-3 py-2.5 font-semibold">Status</th>
-                <th className="px-3 py-2.5 font-semibold">Visits</th>
+                <th className="px-3 py-2.5 font-semibold">Visits / Works</th>
                 <th className="px-3 py-2.5 font-semibold">Location / City</th>
                 <th className="px-3 py-2.5 font-semibold">Remarks</th>
                 <th className="px-3 py-2.5 font-semibold text-right">Actions</th>
@@ -243,7 +269,7 @@ export default function ListSalesWorkPlansPage() {
               {filteredRows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={isAdmin ? 7 : 6}
+                    colSpan={isAdmin ? 8 : 7}
                     className="px-3 py-10 text-center text-slate-500"
                   >
                     No work plans found.
@@ -265,9 +291,16 @@ export default function ListSalesWorkPlansPage() {
                           {salesUserLabel(row.sales_user)}
                         </td>
                       ) : null}
+                      <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">
+                        {row.plan_type || "Visits"}
+                      </td>
                       <td className="px-3 py-2.5">{renderPlanStatusBadge(row.status)}</td>
                       <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">
-                        {row.visit_count ?? 0}
+                        {row.plan_type === "Visits" || !row.plan_type
+                          ? row.visit_count ?? 0
+                          : (row.plan_type === "Work From Home" || row.plan_type === "Work From Office")
+                          ? row.work_count ?? row.works?.length ?? 0
+                          : "—"}
                       </td>
                       <td className="max-w-[160px] truncate px-3 py-2.5 text-slate-700 dark:text-slate-300">
                         {row.location || "—"}
@@ -350,7 +383,14 @@ export default function ListSalesWorkPlansPage() {
         filterLabel="Status"
         filterOptions={[{ value: "all", label: "All" }]}
         showReset={
-          Boolean(searchQuery || dateFrom || dateTo || salesUserFilter || statusFilter !== "all")
+          Boolean(
+            searchQuery ||
+              dateFrom ||
+              dateTo ||
+              salesUserFilter ||
+              statusFilter !== "all" ||
+              planTypeFilter !== "all",
+          )
         }
         onReset={() => {
           setSearchQuery("");
@@ -358,6 +398,7 @@ export default function ListSalesWorkPlansPage() {
           setDateTo("");
           setSalesUserFilter("");
           setStatusFilter("all");
+          setPlanTypeFilter("all");
           setCurrentPage(1);
         }}
       />

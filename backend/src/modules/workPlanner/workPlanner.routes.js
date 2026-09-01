@@ -30,6 +30,10 @@ router.post('/:id/visits', requireDepartment(...salesAndAdmin), controller.addVi
 router.patch('/:id/visits/:visitId', requireDepartment(...salesAndAdmin), controller.updateVisit);
 router.delete('/:id/visits/:visitId', requireDepartment(...salesAndAdmin), controller.removeVisit);
 
+router.post('/:id/works', requireDepartment(...salesAndAdmin), controller.addWork);
+router.patch('/:id/works/:workId', requireDepartment(...salesAndAdmin), controller.updateWork);
+router.delete('/:id/works/:workId', requireDepartment(...salesAndAdmin), controller.removeWork);
+
 router.post('/:id/visits/:visitId/check-in', requireDepartment(...salesAndAdmin), controller.checkIn);
 router.post('/:id/visits/:visitId/check-out', requireDepartment(...salesAndAdmin), controller.checkOut);
 router.post(

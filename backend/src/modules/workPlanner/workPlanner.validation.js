@@ -62,6 +62,9 @@ function assertCreate(body) {
   if (body.status && !PLAN_STATUSES.includes(body.status)) {
     throw new ApiError(400, `status must be one of: ${PLAN_STATUSES.join(', ')}`);
   }
+  if (body.plan_type && !['Visits', 'Leave', 'Work From Home', 'Work From Office'].includes(body.plan_type)) {
+    throw new ApiError(400, 'plan_type must be one of: Visits, Leave, Work From Home, Work From Office');
+  }
 }
 
 function assertUpdate(body) {
@@ -73,6 +76,9 @@ function assertUpdate(body) {
   }
   if (body.status !== undefined && !PLAN_STATUSES.includes(body.status)) {
     throw new ApiError(400, `status must be one of: ${PLAN_STATUSES.join(', ')}`);
+  }
+  if (body.plan_type !== undefined && !['Visits', 'Leave', 'Work From Home', 'Work From Office'].includes(body.plan_type)) {
+    throw new ApiError(400, 'plan_type must be one of: Visits, Leave, Work From Home, Work From Office');
   }
 }
 
@@ -349,6 +355,70 @@ function assertExpenseUpdate(body) {
   }
 }
 
+function assertWorkCreate(body) {
+  if (!body || typeof body !== 'object') {
+    throw new ApiError(400, 'JSON body required');
+  }
+  if (!body.title || !body.title.trim()) {
+    throw new ApiError(400, 'title is required');
+  }
+  if (body.sequence !== undefined) {
+    const seq = Number(body.sequence);
+    if (!Number.isInteger(seq) || seq < 1) {
+      throw new ApiError(400, 'sequence must be a positive integer');
+    }
+  }
+  if (body.planned_start_time && isNaN(Date.parse(body.planned_start_time))) {
+    throw new ApiError(400, 'Invalid planned_start_time format');
+  }
+  if (body.planned_end_time && isNaN(Date.parse(body.planned_end_time))) {
+    throw new ApiError(400, 'Invalid planned_end_time format');
+  }
+  if (body.status && !['pending', 'completed', 'cancelled'].includes(body.status)) {
+    throw new ApiError(400, 'status must be pending, completed or cancelled');
+  }
+}
+
+function assertWorkUpdate(body) {
+  if (!body || typeof body !== 'object') {
+    throw new ApiError(400, 'JSON body required');
+  }
+  if (body.title !== undefined && !body.title.trim()) {
+    throw new ApiError(400, 'title cannot be empty');
+  }
+  if (body.sequence !== undefined) {
+    const seq = Number(body.sequence);
+    if (!Number.isInteger(seq) || seq < 1) {
+      throw new ApiError(400, 'sequence must be a positive integer');
+    }
+  }
+  if (body.planned_start_time !== undefined && body.planned_start_time !== null) {
+    if (isNaN(Date.parse(body.planned_start_time))) {
+      throw new ApiError(400, 'Invalid planned_start_time format');
+    }
+  }
+  if (body.planned_end_time !== undefined && body.planned_end_time !== null) {
+    if (isNaN(Date.parse(body.planned_end_time))) {
+      throw new ApiError(400, 'Invalid planned_end_time format');
+    }
+  }
+  if (body.status !== undefined && !['pending', 'completed', 'cancelled'].includes(body.status)) {
+    throw new ApiError(400, 'status must be pending, completed or cancelled');
+  }
+  if (body.completion_remarks !== undefined && body.completion_remarks !== null) {
+    if (typeof body.completion_remarks !== 'string') {
+      throw new ApiError(400, 'completion_remarks must be a string');
+    }
+  }
+  if (body.status === 'completed') {
+    const remarks =
+      typeof body.completion_remarks === 'string' ? body.completion_remarks.trim() : '';
+    if (!remarks) {
+      throw new ApiError(400, 'completion remarks are required to complete a work task');
+    }
+  }
+}
+
 module.exports = {
   assertCreate,
   assertUpdate,
@@ -359,4 +429,6 @@ module.exports = {
   assertScheduleNextVisit,
   assertExpenseCreate,
   assertExpenseUpdate,
+  assertWorkCreate,
+  assertWorkUpdate,
 };

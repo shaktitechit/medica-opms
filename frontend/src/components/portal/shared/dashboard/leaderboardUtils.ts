@@ -122,6 +122,10 @@ export function itemMetricValue(
   return metric === "quantity" ? qty : qty * itemUnitPrice(item);
 }
 
+export function roundToTwo(num: number): number {
+  return Math.round((Number(num) + Number.EPSILON) * 100) / 100;
+}
+
 export function formatMetricValue(v: number, metric: Metric): string {
   if (metric === "volume") {
     return `₹${v.toLocaleString("en-IN", {
@@ -129,5 +133,8 @@ export function formatMetricValue(v: number, metric: Metric): string {
       maximumFractionDigits: 2,
     })}`;
   }
-  return v.toLocaleString();
+  return v.toLocaleString("en-IN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
 }

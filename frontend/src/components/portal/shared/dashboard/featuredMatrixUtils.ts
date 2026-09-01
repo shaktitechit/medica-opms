@@ -126,6 +126,10 @@ export function itemMetricValue(
   return qty * unitPriceWithGst;
 }
 
+export function roundToTwo(num: number): number {
+  return Math.round((Number(num) + Number.EPSILON) * 100) / 100;
+}
+
 export function formatMatrixValue(v: number, metric: MatrixMetric): string {
   if (!v) return "—";
   if (metric === "volume") {
@@ -134,7 +138,10 @@ export function formatMatrixValue(v: number, metric: MatrixMetric): string {
       maximumFractionDigits: 2,
     })}`;
   }
-  return v.toLocaleString();
+  return v.toLocaleString("en-IN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
 }
 
 export function resolveProductId(item: any): string {

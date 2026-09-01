@@ -1,4 +1,4 @@
-import type { WorkPlanExpenseRecord, WorkPlanRecord, WorkPlanVisitRecord } from "@/store/api";
+import type { WorkPlanExpenseRecord, WorkPlanRecord, WorkPlanVisitRecord, WorkPlanWorkRecord } from "@/store/api";
 
 type JsPDF = InstanceType<(typeof import("jspdf"))["jsPDF"]>;
 
@@ -12,6 +12,7 @@ export type WorkPlansReportPdfInput = {
   periodTo: string;
   salesUserLabel: string;
   statusLabel: string;
+  planTypeLabel?: string;
   plans: WorkPlanRecord[];
 };
 
@@ -252,6 +253,19 @@ function drawTableHeader(
   return y + h;
 }
 
+function planTypeOf(plan: WorkPlanRecord): string {
+  return String(plan.plan_type || "Visits").trim() || "Visits";
+}
+
+function isWorkTaskPlan(plan: WorkPlanRecord): boolean {
+  const t = planTypeOf(plan);
+  return t === "Work From Home" || t === "Work From Office";
+}
+
+function isLeavePlan(plan: WorkPlanRecord): boolean {
+  return planTypeOf(plan) === "Leave";
+}
+
 export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): Promise<JsPDF> {
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -263,6 +277,15 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
     (n, p) => n + (Array.isArray(p.visits) ? p.visits.length : Number(p.visit_count) || 0),
     0,
   );
+  const workCount = input.plans.reduce(
+    (n, p) => n + (Array.isArray(p.works) ? p.works.length : Number(p.work_count) || 0),
+    0,
+  );
+
+  const typeMeta =
+    input.planTypeLabel && input.planTypeLabel !== "All types"
+      ? `    Type: ${input.planTypeLabel}`
+      : "";
 
   const chrome = () =>
     drawChrome(pdf, {
@@ -270,10 +293,10 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
       logo,
       title: "Work Plans Report",
       rightTitle: input.salesUserLabel,
-      rightSub: `${input.plans.length} plan${input.plans.length === 1 ? "" : "s"}  ·  ${visitCount} visit${visitCount === 1 ? "" : "s"}`,
+      rightSub: `${input.plans.length} plan${input.plans.length === 1 ? "" : "s"}  ·  ${visitCount} visit${visitCount === 1 ? "" : "s"}  ·  ${workCount} task${workCount === 1 ? "" : "s"}`,
       periodFrom: input.periodFrom,
       periodTo: input.periodTo,
-      extraMeta: `Status: ${input.statusLabel || "All"}`,
+      extraMeta: `Status: ${input.statusLabel || "All"}${typeMeta}`,
       generatedAt: input.generatedAt,
       portalLabel: input.portalLabel,
       downloadedBy: input.downloadedBy,
@@ -307,14 +330,56 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
     align: i === 0 ? ("center" as const) : undefined,
   }));
 
+  const workColW = [10, 52, 78, 42, 24, usable - 206];
+  const workColX: number[] = [];
+  workColW.reduce((x, w) => {
+    workColX.push(x);
+    return x + w;
+  }, M);
+  const workCols = ["#", "Title", "Description", "Planned", "Status", "Completion remarks"].map(
+    (label, i) => ({
+      label,
+      x: workColX[i]!,
+      w: workColW[i]!,
+      align: i === 0 ? ("center" as const) : undefined,
+    }),
+  );
+
   let y = contentTop() + 2;
 
   const drawVisitHead = () => {
     y = drawTableHeader(pdf, y, cols);
   };
+  const drawWorkHead = () => {
+    y = drawTableHeader(pdf, y, workCols);
+  };
+
+  const drawEmptyLine = (message: string) => {
+    y = ensureSpace(pdf, y, 7, () => {
+      chrome();
+      return contentTop() + 2;
+    });
+    pdf.setFont("helvetica", "italic");
+    pdf.setFontSize(8);
+    pdf.setTextColor(...MUTED);
+    pdf.text(message, M + 3, y + 4);
+    y += 8;
+  };
+
+  const paintRow = (idx: number, h: number) => {
+    if (idx % 2 === 1) {
+      pdf.setFillColor(...ZEBRA);
+      pdf.rect(M, y, usable, h, "F");
+    }
+    pdf.setDrawColor(...LINE);
+    pdf.setLineWidth(0.15);
+    pdf.line(M, y + h, M + usable, y + h);
+  };
 
   for (const plan of input.plans) {
     const visits = Array.isArray(plan.visits) ? plan.visits : [];
+    const works = Array.isArray(plan.works) ? plan.works : [];
+    const typeLabel = planTypeOf(plan);
     const bandH = 8;
     y = ensureSpace(pdf, y, bandH + 7 + 10, () => {
       chrome();
@@ -328,25 +393,91 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(8.5);
     pdf.setTextColor(...NAVY);
-    const left = `${fmtDate(plan.plan_date)}    ${salesName(plan.sales_user)}    ${plan.location || "—"}`;
+    const left = `${fmtDate(plan.plan_date)}    ${salesName(plan.sales_user)}    ${plan.location || "—"}    ${typeLabel}`;
     pdf.text(left, M + 3, y + 5.3);
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(7.5);
     pdf.setTextColor(...SLATE);
-    const right = `${visits.length} visit${visits.length === 1 ? "" : "s"}    ${statusText(plan.status).toUpperCase()}`;
+    const right = isLeavePlan(plan)
+      ? statusText(plan.status).toUpperCase()
+      : isWorkTaskPlan(plan)
+        ? `${works.length} task${works.length === 1 ? "" : "s"}    ${statusText(plan.status).toUpperCase()}`
+        : `${visits.length} visit${visits.length === 1 ? "" : "s"}    ${statusText(plan.status).toUpperCase()}`;
     pdf.text(right, M + usable - 2, y + 5.3, { align: "right" });
     y += bandH + 1;
 
-    if (visits.length === 0) {
-      y = ensureSpace(pdf, y, 7, () => {
+    if (plan.remarks) {
+      y = ensureSpace(pdf, y, 6, () => {
         chrome();
         return contentTop() + 2;
       });
       pdf.setFont("helvetica", "italic");
-      pdf.setFontSize(8);
+      pdf.setFontSize(7);
       pdf.setTextColor(...MUTED);
-      pdf.text("No visits on this plan", M + 3, y + 4);
-      y += 8;
+      const remarkLines = clip(pdf, `Remarks: ${plan.remarks}`, usable - 8);
+      pdf.text(remarkLines, M + 3, y + 3.5);
+      y += remarkLines.length * LINE_H + 2;
+    }
+
+    if (isLeavePlan(plan)) {
+      drawEmptyLine("Leave — no visits or work tasks");
+      y += 2;
+      continue;
+    }
+
+    if (isWorkTaskPlan(plan)) {
+      if (works.length === 0) {
+        drawEmptyLine("No work tasks on this plan");
+        y += 2;
+        continue;
+      }
+
+      y = ensureSpace(pdf, y, 7 + 10, () => {
+        chrome();
+        y = contentTop() + 2;
+        drawWorkHead();
+        return y;
+      });
+      drawWorkHead();
+
+      works.forEach((w: WorkPlanWorkRecord, idx: number) => {
+        const planned = [fmtDateTime(w.planned_start_time), fmtDateTime(w.planned_end_time)]
+          .filter(Boolean)
+          .join(" – ");
+        const cells = [
+          clip(pdf, w.sequence != null ? String(w.sequence) : "—", workColW[0]! - 2),
+          clip(pdf, w.title || "—", workColW[1]! - 2),
+          clip(pdf, w.description || "—", workColW[2]! - 2),
+          clip(pdf, planned || "—", workColW[3]! - 2),
+          clip(pdf, statusText(w.status || "pending"), workColW[4]! - 2),
+          clip(pdf, w.completion_remarks || "—", workColW[5]! - 2),
+        ];
+        const h = rowH(cells);
+        y = ensureSpace(pdf, y, h, () => {
+          chrome();
+          y = contentTop() + 2;
+          drawWorkHead();
+          return y;
+        });
+        paintRow(idx, h);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(7);
+        pdf.setTextColor(...SLATE);
+        cells.forEach((lines, i) => {
+          const align = i === 0 ? "center" : undefined;
+          const tx = i === 0 ? workColX[i]! + workColW[i]! / 2 : workColX[i]! + 1;
+          pdf.text(lines, tx, y + CELL_PAD + 2.6, align ? { align } : undefined);
+        });
+        y += h;
+      });
+
+      y += 3;
+      continue;
+    }
+
+    if (visits.length === 0) {
+      drawEmptyLine("No visits on this plan");
+      y += 2;
       continue;
     }
 
@@ -403,14 +534,7 @@ export async function buildWorkPlansReportPdf(input: WorkPlansReportPdfInput): P
         return y;
       });
 
-      if (idx % 2 === 1) {
-        pdf.setFillColor(...ZEBRA);
-        pdf.rect(M, y, usable, h, "F");
-      }
-      pdf.setDrawColor(...LINE);
-      pdf.setLineWidth(0.15);
-      pdf.line(M, y + h, M + usable, y + h);
-
+      paintRow(idx, h);
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(7);
       pdf.setTextColor(...SLATE);

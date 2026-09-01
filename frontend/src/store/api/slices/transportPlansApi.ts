@@ -216,6 +216,7 @@ export type EligibleOrdersResult = {
 };
 
 export type TransportPlanStats = {
+  total_plans?: number;
   today_plans: number;
   pending_dispatch: number;
   in_transit: number;

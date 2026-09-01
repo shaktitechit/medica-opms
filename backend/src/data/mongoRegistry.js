@@ -15,6 +15,7 @@ const MODULE_ENUM = [
   'party',
   'product',
   'order',
+  'lead',
   'finance',
   'dispatch',
   'transport',
@@ -88,6 +89,7 @@ function registerModels() {
   
   const userSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       name: { type: String, required: true, trim: true },
       email: { type: String, required: true, unique: true, lowercase: true, trim: true },
       phone: { type: String, trim: true },
@@ -130,6 +132,7 @@ function registerModels() {
   
   const customerSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       customer_name: { type: String, required: true, trim: true },
       company_name: { type: String, trim: true },
       gst_number: { type: String, uppercase: true, trim: true },
@@ -169,6 +172,7 @@ function registerModels() {
   
   const productSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       product_name: {
         type: String,
         required: true,
@@ -429,6 +433,7 @@ function registerModels() {
   // --- Schemas from ProductGroup.js ---
   const productGroupSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       name: { type: String, required: true, unique: true, trim: true, index: true },
       description: { type: String, trim: true },
       is_active: { type: Boolean, default: true, index: true },
@@ -445,6 +450,7 @@ function registerModels() {
   // --- Schemas from Zone.js ---
   const zoneSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       name: { type: String, required: true, unique: true, trim: true, index: true },
       description: { type: String, trim: true },
       parties: [{ type: mongoose.Schema.Types.ObjectId, ref: "Party" }],
@@ -462,6 +468,7 @@ function registerModels() {
   // --- Schemas from ProductSubgroup.js ---
   const productSubgroupSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       name: { type: String, required: true, trim: true, index: true },
       group: { type: mongoose.Schema.Types.ObjectId, ref: "ProductGroup", required: true, index: true },
       description: { type: String, trim: true },
@@ -480,6 +487,7 @@ function registerModels() {
   // --- Schemas from ProductBrand.js ---
   const productBrandSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       name: { type: String, required: true, unique: true, trim: true, index: true },
       description: { type: String, trim: true },
       is_active: { type: Boolean, default: true, index: true },
@@ -496,6 +504,7 @@ function registerModels() {
   // --- Schemas from ProductManufecturer.js ---
   const productManufacturerSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       name: { type: String, required: true, unique: true, trim: true, index: true },
       description: { type: String, trim: true },
       is_active: { type: Boolean, default: true, index: true },
@@ -558,6 +567,7 @@ function registerModels() {
   );
   const partySchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       party_type: {
         type: String,
         enum: ["customer", "supplier", "both"],
@@ -814,6 +824,7 @@ function registerModels() {
   // --- Schemas from TransportAgent.js ---
   const transportAgentSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       agent_code: {
         type: String,
         required: true,
@@ -869,6 +880,7 @@ function registerModels() {
   // --- Schemas from Vehicle.js ---
   const vehicleSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       vehicle_no: { type: String, required: true, unique: true, trim: true, uppercase: true, index: true },
       transport_agent: { type: mongoose.Schema.Types.ObjectId, ref: 'TransportAgent', index: true },
       vehicle_type: {
@@ -912,6 +924,7 @@ function registerModels() {
   // --- Schemas from Driver.js ---
   const driverSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       driver_code: { type: String, unique: true, sparse: true, uppercase: true, trim: true, index: true },
       name: { type: String, required: true, trim: true, index: true },
       phone: { type: String, required: true, trim: true, index: true },
@@ -1074,6 +1087,7 @@ function registerModels() {
 
   const orderSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       order_no: { type: String, required: true, unique: true, index: true },
       order_date: { type: Date, default: Date.now, index: true },
       expected_delivery_date: Date,
@@ -1086,6 +1100,7 @@ function registerModels() {
       },
       customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", index: true },
       party: { type: mongoose.Schema.Types.ObjectId, ref: "Party", index: true },
+      lead: { type: mongoose.Schema.Types.ObjectId, ref: "Lead", index: true },
       status: {
         type: String,
         enum: [
@@ -1558,6 +1573,8 @@ function registerModels() {
           "return",
           "order_due_sheet",
           "work_plan_expense",
+          "lead",
+          "lead_follow_up",
         ],
         required: true,
       },
@@ -1649,6 +1666,7 @@ function registerModels() {
   // --- Schemas from TransportShipment.js ---
   const transportShipmentSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       shipment_no: { type: String, required: true, unique: true, index: true },
       order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
       dispatch: { type: mongoose.Schema.Types.ObjectId, ref: "OrderDispatch", required: true, index: true },
@@ -1791,6 +1809,7 @@ function registerModels() {
 
   const orderDueSheetSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       due_sheet_no: { type: String, required: true, unique: true, index: true },
       order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
       document: { type: mongoose.Schema.Types.ObjectId, ref: "Attachment", default: null },
@@ -1835,6 +1854,7 @@ function registerModels() {
 
   const unbilledOrderSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true, index: true },
       order_no: { type: String, trim: true, index: true },
       party: { type: mongoose.Schema.Types.ObjectId, ref: "Party", index: true },
@@ -1892,6 +1912,7 @@ function registerModels() {
   
   const activityLogSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       actor: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   
       entity_type: {
@@ -1920,6 +1941,11 @@ function registerModels() {
           "product_kit_item",
           "work_plan",
           "transport_plan",
+          "lead",
+          "lead_follow_up",
+          "lead_source",
+          "lead_stage",
+          "lead_lost_reason",
         ],
       },
   
@@ -1968,6 +1994,7 @@ function registerModels() {
   
   const notificationSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
       user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
   
       title: { type: String, required: true },
@@ -1988,6 +2015,7 @@ function registerModels() {
           "transport",
           "flag",
           "system",
+          "lead",
         ],
         default: "system",
       },
@@ -2099,6 +2127,7 @@ function registerModels() {
 
   const workPlanSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: 'CompanyInfo', index: true },
       plan_date: { type: Date, required: true, index: true },
       sales_user: {
         type: mongoose.Schema.Types.ObjectId,
@@ -2110,6 +2139,12 @@ function registerModels() {
         type: String,
         enum: WORK_PLAN_STATUSES,
         default: 'draft',
+        index: true,
+      },
+      plan_type: {
+        type: String,
+        enum: ['Visits', 'Leave', 'Work From Home', 'Work From Office'],
+        default: 'Visits',
         index: true,
       },
       remarks: { type: String, trim: true },
@@ -2146,7 +2181,7 @@ function registerModels() {
       sequence: { type: Number, required: true, min: 1 },
       party_type: {
         type: String,
-        enum: ['existing', 'new_party', 'new_lead'],
+        enum: ['existing', 'new_party', 'new_lead', 'existing_lead'],
         default: 'existing',
         index: true,
       },
@@ -2201,6 +2236,41 @@ function registerModels() {
   );
   workPlanVisitSchema.plugin(softDeletePlugin);
   mongoose.model('WorkPlanVisit', workPlanVisitSchema);
+
+  const workPlanWorkSchema = new mongoose.Schema(
+    {
+      work_plan: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'WorkPlan',
+        required: true,
+        index: true,
+      },
+      sequence: { type: Number, required: true, min: 1 },
+      title: { type: String, required: true, trim: true },
+      description: { type: String, trim: true },
+      planned_start_time: Date,
+      planned_end_time: Date,
+      status: {
+        type: String,
+        enum: ['pending', 'completed', 'cancelled'],
+        default: 'pending',
+        index: true,
+      },
+      completion_remarks: { type: String, trim: true },
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true }
+  );
+  workPlanWorkSchema.index(
+    { work_plan: 1, sequence: 1 },
+    {
+      unique: true,
+      partialFilterExpression: { deletedAt: null },
+    }
+  );
+  workPlanWorkSchema.plugin(softDeletePlugin);
+  mongoose.model('WorkPlanWork', workPlanWorkSchema);
+
 
   const WORK_PLAN_EXPENSE_STATUSES = ['draft', 'submitted', 'approved', 'rejected'];
   const WORK_PLAN_EXPENSE_CATEGORIES = [
@@ -2318,6 +2388,7 @@ function registerModels() {
 
   const transportPlanSchema = new mongoose.Schema(
     {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: 'CompanyInfo', index: true },
       plan_date: { type: Date, required: true, index: true },
       transport_agent: {
         type: mongoose.Schema.Types.ObjectId,
@@ -2416,12 +2487,223 @@ function registerModels() {
   transportPlanOrderSchema.plugin(softDeletePlugin);
   mongoose.model('TransportPlanOrder', transportPlanOrderSchema);
 
+  // --- Schemas for Lead Management ---
+  const leadSourceSchema = new mongoose.Schema(
+    {
+      name: { type: String, required: true, unique: true, trim: true, index: true },
+      code: { type: String, trim: true, lowercase: true },
+      description: { type: String, trim: true },
+      is_active: { type: Boolean, default: true, index: true },
+      is_system: { type: Boolean, default: false },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true }
+  );
+  leadSourceSchema.plugin(softDeletePlugin);
+  mongoose.model('LeadSource', leadSourceSchema);
+
+  const leadLostReasonSchema = new mongoose.Schema(
+    {
+      name: { type: String, required: true, unique: true, trim: true, index: true },
+      code: { type: String, trim: true, lowercase: true },
+      description: { type: String, trim: true },
+      is_active: { type: Boolean, default: true, index: true },
+      is_system: { type: Boolean, default: false },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true }
+  );
+  leadLostReasonSchema.plugin(softDeletePlugin);
+  mongoose.model('LeadLostReason', leadLostReasonSchema);
+
+  const leadProductItemSchema = new mongoose.Schema(
+    {
+      product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+      product_name: { type: String, required: true, trim: true },
+      quantity: { type: Number, default: 1, min: 1 },
+      target_price: { type: Number, default: 0, min: 0 },
+      unit: { type: String, default: 'pcs' },
+      remarks: String,
+    },
+    { _id: true }
+  );
+
+  const leadContactSchema = new mongoose.Schema(
+    {
+      name: { type: String, trim: true },
+      department: { type: String, trim: true },
+      designation: { type: String, trim: true },
+      phone: { type: String, trim: true },
+      email: { type: String, lowercase: true, trim: true },
+      alternate_phone: { type: String, trim: true },
+      is_primary: { type: Boolean, default: false },
+    },
+    { _id: true }
+  );
+
+  const leadSchema = new mongoose.Schema(
+    {
+      company_id: { type: mongoose.Schema.Types.ObjectId, ref: 'CompanyInfo', index: true },
+      lead_no: { type: String, required: true, unique: true, index: true },
+      name: { type: String, required: true, trim: true, index: true },
+      company_name: { type: String, trim: true, index: true },
+      email: { type: String, lowercase: true, trim: true, index: true },
+      phone: { type: String, trim: true, index: true },
+      alternate_phone: { type: String, trim: true },
+      contacts: { type: [leadContactSchema], default: [] },
+
+      industry: { type: String, trim: true },
+      designation: { type: String, trim: true },
+      billing_address: {
+        address_line_1: String,
+        address_line_2: String,
+        city: { type: String, trim: true },
+        state: { type: String, trim: true },
+        pincode: { type: String, trim: true },
+        country: { type: String, default: 'India' },
+      },
+
+      requirement: { type: String, trim: true },
+      estimated_value: { type: Number, default: 0, min: 0, index: true },
+      expected_closing_date: { type: Date, index: true },
+
+      source: { type: String, required: true, trim: true, index: true },
+      source_id: { type: mongoose.Schema.Types.ObjectId, ref: 'LeadSource' },
+
+      status: {
+        type: String,
+        enum: [
+          'new',
+          'assigned',
+          'contacted',
+          'qualified',
+          'unqualified',
+          'follow_up',
+          'quotation',
+          'negotiation',
+          'won',
+          'lost',
+          'converted',
+        ],
+        default: 'new',
+        index: true,
+      },
+
+      priority: {
+        type: String,
+        enum: ['low', 'medium', 'high', 'urgent'],
+        default: 'medium',
+        index: true,
+      },
+
+      assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+      assigned_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      assigned_at: Date,
+
+      party_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Party', index: true },
+      contact_person_id: { type: String, trim: true },
+
+      products: { type: [leadProductItemSchema], default: [] },
+      notes: { type: String, trim: true },
+      tags: [{ type: String, trim: true, lowercase: true }],
+
+      qualification: {
+        requirement_confirmed: { type: Boolean, default: false },
+        budget_available: { type: Boolean, default: false },
+        decision_maker_known: { type: Boolean, default: false },
+        purchase_timeline: { type: String, trim: true },
+        competition: { type: String, trim: true },
+        qualification_notes: { type: String, trim: true },
+        qualified_at: Date,
+        qualified_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      },
+
+      lost_info: {
+        lost_reason: { type: String, trim: true },
+        lost_reason_id: { type: mongoose.Schema.Types.ObjectId, ref: 'LeadLostReason' },
+        lost_remarks: { type: String, trim: true },
+        lost_at: Date,
+        lost_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      },
+
+      conversion: {
+        converted_at: Date,
+        converted_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        conversion_type: {
+          type: String,
+          enum: ['existing_customer', 'new_customer', 'quotation', 'order'],
+          trim: true,
+        },
+        party_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Party' },
+        order_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
+        quotation_id: { type: mongoose.Schema.Types.ObjectId },
+        notes: String,
+      },
+
+      last_contacted_at: Date,
+      next_follow_up_at: { type: Date, index: true },
+      last_activity_at: { type: Date, default: Date.now, index: true },
+
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true }
+  );
+
+  leadSchema.index({ phone: 1, deletedAt: 1 });
+  leadSchema.index({ email: 1, deletedAt: 1 });
+  leadSchema.index({ company_name: 1, deletedAt: 1 });
+  leadSchema.index({ status: 1, assigned_to: 1, deletedAt: 1 });
+  leadSchema.index({ next_follow_up_at: 1, assigned_to: 1, deletedAt: 1 });
+  leadSchema.plugin(softDeletePlugin);
+  mongoose.model('Lead', leadSchema);
+
+  const leadFollowUpSchema = new mongoose.Schema(
+    {
+      lead: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', required: true, index: true },
+      follow_up_date: { type: Date, required: true, index: true },
+      follow_up_time: { type: String, trim: true },
+      type: {
+        type: String,
+        enum: ['call', 'meeting', 'email', 'whatsapp', 'visit', 'demo', 'other'],
+        default: 'call',
+        index: true,
+      },
+      notes: { type: String, trim: true },
+      outcome: { type: String, trim: true },
+      status: {
+        type: String,
+        enum: ['pending', 'completed', 'cancelled', 'rescheduled'],
+        default: 'pending',
+        index: true,
+      },
+      next_follow_up_date: { type: Date },
+      completed_at: { type: Date },
+      completed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+      updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      deletedAt: { type: Date, default: null, index: true },
+    },
+    { timestamps: true }
+  );
+  leadFollowUpSchema.plugin(softDeletePlugin);
+  mongoose.model('LeadFollowUp', leadFollowUpSchema);
+
   // --- Apply plugins ---
   // Plugins are applied immediately after schema definitions to ensure correct compilation of models.
 
   return {
     Permission: mongoose.models.Permission || mongoose.model('Permission', permissionSchema),
     Role: mongoose.models.Role || mongoose.model('Role', roleSchema),
+    Lead: mongoose.models.Lead || mongoose.model('Lead', leadSchema),
+    LeadFollowUp: mongoose.models.LeadFollowUp || mongoose.model('LeadFollowUp', leadFollowUpSchema),
+    LeadSource: mongoose.models.LeadSource || mongoose.model('LeadSource', leadSourceSchema),
+    LeadLostReason: mongoose.models.LeadLostReason || mongoose.model('LeadLostReason', leadLostReasonSchema),
     User: mongoose.models.User || mongoose.model('User', userSchema),
     Customer: mongoose.models.Customer || mongoose.model('Customer', customerSchema),
     Warehouse: mongoose.models.Warehouse || mongoose.model('Warehouse', warehouseSchema),
@@ -2466,6 +2748,7 @@ function registerModels() {
     Reminder: mongoose.models.Reminder || mongoose.model('Reminder', reminderSchema),
     WorkPlan: mongoose.models.WorkPlan || mongoose.model('WorkPlan', workPlanSchema),
     WorkPlanVisit: mongoose.models.WorkPlanVisit || mongoose.model('WorkPlanVisit', workPlanVisitSchema),
+    WorkPlanWork: mongoose.models.WorkPlanWork || mongoose.model('WorkPlanWork', workPlanWorkSchema),
     WorkPlanExpense:
       mongoose.models.WorkPlanExpense || mongoose.model('WorkPlanExpense', workPlanExpenseSchema),
     TransportPlan:
@@ -2477,6 +2760,43 @@ function registerModels() {
       mongoose.models.PartyProductMapping || mongoose.model('PartyProductMapping', partyProductMappingSchema),
     PartyProductRate:
       mongoose.models.PartyProductRate || mongoose.model('PartyProductRate', partyProductRateSchema),
+    CompanyInfo:
+      mongoose.models.CompanyInfo ||
+      mongoose.model(
+        'CompanyInfo',
+        new mongoose.Schema(
+          {
+            legal_name: { type: String, trim: true, default: '' },
+            trade_name: { type: String, trim: true, default: '' },
+            gstin: { type: String, trim: true, uppercase: true, default: '' },
+            cin: { type: String, trim: true, uppercase: true, default: '' },
+            pan: { type: String, trim: true, uppercase: true, default: '' },
+            drug_license: { type: String, trim: true, default: '' },
+            fssai_license: { type: String, trim: true, default: '' },
+            email: { type: String, lowercase: true, trim: true, default: '' },
+            billing_email: { type: String, lowercase: true, trim: true, default: '' },
+            phone: { type: String, trim: true, default: '' },
+            website: { type: String, trim: true, default: '' },
+            logo_url: { type: String, trim: true, default: '' },
+            favicon_url: { type: String, trim: true, default: '' },
+            primary_color: { type: String, trim: true, default: '#636ccb' },
+            secondary_color: { type: String, trim: true, default: '#6e8cfb' },
+            theme_palette: { type: String, trim: true, default: 'default' },
+            address: { type: String, trim: true, default: '' },
+            city: { type: String, trim: true, default: '' },
+            state: { type: String, trim: true, default: '' },
+            pincode: { type: String, trim: true, default: '' },
+            country: { type: String, trim: true, default: '' },
+            currency: { type: String, trim: true, default: '' },
+            timezone: { type: String, trim: true, default: '' },
+            financial_year: { type: String, trim: true, default: '' },
+            invoice_footer_note: { type: String, trim: true, default: '' },
+            is_default: { type: Boolean, default: true, index: true },
+            updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+          },
+          { timestamps: true }
+        )
+      ),
   };
 }
 

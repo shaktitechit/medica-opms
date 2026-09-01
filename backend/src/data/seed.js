@@ -27,6 +27,11 @@ const PERMISSION_DEFS = [
     module: 'transport_planner',
     description: 'Transport planner plans & dispatch execution',
   },
+  { code: 'leads:read', module: 'lead', description: 'View leads' },
+  { code: 'leads:write', module: 'lead', description: 'Create and update leads' },
+  { code: 'leads:manage', module: 'lead', description: 'Manage lead assignments and masters' },
+  { code: 'leads:assign', module: 'lead', description: 'Assign and reassign leads' },
+  { code: 'leads:delete', module: 'lead', description: 'Delete leads' },
 ];
 
 module.exports = {

@@ -21,9 +21,13 @@ import {
 } from "@/store/api";
 import {
   WORK_PLAN_STATUS_TABS,
+  WORK_PLAN_TYPE_TABS,
   formatDateTime,
   formatPlanDate,
+  isLeavePlan,
+  isWorkTaskPlan,
   planIdOf,
+  planTypeOf,
   renderPlanStatusBadge,
   renderVisitStatusBadge,
   visitPartyLabel,
@@ -112,12 +116,41 @@ function formatPdfDateTime(v: unknown = new Date()): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function workStatusBadge(status?: string) {
+  const s = status || "pending";
+  const cls =
+    s === "completed"
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+      : s === "cancelled"
+        ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+        : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+      {s.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+function needsDetailHydration(p: WorkPlanRecord): boolean {
+  const visitHave = Array.isArray(p.visits) ? p.visits.length : 0;
+  const visitCount = Number(p.visit_count) || 0;
+  const workHave = Array.isArray(p.works) ? p.works.length : 0;
+  const workCount = Number(p.work_count) || 0;
+  return (
+    !Array.isArray(p.visits) ||
+    visitCount > visitHave ||
+    !Array.isArray(p.works) ||
+    workCount > workHave
+  );
+}
+
 export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModalProps) {
   const [preset, setPreset] = useState<PeriodPreset>("current_month");
   const [selectedMonth, setSelectedMonth] = useState("");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [planTypeFilter, setPlanTypeFilter] = useState("all");
   const [rows, setRows] = useState<WorkPlanRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -174,8 +207,10 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
           from: range.from,
           to: range.to,
           include_visits: "true",
+          include_works: "true",
         };
         if (statusFilter && statusFilter !== "all") args.status = statusFilter;
+        if (planTypeFilter && planTypeFilter !== "all") args.plan_type = planTypeFilter;
         const result = await fetchList(args).unwrap();
         all.push(...(result.data ?? []));
         pages = Math.max(result.pages || 1, 1);
@@ -184,11 +219,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
 
       const hydrated = [...all];
       const missingIdx = hydrated
-        .map((p, i) => {
-          const have = Array.isArray(p.visits) ? p.visits.length : 0;
-          const count = Number(p.visit_count) || 0;
-          return !Array.isArray(p.visits) || count > have ? i : -1;
-        })
+        .map((p, i) => (needsDetailHydration(p) ? i : -1))
         .filter((i) => i >= 0);
       const batch = 6;
       for (let i = 0; i < missingIdx.length; i += batch) {
@@ -206,13 +237,18 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
         );
         details.forEach((detail, j) => {
           const idx = slice[j]!;
-          if (detail && Array.isArray(detail.visits)) {
-            hydrated[idx] = {
-              ...hydrated[idx]!,
-              visits: detail.visits,
-              visit_count: detail.visits.length,
-            };
-          }
+          if (!detail) return;
+          hydrated[idx] = {
+            ...hydrated[idx]!,
+            visits: Array.isArray(detail.visits) ? detail.visits : hydrated[idx]!.visits,
+            visit_count: Array.isArray(detail.visits)
+              ? detail.visits.length
+              : hydrated[idx]!.visit_count,
+            works: Array.isArray(detail.works) ? detail.works : hydrated[idx]!.works,
+            work_count: Array.isArray(detail.works)
+              ? detail.works.length
+              : hydrated[idx]!.work_count,
+          };
         });
       }
       setRows(hydrated);
@@ -222,7 +258,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
     } finally {
       setLoading(false);
     }
-  }, [canLoad, fetchList, fetchPlan, range.from, range.to, statusFilter]);
+  }, [canLoad, fetchList, fetchPlan, planTypeFilter, range.from, range.to, statusFilter]);
 
   useEffect(() => {
     if (!open) return;
@@ -231,6 +267,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
     setCustomFrom("");
     setCustomTo("");
     setStatusFilter("all");
+    setPlanTypeFilter("all");
   }, [open]);
 
   useEffect(() => {
@@ -244,7 +281,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
       return;
     }
     void loadPlans();
-  }, [open, preset, selectedMonth, customFrom, customTo, statusFilter, loadPlans]);
+  }, [open, preset, selectedMonth, customFrom, customTo, statusFilter, planTypeFilter, loadPlans]);
 
   useEffect(() => {
     if (!open) return;
@@ -273,9 +310,25 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
     [rows],
   );
 
+  const totalWorks = useMemo(
+    () =>
+      rows.reduce(
+        (sum, r) =>
+          sum +
+          (Array.isArray(r.works) ? r.works.length : Number(r.work_count) || 0),
+        0,
+      ),
+    [rows],
+  );
+
   const statusLabelDisplay = useMemo(
     () => WORK_PLAN_STATUS_TABS.find((t) => t.id === statusFilter)?.label || "All",
     [statusFilter],
+  );
+
+  const planTypeLabelDisplay = useMemo(
+    () => WORK_PLAN_TYPE_TABS.find((t) => t.id === planTypeFilter)?.label || "All types",
+    [planTypeFilter],
   );
 
   const handleDownloadPdf = useCallback(async () => {
@@ -299,6 +352,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
         periodTo: range.to,
         salesUserLabel,
         statusLabel: statusLabelDisplay,
+        planTypeLabel: planTypeLabelDisplay,
         plans: rows,
       });
       openPdfSystemPreview(pdf, filename, previewWin);
@@ -318,6 +372,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
     range.from,
     range.to,
     statusLabelDisplay,
+    planTypeLabelDisplay,
   ]);
 
   if (!open) return null;
@@ -342,7 +397,7 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
                 Download work plans
               </h2>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Choose a period to load your work plans, then download as PDF (includes all visits)
+                Choose a period to load your work plans, then download as PDF (visits and work tasks)
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -448,9 +503,26 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
                 ))}
               </select>
             </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">
+                Plan type
+              </label>
+              <select
+                value={planTypeFilter}
+                disabled={loading}
+                onChange={(e) => setPlanTypeFilter(e.target.value)}
+                className="min-w-[160px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs dark:border-white/15 dark:bg-slate-950"
+              >
+                {WORK_PLAN_TYPE_TABS.map((tab) => (
+                  <option key={tab.id} value={tab.id}>
+                    {tab.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="ml-auto pb-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
               {rows.length} plan{rows.length === 1 ? "" : "s"} · {totalVisits} visit
-              {totalVisits === 1 ? "" : "s"}
+              {totalVisits === 1 ? "" : "s"} · {totalWorks} task{totalWorks === 1 ? "" : "s"}
             </div>
           </div>
 
@@ -472,18 +544,29 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
               <div className="divide-y divide-slate-200 dark:divide-white/10">
                 {rows.map((row) => {
                   const visits = Array.isArray(row.visits) ? row.visits : [];
+                  const works = Array.isArray(row.works) ? row.works : [];
+                  const typeLabel = planTypeOf(row.plan_type);
+                  const workPlan = isWorkTaskPlan(row.plan_type);
+                  const leavePlan = isLeavePlan(row.plan_type);
                   return (
                     <section key={planIdOf(row)} className="bg-white dark:bg-slate-900">
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-100 bg-slate-50 px-4 py-2.5 dark:border-white/10 dark:bg-slate-950/80">
                         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
                           {formatPlanDate(row.plan_date)}
                         </h3>
+                        <span className="inline-flex items-center rounded-full bg-slate-200/80 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:bg-white/10 dark:text-slate-200">
+                          {typeLabel}
+                        </span>
                         <span className="text-xs text-slate-500 dark:text-slate-400">
                           {row.location || "No location"}
                         </span>
                         {renderPlanStatusBadge(row.status)}
                         <span className="text-xs tabular-nums text-slate-500">
-                          {visits.length} visit{visits.length === 1 ? "" : "s"}
+                          {leavePlan
+                            ? "Leave"
+                            : workPlan
+                              ? `${works.length} task${works.length === 1 ? "" : "s"}`
+                              : `${visits.length} visit${visits.length === 1 ? "" : "s"}`}
                         </span>
                         {row.remarks ? (
                           <span className="max-w-md truncate text-xs text-slate-500 dark:text-slate-400">
@@ -492,7 +575,66 @@ export function DownloadWorkPlansModal({ open, onClose }: DownloadWorkPlansModal
                         ) : null}
                       </div>
 
-                      {visits.length === 0 ? (
+                      {leavePlan ? (
+                        <div className="px-4 py-3 text-xs text-slate-500">
+                          Leave — no visits or work tasks.
+                        </div>
+                      ) : workPlan ? (
+                        works.length === 0 ? (
+                          <div className="px-4 py-3 text-xs text-slate-500">
+                            No work tasks on this plan.
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full min-w-[800px] border-collapse text-left text-xs">
+                              <thead className="bg-white text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                                <tr>
+                                  <th className="px-3 py-2 font-semibold">#</th>
+                                  <th className="px-3 py-2 font-semibold">Title</th>
+                                  <th className="px-3 py-2 font-semibold">Description</th>
+                                  <th className="px-3 py-2 font-semibold">Planned</th>
+                                  <th className="px-3 py-2 font-semibold">Status</th>
+                                  <th className="px-3 py-2 font-semibold">Completion remarks</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {works.map((w) => (
+                                  <tr
+                                    key={planIdOf(w) || `${planIdOf(row)}-work-${w.sequence}`}
+                                    className="border-t border-slate-100 align-top dark:border-white/5"
+                                  >
+                                    <td className="px-3 py-2 tabular-nums text-slate-700 dark:text-slate-300">
+                                      {w.sequence ?? "—"}
+                                    </td>
+                                    <td className="px-3 py-2 font-medium text-slate-900 dark:text-slate-100">
+                                      {w.title || "—"}
+                                    </td>
+                                    <td className="max-w-[240px] px-3 py-2 text-slate-600 dark:text-slate-400">
+                                      {w.description || "—"}
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-400">
+                                      <div>
+                                        {w.planned_start_time
+                                          ? formatDateTime(w.planned_start_time)
+                                          : "—"}
+                                      </div>
+                                      {w.planned_end_time ? (
+                                        <div className="text-[11px]">
+                                          → {formatDateTime(w.planned_end_time)}
+                                        </div>
+                                      ) : null}
+                                    </td>
+                                    <td className="px-3 py-2">{workStatusBadge(w.status)}</td>
+                                    <td className="max-w-[240px] px-3 py-2 text-slate-600 dark:text-slate-400">
+                                      {w.completion_remarks || "—"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )
+                      ) : visits.length === 0 ? (
                         <div className="px-4 py-3 text-xs text-slate-500">
                           No visits on this plan.
                         </div>

@@ -117,6 +117,78 @@ function formatSortedRangeOrList(
   return `${sorted.length} ${countNoun}`;
 }
 
+function toYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function startOfLocalDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+export type DashboardPeriodQuery = {
+  dateFilter?: string;
+  customDateFrom?: string;
+  customDateTo?: string;
+  selectedYears?: number[];
+  selectedMonths?: number[];
+};
+
+/** Maps the dashboard PeriodFilter to work-plan / stats API `from`/`to` or `years`/`months`. */
+export function dashboardPeriodToStatsQuery(
+  period?: DashboardPeriodQuery,
+): Record<string, string> {
+  if (!period) return {};
+  const {
+    dateFilter = "all",
+    customDateFrom = "",
+    customDateTo = "",
+    selectedYears = [],
+    selectedMonths = [],
+  } = period;
+
+  if (dateFilter && dateFilter !== "all") {
+    const now = new Date();
+    let from: Date | null = null;
+    let to: Date | null = null;
+
+    if (dateFilter === "today") {
+      from = startOfLocalDay(now);
+      to = startOfLocalDay(now);
+    } else if (dateFilter === "yesterday") {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      from = startOfLocalDay(y);
+      to = startOfLocalDay(y);
+    } else if (dateFilter === "last_week") {
+      const w = new Date(now);
+      w.setDate(w.getDate() - 7);
+      from = startOfLocalDay(w);
+      to = startOfLocalDay(now);
+    } else if (dateFilter === "last_month") {
+      const m = new Date(now);
+      m.setMonth(m.getMonth() - 1);
+      from = startOfLocalDay(m);
+      to = startOfLocalDay(now);
+    } else if (dateFilter === "custom") {
+      if (customDateFrom) from = startOfLocalDay(new Date(customDateFrom));
+      if (customDateTo) to = startOfLocalDay(new Date(customDateTo));
+    }
+
+    const params: Record<string, string> = {};
+    if (from) params.from = toYmd(from);
+    if (to) params.to = toYmd(to);
+    return params;
+  }
+
+  return {
+    years: selectedYears.join(","),
+    months: selectedMonths.map((month) => month + 1).join(","),
+  };
+}
+
 /** Human-readable period for report headings, e.g. "2026 · Jan–Mar". */
 export function formatPeriodLabel(
   selectedYears: number[],

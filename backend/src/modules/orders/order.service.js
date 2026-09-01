@@ -642,7 +642,7 @@ function applyAccessFilter(q, user) {
 
 async function buildBaseQuery(query = {}, user) {
   const q = {};
-  const { status, customer, party, exclude_status, search, priority, tab, dateFrom, dateTo, billing_status, billingDateFrom, billingDateTo } = query;
+  const { status, customer, party, exclude_status, search, priority, tab, dateFrom, dateTo, billing_status, billingDateFrom, billingDateTo, product } = query;
 
   if (tab) {
     const s = String(tab).toLowerCase();
@@ -787,6 +787,7 @@ async function buildBaseQuery(query = {}, user) {
   }
   if (customer) q.customer = customer;
   if (party) q.party = party;
+  if (product) q['order_items.product'] = product;
 
   if (billing_status) {
     const split = String(billing_status).split(',').map(s => s.trim().toLowerCase());
@@ -1948,20 +1949,10 @@ function buildClientItemsRows(orderItems = []) {
       const name = item.product_name || 'Item';
       const qty = Number(item.ordered_quantity ?? item.quantity ?? 0) || 0;
       const free = Number(item.free_quantity ?? 0) || 0;
-      const rateType = item.applied_rate_type || 'MANUAL';
-      const price = formatInr(item.unit_price);
-      const disc = `${Number(item.discount_percent ?? 0) || 0}%`;
-      const gst = `${Number(item.gst_percent ?? 0) || 0}%`;
-      const total = formatInr(item.total_amount);
       return `<tr>
                 <td class="font-semibold">${name}</td>
                 <td class="text-center">${qty}</td>
                 <td class="text-center">${free}</td>
-                <td class="text-center">${rateType}</td>
-                <td class="text-right">${price}</td>
-                <td class="text-right">${disc}</td>
-                <td class="text-right">${gst}</td>
-                <td class="text-right font-semibold">${total}</td>
               </tr>`;
     })
     .join('\n');

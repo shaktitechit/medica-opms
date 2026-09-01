@@ -43,6 +43,11 @@ import {
   SuperAdminOrderDetail,
   SuperAdminCreateOrderPage,
   ProfilePage,
+  ListLeadsPage,
+  LeadFormPage,
+  LeadDetailPage,
+  LeadFollowUpsPage,
+  LeadReportsDashboard,
 } from "@/components/portal";
 import CreateOrderPage from "@/components/portal/sales/CreateOrderPage";
 import {
@@ -75,6 +80,29 @@ export default function PortalCatchAllPage() {
 
   if (restArr.length === 0) {
     return <PortalOverview portal={portal} />;
+  }
+
+  // ── LEADS (UNIVERSAL PORTAL ROUTING) ────────────────────────────────────
+  if (restArr[0] === "leads") {
+    const portalHome = `/${portal}`;
+    if (restArr.length === 1) {
+      return <ListLeadsPage portalHome={portalHome} />;
+    }
+    if (restArr.length === 2 && restArr[1] === "create") {
+      return <LeadFormPage mode="create" portalHome={portalHome} />;
+    }
+    if (restArr.length === 2 && restArr[1] === "follow-ups") {
+      return <LeadFollowUpsPage portalHome={portalHome} />;
+    }
+    if (restArr.length === 2 && restArr[1] === "reports") {
+      return <LeadReportsDashboard portalHome={portalHome} />;
+    }
+    if (restArr.length === 3 && restArr[2] === "edit") {
+      return <LeadFormPage mode="edit" leadId={restArr[1]} portalHome={portalHome} />;
+    }
+    if (restArr.length === 2) {
+      return <LeadDetailPage leadId={restArr[1]} portalHome={portalHome} />;
+    }
   }
 
   // ── ADMIN ────────────────────────────────────────────────────────────────

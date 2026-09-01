@@ -29,6 +29,7 @@ const partyContactSchema = new mongoose.Schema(
 
 const partySchema = new mongoose.Schema(
   {
+    company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
     party_type: {
       type: String,
       enum: ["customer", "supplier", "both"],

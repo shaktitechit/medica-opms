@@ -24,7 +24,7 @@ const TERMINAL_VISIT_STATUSES = Object.freeze(['completed', 'cancelled', 'skippe
 
 const EDITABLE_PLAN_STATUSES = Object.freeze(['draft', 'rejected']);
 
-const VISIT_PARTY_TYPES = Object.freeze(['existing', 'new_party', 'new_lead']);
+const VISIT_PARTY_TYPES = Object.freeze(['existing', 'new_party', 'new_lead', 'existing_lead']);
 
 const EXPENSE_STATUSES = Object.freeze(['draft', 'submitted', 'approved', 'rejected']);
 

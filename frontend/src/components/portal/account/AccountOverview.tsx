@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import PeriodFilter from "@/components/portal/shared/dashboard/PeriodFilter";
 import { usePeriodFilter } from "@/components/portal/shared/dashboard/usePeriodFilter";
+import { dashboardPeriodToStatsQuery } from "@/components/portal/shared/dashboard/periodFilterUtils";
 
 const ACCOUNT_PENDING_PUSH_INTERVAL_MS = 300_000;
 const DUE_SHEET_PENDING_ALERT_URL = "/account/orders?tab=due_sheet_pending";
@@ -81,11 +82,6 @@ export default function AccountOverview() {
     isFetching: isKpiFetching,
     refetch: refetchKpi,
   } = useGetDashboardAccountQuery();
-
-  const {
-    isFetching: isTransportPlanStatsFetching,
-    refetch: refetchTransportPlanStats,
-  } = useGetTransportPlanStatsQuery({});
 
   const {
     data: ordersData,
@@ -151,6 +147,23 @@ export default function AccountOverview() {
       selectedMonths
     );
   }, [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths]);
+
+  const periodStatsQuery = useMemo(
+    () =>
+      dashboardPeriodToStatsQuery({
+        dateFilter,
+        customDateFrom,
+        customDateTo,
+        selectedYears,
+        selectedMonths,
+      }),
+    [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths],
+  );
+
+  const {
+    isFetching: isTransportPlanStatsFetching,
+    refetch: refetchTransportPlanStats,
+  } = useGetTransportPlanStatsQuery(periodStatsQuery);
 
   const orderStats = useMemo(
     () => computeAccountOrderStats(orders, categoryOptions),
@@ -729,7 +742,14 @@ export default function AccountOverview() {
         qtyBasis={qtyBasis}
       />
 
-      <TransportPlannerStatsWidgets portalHome="/account" />
+      <TransportPlannerStatsWidgets
+        portalHome="/account"
+        dateFilter={dateFilter}
+        customDateFrom={customDateFrom}
+        customDateTo={customDateTo}
+        selectedYears={selectedYears}
+        selectedMonths={selectedMonths}
+      />
 
       <MonthlyPerformanceChart
         orders={orders}

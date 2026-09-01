@@ -21,7 +21,10 @@ import {
 } from "@/store/api";
 import {
   formatPlanDate,
+  planActivityLabel,
   planIdOf,
+  planTypeOf,
+  planTypeShort,
   salesUserLabel
 } from "./workPlanUtils";
 
@@ -35,6 +38,13 @@ const STATUS_DOT: Record<WorkPlanStatus, string> = {
   approved: "bg-emerald-500",
   rejected: "bg-rose-500",
   completed: "bg-blue-500",
+};
+
+const TYPE_DOT: Record<string, string> = {
+  Visits: "bg-sky-500",
+  Leave: "bg-orange-500",
+  "Work From Home": "bg-violet-500",
+  "Work From Office": "bg-teal-500",
 };
 
 const STATUS_CHIP: Record<WorkPlanStatus, string> = {
@@ -296,6 +306,20 @@ export default function SalesWorkPlanCalendarPage() {
             {label}
           </span>
         ))}
+        <span className="mx-1 h-3 w-px bg-slate-200 dark:bg-white/15" />
+        {(
+          [
+            ["Visits", "Visits"],
+            ["Leave", "Leave"],
+            ["Work From Home", "WFH"],
+            ["Work From Office", "WFO"],
+          ] as const
+        ).map(([type, label]) => (
+          <span key={type} className="inline-flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+            <span className={`h-2 w-2 rounded-full ${TYPE_DOT[type]}`} />
+            {label}
+          </span>
+        ))}
       </div>
 
       {/* Calendar grid */}
@@ -354,18 +378,20 @@ export default function SalesWorkPlanCalendarPage() {
                   <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
                     {dayPlans.slice(0, 3).map((plan) => {
                       const status = (plan.status || "draft") as WorkPlanStatus;
+                      const typeLabel = planTypeShort(plan.plan_type);
+                      const activity = planActivityLabel(plan);
                       return (
                         <div
                           key={planIdOf(plan)}
                           className={`truncate rounded px-1 py-0.5 text-[10px] font-medium ${STATUS_CHIP[status]}`}
-                          title={`${salesUserLabel(plan.sales_user)}${plan.location ? ` · ${plan.location}` : ""} · ${status} · ${plan.visit_count ?? 0} visits`}
+                          title={`${salesUserLabel(plan.sales_user)}${plan.location ? ` · ${plan.location}` : ""} · ${planTypeOf(plan.plan_type)} · ${status} · ${activity}`}
                         >
                           <span
-                            className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`}
+                            className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${TYPE_DOT[planTypeOf(plan.plan_type)] || STATUS_DOT[status]}`}
                           />
                           {isAdmin
-                            ? `${salesUserLabel(plan.sales_user)}${plan.location ? ` · ${plan.location}` : ""}`
-                            : `${plan.location ? `${plan.location} · ` : ""}${plan.visit_count ?? 0} visit${(plan.visit_count ?? 0) === 1 ? "" : "s"}`}
+                            ? `${salesUserLabel(plan.sales_user)} · ${typeLabel}${plan.location ? ` · ${plan.location}` : ""}`
+                            : `${typeLabel} · ${activity}`}
                         </div>
                       );
                     })}
@@ -437,8 +463,9 @@ export default function SalesWorkPlanCalendarPage() {
                             {salesUserLabel(plan.sales_user)}
                           </div>
                           <div className="mt-0.5 text-[11px] text-slate-500">
-                            {plan.location ? `${plan.location} · ` : ""}
-                            {plan.visit_count ?? 0} visits
+                            {planTypeOf(plan.plan_type)}
+                            {plan.location ? ` · ${plan.location}` : ""}
+                            {` · ${planActivityLabel(plan)}`}
                             {plan.remarks ? ` · ${plan.remarks}` : ""}
                           </div>
                         </div>

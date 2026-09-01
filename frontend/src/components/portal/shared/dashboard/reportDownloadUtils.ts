@@ -51,6 +51,10 @@ export function reportFilename(
   return `${base}_${period}_${new Date().toISOString().slice(0, 10)}.csv`;
 }
 
+export function roundToTwo(num: number): number {
+  return Math.round((Number(num) + Number.EPSILON) * 100) / 100;
+}
+
 export function buildMatrixCsvPayload(opts: {
   rowLabel: string;
   rows: MatrixEntity[];
@@ -63,17 +67,19 @@ export function buildMatrixCsvPayload(opts: {
   const out: Array<Array<string | number>> = [];
 
   for (const row of opts.rows) {
-    const cells = opts.cols.map((c) => opts.matrix.get(row.id)?.get(c.id) ?? 0);
-    const total = cells.reduce((a, b) => a + b, 0);
+    const cells = opts.cols.map((c) =>
+      roundToTwo(opts.matrix.get(row.id)?.get(c.id) ?? 0),
+    );
+    const total = roundToTwo(cells.reduce((a, b) => a + b, 0));
     out.push([row.name, ...cells, total]);
 
     const children = opts.childrenByRow?.get(row.id);
     if (!children?.length) continue;
     for (const child of children) {
-      const childCells = opts.cols.map(
-        (c) => opts.matrix.get(child.id)?.get(c.id) ?? 0,
+      const childCells = opts.cols.map((c) =>
+        roundToTwo(opts.matrix.get(child.id)?.get(c.id) ?? 0),
       );
-      const childTotal = childCells.reduce((a, b) => a + b, 0);
+      const childTotal = roundToTwo(childCells.reduce((a, b) => a + b, 0));
       out.push([`  ${child.name}`, ...childCells, childTotal]);
     }
   }
@@ -83,9 +89,13 @@ export function buildMatrixCsvPayload(opts: {
     for (const row of opts.rows) {
       sum += opts.matrix.get(row.id)?.get(c.id) ?? 0;
     }
-    return sum;
+    return roundToTwo(sum);
   });
-  out.push(["Total", ...colTotals, colTotals.reduce((a, b) => a + b, 0)]);
+  out.push([
+    "Total",
+    ...colTotals,
+    roundToTwo(colTotals.reduce((a, b) => a + b, 0)),
+  ]);
 
   return { headers, rows: out };
 }

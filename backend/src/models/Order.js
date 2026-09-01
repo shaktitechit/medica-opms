@@ -230,6 +230,12 @@ const orderItemSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
+    company_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CompanyInfo",
+      index: true,
+    },
+
     /* ----- Basic ----- */
 
     order_no: {
@@ -269,6 +275,12 @@ const orderSchema = new mongoose.Schema(
     party: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Party",
+      index: true,
+    },
+
+    lead: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Lead",
       index: true,
     },
 

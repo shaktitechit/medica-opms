@@ -56,6 +56,25 @@ export function formatDateShort(v: unknown): string {
   });
 }
 
+export function formatDateTime(v: unknown): string {
+  if (v == null || v === "") return "—";
+  const d = v instanceof Date ? v : new Date(String(v));
+  if (Number.isNaN(d.getTime())) return String(v);
+  
+  // Format both Date and Time (e.g. 12 Aug 2026, 03:30 PM)
+  const datePart = d.toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const timePart = d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return `${datePart}, ${timePart}`;
+}
+
 export function formatMoney(v: number): string {
   return v.toLocaleString("en-IN", {
     minimumFractionDigits: 2,

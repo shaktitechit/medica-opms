@@ -25,3 +25,10 @@ export function canBulkUploadParties(user: unknown): boolean {
   if (PARTIES_BULK_UPLOAD_DEPARTMENTS.has(dept)) return true;
   return userHasAnyPermission(user, ["parties:manage", "*"]);
 }
+
+/** Check if user has permission to manage all leads and lead masters. */
+export function canManageLeads(user: unknown): boolean {
+  const dept = userDashboardDepartment(user);
+  if (dept === "admin" || dept === "super_admin") return true;
+  return userHasAnyPermission(user, ["leads:manage", "*"]);
+}

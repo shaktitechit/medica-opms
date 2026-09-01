@@ -85,17 +85,17 @@ export function RoleBasedMenu({
   };
 
   const linkBase =
-    "flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-sm transition";
+    "group flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-all duration-150";
   const linkCollapsedDesktop =
     "lg:justify-center lg:gap-0 lg:px-1.5 lg:py-2";
   const linkActivePortal =
-    "bg-primary-muted font-medium text-foreground ring-1 ring-primary/30";
+    "bg-primary-muted text-primary font-semibold ring-1 ring-primary/25 shadow-2xs";
   const linkPassive =
-    "text-foreground/80 hover:bg-surface-muted";
+    "text-slate-600 dark:text-slate-300 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary";
   const shortcutActivePortal =
-    "bg-surface-muted text-xs font-medium text-foreground";
+    "bg-primary-muted text-xs font-semibold text-primary ring-1 ring-primary/25";
   const shortcutPassive =
-    "text-xs text-foreground/80 hover:bg-surface-muted";
+    "text-xs text-slate-600 dark:text-slate-300 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary";
 
   const flyoutMenu =
     mounted && flyout
@@ -105,7 +105,7 @@ export function RoleBasedMenu({
             onMouseEnter={clearClose}
             onMouseLeave={scheduleClose}
             style={{ top: flyout.top, left: flyout.left }}
-            className="fixed z-[9999] min-w-[13rem] overflow-hidden rounded-lg border border-border bg-card py-1 shadow-xl"
+            className="fixed z-[9999] min-w-[13rem] overflow-hidden rounded-xl border border-border bg-card py-1.5 shadow-2xl backdrop-blur-md"
           >
             {flyout.children.map((child) => {
               const [qKey, qVal] = child.query.split("=");
@@ -122,13 +122,20 @@ export function RoleBasedMenu({
                     onNavigate?.();
                   }}
                   className={[
-                    "flex min-w-0 items-center gap-2 px-3 py-2 text-sm transition",
+                    "group flex min-w-0 items-center gap-2.5 px-3.5 py-2 text-xs transition-colors",
                     childActive
-                      ? "bg-primary-muted font-medium text-foreground"
-                      : "text-foreground/80 hover:bg-surface-muted hover:text-foreground",
+                      ? "bg-primary-muted font-semibold text-primary"
+                      : "text-slate-600 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary dark:text-slate-300",
                   ].join(" ")}
                 >
-                  <NavIcon name={child.icon} className="size-3.5 shrink-0" />
+                  <NavIcon
+                    name={child.icon}
+                    className={`size-3.5 shrink-0 transition-colors ${
+                      childActive
+                        ? "text-primary"
+                        : "text-slate-400 group-hover:text-primary"
+                    }`}
+                  />
                   <span className="min-w-0 truncate">{child.label}</span>
                 </Link>
               );
@@ -165,7 +172,14 @@ export function RoleBasedMenu({
                       active ? linkActivePortal : linkPassive,
                     ].join(" ")}
                   >
-                    <NavIcon name={leaf.icon} />
+                    <NavIcon
+                      name={leaf.icon}
+                      className={`size-[18px] shrink-0 transition-colors ${
+                        active
+                          ? "text-primary"
+                          : "text-slate-400 group-hover:text-primary"
+                      }`}
+                    />
                     <span className={`min-w-0 truncate ${desktopCollapsed ? "lg:sr-only" : ""}`}>
                       {leaf.label}
                     </span>
@@ -202,12 +216,23 @@ export function RoleBasedMenu({
                     active || isOpen ? linkActivePortal : linkPassive,
                   ].join(" ")}
                 >
-                  <NavIcon name={leaf.icon} />
+                  <NavIcon
+                    name={leaf.icon}
+                    className={`size-[18px] shrink-0 transition-colors ${
+                      active || isOpen
+                        ? "text-primary"
+                        : "text-slate-400 group-hover:text-primary"
+                    }`}
+                  />
                   <span className={`min-w-0 flex-1 truncate ${desktopCollapsed ? "lg:sr-only" : ""}`}>
                     {leaf.label}
                   </span>
                   <ChevronDown
-                    className={`size-3.5 shrink-0 text-muted transition-transform ${desktopCollapsed ? "lg:hidden" : ""} ${isOpen ? "rotate-180" : ""}`}
+                    className={`size-3.5 shrink-0 transition-transform ${
+                      active || isOpen
+                        ? "text-primary"
+                        : "text-muted group-hover:text-primary"
+                    } ${desktopCollapsed ? "lg:hidden" : ""} ${isOpen ? "rotate-180" : ""}`}
                     strokeWidth={2.5}
                     aria-hidden
                   />
@@ -226,7 +251,7 @@ export function RoleBasedMenu({
             const active =
               pathname === slot.href || pathname.startsWith(`${slot.href}/`);
             const row = [
-              "flex rounded-md px-2 py-1.5 transition",
+              "group flex rounded-lg px-2.5 py-1.5 transition-all",
               desktopCollapsed
                 ? "lg:justify-center lg:px-1.5 lg:py-2 lg:aspect-square lg:mx-auto lg:w-auto lg:min-w-[2.5rem]"
                 : "",
@@ -240,7 +265,14 @@ export function RoleBasedMenu({
                   onClick={onNavigate}
                   className={row}
                 >
-                  <NavIcon name={slot.icon} />
+                  <NavIcon
+                    name={slot.icon}
+                    className={`size-[18px] shrink-0 transition-colors ${
+                      active
+                        ? "text-primary"
+                        : "text-slate-400 group-hover:text-primary"
+                    }`}
+                  />
                   <span className={`min-w-0 truncate ${desktopCollapsed ? "lg:sr-only" : ""}`}>
                     {slot.label}
                   </span>

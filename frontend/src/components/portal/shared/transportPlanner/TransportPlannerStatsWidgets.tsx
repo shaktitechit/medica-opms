@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import {
   CheckCircle,
@@ -12,11 +13,16 @@ import {
 } from "lucide-react";
 
 import { useGetTransportPlanStatsQuery } from "@/store/api";
+import PeriodHeadingCaption from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
+import {
+  dashboardPeriodToStatsQuery,
+  type DashboardPeriodQuery,
+} from "@/components/portal/shared/dashboard/periodFilterUtils";
 import { formatMoney } from "./transportPlanUtils";
 
 type TransportPlannerStatsWidgetsProps = {
   portalHome: "/account" | "/dispatch" | "/admin" | "/super_admin" | string;
-};
+} & DashboardPeriodQuery;
 
 type StatCard = {
   key: string;
@@ -31,14 +37,38 @@ type StatCard = {
 
 export default function TransportPlannerStatsWidgets({
   portalHome,
+  dateFilter,
+  customDateFrom,
+  customDateTo,
+  selectedYears,
+  selectedMonths,
 }: TransportPlannerStatsWidgetsProps) {
-  const { data, isFetching } = useGetTransportPlanStatsQuery({});
+  const hasPeriod =
+    dateFilter != null || selectedYears != null || selectedMonths != null;
+  const statsQuery = useMemo(
+    () =>
+      dashboardPeriodToStatsQuery({
+        dateFilter,
+        customDateFrom,
+        customDateTo,
+        selectedYears,
+        selectedMonths,
+      }),
+    [dateFilter, customDateFrom, customDateTo, selectedYears, selectedMonths],
+  );
+  const { data, isFetching } = useGetTransportPlanStatsQuery(
+    hasPeriod ? statsQuery : {},
+  );
+  const isTodayPeriod = !hasPeriod || dateFilter === "today";
+  const planCount = isTodayPeriod
+    ? (data?.today_plans ?? 0)
+    : (data?.total_plans ?? 0);
 
   const cards: StatCard[] = [
     {
       key: "today",
-      label: "Today's Plans",
-      value: data?.today_plans ?? 0,
+      label: isTodayPeriod ? "Today's Plans" : "Plans",
+      value: planCount,
       href: `${portalHome}/transport-planner`,
       accent: "bg-sky-500",
       iconWrap: "bg-sky-50 dark:bg-sky-950/30",
@@ -118,9 +148,19 @@ export default function TransportPlannerStatsWidgets({
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Transport Planner
           </h3>
-          <p className="text-[11px] text-slate-400 dark:text-slate-500">
-            Grouped dispatch planning & execution
-          </p>
+          {hasPeriod ? (
+            <PeriodHeadingCaption
+              selectedYears={selectedYears ?? []}
+              selectedMonths={selectedMonths}
+              dateFilter={dateFilter}
+              customDateFrom={customDateFrom}
+              customDateTo={customDateTo}
+            />
+          ) : (
+            <p className="text-[11px] text-slate-400 dark:text-slate-500">
+              Grouped dispatch planning & execution
+            </p>
+          )}
         </div>
         <Link
           href={`${portalHome}/transport-planner`}

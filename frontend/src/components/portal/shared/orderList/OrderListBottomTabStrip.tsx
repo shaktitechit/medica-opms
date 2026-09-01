@@ -33,7 +33,7 @@ type OrderListBottomTabStripProps = {
 };
 
 const defaultAccent =
-  "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400";
+  "border-primary text-primary dark:border-primary dark:text-primary";
 
 export function OrderListBottomTabStrip({
   tabs,
@@ -51,8 +51,8 @@ export function OrderListBottomTabStrip({
   showReset = false,
   onReset,
   accentActiveClass = defaultAccent,
-  searchResultAccentClass = "text-blue-600 dark:text-blue-400",
-  countBadgeClass = "bg-blue-600",
+  searchResultAccentClass = "text-primary dark:text-primary",
+  countBadgeClass = "bg-primary",
   compact = false,
 }: OrderListBottomTabStripProps) {
   const tabPy = compact ? "py-2 sm:py-2" : "py-2.5 sm:py-3";
@@ -106,7 +106,7 @@ export function OrderListBottomTabStrip({
                       <span
                         className={`hidden rounded-full px-1.5 py-0.5 text-2xs font-bold md:inline ${
                           isActive
-                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                            ? "bg-primary-muted text-primary border border-primary/20"
                             : "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300"
                         }`}
                       >
@@ -134,7 +134,7 @@ export function OrderListBottomTabStrip({
           <select
             value={priorityFilter}
             onChange={(e) => onPriorityFilterChange(e.target.value)}
-            className="cursor-pointer rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-500/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100"
+            className="cursor-pointer rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100"
           >
             {filterOptions ? (
               filterOptions.map((opt, i) => (

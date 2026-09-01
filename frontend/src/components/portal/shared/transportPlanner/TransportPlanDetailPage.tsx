@@ -204,7 +204,7 @@ function PlanOrderTabsSection({
           type="button"
           onClick={() => setActiveTab("approvals")}
           className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition ${activeTab === "approvals"
-            ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600 dark:bg-blue-950/30 dark:text-blue-400"
+            ? "bg-primary-muted text-primary border-b-2 border-primary"
             : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
         >
@@ -214,7 +214,7 @@ function PlanOrderTabsSection({
           type="button"
           onClick={() => setActiveTab("dispatches")}
           className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition ${activeTab === "dispatches"
-            ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600 dark:bg-blue-950/30 dark:text-blue-400"
+            ? "bg-primary-muted text-primary border-b-2 border-primary"
             : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
         >
@@ -224,7 +224,7 @@ function PlanOrderTabsSection({
           type="button"
           onClick={() => setActiveTab("transports")}
           className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition ${activeTab === "transports"
-            ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600 dark:bg-blue-950/30 dark:text-blue-400"
+            ? "bg-primary-muted text-primary border-b-2 border-primary"
             : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
         >
@@ -234,7 +234,7 @@ function PlanOrderTabsSection({
           type="button"
           onClick={() => setActiveTab("deliveries")}
           className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition ${activeTab === "deliveries"
-            ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600 dark:bg-blue-950/30 dark:text-blue-400"
+            ? "bg-primary-muted text-primary border-b-2 border-primary"
             : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
         >

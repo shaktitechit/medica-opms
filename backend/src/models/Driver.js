@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 
 const driverSchema = new mongoose.Schema(
   {
+    company_id: { type: mongoose.Schema.Types.ObjectId, ref: "CompanyInfo", index: true },
     driver_code: {
       type: String,
       unique: true,
