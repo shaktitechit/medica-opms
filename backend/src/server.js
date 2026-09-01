@@ -13,8 +13,9 @@ const workers = require('./workers');
 
 db.connect()
   .then(async () => {
-    const { bootstrap } = require('./data/seedMongo');
-    await bootstrap();
+    const { syncRolesAndPermissionsToMongo, syncSuperAdminUserToMongo } = require('./data/mongoSyncUsers');
+    await syncRolesAndPermissionsToMongo();
+    await syncSuperAdminUserToMongo(process.env.ADMIN_PASSWORD || 'ChangeMe123!');
     await queues.registerQueues(logger);
     workers.startAll(logger);
     const app = require('./app');

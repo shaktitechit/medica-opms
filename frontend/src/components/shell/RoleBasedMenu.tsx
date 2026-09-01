@@ -85,17 +85,13 @@ export function RoleBasedMenu({
   };
 
   const linkBase =
-    "group flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-all duration-150";
+    "group flex min-w-0 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-all duration-150 text-left";
   const linkCollapsedDesktop =
     "lg:justify-center lg:gap-0 lg:px-1.5 lg:py-2";
   const linkActivePortal =
     "bg-primary-muted text-primary font-semibold ring-1 ring-primary/25 shadow-2xs";
   const linkPassive =
     "text-slate-600 dark:text-slate-300 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary";
-  const shortcutActivePortal =
-    "bg-primary-muted text-xs font-semibold text-primary ring-1 ring-primary/25";
-  const shortcutPassive =
-    "text-xs text-slate-600 dark:text-slate-300 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary";
 
   const flyoutMenu =
     mounted && flyout
@@ -105,7 +101,7 @@ export function RoleBasedMenu({
             onMouseEnter={clearClose}
             onMouseLeave={scheduleClose}
             style={{ top: flyout.top, left: flyout.left }}
-            className="fixed z-[9999] min-w-[13rem] overflow-hidden rounded-xl border border-border bg-card py-1.5 shadow-2xl backdrop-blur-md"
+            className="fixed z-[9999] min-w-[11.5rem] max-w-[14rem] overflow-hidden rounded-xl border border-border bg-card py-1 shadow-2xl backdrop-blur-md"
           >
             {flyout.children.map((child) => {
               const [qKey, qVal] = child.query.split("=");
@@ -122,7 +118,7 @@ export function RoleBasedMenu({
                     onNavigate?.();
                   }}
                   className={[
-                    "group flex min-w-0 items-center gap-2.5 px-3.5 py-2 text-xs transition-colors",
+                    "group flex min-w-0 w-full items-center gap-2 px-3 py-1.5 text-[11px] font-medium transition-colors text-left",
                     childActive
                       ? "bg-primary-muted font-semibold text-primary"
                       : "text-slate-600 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary dark:text-slate-300",
@@ -136,7 +132,7 @@ export function RoleBasedMenu({
                         : "text-slate-400 group-hover:text-primary"
                     }`}
                   />
-                  <span className="min-w-0 truncate">{child.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{child.label}</span>
                 </Link>
               );
             })}
@@ -180,7 +176,7 @@ export function RoleBasedMenu({
                           : "text-slate-400 group-hover:text-primary"
                       }`}
                     />
-                    <span className={`min-w-0 truncate ${desktopCollapsed ? "lg:sr-only" : ""}`}>
+                    <span className={`min-w-0 flex-1 truncate ${desktopCollapsed ? "lg:sr-only" : ""}`}>
                       {leaf.label}
                     </span>
                   </Link>
@@ -211,7 +207,7 @@ export function RoleBasedMenu({
                   }}
                   className={[
                     linkBase,
-                    "w-full cursor-pointer",
+                    "cursor-pointer",
                     desktopCollapsed ? linkCollapsedDesktop : "",
                     active || isOpen ? linkActivePortal : linkPassive,
                   ].join(" ")}
@@ -242,45 +238,48 @@ export function RoleBasedMenu({
           })}
         </ul>
 
-        <ul className="space-y-0.5">
-          {PORTAL_NAV_TOP.filter(
-            (slot) =>
-              slot.href !== `/${portal}` &&
-              slot.depts.map((d) => normalizeDepartment(d)).includes(userDept),
-          ).map((slot) => {
-            const active =
-              pathname === slot.href || pathname.startsWith(`${slot.href}/`);
-            const row = [
-              "group flex rounded-lg px-2.5 py-1.5 transition-all",
-              desktopCollapsed
-                ? "lg:justify-center lg:px-1.5 lg:py-2 lg:aspect-square lg:mx-auto lg:w-auto lg:min-w-[2.5rem]"
-                : "",
-              active ? shortcutActivePortal : shortcutPassive,
-            ].join(" ");
-            return (
-              <li key={slot.href}>
-                <Link
-                  href={slot.href}
-                  title={desktopCollapsed ? slot.label : undefined}
-                  onClick={onNavigate}
-                  className={row}
-                >
-                  <NavIcon
-                    name={slot.icon}
-                    className={`size-[18px] shrink-0 transition-colors ${
-                      active
-                        ? "text-primary"
-                        : "text-slate-400 group-hover:text-primary"
-                    }`}
-                  />
-                  <span className={`min-w-0 truncate ${desktopCollapsed ? "lg:sr-only" : ""}`}>
-                    {slot.label}
-                  </span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        {PORTAL_NAV_TOP.some(
+          (slot) =>
+            slot.href !== `/${portal}` &&
+            slot.depts.map((d) => normalizeDepartment(d)).includes(userDept),
+        ) && (
+          <ul className="mt-2 pt-2 border-t border-border space-y-0.5">
+            {PORTAL_NAV_TOP.filter(
+              (slot) =>
+                slot.href !== `/${portal}` &&
+                slot.depts.map((d) => normalizeDepartment(d)).includes(userDept),
+            ).map((slot) => {
+              const active =
+                pathname === slot.href || pathname.startsWith(`${slot.href}/`);
+              return (
+                <li key={slot.href}>
+                  <Link
+                    href={slot.href}
+                    title={desktopCollapsed ? slot.label : undefined}
+                    onClick={onNavigate}
+                    className={[
+                      linkBase,
+                      desktopCollapsed ? linkCollapsedDesktop : "",
+                      active ? linkActivePortal : linkPassive,
+                    ].join(" ")}
+                  >
+                    <NavIcon
+                      name={slot.icon}
+                      className={`size-[18px] shrink-0 transition-colors ${
+                        active
+                          ? "text-primary"
+                          : "text-slate-400 group-hover:text-primary"
+                      }`}
+                    />
+                    <span className={`min-w-0 flex-1 truncate ${desktopCollapsed ? "lg:sr-only" : ""}`}>
+                      {slot.label}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </nav>
 
       {/* Flyout rendered via portal to escape overflow:hidden on sidebar */}

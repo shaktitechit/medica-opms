@@ -14,5 +14,6 @@ router.get('/', controller.list);
 router.post('/', requirePermissions('users:manage', '*'), controller.create);
 router.get('/:id', requirePermissions('users:manage', '*'), controller.get);
 router.patch('/:id', controller.patch);
+router.delete('/:id', requirePermissions('users:manage', '*'), controller.remove);
 
 module.exports = router;

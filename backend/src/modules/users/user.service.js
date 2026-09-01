@@ -131,11 +131,34 @@ async function update(id, body, actor) {
   return sanitizeUser(toPlain(await User.findById(id).populate('roles').lean()));
 }
 
+async function remove(id, actor) {
+  const { User } = getModels();
+  const user = await User.findById(id);
+  if (!user) throw new ApiError(404, 'User not found');
+
+  if (actor && actor._id && actor._id.toString() === id.toString()) {
+    throw new ApiError(400, 'Cannot delete your own account');
+  }
+
+  await User.findByIdAndDelete(id);
+
+  await activityService.create({
+    actor: actor ? actor._id : null,
+    entity_type: 'user',
+    entity_id: id.toString(),
+    action: 'deleted',
+    message: `User ${user.email} (${user.name}) deleted`,
+  });
+
+  return { success: true, message: 'User deleted successfully' };
+}
+
 module.exports = {
   list,
   get,
   create,
   update,
+  remove,
   listRoles,
   listPermissions,
 };

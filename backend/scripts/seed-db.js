@@ -10,7 +10,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const db = require('../src/config/db');
 const { getModels } = require('../src/data/mongoRegistry');
-const { bootstrap } = require('../src/data/seedMongo');
+const { syncRolesAndPermissionsToMongo, syncSuperAdminUserToMongo } = require('../src/data/mongoSyncUsers');
 
 async function main() {
   try {
@@ -26,13 +26,12 @@ async function main() {
       }
     }
 
-    console.log('[seed] All collections cleared. Running bootstrap seeding...');
+    console.log('[seed] All collections cleared. Syncing system roles and permissions...');
     
-    // bootstrap() will run syncExampleUsersToMongo() for permissions/roles/users, 
-    // and then seed the default catalog (Apollo Pharmacy, gloves, vehicle, driver)
-    const result = await bootstrap();
+    await syncRolesAndPermissionsToMongo();
+    const result = await syncSuperAdminUserToMongo(process.env.ADMIN_PASSWORD || 'ChangeMe123!');
 
-    console.log('[seed] Database seeded successfully.', result.catalog);
+    console.log('[seed] System roles & permissions initialized successfully.', result);
   } catch (err) {
     console.error('[seed] Seeding failed:', err);
     process.exitCode = 1;

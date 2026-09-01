@@ -53,3 +53,8 @@ exports.patch = asyncHandler(async (req, res) => {
   const row = await service.update(req.params.id, patchData, req.user);
   res.json({ success: true, data: row });
 });
+
+exports.remove = asyncHandler(async (req, res) => {
+  const result = await service.remove(req.params.id, req.user);
+  res.json({ success: true, data: result });
+});

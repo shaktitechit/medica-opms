@@ -7,7 +7,9 @@ import {
   useListRolesQuery,
   useCreateUserMutation,
   usePatchUserMutation,
+  useDeleteUserMutation,
 } from "@/store/api";
+import { useAppSelector } from "@/store/hooks";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import {
   Users,
@@ -21,6 +23,7 @@ import {
   ChevronDown,
   Loader2,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
 
 const DEPARTMENTS = ["super_admin", "admin", "sales", "finance", "account", "dispatch"] as const;
@@ -50,6 +53,93 @@ function DeptBadge({ dept }: { dept: string }) {
     <span className={`inline-block rounded-full px-2 py-0.5 text-2xs font-semibold ${colors[dept] ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>
       {fmt(dept)}
     </span>
+  );
+}
+
+// ── Delete User Confirmation Modal ──────────────────────────────────────────
+
+function DeleteUserModal({
+  user,
+  onClose,
+}: {
+  user: any;
+  onClose: () => void;
+}) {
+  const [deleteUser, { isLoading }] = useDeleteUserMutation();
+  const [error, setError] = useState<string | null>(null);
+  const uid = String(user._id || user.id || "");
+
+  const handleDelete = async () => {
+    setError(null);
+    try {
+      await deleteUser(uid).unwrap();
+      onClose();
+    } catch (err: any) {
+      setError(err?.data?.error?.message ?? "Failed to delete user.");
+    }
+  };
+
+  return (
+    <LargeModalPortal>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white shadow-2xl dark:bg-slate-900 overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-white/5">
+            <div className="flex items-center gap-2 text-rose-600">
+              <Trash2 className="h-5 w-5" />
+              <h2 className="font-bold text-slate-900 dark:text-slate-100">Delete User</h2>
+            </div>
+            <button
+              onClick={onClose}
+              disabled={isLoading}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-4">
+            {error && (
+              <div className="flex items-center gap-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-800 dark:bg-rose-950/20 dark:text-rose-400">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Are you sure you want to delete this user? This action will permanently remove their login access.
+            </p>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-800/50">
+              <div className="font-semibold text-slate-900 dark:text-slate-100">{user.name || "Unnamed"}</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">{user.email}</div>
+              <div className="mt-2">
+                <DeptBadge dept={user.department || "unknown"} />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isLoading}
+                className="flex-1 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isLoading}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-60 transition shadow-sm"
+              >
+                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </LargeModalPortal>
   );
 }
 
@@ -239,7 +329,15 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
 
 // ── Edit User Drawer ──────────────────────────────────────────────────────────
 
-function EditUserDrawer({ user, onClose }: { user: any; onClose: () => void }) {
+function EditUserDrawer({
+  user,
+  onClose,
+  onDeleteClick,
+}: {
+  user: any;
+  onClose: () => void;
+  onDeleteClick?: () => void;
+}) {
   const [patchUser, { isLoading }] = usePatchUserMutation();
   const [patch, setPatch] = useState({
     name: user.name ?? "",
@@ -346,6 +444,19 @@ function EditUserDrawer({ user, onClose }: { user: any; onClose: () => void }) {
                 Save Changes
               </button>
             </div>
+
+            {onDeleteClick ? (
+              <div className="pt-4 border-t border-slate-100 dark:border-white/5">
+                <button
+                  type="button"
+                  onClick={onDeleteClick}
+                  className="w-full flex items-center justify-center gap-2 rounded-lg border border-rose-200 px-4 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-900/30 dark:text-rose-400 dark:hover:bg-rose-950/30 transition"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete User
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -357,11 +468,15 @@ function EditUserDrawer({ user, onClose }: { user: any; onClose: () => void }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function SuperAdminUsersPage() {
+  const authUser = useAppSelector((state) => state.auth.user);
+  const currentUserId = String(authUser?._id || authUser?.id || "");
+
   const { data: usersRaw, isLoading, isFetching, isError, refetch } = useListUsersQuery({});
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState<string>("all");
   const [showCreate, setShowCreate] = useState(false);
   const [editUser, setEditUser] = useState<any | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
 
   const userList = useMemo(() => extractList(usersRaw), [usersRaw]);
 
@@ -388,7 +503,27 @@ export default function SuperAdminUsersPage() {
     <div className="space-y-6 pb-10">
       <PortalBusyOverlay active={isLoading} message="Loading users…" />
       {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} />}
-      {editUser && <EditUserDrawer user={editUser} onClose={() => setEditUser(null)} />}
+      {editUser && (
+        <EditUserDrawer
+          user={editUser}
+          onClose={() => setEditUser(null)}
+          onDeleteClick={
+            String(editUser._id || editUser.id || "") !== currentUserId
+              ? () => {
+                  const target = editUser;
+                  setEditUser(null);
+                  setDeleteTarget(target);
+                }
+              : undefined
+          }
+        />
+      )}
+      {deleteTarget && (
+        <DeleteUserModal
+          user={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
 
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -471,6 +606,8 @@ export default function SuperAdminUsersPage() {
                 filtered.map((u: any) => {
                   const uid = String(u._id || u.id || "");
                   const isActive = u.is_active !== false;
+                  const isSelf = uid === currentUserId;
+
                   return (
                     <tr key={uid} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition">
                       <td className="px-4 py-3">
@@ -498,12 +635,23 @@ export default function SuperAdminUsersPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => setEditUser(u)}
-                          className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                          Edit
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setEditUser(u)}
+                            className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-slate-800 transition"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setDeleteTarget(u)}
+                            disabled={isSelf}
+                            title={isSelf ? "Cannot delete your own account" : "Delete user"}
+                            className="rounded-lg border border-rose-200 px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-900/30 dark:text-rose-400 dark:hover:bg-rose-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition inline-flex items-center gap-1"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

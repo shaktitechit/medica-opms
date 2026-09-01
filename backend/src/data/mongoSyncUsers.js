@@ -6,10 +6,9 @@ const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 const db = require('../config/db');
 const { MONGODB_URI } = require('../config/env');
-const { CORE_USERS, EXTRA_EXAMPLE_USERS } = require('./exampleUserSeeder');
-const { PERMISSION_DEFS } = require('./seed');
+const { PERMISSION_DEFS } = require('../constants/permissions');
 
-/** Mirrors roles in seed.js mkRole(...) */
+/** System role definitions */
 const ROLE_SEED_DEFS = [
   { name: 'Super Administrator', code: 'super_admin', department: 'super_admin', permCodes: ['*'], is_system_role: true },
   { name: 'Administrator', code: 'admin', department: 'admin', permCodes: ['*'], is_system_role: true },
@@ -199,70 +198,11 @@ async function syncRolesAndPermissionsToMongo(opts = {}) {
   };
 }
 
-function buildUserList(opts = {}) {
-  const includeExtras = opts.includeExtras !== false;
-  const onlyExtras = !!opts.onlyExtras;
-  let list = onlyExtras ? [...EXTRA_EXAMPLE_USERS] : [...CORE_USERS];
-  if (!onlyExtras && includeExtras) list.push(...EXTRA_EXAMPLE_USERS);
-  return list;
-}
-
 /**
- * Upsert permissions → roles → example users into MongoDB (collections: permissions, roles, users).
- * Assumes mongoose is connected via config/db.connect().
- *
- * @param {string} plainPassword shared bcrypt source when row has no passwordPlain
- * @param {{ includeExtras?: boolean, onlyExtras?: boolean }} opts
+ * Upsert permissions and roles into MongoDB.
  */
 async function syncExampleUsersToMongo(plainPassword, opts = {}) {
-  if (!MONGODB_URI || String(MONGODB_URI).trim() === '') {
-    return {
-      synced: false,
-      reason:
-        'Set MONGO_URI or MONGODB_URI in .env to write to MongoDB. In-memory seed does not touch Atlas.',
-    };
-  }
-
-  if (mongoose.connection.readyState !== 1) await db.connect();
-
-  await syncRolesAndPermissionsToMongo();
-
-  const { User, Role } = getMongoModels();
-  const rolesByCode = await roleIdsByCodeMap(Role);
-
-  const list = buildUserList(opts);
-  const defaultHash = bcrypt.hashSync(String(plainPassword || 'ChangeMe123!'), 10);
-
-  const created = [];
-  const updated = [];
-
-  for (const row of list) {
-    const email = String(row.email).toLowerCase().trim();
-    const roleId = rolesByCode.get(row.roleCode);
-    if (!roleId) throw new Error(`Mongo seed: unknown role "${row.roleCode}" for ${email}`);
-
-    const hash = row.passwordPlain ? bcrypt.hashSync(String(row.passwordPlain), 10) : defaultHash;
-
-    const base = {
-      name: row.name,
-      phone: row.phone || '',
-      department: row.department,
-      roles: [roleId],
-      is_active: row.is_active !== false,
-    };
-
-    const existing = await User.findOne({ email });
-    if (!existing) {
-      await User.create({ email, password: hash, ...base });
-      created.push(email);
-    } else {
-      await User.updateOne({ _id: existing._id }, { $set: { ...base, email } });
-      updated.push(email);
-    }
-  }
-
-  const dbName = mongoose.connection.db?.databaseName;
-  return { synced: true, database: dbName, usersCreated: created, usersUpdated: updated };
+  return syncSuperAdminUserToMongo(plainPassword, opts);
 }
 
 const DEFAULT_SUPER_ADMIN = {

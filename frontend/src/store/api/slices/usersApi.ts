@@ -50,6 +50,14 @@ export const usersApi = medicaApi.injectEndpoints({
         { type: "Users", id: arg.id },
       ],
     }),
+    deleteUser: build.mutation<unknown, string>({
+      query: (id) => ({
+        url: `users/${id}`,
+        method: "DELETE",
+      }),
+      transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
+      invalidatesTags: ["Users"],
+    }),
   }),
 });
 
@@ -62,4 +70,5 @@ export const {
   useLazyGetUserQuery,
   useCreateUserMutation,
   usePatchUserMutation,
+  useDeleteUserMutation,
 } = usersApi;

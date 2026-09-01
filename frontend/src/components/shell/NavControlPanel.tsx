@@ -92,20 +92,20 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
               href={linkHref}
               title={leaf.label}
               className={[
-                "group flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-all",
+                "group inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-all",
                 active
-                  ? "bg-primary-muted font-semibold text-primary ring-1 ring-primary/25"
+                  ? "bg-primary-muted font-semibold text-primary ring-1 ring-primary/25 shadow-2xs"
                   : "text-slate-600 dark:text-slate-300 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary",
               ].join(" ")}
             >
               <NavIcon
                 name={leaf.icon}
-                className={`size-3.5 shrink-0 transition-colors ${
+                className={`size-4 shrink-0 transition-colors ${
                   active ? "text-primary" : "text-slate-400 group-hover:text-primary"
                 }`}
                 strokeWidth={2}
               />
-              <span>{leaf.label}</span>
+              <span className="leading-none">{leaf.label}</span>
             </Link>
           );
         }
@@ -129,22 +129,22 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
               aria-haspopup="menu"
               onClick={() => setOpenKey(isOpen ? null : key)}
               className={[
-                "group flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-all cursor-pointer",
+                "group inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-all cursor-pointer",
                 active || isOpen
-                  ? "bg-primary-muted font-semibold text-primary ring-1 ring-primary/25"
+                  ? "bg-primary-muted font-semibold text-primary ring-1 ring-primary/25 shadow-2xs"
                   : "text-slate-600 dark:text-slate-300 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary",
               ].join(" ")}
             >
               <NavIcon
                 name={leaf.icon}
-                className={`size-3.5 shrink-0 transition-colors ${
+                className={`size-4 shrink-0 transition-colors ${
                   active || isOpen
                     ? "text-primary"
                     : "text-slate-400 group-hover:text-primary"
                 }`}
                 strokeWidth={2}
               />
-              <span>{leaf.label}</span>
+              <span className="leading-none">{leaf.label}</span>
               <ChevronDown
                 className={`size-3.5 shrink-0 transition-transform ${
                   active || isOpen
@@ -159,7 +159,7 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
             {isOpen && (
               <div
                 role="menu"
-                className="absolute left-0 top-full z-50 mt-1 min-w-[12rem] overflow-hidden rounded-xl border border-border bg-card py-1.5 shadow-2xl backdrop-blur-md"
+                className="absolute left-0 top-full z-50 mt-1 min-w-[11.5rem] max-w-[14rem] overflow-hidden rounded-xl border border-border bg-card py-1 shadow-2xl backdrop-blur-md"
               >
                 {children.map((child) => {
                   const [qKey, qVal] = child.query.split("=");
@@ -173,7 +173,7 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
                       href={`${href}?${child.query}`}
                       onClick={() => setOpenKey(null)}
                       className={[
-                        "group flex items-center gap-2 px-3.5 py-2 text-xs font-medium transition-colors",
+                        "group flex min-w-0 w-full items-center gap-2 px-3 py-1.5 text-[11px] font-medium transition-colors text-left",
                         childActive
                           ? "bg-primary-muted font-semibold text-primary"
                           : "text-slate-600 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary dark:text-slate-300",
@@ -188,7 +188,7 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
                         }`}
                         strokeWidth={2}
                       />
-                      <span>{child.label}</span>
+                      <span className="min-w-0 flex-1 truncate leading-none">{child.label}</span>
                     </Link>
                   );
                 })}
@@ -210,14 +210,20 @@ export function NavControlPanel({ portal }: NavControlPanelProps) {
                 href={slot.href}
                 title={slot.label}
                 className={[
-                  "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition",
+                  "group inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-all",
                   active
-                    ? "bg-surface-muted text-foreground"
-                    : "text-muted hover:bg-surface-muted hover:text-foreground",
+                    ? "bg-primary-muted font-semibold text-primary ring-1 ring-primary/25 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-300 hover:bg-primary-muted/70 dark:hover:bg-primary-muted/40 hover:text-primary",
                 ].join(" ")}
               >
-                <NavIcon name={slot.icon} className="size-3.5 shrink-0" strokeWidth={2} />
-                <span>{slot.label}</span>
+                <NavIcon
+                  name={slot.icon}
+                  className={`size-4 shrink-0 transition-colors ${
+                    active ? "text-primary" : "text-slate-400 group-hover:text-primary"
+                  }`}
+                  strokeWidth={2}
+                />
+                <span className="leading-none">{slot.label}</span>
               </Link>
             );
           })}
