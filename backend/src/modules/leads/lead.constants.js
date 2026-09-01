@@ -5,6 +5,7 @@
 
 const LEAD_STATUSES = Object.freeze([
   'new',
+  'assigned',
   'follow_up',
   'quotation',
   'won',
@@ -43,11 +44,12 @@ const CONVERSION_TYPES = Object.freeze([
  * Admin and super_admin may override these transitions.
  */
 const ALLOWED_STATUS_TRANSITIONS = Object.freeze({
-  new: ['follow_up', 'quotation', 'won', 'lost', 'converted'],
-  follow_up: ['new', 'quotation', 'won', 'lost', 'converted'],
+  new: ['assigned', 'follow_up', 'quotation', 'won', 'lost', 'converted'],
+  assigned: ['new', 'follow_up', 'quotation', 'won', 'lost', 'converted'],
+  follow_up: ['assigned', 'quotation', 'won', 'lost', 'converted'],
   quotation: ['follow_up', 'won', 'lost', 'converted'],
   won: ['converted'], // Terminal until converted, no lost after won
-  lost: ['new', 'follow_up', 'quotation'], // Requires admin override to reopen
+  lost: ['new', 'assigned', 'follow_up', 'quotation'], // Requires admin override to reopen
   converted: [], // Final terminal state
 });
 

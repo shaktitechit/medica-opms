@@ -63,6 +63,7 @@ type Props = {
 const STATUS_TABS: Array<{ id: string; label: string }> = [
   { id: "all", label: "All Leads" },
   { id: "new", label: "New" },
+  { id: "assigned", label: "Assigned" },
   { id: "follow_up", label: "Follow Up" },
   { id: "quotation", label: "Quotation" },
   { id: "won", label: "Won" },
@@ -75,7 +76,10 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
   const searchParams = useSearchParams();
   const authUser = useAppSelector((state) => state.auth.user);
 
-  const [activeTab, setActiveTab] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const status = searchParams.get("status") || "all";
+    return STATUS_TABS.some((tab) => tab.id === status) ? status : "all";
+  });
   const [search, setSearch] = useState<string>("");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");

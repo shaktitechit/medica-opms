@@ -139,6 +139,7 @@ const COLUMNS: {
     type: "select",
     options: [
       "new",
+      "assigned",
       "follow_up",
       "quotation",
       "won",

@@ -288,7 +288,7 @@ function advanceLeadToQuotationStatus(lead) {
   if (!lead || ['won', 'lost', 'converted'].includes(lead.status)) {
     return false;
   }
-  if (['new', 'follow_up'].includes(lead.status)) {
+  if (['new', 'assigned', 'follow_up'].includes(lead.status)) {
     lead.status = 'quotation';
     return true;
   }

@@ -163,6 +163,16 @@ export default function LeadManagerStatsWidgets({
       Icon: UserCheck,
     },
     {
+      key: "assigned",
+      label: "Assigned Leads",
+      value: data?.assignedLeads ?? 0,
+      href: `${portalHome}/leads?status=assigned`,
+      accent: "bg-indigo-500",
+      iconWrap: "bg-indigo-50 dark:bg-indigo-950/30",
+      iconTone: "text-indigo-600 dark:text-indigo-400",
+      Icon: UserCheck,
+    },
+    {
       key: "follow_up",
       label: "Follow Up Leads",
       value: data?.followUpLeads ?? 0,

@@ -392,7 +392,7 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {/* Step 1: New */}
           <div className={`relative flex items-center gap-3 rounded-xl border p-3 transition-all ${
             lead.status === "new"
@@ -416,7 +416,43 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
             </div>
           </div>
 
-          {/* Step 2: Follow Up */}
+          {/* Step 2: Assigned */}
+          {(() => {
+            const hasAssigned =
+              Boolean(lead.assigned_to) ||
+              ["assigned", "follow_up", "quotation", "won", "converted"].includes(lead.status);
+            const isCurrent = lead.status === "assigned";
+            return (
+              <div className={`relative flex items-center gap-3 rounded-xl border p-3 transition-all ${
+                isCurrent
+                  ? "border-indigo-500/40 bg-indigo-50/50 shadow-sm ring-1 ring-indigo-500/20 dark:bg-indigo-950/30"
+                  : hasAssigned
+                  ? "border-slate-200/80 bg-slate-50/40 dark:border-white/10 dark:bg-slate-800/40"
+                  : "border-slate-200/40 bg-slate-50/20 opacity-60 dark:border-white/5 dark:bg-slate-800/20"
+              }`}>
+                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
+                  isCurrent
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : hasAssigned
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                    : "bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                }`}>
+                  {isCurrent ? "2" : hasAssigned ? "✓" : "2"}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">
+                    2. Assigned
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    {lead.assigned_to?.name ||
+                      (lead.assigned_at ? formatLeadDate(lead.assigned_at) : "Assign executive")}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Step 3: Follow Up */}
           {(() => {
             const hasFollowUp = (followUps && followUps.length > 0) || ["follow_up", "quotation", "won", "converted"].includes(lead.status);
             const isCurrent = lead.status === "follow_up";
@@ -435,11 +471,11 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
                     ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
                     : "bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
                 }`}>
-                  {isCurrent ? "2" : hasFollowUp ? "✓" : "2"}
+                  {isCurrent ? "3" : hasFollowUp ? "✓" : "3"}
                 </div>
                 <div className="min-w-0">
                   <div className="text-xs font-bold text-slate-900 dark:text-white">
-                    2. Follow Up
+                    3. Follow Up
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                     {followUps && followUps.length > 0
@@ -451,7 +487,7 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
             );
           })()}
 
-          {/* Step 3: Quotation */}
+          {/* Step 4: Quotation */}
           {(() => {
             const hasQuotations = (quotations && quotations.length > 0) || ["quotation", "won", "converted"].includes(lead.status);
             const isCurrent = lead.status === "quotation";
@@ -470,11 +506,11 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
                     ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
                     : "bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
                 }`}>
-                  {isCurrent ? "3" : hasQuotations ? "✓" : "3"}
+                  {isCurrent ? "4" : hasQuotations ? "✓" : "4"}
                 </div>
                 <div className="min-w-0">
                   <div className="text-xs font-bold text-slate-900 dark:text-white">
-                    3. Quotation
+                    4. Quotation
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                     {quotations && quotations.length > 0
@@ -486,7 +522,7 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
             );
           })()}
 
-          {/* Step 4: Outcome (Won / Converted / Lost / In Progress) */}
+          {/* Step 5: Outcome (Won / Converted / Lost / In Progress) */}
           {(() => {
             if (isWon) {
               return (
@@ -496,7 +532,7 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
                   </div>
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
-                      4. Deal Won 🎉
+                      5. Deal Won 🎉
                     </div>
                     <div className="text-[11px] text-emerald-700 dark:text-emerald-400 truncate">
                       Ready to convert
@@ -513,7 +549,7 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
                   </div>
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-teal-900 dark:text-teal-200">
-                      4. Converted
+                      5. Converted
                     </div>
                     <div className="text-[11px] text-teal-700 dark:text-teal-400 truncate">
                       Party & Order created
@@ -530,7 +566,7 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
                   </div>
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-rose-900 dark:text-rose-200">
-                      4. Closed (Lost)
+                      5. Closed (Lost)
                     </div>
                     <div className="text-[11px] text-rose-700 dark:text-rose-400 truncate">
                       {lead.lost_info?.lost_reason || "Deal cancelled"}
@@ -542,11 +578,11 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
             return (
               <div className="relative flex items-center gap-3 rounded-xl border border-slate-200/40 bg-slate-50/20 p-3 opacity-60 dark:border-white/5 dark:bg-slate-800/20">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-xs font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                  4
+                  5
                 </div>
                 <div className="min-w-0">
                   <div className="text-xs font-bold text-slate-900 dark:text-white">
-                    4. Decision
+                    5. Decision
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                     Pending Won / Lost

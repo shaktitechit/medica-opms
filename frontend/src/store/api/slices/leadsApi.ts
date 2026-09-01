@@ -7,6 +7,7 @@ import { unwrapEnvelope, type ApiEnvelope } from "../unwrap";
 
 export type LeadStatus =
   | "new"
+  | "assigned"
   | "follow_up"
   | "quotation"
   | "won"

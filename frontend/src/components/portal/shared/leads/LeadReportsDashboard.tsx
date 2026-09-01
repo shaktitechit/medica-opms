@@ -151,16 +151,16 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
         </div>
 
         <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4 shadow-sm dark:border-blue-900/30 dark:bg-blue-950/20">
-          <div className="text-xs font-semibold text-blue-700 dark:text-blue-300">New & Assigned</div>
+          <div className="text-xs font-semibold text-blue-700 dark:text-blue-300">New Leads</div>
           <div className="mt-2 text-2xl font-bold text-blue-900 dark:text-blue-100">
-            {(stats?.newLeads ?? 0) + (stats?.assignedLeads ?? 0)}
+            {stats?.newLeads ?? 0}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 shadow-sm dark:border-emerald-900/30 dark:bg-emerald-950/20">
-          <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Qualified Leads</div>
-          <div className="mt-2 text-2xl font-bold text-emerald-900 dark:text-emerald-100">
-            {stats?.qualifiedLeads ?? 0}
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 shadow-sm dark:border-indigo-900/30 dark:bg-indigo-950/20">
+          <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Assigned Leads</div>
+          <div className="mt-2 text-2xl font-bold text-indigo-900 dark:text-indigo-100">
+            {stats?.assignedLeads ?? 0}
           </div>
         </div>
 

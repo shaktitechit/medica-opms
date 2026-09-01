@@ -109,6 +109,7 @@ const leadSchema = new mongoose.Schema(
       type: String,
       enum: [
         "new",
+        "assigned",
         "follow_up",
         "quotation",
         "won",

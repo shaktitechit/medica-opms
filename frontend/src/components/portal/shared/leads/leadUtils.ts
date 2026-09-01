@@ -20,6 +20,13 @@ export const LEAD_STATUS_CONFIG: Record<
     border: "border-blue-200 dark:border-blue-800",
     dot: "bg-blue-500",
   },
+  assigned: {
+    label: "Assigned",
+    bg: "bg-indigo-50 dark:bg-indigo-950/40",
+    text: "text-indigo-700 dark:text-indigo-300",
+    border: "border-indigo-200 dark:border-indigo-800",
+    dot: "bg-indigo-500",
+  },
   follow_up: {
     label: "Follow Up",
     bg: "bg-amber-50 dark:bg-amber-950/40",
@@ -163,11 +170,12 @@ export function isFollowUpToday(dateStr?: string | null): boolean {
  * Forward progression only: passing one stage disables previous stages.
  */
 export const ALLOWED_STATUS_TRANSITIONS: Record<LeadStatus, LeadStatus[]> = {
-  new: ["follow_up", "quotation", "won", "lost", "converted"],
-  follow_up: ["new", "quotation", "won", "lost", "converted"],
+  new: ["assigned", "follow_up", "quotation", "won", "lost", "converted"],
+  assigned: ["new", "follow_up", "quotation", "won", "lost", "converted"],
+  follow_up: ["assigned", "quotation", "won", "lost", "converted"],
   quotation: ["follow_up", "won", "lost", "converted"],
   won: ["converted"], // No lost option after won
-  lost: ["new", "follow_up", "quotation"], // Reopening/transitions require admin
+  lost: ["new", "assigned", "follow_up", "quotation"], // Reopening/transitions require admin
   converted: [], // Terminal
 };
 
@@ -266,10 +274,11 @@ export function leadEstimatedValue(lead?: {
 
 const STAGE_ORDER: Record<string, number> = {
   new: 0,
-  follow_up: 1,
-  quotation: 2,
-  won: 3,
-  converted: 4,
+  assigned: 1,
+  follow_up: 2,
+  quotation: 3,
+  won: 4,
+  converted: 5,
 };
 
 /**
@@ -281,6 +290,7 @@ export function getSelectableStatuses(
 ): { status: LeadStatus; isAllowed: boolean }[] {
   const modalStatuses: LeadStatus[] = [
     "new",
+    "assigned",
     "follow_up",
     "quotation",
     "won",
