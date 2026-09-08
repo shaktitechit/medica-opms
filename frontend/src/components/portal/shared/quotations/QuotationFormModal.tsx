@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   X,
   Plus,
@@ -14,8 +14,9 @@ import {
   Square,
   Sparkles,
   Layers,
-  ChevronDown,
-  ChevronUp,
+  Search,
+  Check,
+  ShieldAlert,
 } from "lucide-react";
 import {
   useCreateLeadQuotationMutation,
@@ -23,6 +24,7 @@ import {
   useGetDefaultQuotationTermsQuery,
   useListTermsAndConditionsQuery,
   useListProductsQuery,
+  useListPartiesQuery,
   useGetCompanyInfoQuery,
   useListUsersQuery,
   useListLeadsQuery,
@@ -57,6 +59,536 @@ type ItemState = {
   gst_rate: number;
 };
 
+export type CatalogProduct = {
+  _id: string;
+  product_name: string;
+  sku?: string;
+  hsn_code?: string;
+  base_price?: number;
+  minimum_sale_rate?: number;
+  mrp?: number;
+  gst_percent?: number;
+  default_gst_rate?: number;
+  brand?: string;
+  manufacturer?: string;
+  product_group?: string;
+  description?: string;
+  unit?: string;
+};
+
+export type PartyItem = {
+  _id?: string;
+  id?: string;
+  party_name?: string;
+  party_code?: string;
+  party_type?: "customer" | "supplier" | "both" | string;
+  contact_person?: string;
+  mobile?: string;
+  phone?: string;
+  email?: string;
+  contacts?: Array<{
+    name?: string;
+    department?: string;
+    phone?: string;
+    email?: string;
+    alternate_phone?: string;
+  }>;
+  gst_no?: string;
+  billing_address?: {
+    address_line_1?: string;
+    address_line_2?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    country?: string;
+  };
+  district?: string;
+  state?: string;
+  sra?: boolean;
+};
+
+function pickParties(raw: unknown): PartyItem[] {
+  if (Array.isArray(raw)) return raw as PartyItem[];
+  if (raw && typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    if (Array.isArray(o.items)) return o.items as PartyItem[];
+    if (Array.isArray(o.data)) return o.data as PartyItem[];
+    if (Array.isArray(o.parties)) return o.parties as PartyItem[];
+  }
+  return [];
+}
+
+/**
+ * Searchable Autocomplete for Party Master directory
+ */
+function PartySearchAutocomplete({
+  parties,
+  selectedPartyId,
+  onSelect,
+}: {
+  parties: PartyItem[];
+  selectedPartyId: string;
+  onSelect: (party: PartyItem | null) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const selectedParty = useMemo(() => {
+    if (!selectedPartyId) return null;
+    return parties.find((p) => String(p._id ?? p.id ?? "") === String(selectedPartyId)) || null;
+  }, [parties, selectedPartyId]);
+
+  const filteredParties = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return parties.slice(0, 50);
+    return parties.filter((p) => {
+      const name = String(p.party_name || "").toLowerCase();
+      const code = String(p.party_code || "").toLowerCase();
+      const person = String(p.contact_person || "").toLowerCase();
+      const mobile = String(p.mobile || p.phone || "").toLowerCase();
+      const email = String(p.email || "").toLowerCase();
+      const city = String(p.billing_address?.city || p.district || "").toLowerCase();
+      const gst = String(p.gst_no || "").toLowerCase();
+      return (
+        name.includes(q) ||
+        code.includes(q) ||
+        person.includes(q) ||
+        mobile.includes(q) ||
+        email.includes(q) ||
+        city.includes(q) ||
+        gst.includes(q)
+      );
+    }).slice(0, 50);
+  }, [parties, search]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <div className="relative">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (filteredParties.length > 0) {
+                onSelect(filteredParties[0]);
+                setIsOpen(false);
+                setSearch("");
+              }
+            } else if (e.key === "Escape") {
+              setIsOpen(false);
+            }
+          }}
+          placeholder={
+            selectedParty
+              ? `Linked: ${selectedParty.party_name} (Search to change party...)`
+              : "Search Party Master by party name, contact person, mobile, city, GSTIN..."
+          }
+          className="w-full rounded-xl border border-blue-200 bg-white py-2 pl-9 pr-8 text-xs font-semibold text-slate-800 placeholder-slate-400 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-white/10 dark:bg-slate-900 dark:text-white"
+        />
+        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-blue-500">
+          <Search className="h-3.5 w-3.5" />
+        </div>
+        {search && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearch("");
+              setIsOpen(false);
+            }}
+            className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-400 hover:text-slate-600"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 z-50 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl dark:border-white/10 dark:bg-slate-900">
+          <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
+            <span>Party Master Directory ({filteredParties.length} found)</span>
+            <span className="text-[9px] text-slate-400 lowercase">click to select & autofill</span>
+          </div>
+          {filteredParties.length === 0 ? (
+            <div className="px-4 py-3 text-center text-xs text-slate-500 dark:text-slate-400">
+              No matching parties found for &quot;{search}&quot;
+            </div>
+          ) : (
+            filteredParties.map((p) => {
+              const id = String(p._id ?? p.id ?? "");
+              const isSelected = id === selectedPartyId;
+              const location = [p.billing_address?.city || p.district, p.billing_address?.state || p.state]
+                .filter(Boolean)
+                .join(", ");
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    onSelect(p);
+                    setIsOpen(false);
+                    setSearch("");
+                  }}
+                  className={`flex w-full flex-col px-3 py-2 text-left text-xs transition border-b border-slate-50 dark:border-white/5 last:border-0 hover:bg-blue-50/70 dark:hover:bg-blue-950/40 cursor-pointer ${
+                    isSelected
+                      ? "bg-blue-50 font-medium text-blue-900 dark:bg-blue-950/50 dark:text-blue-200"
+                      : "text-slate-800 dark:text-slate-200"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="font-bold text-slate-900 dark:text-white truncate">
+                        {p.party_name}
+                      </span>
+                      {p.party_code && (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.2 font-mono text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          {p.party_code}
+                        </span>
+                      )}
+                      {p.party_type && (
+                        <span className="rounded-full bg-slate-100 px-1.5 py-0.2 text-[10px] font-semibold text-slate-600 capitalize dark:bg-slate-800 dark:text-slate-300">
+                          {p.party_type}
+                        </span>
+                      )}
+                      {p.sra === true && (
+                        <span className="rounded-full bg-emerald-100 px-1.5 py-0.2 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                          SRA
+                        </span>
+                      )}
+                    </div>
+                    {isSelected && <Check className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />}
+                  </div>
+
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    {(p.contact_person || (p.contacts && p.contacts[0]?.name)) && (
+                      <span>👤 {p.contact_person || p.contacts?.[0]?.name}</span>
+                    )}
+                    {(p.mobile || p.phone || (p.contacts && p.contacts[0]?.phone)) && (
+                      <span>📞 {p.mobile || p.phone || p.contacts?.[0]?.phone}</span>
+                    )}
+                    {location && <span>📍 {location}</span>}
+                    {p.gst_no && <span className="font-mono text-[10px]">GST: {p.gst_no}</span>}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Quick Search & Add product directly from Catalog toolbar
+ */
+function QuickProductSearchAndAdd({
+  products,
+  onAddProduct,
+}: {
+  products: CatalogProduct[];
+  onAddProduct: (product: CatalogProduct) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const filteredProducts = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return [];
+    return products
+      .filter((p) => {
+        const name = String(p.product_name || "").toLowerCase();
+        const sku = String(p.sku || "").toLowerCase();
+        const brand = String(p.brand || "").toLowerCase();
+        const mfr = String(p.manufacturer || "").toLowerCase();
+        const group = String(p.product_group || "").toLowerCase();
+        const hsn = String(p.hsn_code || "").toLowerCase();
+        return (
+          name.includes(q) ||
+          sku.includes(q) ||
+          brand.includes(q) ||
+          mfr.includes(q) ||
+          group.includes(q) ||
+          hsn.includes(q)
+        );
+      })
+      .slice(0, 30);
+  }, [products, search]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSelect = (p: CatalogProduct) => {
+    onAddProduct(p);
+    setSearch("");
+    setIsOpen(false);
+  };
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <div className="relative">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => {
+            if (search.trim()) setIsOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (filteredProducts.length > 0) {
+                handleSelect(filteredProducts[0]);
+              }
+            } else if (e.key === "Escape") {
+              setIsOpen(false);
+            }
+          }}
+          placeholder="🔍 Quick search product from catalog to add (type product name, SKU, brand)..."
+          className="w-full rounded-xl border border-blue-200 bg-white py-2 pl-9 pr-8 text-xs font-semibold text-slate-800 placeholder-slate-400 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-white/10 dark:bg-slate-900 dark:text-white"
+        />
+        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-blue-500">
+          <Sparkles className="h-3.5 w-3.5" />
+        </div>
+        {search && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearch("");
+              setIsOpen(false);
+            }}
+            className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {isOpen && search.trim().length > 0 && (
+        <div className="absolute left-0 right-0 z-40 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl dark:border-white/10 dark:bg-slate-900">
+          <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
+            <span>Matching Catalog Products ({filteredProducts.length})</span>
+            <span className="text-[9px] text-blue-600 font-semibold dark:text-blue-400">
+              Click or press Enter to add
+            </span>
+          </div>
+
+          {filteredProducts.length === 0 ? (
+            <div className="px-4 py-3 text-center text-xs text-slate-500 dark:text-slate-400">
+              No products found matching &quot;{search}&quot;
+            </div>
+          ) : (
+            filteredProducts.map((p) => {
+              const price = p.base_price ?? p.minimum_sale_rate ?? p.mrp ?? 0;
+              return (
+                <button
+                  key={p._id}
+                  type="button"
+                  onClick={() => handleSelect(p)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-xs transition border-b border-slate-50 dark:border-white/5 last:border-0 hover:bg-blue-50/70 dark:hover:bg-blue-950/40 cursor-pointer"
+                >
+                  <div className="min-w-0 flex-1 pr-3">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="font-bold text-slate-900 dark:text-white truncate">
+                        {p.product_name}
+                      </span>
+                      {p.sku && (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.2 font-mono text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          {p.sku}
+                        </span>
+                      )}
+                      {p.brand && (
+                        <span className="rounded-full bg-blue-50 px-1.5 py-0.2 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                          {p.brand}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+                      {p.hsn_code && <span>HSN: {p.hsn_code}</span>}
+                      {p.unit && <span>Unit: {p.unit}</span>}
+                      {p.product_group && <span>Group: {p.product_group}</span>}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 text-right">
+                    <div className="font-bold text-blue-600 dark:text-blue-400">
+                      ₹{price.toLocaleString("en-IN")}
+                    </div>
+                    <div className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                      <Plus className="h-3 w-3" /> Add to Quote
+                    </div>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Searchable Product Selector used inside each line item row
+ */
+function ProductRowAutocomplete({
+  products,
+  selectedId,
+  onSelect,
+}: {
+  products: CatalogProduct[];
+  selectedId?: string;
+  onSelect: (productId: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const selectedProduct = useMemo(() => {
+    if (!selectedId) return null;
+    return products.find((p) => p._id === selectedId) || null;
+  }, [products, selectedId]);
+
+  const filteredProducts = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return products.slice(0, 30);
+    return products
+      .filter((p) => {
+        const name = String(p.product_name || "").toLowerCase();
+        const sku = String(p.sku || "").toLowerCase();
+        const brand = String(p.brand || "").toLowerCase();
+        return name.includes(q) || sku.includes(q) || brand.includes(q);
+      })
+      .slice(0, 30);
+  }, [products, search]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative w-full mb-1">
+      <div className="relative">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (filteredProducts.length > 0) {
+                onSelect(filteredProducts[0]._id);
+                setSearch("");
+                setIsOpen(false);
+              }
+            } else if (e.key === "Escape") {
+              setIsOpen(false);
+            }
+          }}
+          placeholder={
+            selectedProduct
+              ? `Catalog: ${selectedProduct.product_name} (${selectedProduct.sku || "Linked"})`
+              : "Search & link catalog product..."
+          }
+          className="w-full rounded-lg border border-slate-200 bg-white py-1 pl-7 pr-6 text-[11px] text-slate-700 shadow-2xs focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-slate-200"
+        />
+        <div className="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-slate-400">
+          <Search className="h-3 w-3" />
+        </div>
+        {selectedProduct && (
+          <button
+            type="button"
+            onClick={() => {
+              onSelect("");
+              setSearch("");
+            }}
+            className="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-rose-500 cursor-pointer"
+            title="Unlink catalog product"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 z-50 mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-slate-900">
+          <div className="px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
+            <span>Select Catalog Item ({filteredProducts.length})</span>
+            <span className="text-[9px] text-slate-400">scroll or type to search</span>
+          </div>
+          {filteredProducts.length === 0 ? (
+            <div className="px-3 py-2 text-[11px] text-slate-400">No catalog products found</div>
+          ) : (
+            filteredProducts.map((p) => {
+              const isSelected = p._id === selectedId;
+              const price = p.base_price ?? p.minimum_sale_rate ?? p.mrp ?? 0;
+              return (
+                <button
+                  key={p._id}
+                  type="button"
+                  onClick={() => {
+                    onSelect(p._id);
+                    setSearch("");
+                    setIsOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[11px] transition hover:bg-blue-50/70 dark:hover:bg-blue-950/40 cursor-pointer ${
+                    isSelected ? "bg-blue-50 text-blue-700 font-bold dark:bg-blue-950 dark:text-blue-300" : "text-slate-700 dark:text-slate-200"
+                  }`}
+                >
+                  <span className="truncate pr-2">
+                    {p.product_name}
+                    {p.sku && <span className="text-[10px] text-slate-400 ml-1 font-mono">({p.sku})</span>}
+                  </span>
+                  <span className="shrink-0 font-semibold text-slate-600 dark:text-slate-300">
+                    ₹{price.toLocaleString("en-IN")}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function computeNextRefNo(existingQuotations: LeadQuotationRecord[]): string {
   let maxSeq = 1000;
   if (Array.isArray(existingQuotations) && existingQuotations.length > 0) {
@@ -89,21 +621,34 @@ export function QuotationFormModal({
     Array.isArray(productsData)
       ? productsData
       : (productsData as { items?: unknown[] })?.items || []
-  ) as Array<{ _id: string; product_name: string; sku?: string; hsn_code?: string; base_price?: number; unit?: string }>;
+  ) as CatalogProduct[];
 
-  const { data: companyData } = useGetCompanyInfoQuery();
-  const company = companyData as Record<string, unknown> | undefined;
+  const { data: partiesData } = useListPartiesQuery({ limit: "500" }, { skip: !open });
+  const parties = useMemo(() => pickParties(partiesData), [partiesData]);
+  const [selectedPartyId, setSelectedPartyId] = useState<string>("");
+
+  const selectedParty = useMemo(() => {
+    if (!selectedPartyId) return null;
+    return parties.find((p) => String(p._id ?? p.id ?? "") === String(selectedPartyId)) || null;
+  }, [parties, selectedPartyId]);
+
+  useGetCompanyInfoQuery();
 
   const { data: usersData } = useListUsersQuery();
-  const usersList = (
-    Array.isArray(usersData)
-      ? usersData
-      : (usersData as { items?: unknown[] })?.items || (usersData as { data?: unknown[] })?.data || []
-  ) as Array<{ _id: string; name: string; email: string; phone?: string; department?: string; is_active?: boolean }>;
+  const usersList = useMemo(() => {
+    return (
+      Array.isArray(usersData)
+        ? usersData
+        : (usersData as { items?: unknown[] })?.items || (usersData as { data?: unknown[] })?.data || []
+    ) as Array<{ _id: string; name: string; email: string; phone?: string; department?: string; is_active?: boolean }>;
+  }, [usersData]);
 
   const adminUsers = useMemo(() => {
     return usersList.filter(
-      (u) => u.department === "admin" || u.department === "super_admin" || u.department === "finance"
+      (u) =>
+        u.department === "admin" ||
+        u.department === "super_admin" ||
+        u.department === "finance"
     );
   }, [usersList]);
 
@@ -163,6 +708,7 @@ export function QuotationFormModal({
   const handleLeadSelect = (lId: string) => {
     setSelectedLeadId(lId);
     if (!lId) {
+      setSelectedPartyId("");
       setCustomerName("");
       setKindAttn("");
       setPhone("");
@@ -176,6 +722,9 @@ export function QuotationFormModal({
     }
     const targetLead = leadsList.find((l) => l._id === lId);
     if (!targetLead) return;
+
+    const leadPartyId = targetLead.party_id?._id || (typeof targetLead.party_id === "string" ? targetLead.party_id : "") || "";
+    setSelectedPartyId(leadPartyId);
 
     const leadOrg =
       targetLead.company_name ||
@@ -228,6 +777,44 @@ export function QuotationFormModal({
     }
   };
 
+  const handlePartySelect = (p: PartyItem | null) => {
+    if (!p) {
+      setSelectedPartyId("");
+      return;
+    }
+    const pId = String(p._id ?? p.id ?? "");
+    setSelectedPartyId(pId);
+    setCustomerName(p.party_name || "");
+    const primaryContact = p.contacts && p.contacts.length > 0 ? p.contacts[0] : null;
+    setKindAttn(p.contact_person || primaryContact?.name || "");
+    setPhone(p.mobile || p.phone || primaryContact?.phone || "");
+    setCell(p.mobile || primaryContact?.phone || primaryContact?.alternate_phone || "");
+    setEmail(p.email || primaryContact?.email || "");
+    setGstin(p.gst_no || "");
+
+    const addr = [p.billing_address?.address_line_1, p.billing_address?.address_line_2]
+      .filter(Boolean)
+      .join(", ");
+    setAddressLine(addr || "");
+    setCity(p.billing_address?.city || p.district || "");
+    setState(p.billing_address?.state || p.state || "");
+    setPincode(p.billing_address?.pincode || "");
+
+    toast.success(`Loaded customer details for "${p.party_name}"`);
+  };
+
+  const handlePartyContactSwitch = (contactName: string) => {
+    if (!selectedParty?.contacts) return;
+    const c = selectedParty.contacts.find((ct) => ct.name === contactName);
+    if (c) {
+      setKindAttn(c.name || "");
+      if (c.phone) setPhone(c.phone);
+      if (c.phone || c.alternate_phone) setCell(c.phone || c.alternate_phone || "");
+      if (c.email) setEmail(c.email);
+      toast.info(`Switched contact to ${c.name}${c.department ? ` (${c.department})` : ""}`);
+    }
+  };
+
   // Form State
   const [refNo, setRefNo] = useState("");
   const [customerRef, setCustomerRef] = useState("");
@@ -274,10 +861,11 @@ export function QuotationFormModal({
   const [pincode, setPincode] = useState("");
 
   // Signatory State (Assigned Admin User info printed on PDF)
+  const [signatoryUserId, setSignatoryUserId] = useState("");
   const [signatoryName, setSignatoryName] = useState("");
   const [signatoryPhone, setSignatoryPhone] = useState("");
   const [signatoryEmail, setSignatoryEmail] = useState("");
-  const [signatoryDesignation, setSignatoryDesignation] = useState("Authorized Signatory");
+  const [signatoryDesignation, setSignatoryDesignation] = useState("");
 
   const [items, setItems] = useState<ItemState[]>([
     {
@@ -299,9 +887,12 @@ export function QuotationFormModal({
 
   // Populate or reset form
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (!open) return;
 
     if (quotation) {
+      setSelectedPartyId(quotation.party_id || "");
+      setSelectedLeadId(typeof quotation.lead === "object" ? quotation.lead?._id : quotation.lead || "");
       setRefNo(quotation.ref_no || "");
       setCustomerRef(quotation.customer_ref || "");
       setQuotationDate(
@@ -323,10 +914,15 @@ export function QuotationFormModal({
       setPincode(quotation.address?.pincode || "");
 
       // Signatory from quotation
+      const qSignatoryId =
+        typeof quotation.signatory_user === "object"
+          ? quotation.signatory_user?._id || ""
+          : quotation.signatory_user || "";
+      setSignatoryUserId(qSignatoryId);
       setSignatoryName(quotation.signatory_name || "");
       setSignatoryPhone(quotation.signatory_phone || "");
       setSignatoryEmail(quotation.signatory_email || "");
-      setSignatoryDesignation(quotation.signatory_designation || "Authorized Signatory");
+      setSignatoryDesignation(quotation.signatory_designation || "");
 
       if (quotation.items && quotation.items.length > 0) {
         setItems(
@@ -349,6 +945,9 @@ export function QuotationFormModal({
       );
     } else if (lead) {
       // New quotation from Lead
+      setSelectedLeadId(lead._id);
+      const leadPartyId = lead.party_id?._id || (typeof lead.party_id === "string" ? lead.party_id : "") || "";
+      setSelectedPartyId(leadPartyId);
       setRefNo(autoNextRefNo);
       setCustomerRef("");
       setQuotationDate(new Date().toISOString().split("T")[0]);
@@ -372,35 +971,12 @@ export function QuotationFormModal({
       setState(lead.billing_address?.state || lead.party_id?.state || "");
       setPincode(lead.billing_address?.pincode || "");
 
-      // Resolve Signatory from admin / super_admin / finance roster (excluding sales)
-      const assigned = lead.assigned_to;
-      let defaultAdminUser: { name?: string; phone?: string; email?: string; department?: string } | null = null;
-
-      if (
-        typeof assigned === "object" &&
-        assigned !== null &&
-        ["admin", "super_admin", "finance"].includes(assigned.department || "")
-      ) {
-        defaultAdminUser = assigned;
-      } else if (typeof assigned === "string" && assigned) {
-        const found = usersList.find((u) => u._id === assigned);
-        if (found && ["admin", "super_admin", "finance"].includes(found.department || "")) {
-          defaultAdminUser = found;
-        }
-      }
-
-      if (!defaultAdminUser && adminUsers.length > 0) {
-        defaultAdminUser = adminUsers[0];
-      }
-
-      setSignatoryName(defaultAdminUser?.name || (authUser as { name?: string })?.name || "");
-      setSignatoryPhone(defaultAdminUser?.phone || (authUser as { phone?: string })?.phone || "");
-      setSignatoryEmail(defaultAdminUser?.email || (authUser as { email?: string })?.email || "");
-      setSignatoryDesignation(
-        defaultAdminUser?.department
-          ? defaultAdminUser.department.charAt(0).toUpperCase() + defaultAdminUser.department.slice(1)
-          : "Authorized Signatory"
-      );
+      // Signatory initially blank, only filled after selecting
+      setSignatoryUserId("");
+      setSignatoryName("");
+      setSignatoryPhone("");
+      setSignatoryEmail("");
+      setSignatoryDesignation("");
 
       // Initial line items from lead products if available
       if (lead.products && lead.products.length > 0) {
@@ -438,6 +1014,8 @@ export function QuotationFormModal({
         setTerms(dbDefaultTerms);
       }
     } else {
+      setSelectedLeadId("");
+      setSelectedPartyId("");
       setRefNo(autoNextRefNo);
       setCustomerRef("");
       setQuotationDate(new Date().toISOString().split("T")[0]);
@@ -452,10 +1030,12 @@ export function QuotationFormModal({
       setCity("");
       setState("");
       setPincode("");
-      setSignatoryName((authUser as { name?: string })?.name || "");
-      setSignatoryPhone((authUser as { phone?: string })?.phone || "");
-      setSignatoryEmail((authUser as { email?: string })?.email || "");
-      setSignatoryDesignation("Authorized Signatory");
+      // Signatory initially blank, only filled after selecting
+      setSignatoryUserId("");
+      setSignatoryName("");
+      setSignatoryPhone("");
+      setSignatoryEmail("");
+      setSignatoryDesignation("");
       setItems([
         {
           product_name: "Medical Equipment / Supplies",
@@ -472,11 +1052,20 @@ export function QuotationFormModal({
         setTerms(dbDefaultTerms);
       }
     }
-  }, [open, quotation, lead, dbDefaultTerms, usersList, adminUsers, authUser, autoNextRefNo]);
+  }, [open, quotation, lead, dbDefaultTerms, autoNextRefNo]);
 
   const handleSelectAdminUser = (userId: string) => {
+    if (!userId) {
+      setSignatoryUserId("");
+      setSignatoryName("");
+      setSignatoryPhone("");
+      setSignatoryEmail("");
+      setSignatoryDesignation("");
+      return;
+    }
     const selected = usersList.find((u) => u._id === userId);
     if (!selected) return;
+    setSignatoryUserId(selected._id);
     setSignatoryName(selected.name || "");
     setSignatoryPhone(selected.phone || "");
     setSignatoryEmail(selected.email || "");
@@ -489,9 +1078,6 @@ export function QuotationFormModal({
 
   // Calculations
   const calculations = useMemo(() => {
-    let subtotal = 0;
-    let totalGst = 0;
-
     const computedItems = items.map((item) => {
       const qty = Number(item.quantity) || 0;
       const rate = Number(item.rate) || 0;
@@ -499,9 +1085,6 @@ export function QuotationFormModal({
       const gstRate = Number(item.gst_rate) || 0;
       const gstAmt = Math.round(((taxable * gstRate) / 100) * 100) / 100;
       const lineTotal = Math.round((taxable + gstAmt) * 100) / 100;
-
-      subtotal += taxable;
-      totalGst += gstAmt;
 
       return {
         ...item,
@@ -511,8 +1094,8 @@ export function QuotationFormModal({
       };
     });
 
-    subtotal = Math.round(subtotal * 100) / 100;
-    totalGst = Math.round(totalGst * 100) / 100;
+    const subtotal = Math.round(computedItems.reduce((acc, it) => acc + it.taxable, 0) * 100) / 100;
+    const totalGst = Math.round(computedItems.reduce((acc, it) => acc + it.gstAmt, 0) * 100) / 100;
     const rawGrandTotal = subtotal + totalGst;
     const grandTotal = Math.round(rawGrandTotal);
     const roundOff = Math.round((grandTotal - rawGrandTotal) * 100) / 100;
@@ -528,6 +1111,12 @@ export function QuotationFormModal({
 
   // Product Selection handler
   const handleSelectProduct = (index: number, productId: string) => {
+    if (!productId) {
+      setItems((prev) =>
+        prev.map((it, idx) => (idx === index ? { ...it, product: undefined } : it))
+      );
+      return;
+    }
     const found = products.find((p) => p._id === productId);
     if (!found) return;
 
@@ -538,12 +1127,49 @@ export function QuotationFormModal({
           ...it,
           product: found._id,
           product_name: found.product_name,
-          hsn_code: found.hsn_code || "9018",
-          rate: found.base_price || it.rate || 0,
+          hsn_code: found.hsn_code || it.hsn_code || "9018",
+          rate: Number(found.base_price ?? found.minimum_sale_rate ?? it.rate ?? 0),
           unit: found.unit || it.unit || "Nos",
+          gst_rate: Number(found.gst_percent ?? it.gst_rate ?? 5),
         };
       })
     );
+  };
+
+  const handleQuickAddProduct = (p: CatalogProduct) => {
+    const rate = Number(p.base_price ?? p.minimum_sale_rate ?? p.mrp ?? 0);
+    const gstRate = Number(p.gst_percent ?? p.default_gst_rate ?? 5);
+    const newItem: ItemState = {
+      product: p._id,
+      product_name: p.product_name,
+      description: p.description || "",
+      hsn_code: p.hsn_code || "9018",
+      quantity: 1,
+      unit: p.unit || "Nos",
+      rate,
+      gst_rate: gstRate,
+    };
+
+    setItems((prev) => {
+      if (
+        prev.length === 1 &&
+        !prev[0].product &&
+        (!prev[0].product_name ||
+          prev[0].product_name === "Medical Equipment / Supplies" ||
+          prev[0].product_name === "Fresenius Hemodialysis Machine" ||
+          prev[0].product_name === "Fresenius Hemodialysis Machine Fresenius 4008 A") &&
+        prev[0].rate === 0
+      ) {
+        return [newItem];
+      }
+      return [...prev, newItem];
+    });
+
+    if (!subject || subject === "Offer For Medical Equipment") {
+      setSubject(`Offer For ${p.product_name}`);
+    }
+
+    toast.success(`Added "${p.product_name}" to quotation items`);
   };
 
   const handleAddItem = () => {
@@ -660,11 +1286,17 @@ export function QuotationFormModal({
       return;
     }
 
+    if (!signatoryName.trim()) {
+      toast.error("Please select an authorized signatory from the signatory dropdown");
+      return;
+    }
+
     const cleanedTerms = terms.map((t) => t.trim()).filter(Boolean);
 
     const payload: CreateQuotationPayload = {
       ref_no: refNo.trim() || undefined,
       customer_ref: customerRef.trim() || undefined,
+      party_id: selectedPartyId || undefined,
       quotation_date: quotationDate ? new Date(quotationDate).toISOString() : new Date().toISOString(),
       validity_days: Number(validityDays) || 15,
       subject: subject.trim() || undefined,
@@ -695,7 +1327,8 @@ export function QuotationFormModal({
       signatory_name: signatoryName.trim(),
       signatory_phone: signatoryPhone.trim(),
       signatory_email: signatoryEmail.trim(),
-      signatory_designation: signatoryDesignation.trim(),
+      signatory_designation: signatoryDesignation.trim() || "Authorized Signatory",
+      signatory_user: signatoryUserId || undefined,
     };
 
     const targetLeadId = selectedLeadId || lead?._id || (typeof quotation?.lead === "object" ? quotation.lead?._id : quotation?.lead) || "";
@@ -704,14 +1337,14 @@ export function QuotationFormModal({
       if (isEditing && quotation?._id) {
         const res = await updateQuotation({
           quotationId: quotation._id,
-          leadId: targetLeadId,
+          leadId: targetLeadId || undefined,
           body: payload,
         }).unwrap();
         toast.success(`Quotation ${res.quotation_no} updated successfully`);
         onSuccess?.(res);
       } else {
         const res = await createQuotation({
-          leadId: targetLeadId,
+          leadId: targetLeadId || undefined,
           body: payload,
         }).unwrap();
         toast.success(`Quotation ${res.quotation_no} created successfully`);
@@ -724,6 +1357,33 @@ export function QuotationFormModal({
   };
 
   if (!open) return null;
+
+  if (!canManageQuotations(authUser)) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
+        <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400 mb-4">
+            <ShieldAlert className="h-6 w-6" />
+          </div>
+          <h3 className="text-base font-bold text-slate-900 dark:text-white">
+            Administrator Access Required
+          </h3>
+          <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+            Only administrators (Admin, Super Admin, and Finance) are authorized to create or edit quotations.
+          </p>
+          <div className="mt-5 flex justify-center">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/60 p-3 sm:p-6 backdrop-blur-xs">
@@ -755,6 +1415,13 @@ export function QuotationFormModal({
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {!canManageQuotations(authUser) && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200 flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4 shrink-0 text-amber-600" />
+                <span>Only administrators (Admin, Super Admin, and Finance) are authorized to create or update quotations.</span>
+              </div>
+            )}
+
             {/* Lead Link / Direct Selection Banner */}
             {!isEditing && !lead && (
               <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900/40 dark:bg-blue-950/30">
@@ -878,10 +1545,92 @@ export function QuotationFormModal({
 
             {/* Customer Details */}
             <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-blue-600" />
-                Customer / Recipient Information
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                  <UserCheck className="h-4 w-4 text-blue-600" />
+                  Customer / Recipient Information
+                </div>
+                {selectedParty && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-0.5 text-2xs font-bold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+                    <Building2 className="h-3 w-3" />
+                    Party Master Linked
+                  </span>
+                )}
               </div>
+
+              {/* Party Master Search & Autofill Panel */}
+              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/40 p-3 dark:border-blue-900/40 dark:bg-blue-950/20 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
+                    <Search className="h-3.5 w-3.5 text-blue-600" />
+                    Search Party Master (Autofill Customer Details)
+                  </label>
+                  {selectedParty && (
+                    <button
+                      type="button"
+                      onClick={() => handlePartySelect(null)}
+                      className="text-[11px] font-bold text-rose-600 hover:underline dark:text-rose-400 cursor-pointer"
+                    >
+                      Clear / Unlink Party
+                    </button>
+                  )}
+                </div>
+
+                <PartySearchAutocomplete
+                  parties={parties}
+                  selectedPartyId={selectedPartyId}
+                  onSelect={handlePartySelect}
+                />
+
+                {/* Selected Party Summary & Multiple Contacts Switcher */}
+                {selectedParty && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/80 p-2 text-xs dark:bg-slate-900/80 border border-blue-100 dark:border-white/5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {selectedParty.party_name}
+                      </span>
+                      {selectedParty.party_code && (
+                        <span className="font-mono text-[10px] text-slate-500">
+                          ({selectedParty.party_code})
+                        </span>
+                      )}
+                      {selectedParty.party_type && (
+                        <span className="rounded-full bg-slate-100 px-1.5 py-0.2 text-[10px] font-semibold text-slate-600 capitalize dark:bg-slate-800 dark:text-slate-300">
+                          {selectedParty.party_type}
+                        </span>
+                      )}
+                      {selectedParty.sra === true && (
+                        <span className="rounded-full bg-emerald-100 px-1.5 py-0.2 text-[9px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                          SRA
+                        </span>
+                      )}
+                      {(selectedParty.billing_address?.city || selectedParty.district) && (
+                        <span className="text-[11px] text-slate-500">
+                          • {selectedParty.billing_address?.city || selectedParty.district}
+                        </span>
+                      )}
+                    </div>
+
+                    {selectedParty.contacts && selectedParty.contacts.length > 1 && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-semibold text-slate-500">Switch Contact:</span>
+                        <select
+                          value={kindAttn}
+                          onChange={(e) => handlePartyContactSwitch(e.target.value)}
+                          className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-800 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
+                        >
+                          {selectedParty.contacts.map((c, i) => (
+                            <option key={i} value={c.name || ""}>
+                              {c.name} {c.department ? `(${c.department})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -1031,7 +1780,7 @@ export function QuotationFormModal({
 
             {/* Line Items Table */}
             <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
                   <Calculator className="h-4 w-4 text-blue-600" />
                   Line Items &amp; Products ({items.length})
@@ -1039,11 +1788,24 @@ export function QuotationFormModal({
                 <button
                   type="button"
                   onClick={handleAddItem}
-                  className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 cursor-pointer"
+                  className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 cursor-pointer"
+                  title="Add empty row for custom non-catalog item"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Add Product
+                  Add Custom Item
                 </button>
+              </div>
+
+              {/* Quick Search & Add from Catalog */}
+              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/40 p-3 dark:border-blue-900/40 dark:bg-blue-950/20">
+                <div className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 mb-1.5 flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+                  Quick Search &amp; Add Products from Catalog
+                </div>
+                <QuickProductSearchAndAdd
+                  products={products}
+                  onAddProduct={handleQuickAddProduct}
+                />
               </div>
 
               <div className="space-y-3">
@@ -1066,20 +1828,12 @@ export function QuotationFormModal({
                             </label>
                           </div>
 
-                          {products.length > 0 && (
-                            <select
-                              value={it.product || ""}
-                              onChange={(e) => handleSelectProduct(idx, e.target.value)}
-                              className="mb-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200"
-                            >
-                              <option value="">-- Autofill from Catalog --</option>
-                              {products.map((p) => (
-                                <option key={p._id} value={p._id}>
-                                  {p.product_name} ({p.sku || "SKU"})
-                                </option>
-                              ))}
-                            </select>
-                          )}
+                          {/* Searchable catalog autocomplete in row */}
+                          <ProductRowAutocomplete
+                            products={products}
+                            selectedId={it.product}
+                            onSelect={(pId) => handleSelectProduct(idx, pId)}
+                          />
 
                           <input
                             type="text"
@@ -1266,29 +2020,29 @@ export function QuotationFormModal({
                     Signatory &amp; Admin Representative (Printed on PDF Letterhead)
                   </div>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Select an assigned admin user or enter representative contact details printed at the bottom of the proposal.
+                    Select an authorized signatory from the dropdown. Signatory details are auto-filled and locked; only designation can be edited.
                   </p>
                 </div>
 
-                {/* Quick selector for admin/finance/signatory users */}
+                {/* Selector for admin/finance/signatory users */}
                 {usersList.length > 0 && (
                   <div className="flex items-center gap-2">
-                    <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                      Quick Pick Signatory:
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                      Choose Signatory:
                     </label>
                     <select
+                      value={signatoryUserId}
                       onChange={(e) => handleSelectAdminUser(e.target.value)}
-                      defaultValue=""
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-xs dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
+                      className="rounded-lg border border-blue-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-800 shadow-xs focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-slate-100 cursor-pointer"
                     >
-                      <option value="" disabled>
-                        -- Select Signatory User --
+                      <option value="">
+                        -- Select Authorized Signatory (Required) --
                       </option>
                       {lead?.assigned_to &&
                         typeof lead.assigned_to === "object" &&
                         ["admin", "super_admin", "finance"].includes(lead.assigned_to.department || "") && (
                           <option value={lead.assigned_to._id}>
-                            ⭐ Assigned: {lead.assigned_to.name} ({lead.assigned_to.department})
+                            ⭐ Lead Assigned: {lead.assigned_to.name} ({lead.assigned_to.department})
                           </option>
                         )}
                       {adminUsers.map((u) => (
@@ -1297,61 +2051,83 @@ export function QuotationFormModal({
                         </option>
                       ))}
                     </select>
+                    {signatoryUserId && (
+                      <button
+                        type="button"
+                        onClick={() => handleSelectAdminUser("")}
+                        className="text-[11px] font-semibold text-rose-600 hover:underline dark:text-rose-400 cursor-pointer"
+                        title="Clear selected signatory"
+                      >
+                        Clear
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
 
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Signatory Name <span className="text-rose-500">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Signatory Name <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-medium">Read-only</span>
+                  </div>
                   <input
                     type="text"
                     required
+                    readOnly
                     value={signatoryName}
-                    onChange={(e) => setSignatoryName(e.target.value)}
-                    placeholder="e.g. Puneet Oberoi"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-white font-bold"
+                    placeholder="Choose signatory from dropdown..."
+                    className="w-full rounded-xl border border-slate-200 bg-slate-100/90 px-3 py-2 text-xs text-slate-700 shadow-xs cursor-not-allowed dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-300 font-bold"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Designation / Title
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Designation / Title
+                    </label>
+                    <span className="text-[10px] text-blue-600 font-bold dark:text-blue-400">Editable</span>
+                  </div>
                   <input
                     type="text"
                     value={signatoryDesignation}
                     onChange={(e) => setSignatoryDesignation(e.target.value)}
-                    placeholder="e.g. Director / Authorized Signatory"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-white"
+                    placeholder="e.g. Authorized Signatory / Director"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-white font-medium"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Contact Phone / Mobile
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Contact Phone / Mobile
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-medium">Read-only</span>
+                  </div>
                   <input
                     type="text"
+                    readOnly
                     value={signatoryPhone}
-                    onChange={(e) => setSignatoryPhone(e.target.value)}
-                    placeholder="e.g. +91 92168 11111"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-white font-medium"
+                    placeholder="Auto-filled from profile"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-100/90 px-3 py-2 text-xs text-slate-700 shadow-xs cursor-not-allowed dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-300 font-medium"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Official Email
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Official Email
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-medium">Read-only</span>
+                  </div>
                   <input
                     type="email"
+                    readOnly
                     value={signatoryEmail}
-                    onChange={(e) => setSignatoryEmail(e.target.value)}
-                    placeholder="e.g. admin@medicaent.in"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-white font-medium"
+                    placeholder="Auto-filled from profile"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-100/90 px-3 py-2 text-xs text-slate-700 shadow-xs cursor-not-allowed dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-300 font-medium"
                   />
                 </div>
               </div>
@@ -1520,8 +2296,9 @@ export function QuotationFormModal({
             </button>
             <button
               type="submit"
-              disabled={isCreating || isUpdating}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer"
+              disabled={isCreating || isUpdating || !canManageQuotations(authUser)}
+              title={!canManageQuotations(authUser) ? "Only administrators can create quotations" : undefined}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer"
             >
               {isCreating || isUpdating ? "Saving..." : isEditing ? "Update Quotation" : "Generate Quotation"}
             </button>

@@ -12,22 +12,33 @@ export function formatCurrencyINR(amount: number): string {
   }).format(amount);
 }
 
-export function canCreateQuotation(leadStatus?: string): boolean {
-  if (!leadStatus) return true;
-  return leadStatus !== "lost";
+export function canManageQuotations(
+  user?: { department?: string; role?: string; permissionCodes?: string[] } | null
+): boolean {
+  if (!user) return false;
+  const dept = user.department || "";
+  const role = user.role || "";
+  return (
+    dept === "admin" ||
+    dept === "super_admin" ||
+    dept === "finance" ||
+    role === "admin" ||
+    role === "super_admin" ||
+    role === "finance"
+  );
 }
 
-export function canManageQuotations(user?: { department?: string; permissionCodes?: string[] } | null): boolean {
-  if (!user) return false;
-  const codes = new Set(user.permissionCodes || []);
-  return (
-    codes.has("*") ||
-    codes.has("leads:manage") ||
-    codes.has("quotations:manage") ||
-    user.department === "admin" ||
-    user.department === "super_admin" ||
-    user.department === "finance"
-  );
+export function canCreateQuotation(
+  leadStatusOrUser?: string | { department?: string; role?: string } | null,
+  leadStatus?: string
+): boolean {
+  if (typeof leadStatusOrUser === "string") {
+    return leadStatusOrUser !== "lost";
+  }
+  if (!leadStatusOrUser) return false;
+  if (!canManageQuotations(leadStatusOrUser)) return false;
+  if (leadStatus && leadStatus === "lost") return false;
+  return true;
 }
 
 export type QuotationUserRef = {

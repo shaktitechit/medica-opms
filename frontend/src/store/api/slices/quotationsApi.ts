@@ -148,7 +148,7 @@ export const quotationsApi = medicaApi.injectEndpoints({
       ],
     }),
 
-    getDefaultQuotationTerms: build.query<string[], void>({
+    getQuotationsDefaultTerms: build.query<string[], void>({
       query: () => ({
         url: "/quotations/default-terms",
         method: "GET",
@@ -188,5 +188,5 @@ export const {
   useApproveQuotationMutation,
   useRejectQuotationMutation,
   useDeleteQuotationMutation,
-  useGetDefaultQuotationTermsQuery: useGetDefaultQuotationTermsNewQuery,
+  useGetQuotationsDefaultTermsQuery,
 } = quotationsApi;

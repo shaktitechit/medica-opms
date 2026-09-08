@@ -16,6 +16,10 @@ exports.getWorkflowStats = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.getWorkflowStats(req.query, req.user) });
 });
 
+exports.getWorkflowContext = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await service.getWorkflowContext(req.query, req.user) });
+});
+
 exports.get = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await service.getById(req.params.id, req.user) });
 });

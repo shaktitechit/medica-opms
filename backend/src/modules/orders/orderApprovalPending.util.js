@@ -426,6 +426,162 @@ async function enrichOrdersWithFlagStatus(rows, models) {
   });
 }
 
+/**
+ * Parallel enrichment pipeline for listed orders:
+ * Fetches approvals, due sheets, flags, and active transports concurrently in Promise.all
+ * and merges them in a single synchronous pass.
+ */
+async function enrichOrdersParallel(rows, models) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  const orderIds = rows
+    .map((row) => row?._id)
+    .filter((id) => id && mongoose.Types.ObjectId.isValid(String(id)));
+
+  if (orderIds.length === 0) {
+    return rows.map((row) => ({
+      ...row,
+      approval_pending: resolveOrderApprovalPending([], row),
+      is_due_sheet_uploaded: false,
+      due_sheet_uploaded: false,
+      flag_status: 'none',
+      active_transport: null,
+    }));
+  }
+
+  const objectIds = orderIds.map((id) => new mongoose.Types.ObjectId(String(id)));
+
+  const [
+    approvals,
+    flaggedOrderIdsList,
+    activeDueSheets,
+    flags,
+    transportShipments,
+  ] = await Promise.all([
+    models.OrderApproval
+      ? models.OrderApproval.find({
+          order: { $in: orderIds },
+          deletedAt: null,
+        })
+          .select(
+            'order is_admin_approved is_finance_approved is_account_approved rejection_reason rejected_by is_due_sheet_uploaded'
+          )
+          .lean()
+      : Promise.resolve([]),
+
+    models.OrderApproval?.collection
+      ? models.OrderApproval.collection
+          .distinct('order', {
+            order: { $in: objectIds },
+            deletedAt: null,
+            is_due_sheet_uploaded: true,
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
+
+    models.OrderDueSheet
+      ? models.OrderDueSheet.find({
+          order: { $in: orderIds },
+          is_current: true,
+          status: 'active',
+          deletedAt: null,
+        })
+          .select('order')
+          .lean()
+      : Promise.resolve([]),
+
+    models.OrderFlag
+      ? models.OrderFlag.find({
+          order: { $in: orderIds },
+        })
+          .select('order status')
+          .lean()
+      : Promise.resolve([]),
+
+    models.TransportShipment
+      ? models.TransportShipment.find({
+          order: { $in: orderIds },
+          deletedAt: null,
+          shipment_status: { $nin: ['cancelled', 'returned'] },
+        })
+          .select('order transport_agent dispatch_date expected_delivery_date shipment_status status')
+          .populate('transport_agent', 'agent_name agent_code')
+          .sort({ createdAt: -1 })
+          .lean()
+      : Promise.resolve([]),
+  ]);
+
+  const flaggedOrderIds = new Set((flaggedOrderIdsList || []).map((id) => String(id)));
+  const uploadedDueSheetOrderIds = new Set(
+    (activeDueSheets || []).map((ds) => String(ds.order))
+  );
+
+  const approvalsByOrder = new Map();
+  for (const doc of approvals || []) {
+    const key = String(doc.order);
+    const list = approvalsByOrder.get(key) || [];
+    list.push(doc);
+    approvalsByOrder.set(key, list);
+  }
+
+  const flagsByOrder = new Map();
+  for (const flag of flags || []) {
+    const key = String(flag.order);
+    const list = flagsByOrder.get(key) || [];
+    list.push(flag);
+    flagsByOrder.set(key, list);
+  }
+
+  const transportByOrder = new Map();
+  for (const ts of transportShipments || []) {
+    const key = String(ts.order);
+    if (!transportByOrder.has(key)) {
+      const agent = ts.transport_agent;
+      const agentName = agent
+        ? typeof agent === 'object'
+          ? agent.agent_name || agent.agent_code || ''
+          : String(agent)
+        : '';
+      const scheduledDate = ts.dispatch_date || ts.expected_delivery_date || null;
+      if (agentName || scheduledDate) {
+        transportByOrder.set(key, {
+          agent_name: agentName || undefined,
+          scheduled_date: scheduledDate ? String(scheduledDate) : undefined,
+        });
+      }
+    }
+  }
+
+  return rows.map((row) => {
+    const orderKey = String(row._id);
+    const appDocs = approvalsByOrder.get(orderKey) || [];
+    const fromDocs = appDocs.some((doc) => isTruthyFlag(doc.is_due_sheet_uploaded));
+    const isDueSheetUploaded =
+      fromDocs ||
+      flaggedOrderIds.has(orderKey) ||
+      uploadedDueSheetOrderIds.has(orderKey) ||
+      isTruthyFlag(row.is_due_sheet_uploaded);
+
+    const orderFlags = flagsByOrder.get(orderKey) || [];
+    let flag_status = 'none';
+    if (orderFlags.length > 0) {
+      const hasUnresolved = orderFlags.some(
+        (f) => f.status === 'open' || f.status === 'in_progress'
+      );
+      flag_status = hasUnresolved ? 'unresolved' : 'resolved';
+    }
+
+    return {
+      ...row,
+      approval_pending: resolveOrderApprovalPending(appDocs, row),
+      is_due_sheet_uploaded: isDueSheetUploaded,
+      due_sheet_uploaded: isDueSheetUploaded,
+      flag_status,
+      active_transport: transportByOrder.get(orderKey) || null,
+    };
+  });
+}
+
 module.exports = {
   PENDING_APPROVAL_STAGES,
   ADMIN_PENDING_STATUS_ALIASES,
@@ -443,6 +599,7 @@ module.exports = {
   enrichOrdersWithApprovalPending,
   enrichOrdersWithDueSheetStatus,
   enrichOrdersWithFlagStatus,
+  enrichOrdersParallel,
 };
 
 

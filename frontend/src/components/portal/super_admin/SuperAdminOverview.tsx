@@ -10,9 +10,7 @@ import MonthlyPerformanceChart from "@/components/portal/shared/dashboard/Monthl
 import PartyLeaderboard from "@/components/portal/shared/dashboard/PartyLeaderboard";
 import ProductLeaderboard from "@/components/portal/shared/dashboard/ProductLeaderboard";
 import SalesLeaderboard from "@/components/portal/shared/dashboard/SalesLeaderboard";
-import FeaturedProductGroupSalesUserTable from "@/components/portal/shared/dashboard/FeaturedProductGroupSalesUserTable";
-import FeaturedProductGroupZoneTable from "@/components/portal/shared/dashboard/FeaturedProductGroupZoneTable";
-import FeaturedProductGroupFeaturedPartyTable from "@/components/portal/shared/dashboard/FeaturedProductGroupFeaturedPartyTable";
+import FeaturedMatrixSection from "@/components/portal/shared/dashboard/FeaturedMatrixSection";
 import { formatPeriodCaption } from "@/components/portal/shared/dashboard/PeriodHeadingCaption";
 import { ORDER_WORKFLOW_LIST_QUERY } from "@/components/portal/shared/orderList/orderWorkflowTabs";
 import { useOrderWorkflowCategoryOptions } from "@/components/portal/shared/orderList/useOrderWorkflowCategoryOptions";
@@ -393,26 +391,12 @@ export default function SuperAdminOverview() {
         />
       </div>
 
-      <div className="space-y-6">
-        <FeaturedProductGroupSalesUserTable
-          orders={filteredOrders}
-          isOrdersFetching={isOrdersFetching}
-          externalFilterCaption={filterCaption}
-          qtyBasis={qtyBasis}
-        />
-        <FeaturedProductGroupZoneTable
-          orders={filteredOrders}
-          isOrdersFetching={isOrdersFetching}
-          externalFilterCaption={filterCaption}
-          qtyBasis={qtyBasis}
-        />
-        <FeaturedProductGroupFeaturedPartyTable
-          orders={filteredOrders}
-          isOrdersFetching={isOrdersFetching}
-          externalFilterCaption={filterCaption}
-          qtyBasis={qtyBasis}
-        />
-      </div>
+      <FeaturedMatrixSection
+        orders={filteredOrders}
+        isOrdersFetching={isOrdersFetching}
+        externalFilterCaption={filterCaption}
+        qtyBasis={qtyBasis}
+      />
     </div>
   );
 }

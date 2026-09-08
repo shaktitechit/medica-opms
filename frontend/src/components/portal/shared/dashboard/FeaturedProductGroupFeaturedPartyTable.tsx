@@ -1,13 +1,12 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { Table2, ChevronRight, ChevronDown } from "lucide-react";
-import { useListPartiesQuery, useListProductsQuery, useListProductGroupsQuery } from "@/store/api";
+import { Building2, ChevronRight, ChevronDown } from "lucide-react";
+import { useListPartiesQuery } from "@/store/api";
 import { partyRecordName } from "@/components/portal/sales/partyDisplay";
 import FeaturedMatrixTableFrame from "./FeaturedMatrixTableFrame";
 import { usePeriodFilter } from "./usePeriodFilter";
 import {
-  buildFeaturedGroupProductMaps,
   formatMatrixValue,
   itemMetricValue,
   pickEntities,
@@ -24,6 +23,10 @@ import {
   downloadCsvFile,
   reportFilename,
 } from "./reportDownloadUtils";
+import {
+  useFeaturedMatrixCatalog,
+  type FeaturedMatrixCatalog,
+} from "./useFeaturedMatrixCatalog";
 
 interface FeaturedProductGroupFeaturedPartyTableProps {
   orders: any[];
@@ -36,6 +39,8 @@ interface FeaturedProductGroupFeaturedPartyTableProps {
   initialQtyBasis?: MatrixQtyBasis;
   qtyBasis?: MatrixQtyBasis;
   forceMetric?: MatrixMetric;
+  catalog?: FeaturedMatrixCatalog;
+  enabled?: boolean;
 }
 
 export default function FeaturedProductGroupFeaturedPartyTable({
@@ -46,6 +51,8 @@ export default function FeaturedProductGroupFeaturedPartyTable({
   initialQtyBasis = "approved",
   qtyBasis: propQtyBasis,
   forceMetric,
+  catalog: propCatalog,
+  enabled = true,
 }: FeaturedProductGroupFeaturedPartyTableProps) {
   const [metricState, setMetric] = useState<MatrixMetric>("quantity");
   const metric = forceMetric ?? metricState;
@@ -65,31 +72,23 @@ export default function FeaturedProductGroupFeaturedPartyTable({
 
   const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
-  const { data: groupsData, isFetching: isGroupsFetching } = useListProductGroupsQuery({
-    is_featured: "true",
-    status: "active",
-    limit: 1000,
+  const catalogFallback = useFeaturedMatrixCatalog({
+    enabled: propCatalog ? false : enabled,
   });
+  const catalog = propCatalog ?? catalogFallback;
 
-  const { data: productsData, isFetching: isProductsFetching } = useListProductsQuery({
-    status: "active",
-  });
+  const { data: partiesData, isFetching: isPartiesFetching } = useListPartiesQuery(
+    {
+      is_featured: "true",
+      status: "active",
+    },
+    { skip: !enabled },
+  );
 
-  const { data: partiesData, isFetching: isPartiesFetching } = useListPartiesQuery({
-    is_featured: "true",
-    status: "active",
-  });
-
-  const featuredGroups = useMemo<MatrixEntity[]>(() => {
-    return pickEntities(groupsData)
-      .filter((g) => g.is_featured === true || g.is_featured === "true")
-      .map((g) => ({
-        id: String(g._id ?? g.id ?? ""),
-        name: String(g.name ?? "Untitled Group"),
-      }))
-      .filter((g) => g.id)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [groupsData]);
+  const featuredGroups = catalog.featuredGroups;
+  const productToGroupMap = catalog.productToGroupMap;
+  const productsByGroup = catalog.productsByGroup;
+  const isCatalogFetching = catalog.isCatalogFetching;
 
   const featuredParties = useMemo<MatrixEntity[]>(() => {
     return pickEntities(partiesData)
@@ -102,10 +101,6 @@ export default function FeaturedProductGroupFeaturedPartyTable({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [partiesData]);
 
-  const { productToGroupMap, productsByGroup } = useMemo(
-    () => buildFeaturedGroupProductMaps(productsData, featuredGroups),
-    [productsData, featuredGroups],
-  );
 
   const groupIds = useMemo(() => featuredGroups.map((g) => g.id), [featuredGroups]);
   const partyIds = useMemo(() => featuredParties.map((p) => p.id), [featuredParties]);
@@ -198,7 +193,7 @@ export default function FeaturedProductGroupFeaturedPartyTable({
   };
 
   const isLoading =
-    isOrdersFetching || isGroupsFetching || isProductsFetching || isPartiesFetching;
+    isOrdersFetching || isCatalogFetching || isPartiesFetching;
 
   const handleDownload = () => {
     if (featuredGroups.length === 0 || featuredParties.length === 0) return;
@@ -230,7 +225,7 @@ export default function FeaturedProductGroupFeaturedPartyTable({
           ? "Dispatched sales by product group (expandable to products) across featured parties"
           : "Approved sales by product group (expandable to products) across featured parties"
       }
-      icon={<Table2 className="h-5 w-5" />}
+      icon={<Building2 className="h-5 w-5" />}
       accentClass="text-emerald-600 dark:text-emerald-400"
       metric={metric}
       onMetricChange={setMetric}

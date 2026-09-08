@@ -2,14 +2,12 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { MapPin, ChevronRight, ChevronDown } from "lucide-react";
-import { useListProductsQuery, useListZonesQuery, useListProductGroupsQuery } from "@/store/api";
+import { useListZonesQuery } from "@/store/api";
 import FeaturedMatrixTableFrame from "./FeaturedMatrixTableFrame";
 import { usePeriodFilter } from "./usePeriodFilter";
 import {
-  buildFeaturedGroupProductMaps,
   formatMatrixValue,
   itemMetricValue,
-  pickEntities,
   resolveOrderPartyId,
   resolveProductId,
   shouldIncludeOrder,
@@ -19,10 +17,13 @@ import {
 } from "./featuredMatrixUtils";
 import { formatPeriodLabel } from "./periodFilterUtils";
 import {
-  buildMatrixCsvPayload,
   downloadCsvFile,
   reportFilename,
 } from "./reportDownloadUtils";
+import {
+  useFeaturedMatrixCatalog,
+  type FeaturedMatrixCatalog,
+} from "./useFeaturedMatrixCatalog";
 
 interface FeaturedProductGroupZoneTableProps {
   orders: any[];
@@ -35,6 +36,8 @@ interface FeaturedProductGroupZoneTableProps {
   initialQtyBasis?: MatrixQtyBasis;
   qtyBasis?: MatrixQtyBasis;
   forceMetric?: MatrixMetric;
+  catalog?: FeaturedMatrixCatalog;
+  enabled?: boolean;
 }
 
 export default function FeaturedProductGroupZoneTable({
@@ -45,6 +48,8 @@ export default function FeaturedProductGroupZoneTable({
   initialQtyBasis = "approved",
   qtyBasis: propQtyBasis,
   forceMetric,
+  catalog: propCatalog,
+  enabled = true,
 }: FeaturedProductGroupZoneTableProps) {
   const [metricState, setMetric] = useState<MatrixMetric>("quantity");
   const metric = forceMetric ?? metricState;
@@ -64,30 +69,20 @@ export default function FeaturedProductGroupZoneTable({
 
   const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
-  const { data: groupsData, isFetching: isGroupsFetching } = useListProductGroupsQuery({
-    is_featured: "true",
-    status: "active",
-    limit: 1000,
+  const catalogFallback = useFeaturedMatrixCatalog({
+    enabled: propCatalog ? false : enabled,
   });
+  const catalog = propCatalog ?? catalogFallback;
 
-  const { data: productsData, isFetching: isProductsFetching } = useListProductsQuery({
-    status: "active",
-  });
+  const { data: zonesData, isFetching: isZonesFetching } = useListZonesQuery(
+    { limit: 1000 },
+    { skip: !enabled },
+  );
 
-  const { data: zonesData, isFetching: isZonesFetching } = useListZonesQuery({
-    limit: 1000,
-  });
-
-  const featuredGroups = useMemo<MatrixEntity[]>(() => {
-    return pickEntities(groupsData)
-      .filter((g) => g.is_featured === true || g.is_featured === "true")
-      .map((g) => ({
-        id: String(g._id ?? g.id ?? ""),
-        name: String(g.name ?? "Untitled Group"),
-      }))
-      .filter((g) => g.id)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [groupsData]);
+  const featuredGroups = catalog.featuredGroups;
+  const productToGroupMap = catalog.productToGroupMap;
+  const productsByGroup = catalog.productsByGroup;
+  const isCatalogFetching = catalog.isCatalogFetching;
 
   // Build mapping of partyId -> zoneId
   const { partyToZoneMap, zonesList } = useMemo(() => {
@@ -120,10 +115,6 @@ export default function FeaturedProductGroupZoneTable({
     return { partyToZoneMap: map, zonesList: list };
   }, [zonesData]);
 
-  const { productToGroupMap, productsByGroup } = useMemo(
-    () => buildFeaturedGroupProductMaps(productsData, featuredGroups),
-    [productsData, featuredGroups],
-  );
 
   const groupIds = useMemo(() => featuredGroups.map((g) => g.id), [featuredGroups]);
   const zoneIds = useMemo(() => zonesList.map((z) => z.id), [zonesList]);
@@ -217,7 +208,7 @@ export default function FeaturedProductGroupZoneTable({
     return sum;
   };
 
-  const isLoading = isOrdersFetching || isGroupsFetching || isProductsFetching || isZonesFetching;
+  const isLoading = isOrdersFetching || isCatalogFetching || isZonesFetching;
 
   // Filter out columns that are completely empty to keep view cleaner, but always keep actual zones
   const activeZones = useMemo(() => {

@@ -55,12 +55,7 @@ import {
   useListOrdersQuery,
   useListPartiesQuery,
   useListUsersQuery,
-  useListTransportAgentsQuery,
-  useListTransportsQuery,
-  useListEligibleTransportOrdersQuery,
 } from "@/store/api";
-
-import { agentLabel } from "@/components/portal/shared/transportPlanner/transportPlanUtils";
 
 import { OrderListBottomTabStrip } from "./OrderListBottomTabStrip";
 import {
@@ -171,10 +166,13 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
   // Sales: all portfolio orders (incl. drafts). Others: shared non-draft pool
   // (same RTK cache as Quick Access / Google Sheet — search is client-side).
   const queryParams = useMemo(() => {
-    if (includeDraftTab) return {};
-    return workflowTabQueryParams(
-      activeTab === "draft" ? "all" : (activeTab as OrderWorkflowTabCategory),
-    );
+    if (includeDraftTab) return { view: "list" };
+    return {
+      ...workflowTabQueryParams(
+        activeTab === "draft" ? "all" : (activeTab as OrderWorkflowTabCategory),
+      ),
+      view: "list",
+    };
   }, [activeTab, includeDraftTab]);
 
   const { data, isLoading, isFetching, isError, refetch } =
@@ -189,81 +187,18 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
     return filterOrdersForSalesUser(picked, authUser) as OrderListRow[];
   }, [authUser, data, scopeToSalesUser]);
 
-  const transportsQ = useListTransportsQuery({});
-  const eligibleTransportQ = useListEligibleTransportOrdersQuery({ limit: 1000 });
-  const agentsQ = useListTransportAgentsQuery({});
-
-  const agentNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    const list = Array.isArray(agentsQ.data) ? agentsQ.data : [];
-    for (const a of list) {
-      if (!a || typeof a !== "object") continue;
-      const id = String(a._id || a.id || "");
-      const name = a.agent_name || a.agent_code || id;
-      if (id && name) map.set(id, name);
+  const getActiveTransportInfoForOrder = useCallback((o: Record<string, unknown>) => {
+    const at = o.active_transport as
+      | { agent_name?: string; scheduled_date?: string }
+      | undefined;
+    if (at && (at.agent_name || at.scheduled_date)) {
+      return {
+        agentName: at.agent_name || undefined,
+        scheduledDate: at.scheduled_date || undefined,
+      };
     }
-    return map;
-  }, [agentsQ.data]);
-
-  const resolveAgentName = useCallback(
-    (agentVal: unknown): string => {
-      if (!agentVal) return "";
-      const label = agentLabel(agentVal as any);
-      if (label && label !== "—" && !/^[0-9a-fA-F]{24}$/.test(label)) {
-        return label;
-      }
-      const rawId =
-        typeof agentVal === "string"
-          ? agentVal
-          : String((agentVal as { _id?: unknown; id?: unknown })?._id ?? (agentVal as { id?: unknown })?.id ?? "");
-      if (rawId && agentNameById.has(rawId)) {
-        return agentNameById.get(rawId)!;
-      }
-      return label !== "—" ? label : "";
-    },
-    [agentNameById],
-  );
-
-  const getActiveTransportInfoForOrder = useCallback((orderId: string) => {
-    const orderTransports = (transportsQ.data && Array.isArray(transportsQ.data) ? transportsQ.data : []).filter(
-      (t: any) => String(t?.order?._id || t?.order?.id || t?.order || "") === orderId
-    );
-
-    for (const t of orderTransports) {
-      if (!t || typeof t !== "object") continue;
-      const row = t as Record<string, unknown>;
-      if (row.shipment_status === "cancelled" || row.status === "cancelled") continue;
-      const agent = row.transport_agent;
-      const date = row.dispatch_date || row.expected_delivery_date;
-      const resolvedName = resolveAgentName(agent);
-      if (resolvedName || date) {
-        return {
-          agentName: resolvedName || undefined,
-          scheduledDate: date ? String(date) : undefined,
-        };
-      }
-    }
-
-    const eligibleOrders = eligibleTransportQ.data?.data ?? [];
-    const match = eligibleOrders.find((r) => String(r._id || r.id || "") === orderId);
-    if (match) {
-      const plan = match.transport_plan;
-      const shipment = match.transport;
-      if (plan || shipment) {
-        const agent = shipment?.transport_agent || plan?.transport_agent;
-        const date = shipment?.dispatch_date || plan?.plan_date;
-        const resolvedName = resolveAgentName(agent);
-        if (resolvedName || date) {
-          return {
-            agentName: resolvedName || undefined,
-            scheduledDate: date ? String(date) : undefined,
-          };
-        }
-      }
-    }
-
     return null;
-  }, [transportsQ.data, eligibleTransportQ.data, resolveAgentName]);
+  }, []);
 
   const [transportPlanOrderId, setTransportPlanOrderId] = useState<string | null>(null);
 
@@ -609,7 +544,9 @@ export default function ListOrdersPage({ config }: ListOrdersPageProps) {
                     const total = Number(o.grand_total ?? o.total ?? 0);
                     const pri =
                       typeof o.priority === "string" ? o.priority : "normal";
-                    const transportInfo = id ? getActiveTransportInfoForOrder(id) : null;
+                    const transportInfo = getActiveTransportInfoForOrder(
+                      o as Record<string, unknown>,
+                    );
                     const partyLabel = resolveOrderCounterparty(
                       o as Record<string, unknown>,
                       partyNameById,

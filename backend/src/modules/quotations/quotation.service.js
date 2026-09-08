@@ -10,18 +10,19 @@ const microsoftGraph = require('../../config/microsoftGraph');
 const { logger } = require('../../config/logger');
 
 /**
- * Checks whether user has permission to manage quotations.
+ * Checks whether user has permission to manage quotations (Admin, Super Admin, Finance only).
  */
 function isQuotationManager(user) {
   if (!user) return false;
-  const codes = new Set(user.permissionCodes || []);
+  const dept = user.department || '';
+  const role = user.role || '';
   return (
-    codes.has('*') ||
-    codes.has('leads:manage') ||
-    codes.has('quotations:manage') ||
-    user.department === 'admin' ||
-    user.department === 'super_admin' ||
-    user.department === 'finance'
+    dept === 'admin' ||
+    dept === 'super_admin' ||
+    dept === 'finance' ||
+    role === 'admin' ||
+    role === 'super_admin' ||
+    role === 'finance'
   );
 }
 
@@ -499,14 +500,19 @@ async function create(leadIdOrBody, bodyOrUser, userParam) {
   let body;
   let user;
 
-  if (typeof leadIdOrBody === 'string' || (leadIdOrBody && leadIdOrBody.constructor && leadIdOrBody.constructor.name === 'ObjectId')) {
-    leadId = String(leadIdOrBody);
+  if (userParam !== undefined) {
+    // 3-argument call: create(leadId, body, user)
+    leadId = leadIdOrBody ? String(leadIdOrBody) : undefined;
     body = bodyOrUser || {};
     user = userParam;
+    if (!leadId && (body.lead || body.leadId)) {
+      leadId = String(body.lead || body.leadId);
+    }
   } else {
+    // 2-argument call: create(body, user)
     body = leadIdOrBody || {};
     user = bodyOrUser;
-    leadId = body.lead || body.leadId;
+    leadId = body.lead || body.leadId ? String(body.lead || body.leadId) : undefined;
   }
 
   const { Lead, LeadQuotation, CompanyInfo, User } = getModels();
@@ -571,7 +577,7 @@ async function create(leadIdOrBody, bodyOrUser, userParam) {
     ref_no: refNo,
     customer_ref: body.customer_ref || body.customerRef || '',
     lead: lead ? lead._id : null,
-    party_id: lead ? (lead.party_id || null) : (body.party_id || null),
+    party_id: body.party_id || (lead ? (lead.party_id || null) : null),
     quotation_date: quotationDate,
     valid_until: validUntil,
     validity_days: validityDays,
@@ -723,6 +729,8 @@ async function update(id, body, user) {
   const allowedFields = [
     'ref_no',
     'customer_ref',
+    'party_id',
+    'lead',
     'subject',
     'customer_name',
     'kind_attn',

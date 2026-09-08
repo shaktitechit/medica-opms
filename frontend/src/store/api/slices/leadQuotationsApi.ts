@@ -95,6 +95,7 @@ export type CreateQuotationPayload = {
   quotation_no?: string;
   ref_no?: string;
   customer_ref?: string;
+  party_id?: string;
   quotation_date?: string;
   valid_until?: string;
   validity_days?: number;
@@ -172,19 +173,32 @@ export const leadQuotationsApi = medicaApi.injectEndpoints({
 
     createLeadQuotation: build.mutation<
       LeadQuotationRecord,
-      { leadId: string; body: CreateQuotationPayload }
+      { leadId?: string; body: CreateQuotationPayload }
     >({
-      query: ({ leadId, body }) => ({
-        url: `/leads/${leadId}/quotations`,
-        method: "POST",
-        body,
-      }),
+      query: ({ leadId, body }) =>
+        leadId
+          ? {
+              url: `/leads/${leadId}/quotations`,
+              method: "POST",
+              body,
+            }
+          : {
+              // Standalone / direct quotation (no lead)
+              url: "/quotations",
+              method: "POST",
+              body,
+            },
       transformResponse: (raw: ApiEnvelope<LeadQuotationRecord>) =>
         unwrapEnvelope(raw) as LeadQuotationRecord,
       invalidatesTags: (_res, _err, { leadId }) => [
-        { type: "LeadQuotation", id: `LEAD_${leadId}` },
-        { type: "Lead", id: leadId },
-        { type: "Lead", id: "LIST" },
+        { type: "Quotation", id: "LIST" },
+        ...(leadId
+          ? [
+              { type: "LeadQuotation" as const, id: `LEAD_${leadId}` },
+              { type: "Lead" as const, id: leadId },
+              { type: "Lead" as const, id: "LIST" },
+            ]
+          : []),
         "Activity",
       ],
     }),

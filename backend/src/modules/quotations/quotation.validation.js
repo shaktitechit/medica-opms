@@ -19,6 +19,9 @@ function assertCreate(body) {
   if (body.lead) {
     assertObjectId(body.lead, 'lead');
   }
+  if (body.party_id) {
+    assertObjectId(body.party_id, 'party_id');
+  }
   if (body.status && !QUOTATION_STATUSES.includes(body.status)) {
     throw new ApiError(400, `Invalid status. Must be one of: ${QUOTATION_STATUSES.join(', ')}`);
   }
@@ -30,6 +33,12 @@ function assertCreate(body) {
 function assertUpdate(body) {
   if (!body || typeof body !== 'object') {
     throw new ApiError(400, 'Request body is required');
+  }
+  if (body.lead) {
+    assertObjectId(body.lead, 'lead');
+  }
+  if (body.party_id) {
+    assertObjectId(body.party_id, 'party_id');
   }
   if (body.status && !QUOTATION_STATUSES.includes(body.status)) {
     throw new ApiError(400, `Invalid status. Must be one of: ${QUOTATION_STATUSES.join(', ')}`);

@@ -36,6 +36,7 @@ const {
   enrichOrdersWithApprovalPending,
   enrichOrdersWithDueSheetStatus,
   enrichOrdersWithFlagStatus,
+  enrichOrdersParallel,
 } = require('./orderApprovalPending.util');
 const {
   ORDER_LINE_STATUS,
@@ -850,6 +851,49 @@ async function buildBaseQuery(query = {}, user) {
   return q;
 }
 
+const LIST_VIEW_SELECT = [
+  '_id',
+  'order_no',
+  'order_number',
+  'order_date',
+  'expected_delivery_date',
+  'billing_date',
+  'dispatched_at',
+  'dispatch_date',
+  'priority',
+  'delivery_priority',
+  'party',
+  'customer',
+  'lead',
+  'assigned_sales_user',
+  'lifecycle_status',
+  'workflow_stage',
+  'status',
+  'current_action',
+  'current_department',
+  'pending_with_role',
+  'admin_approval_status',
+  'finance_approval_status',
+  'account_approval_status',
+  'allocation_status',
+  'dispatch_status',
+  'delivery_status',
+  'payment_status',
+  'billing_status',
+  'subtotal',
+  'discount_amount',
+  'taxable_amount',
+  'gst_amount',
+  'grand_total',
+  'has_open_flags',
+  'open_flag_count',
+  'highest_flag_severity',
+  'deletedAt',
+  'createdAt',
+  'updatedAt',
+  'order_items',
+].join(' ');
+
 /** Active orders only (no trash filter here). Optional filters: status, exclude_status ($nin), customer, or party ObjectId. */
 async function list(query = {}, user) {
   const q = await buildBaseQuery(query, user);
@@ -858,22 +902,29 @@ async function list(query = {}, user) {
   const page = Math.max(Number(query.page) || 1, 1);
   const limit = Math.max(Number(query.limit) || 10, 1);
   const skip = (page - 1) * limit;
+  const isListView = query.view === 'list' || query.fields === 'list';
 
   const mapListedOrders = async (rows) => {
     const plainRows = rows.map((r) => applyDerivedPriorityToOrder(toPlain(r)));
-    const enrichedPending = await enrichOrdersWithApprovalPending(plainRows, getModels());
-    const enrichedDueSheet = await enrichOrdersWithDueSheetStatus(enrichedPending, getModels());
-    return enrichOrdersWithFlagStatus(enrichedDueSheet, getModels());
+    return enrichOrdersParallel(plainRows, getModels());
   };
 
   if (paginate) {
+    let findQuery = getModels().Order.find(q)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    if (isListView) {
+      findQuery = findQuery
+        .select(LIST_VIEW_SELECT)
+        .populate('party', 'name code sra sra_from_date legal_name trade_name')
+        .populate('assigned_sales_user', 'name username email department');
+    }
+
     const [total, rows] = await Promise.all([
       getModels().Order.countDocuments(q),
-      getModels().Order.find(q)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      findQuery.lean(),
     ]);
 
     return {
@@ -885,8 +936,63 @@ async function list(query = {}, user) {
     };
   }
 
-  const rows = await getModels().Order.find(q).sort({ createdAt: -1 }).lean();
+  let findQuery = getModels().Order.find(q).sort({ createdAt: -1 });
+  if (isListView) {
+    findQuery = findQuery
+      .select(LIST_VIEW_SELECT)
+      .populate('party', 'name code sra sra_from_date legal_name trade_name')
+      .populate('assigned_sales_user', 'name username email department');
+  }
+
+  const rows = await findQuery.lean();
   return mapListedOrders(rows);
+}
+
+/** Lightweight workflow context for tab classification (avoids fetching full transports/dispatches). */
+async function getWorkflowContext() {
+  const { TransportShipment, OrderDispatch } = getModels();
+
+  const [
+    activeTransportOrderIds,
+    transportCreatedOrderIds,
+    dispatchTransportOrderIds,
+    submittedDispatchOrderIds,
+  ] = await Promise.all([
+    TransportShipment
+      ? TransportShipment.distinct('order', {
+          deletedAt: null,
+          shipment_status: { $nin: ['returned', 'cancelled', 'delivery_failed', 'delivered'] },
+        })
+      : Promise.resolve([]),
+
+    TransportShipment
+      ? TransportShipment.distinct('order', {
+          deletedAt: null,
+          shipment_status: { $nin: ['returned', 'cancelled'] },
+        })
+      : Promise.resolve([]),
+
+    OrderDispatch
+      ? OrderDispatch.distinct('order', {
+          deletedAt: null,
+          dispatch_status: 'transport_created',
+        })
+      : Promise.resolve([]),
+
+    OrderDispatch
+      ? OrderDispatch.distinct('order', {
+          deletedAt: null,
+          dispatch_status: 'submitted',
+        })
+      : Promise.resolve([]),
+  ]);
+
+  return {
+    activeTransportOrderIds: (activeTransportOrderIds || []).map(String),
+    transportCreatedOrderIds: (transportCreatedOrderIds || []).map(String),
+    dispatchTransportOrderIds: (dispatchTransportOrderIds || []).map(String),
+    submittedDispatchOrderIds: (submittedDispatchOrderIds || []).map(String),
+  };
 }
 
 async function getWorkflowStats(query = {}, user) {
@@ -2134,6 +2240,7 @@ async function shootPostAdminApprovalEmails(orderId) {
 module.exports = {
   buildBaseQuery,
   list,
+  getWorkflowContext,
   getWorkflowStats,
   getById,
   create,

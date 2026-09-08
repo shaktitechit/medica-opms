@@ -835,6 +835,7 @@ export function normalizeWorkflowTabFromUrl(
  */
 export const ORDER_WORKFLOW_LIST_QUERY: Record<string, string | undefined> = {
   exclude_status: "draft",
+  view: "list",
 };
 
 /**

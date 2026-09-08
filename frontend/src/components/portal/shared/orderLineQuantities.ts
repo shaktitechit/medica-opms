@@ -89,8 +89,8 @@ export function orderCommercialVolume(
     }
 
     if (qty === 0) continue;
-    const unitPrice = num(line.unit_price ?? line.approved_unit_price);
-    const gstPct = num(line.gst_percent);
+    const unitPrice = num(line.unit_price ?? line.approved_unit_price ?? line.rate);
+    const gstPct = num(line.gst_percent ?? line.tax_percent);
     sum += qty * unitPrice * (1 + gstPct / 100);
   }
   return sum;

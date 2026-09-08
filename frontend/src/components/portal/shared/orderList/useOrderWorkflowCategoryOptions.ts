@@ -2,28 +2,29 @@
 
 import { useMemo } from "react";
 
-import { pickList } from "@/components/portal/sales/partyDisplay";
-import { useListDispatchesQuery, useListTransportsQuery } from "@/store/api";
+import { useGetOrderWorkflowContextQuery } from "@/store/api";
+import { useAppSelector } from "@/store/hooks";
 
-import {
-  buildOrderWorkflowCategoryOptions,
-  type OrderWorkflowCategoryOptions,
-} from "./orderWorkflowTabs";
+import type { OrderWorkflowCategoryOptions } from "./orderWorkflowTabs";
 
 /**
  * Same category options for dashboard Quick Access and ListOrdersPage
- * workflow tabs (transports + transport_created dispatches).
+ * workflow tabs (transports + transport_created dispatches), backed by
+ * the lightweight GET /orders/workflow-context endpoint.
  */
 export function useOrderWorkflowCategoryOptions(): OrderWorkflowCategoryOptions {
-  const { data: transportsData } = useListTransportsQuery({});
-  const { data: dispatchesData } = useListDispatchesQuery({});
+  const token = useAppSelector((state) => state.auth.token);
+  const { data } = useGetOrderWorkflowContextQuery(undefined, {
+    skip: !token,
+  });
 
   return useMemo(
-    () =>
-      buildOrderWorkflowCategoryOptions({
-        transports: pickList(transportsData),
-        dispatches: pickList(dispatchesData),
-      }),
-    [transportsData, dispatchesData],
+    () => ({
+      activeTransportOrderIds: new Set(data?.activeTransportOrderIds ?? []),
+      transportCreatedOrderIds: new Set(data?.transportCreatedOrderIds ?? []),
+      dispatchTransportOrderIds: new Set(data?.dispatchTransportOrderIds ?? []),
+      submittedDispatchOrderIds: new Set(data?.submittedDispatchOrderIds ?? []),
+    }),
+    [data],
   );
 }

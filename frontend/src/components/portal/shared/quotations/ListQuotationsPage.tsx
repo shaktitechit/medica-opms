@@ -45,6 +45,7 @@ import {
   canViewQuotationPdf,
   canEmailQuotation,
   canEditQuotation,
+  canManageQuotations,
   canSubmitForApproval,
   isDraftVisible,
 } from "./quotationUtils";
@@ -73,6 +74,7 @@ export function ListQuotationsPage({
   portalHome = "/admin",
   portalLabel = "Admin Portal",
 }: Props) {
+  void portalHome;
   // Query parameters state
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -95,7 +97,7 @@ export function ListQuotationsPage({
     else if (rawQuotations && typeof rawQuotations === "object" && "quotations" in rawQuotations) {
       list = (rawQuotations as { quotations: QuotationRecord[] }).quotations || [];
     }
-    return list.filter((q) => isDraftVisible(authUser, q as unknown as any));
+    return list.filter((q) => isDraftVisible(authUser, q as unknown as Parameters<typeof isDraftVisible>[1]));
   }, [rawQuotations, authUser]);
 
   // Modal States
@@ -105,38 +107,57 @@ export function ListQuotationsPage({
   const [editQuotation, setEditQuotation] = useState<LeadQuotationRecord | null>(null);
   const [emailQuotation, setEmailQuotation] = useState<LeadQuotationRecord | null>(null);
   const [deleteQuotationTarget, setDeleteQuotationTarget] = useState<QuotationRecord | null>(null);
+  const [submitApprovalTarget, setSubmitApprovalTarget] = useState<QuotationRecord | null>(null);
+  const [approveTarget, setApproveTarget] = useState<QuotationRecord | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<QuotationRecord | null>(null);
+  const [rejectionReason, setRejectionReason] = useState<string>("");
 
   const [deleteQuotation, { isLoading: isDeleting }] = useDeleteQuotationMutation();
   const [submitForApproval, { isLoading: isSubmitting }] = useSubmitQuotationForApprovalMutation();
   const [approveQuotation, { isLoading: isApproving }] = useApproveQuotationMutation();
   const [rejectQuotation, { isLoading: isRejecting }] = useRejectQuotationMutation();
 
-  const handleSubmitForApproval = async (quotationId: string, qNo: string) => {
+  const handleSubmitForApproval = async () => {
+    if (!submitApprovalTarget) return;
+    const qNo = submitApprovalTarget.quotation_no;
     try {
-      await submitForApproval({ quotationId }).unwrap();
+      await submitForApproval({ quotationId: submitApprovalTarget._id }).unwrap();
       toast.success(`Quotation ${qNo} submitted for signatory approval`);
+      setSubmitApprovalTarget(null);
       refetch();
     } catch {
       toast.error("Failed to submit quotation for approval");
     }
   };
 
-  const handleApprove = async (quotationId: string, qNo: string) => {
+  const handleApprove = async () => {
+    if (!approveTarget) return;
+    const qNo = approveTarget.quotation_no;
     try {
-      await approveQuotation({ quotationId }).unwrap();
+      await approveQuotation({ quotationId: approveTarget._id }).unwrap();
       toast.success(`Quotation ${qNo} approved successfully`);
+      setApproveTarget(null);
       refetch();
     } catch {
       toast.error("Failed to approve quotation");
     }
   };
 
-  const handleReject = async (quotationId: string, qNo: string) => {
-    const reason = window.prompt(`Reason for rejecting quotation ${qNo}:`);
-    if (reason === null) return;
+  const handleReject = async () => {
+    if (!rejectTarget) return;
+    const qNo = rejectTarget.quotation_no;
+    if (!rejectionReason.trim()) {
+      toast.error("Please provide a reason for rejecting this quotation");
+      return;
+    }
     try {
-      await rejectQuotation({ quotationId, rejection_reason: reason || "Rejected by signatory" }).unwrap();
+      await rejectQuotation({
+        quotationId: rejectTarget._id,
+        rejection_reason: rejectionReason.trim(),
+      }).unwrap();
       toast.success(`Quotation ${qNo} rejected`);
+      setRejectTarget(null);
+      setRejectionReason("");
       refetch();
     } catch {
       toast.error("Failed to reject quotation");
@@ -210,14 +231,16 @@ export function ListQuotationsPage({
             Terms &amp; Conditions
           </button>
 
-          <button
-            type="button"
-            onClick={() => setIsCreateOpen(true)}
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-blue-600/20 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            Generate Quotation
-          </button>
+          {canManageQuotations(authUser) && (
+            <button
+              type="button"
+              onClick={() => setIsCreateOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-blue-600/20 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              Generate Quotation
+            </button>
+          )}
         </div>
       </div>
 
@@ -465,7 +488,7 @@ export function ListQuotationsPage({
                           const canEmail = canEmailQuotation(q);
                           const canEdit = canEditQuotation(authUser, q);
                           const isPending = q.approval_status === "pending_approval" || q.status === "pending_approval";
-                          const canSubmit = canSubmitForApproval(authUser, q as unknown as any);
+                          const canSubmit = canSubmitForApproval(authUser, q as unknown as Parameters<typeof canSubmitForApproval>[1]);
 
                           return (
                             <div className="flex items-center justify-end gap-1">
@@ -475,7 +498,7 @@ export function ListQuotationsPage({
                                   type="button"
                                   title="Send for Signatory Approval"
                                   disabled={isSubmitting}
-                                  onClick={() => handleSubmitForApproval(q._id, q.quotation_no)}
+                                  onClick={() => setSubmitApprovalTarget(q)}
                                   className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2 py-1 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 cursor-pointer disabled:opacity-50 mr-1"
                                 >
                                   <Send className="h-3.5 w-3.5" /> Send for Approval
@@ -489,7 +512,7 @@ export function ListQuotationsPage({
                                     type="button"
                                     title="Approve Quotation"
                                     disabled={isApproving || isRejecting}
-                                    onClick={() => handleApprove(q._id, q.quotation_no)}
+                                    onClick={() => setApproveTarget(q)}
                                     className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 cursor-pointer disabled:opacity-50"
                                   >
                                     <Check className="h-3.5 w-3.5" /> Approve
@@ -498,7 +521,10 @@ export function ListQuotationsPage({
                                     type="button"
                                     title="Reject Quotation"
                                     disabled={isApproving || isRejecting}
-                                    onClick={() => handleReject(q._id, q.quotation_no)}
+                                    onClick={() => {
+                                      setRejectTarget(q);
+                                      setRejectionReason("");
+                                    }}
                                     className="inline-flex items-center gap-1 rounded-lg bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-200 dark:bg-rose-950 dark:text-rose-300 cursor-pointer disabled:opacity-50"
                                   >
                                     <X className="h-3.5 w-3.5" /> Reject
@@ -661,23 +687,231 @@ export function ListQuotationsPage({
         onClose={() => setIsTermsOpen(false)}
       />
 
+      {/* Modal: Submit for Approval Confirmation */}
+      {submitApprovalTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900">
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400">
+                <Send className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Submit Quotation for Approval?
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Are you sure you want to send this quotation to the assigned signatory for review and formal approval?
+                </p>
+
+                <div className="mt-3.5 rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-xs dark:border-blue-900/30 dark:bg-blue-950/20 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Quotation #:</span>
+                    <span className="font-bold text-slate-900 dark:text-white font-mono">
+                      {submitApprovalTarget.quotation_no}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Customer:</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[200px]">
+                      {submitApprovalTarget.customer_name || "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Grand Total:</span>
+                    <span className="font-bold text-blue-700 dark:text-blue-300">
+                      {formatCurrencyINR(submitApprovalTarget.grand_total || 0)}
+                    </span>
+                  </div>
+                  {submitApprovalTarget.signatory_name && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 font-medium">Signatory:</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        {submitApprovalTarget.signatory_name}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setSubmitApprovalTarget(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitForApproval}
+                disabled={isSubmitting}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-blue-600/20 hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                <Send className="h-3.5 w-3.5" />
+                {isSubmitting ? "Submitting..." : "Submit for Approval"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Approve Confirmation */}
+      {approveTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900">
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Approve Quotation?
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  By approving, you authorize this proposal as signatory. The official letterhead PDF and email delivery will be unlocked.
+                </p>
+
+                <div className="mt-3.5 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 text-xs dark:border-emerald-900/30 dark:bg-emerald-950/20 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Quotation #:</span>
+                    <span className="font-bold text-slate-900 dark:text-white font-mono">
+                      {approveTarget.quotation_no}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Customer:</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[200px]">
+                      {approveTarget.customer_name || "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Grand Total:</span>
+                    <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                      {formatCurrencyINR(approveTarget.grand_total || 0)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setApproveTarget(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={isApproving}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-emerald-600/20 hover:bg-emerald-700 disabled:opacity-50 cursor-pointer"
+              >
+                <Check className="h-3.5 w-3.5" />
+                {isApproving ? "Approving..." : "Confirm & Approve"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Reject Confirmation */}
+      {rejectTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900">
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Reject Quotation?
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Rejecting Quotation #{rejectTarget.quotation_no} will notify the creator and mark the proposal as rejected.
+                </p>
+
+                <div className="mt-3.5">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Rejection Reason <span className="text-rose-500">*</span>
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    placeholder="Enter reason for rejecting this quotation (e.g. margin too low, specs mismatch)..."
+                    className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-rose-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-slate-100"
+                    autoFocus
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setRejectTarget(null);
+                  setRejectionReason("");
+                }}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleReject}
+                disabled={isRejecting || !rejectionReason.trim()}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-rose-600/20 hover:bg-rose-700 disabled:opacity-50 cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+                {isRejecting ? "Rejecting..." : "Reject Quotation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Delete Confirmation */}
       {deleteQuotationTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400">
-                <AlertTriangle className="h-5 w-5" />
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400">
+                <Trash2 className="h-5 w-5" />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">Delete Quotation?</h3>
-                <p className="text-xs text-slate-500">
-                  Are you sure you want to delete quotation #{deleteQuotationTarget.quotation_no}?
+                <p className="mt-1 text-xs text-slate-500">
+                  Are you sure you want to delete this quotation? This action is non-reversible.
                 </p>
+
+                <div className="mt-3.5 rounded-xl border border-rose-100 bg-rose-50/50 p-3 text-xs dark:border-rose-900/30 dark:bg-rose-950/20 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Quotation #:</span>
+                    <span className="font-bold text-slate-900 dark:text-white font-mono">
+                      {deleteQuotationTarget.quotation_no}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Customer:</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[200px]">
+                      {deleteQuotationTarget.customer_name || "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Grand Total:</span>
+                    <span className="font-bold text-rose-700 dark:text-rose-300">
+                      {formatCurrencyINR(deleteQuotationTarget.grand_total || 0)}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex justify-end gap-2.5">
               <button
                 type="button"
                 onClick={() => setDeleteQuotationTarget(null)}
@@ -689,8 +923,9 @@ export function ListQuotationsPage({
                 type="button"
                 onClick={handleDelete}
                 disabled={isDeleting}
-                className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-rose-600/20 hover:bg-rose-700 cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-rose-600/20 hover:bg-rose-700 disabled:opacity-50 cursor-pointer"
               >
+                <Trash2 className="h-3.5 w-3.5" />
                 {isDeleting ? "Deleting..." : "Delete Quotation"}
               </button>
             </div>

@@ -88,8 +88,8 @@ export function itemQty(item: any, basis: QtyBasis): number {
 }
 
 export function itemUnitPrice(item: any): number {
-  const base = Number(item.unit_price ?? item.approved_unit_price ?? 0) || 0;
-  const gstPct = Number(item.gst_percent ?? 0) || 0;
+  const base = Number(item.unit_price ?? item.approved_unit_price ?? item.rate ?? 0) || 0;
+  const gstPct = Number(item.gst_percent ?? item.tax_percent ?? 0) || 0;
   return base * (1 + gstPct / 100);
 }
 

@@ -35,6 +35,7 @@ function normalizeOrderBody(body: LooseRecord): LooseRecord {
 
 /** `/api/orders` — RBAC + workflow on server. */
 export const ordersApi = medicaApi.injectEndpoints({
+  overrideExisting: true,
   endpoints: (build) => ({
     listOrders: build.query<unknown, Record<string, string | undefined> | void>({
       query: (params) => ({
@@ -51,6 +52,23 @@ export const ordersApi = medicaApi.injectEndpoints({
       }),
       transformResponse: (raw: ApiEnvelope<unknown>) => unwrapEnvelope(raw),
       providesTags: [{ type: "Orders", id: "STATS" }],
+    }),
+    getOrderWorkflowContext: build.query<{
+      activeTransportOrderIds: string[];
+      transportCreatedOrderIds: string[];
+      dispatchTransportOrderIds: string[];
+      submittedDispatchOrderIds: string[];
+    }, void>({
+      query: () => ({
+        url: "orders/workflow-context",
+      }),
+      transformResponse: (raw: ApiEnvelope<{
+        activeTransportOrderIds: string[];
+        transportCreatedOrderIds: string[];
+        dispatchTransportOrderIds: string[];
+        submittedDispatchOrderIds: string[];
+      }>) => unwrapEnvelope(raw),
+      providesTags: [{ type: "Orders", id: "WORKFLOW_CONTEXT" }],
     }),
     listOrdersDeleted: build.query<
       unknown,
@@ -228,6 +246,8 @@ export const {
   useLazyListOrdersQuery,
   useGetOrdersStatsQuery,
   useLazyGetOrdersStatsQuery,
+  useGetOrderWorkflowContextQuery,
+  useLazyGetOrderWorkflowContextQuery,
   useListOrdersDeletedQuery,
   useLazyListOrdersDeletedQuery,
   useGetOrderQuery,

@@ -2,7 +2,6 @@
  * @fileoverview Lead Management utilities: badge formatters, labels, colors, and helpers.
  * @module components/portal/shared/leads/leadUtils
  */
-import React from "react";
 import {
   type LeadPriority,
   type LeadStatus,
@@ -322,11 +321,22 @@ export function canCreateQuotation(status: LeadStatus | string): boolean {
 }
 
 /**
- * Checks if user has permission to create, edit, or delete quotations (Admin / Super Admin only).
- * Sales representatives are restricted from drafting, editing, or deleting quotations.
+ * Checks if user has permission to create, edit, or delete quotations (Admin, Super Admin, Finance only).
+ * Sales representatives and other departments are restricted from drafting, editing, or deleting quotations.
  */
-export function canManageQuotations(user: AuthUserLike, portalHome: string = ""): boolean {
-  return isLeadAdmin(user, portalHome);
+export function canManageQuotations(user: AuthUserLike, _portalHome: string = ""): boolean {
+  void _portalHome;
+  if (!user) return false;
+  const dept = user.department || "";
+  const role = user.role || "";
+  return (
+    dept === "admin" ||
+    dept === "super_admin" ||
+    dept === "finance" ||
+    role === "admin" ||
+    role === "super_admin" ||
+    role === "finance"
+  );
 }
 
 /**

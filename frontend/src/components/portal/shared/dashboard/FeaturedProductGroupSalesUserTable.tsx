@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { LayoutGrid, ChevronRight, ChevronDown } from "lucide-react";
-import { useListProductsQuery, useListUsersQuery, useListProductGroupsQuery } from "@/store/api";
+import { useListUsersQuery } from "@/store/api";
 import { buildUserNameById, pickUsersList } from "@/components/portal/shared/userDisplay";
 import FeaturedMatrixTableFrame from "./FeaturedMatrixTableFrame";
 import { usePeriodFilter } from "./usePeriodFilter";
@@ -24,6 +24,10 @@ import {
   downloadCsvFile,
   reportFilename,
 } from "./reportDownloadUtils";
+import {
+  useFeaturedMatrixCatalog,
+  type FeaturedMatrixCatalog,
+} from "./useFeaturedMatrixCatalog";
 
 interface FeaturedProductGroupSalesUserTableProps {
   orders: any[];
@@ -38,6 +42,8 @@ interface FeaturedProductGroupSalesUserTableProps {
   forceMetric?: MatrixMetric;
   forceSalesUserId?: string;
   forceSalesUserName?: string;
+  catalog?: FeaturedMatrixCatalog;
+  enabled?: boolean;
 }
 
 export default function FeaturedProductGroupSalesUserTable({
@@ -50,6 +56,8 @@ export default function FeaturedProductGroupSalesUserTable({
   forceMetric,
   forceSalesUserId,
   forceSalesUserName,
+  catalog: propCatalog,
+  enabled = true,
 }: FeaturedProductGroupSalesUserTableProps) {
   const [metricState, setMetric] = useState<MatrixMetric>("quantity");
   const metric = forceMetric ?? metricState;
@@ -69,30 +77,20 @@ export default function FeaturedProductGroupSalesUserTable({
 
   const filteredOrders = syncWithExternalFilter ? orders : periodFilteredOrders;
 
-  const { data: groupsData, isFetching: isGroupsFetching } = useListProductGroupsQuery({
-    is_featured: "true",
-    status: "active",
-    limit: 1000,
+  const catalogFallback = useFeaturedMatrixCatalog({
+    enabled: propCatalog ? false : enabled,
   });
+  const catalog = propCatalog ?? catalogFallback;
 
-  const { data: productsData, isFetching: isProductsFetching } = useListProductsQuery({
-    status: "active",
-  });
+  const { data: usersData, isFetching: isUsersFetching } = useListUsersQuery(
+    { department: "sales" },
+    { skip: !enabled },
+  );
 
-  const { data: usersData, isFetching: isUsersFetching } = useListUsersQuery({
-    department: "sales",
-  });
-
-  const featuredGroups = useMemo<MatrixEntity[]>(() => {
-    return pickEntities(groupsData)
-      .filter((g) => g.is_featured === true || g.is_featured === "true")
-      .map((g) => ({
-        id: String(g._id ?? g.id ?? ""),
-        name: String(g.name ?? "Untitled Group"),
-      }))
-      .filter((g) => g.id)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [groupsData]);
+  const featuredGroups = catalog.featuredGroups;
+  const productToGroupMap = catalog.productToGroupMap;
+  const productsByGroup = catalog.productsByGroup;
+  const isCatalogFetching = catalog.isCatalogFetching;
 
   const salesUsers = useMemo<MatrixEntity[]>(() => {
     const nameById = buildUserNameById(usersData);
@@ -124,11 +122,6 @@ export default function FeaturedProductGroupSalesUserTable({
 
     return fromList.sort((a, b) => a.name.localeCompare(b.name));
   }, [usersData, filteredOrders, forceSalesUserId, forceSalesUserName]);
-
-  const { productToGroupMap, productsByGroup } = useMemo(
-    () => buildFeaturedGroupProductMaps(productsData, featuredGroups),
-    [productsData, featuredGroups],
-  );
 
   const groupIds = useMemo(() => featuredGroups.map((g) => g.id), [featuredGroups]);
   const salesIds = useMemo(() => salesUsers.map((u) => u.id), [salesUsers]);
@@ -220,7 +213,7 @@ export default function FeaturedProductGroupSalesUserTable({
     return sum;
   };
 
-  const isLoading = isOrdersFetching || isGroupsFetching || isProductsFetching || isUsersFetching;
+  const isLoading = isOrdersFetching || isCatalogFetching || isUsersFetching;
 
   const handleDownload = () => {
     if (featuredGroups.length === 0 || salesUsers.length === 0) return;

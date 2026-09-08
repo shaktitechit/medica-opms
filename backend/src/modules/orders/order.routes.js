@@ -14,6 +14,7 @@ router.post('/google-sheet-webhook', controller.googleSheetWebhook);
 router.use(requireAuth);
 router.get('/', requirePermissions('orders:read', '*'), controller.list);
 router.get('/stats', requirePermissions('orders:read', '*'), controller.getWorkflowStats);
+router.get('/workflow-context', requirePermissions('orders:read', '*'), controller.getWorkflowContext);
 
 router.post('/', requirePermissions('orders:write', '*'), controller.create);
 

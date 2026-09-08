@@ -12,6 +12,7 @@ const router = express.Router();
 router.use(requireAuth);
 
 const salesAndAdmin = ['sales', 'admin', 'finance', 'super_admin'];
+const quotationAdmins = ['admin', 'super_admin', 'finance'];
 
 /* --- Duplicate Check --- */
 router.post('/check-duplicates', requireDepartment(...salesAndAdmin), controller.checkDuplicates);
@@ -29,11 +30,11 @@ router.put('/follow-ups/:followUpId/complete', requireDepartment(...salesAndAdmi
 /* --- Lead Quotations --- */
 router.get('/quotations/default-terms', requireDepartment(...salesAndAdmin), quotationController.getDefaultTerms);
 router.get('/quotations/:quotationId', requireDepartment(...salesAndAdmin), quotationController.getById);
-router.patch('/quotations/:quotationId', requireDepartment(...salesAndAdmin), quotationController.update);
+router.patch('/quotations/:quotationId', requireDepartment(...quotationAdmins), quotationController.update);
 router.post('/quotations/:quotationId/submit-for-approval', requireDepartment(...salesAndAdmin), quotationController.submitForApproval);
-router.post('/quotations/:quotationId/approve', requireDepartment(...salesAndAdmin), quotationController.approve);
-router.post('/quotations/:quotationId/reject', requireDepartment(...salesAndAdmin), quotationController.reject);
-router.delete('/quotations/:quotationId', requireDepartment(...salesAndAdmin), quotationController.remove);
+router.post('/quotations/:quotationId/approve', requireDepartment(...quotationAdmins), quotationController.approve);
+router.post('/quotations/:quotationId/reject', requireDepartment(...quotationAdmins), quotationController.reject);
+router.delete('/quotations/:quotationId', requireDepartment(...quotationAdmins), quotationController.remove);
 
 /* --- Leads CRUD --- */
 router.get('/', requireDepartment(...salesAndAdmin), controller.list);
@@ -58,6 +59,6 @@ router.post('/:id/follow-ups', requireDepartment(...salesAndAdmin), controller.c
 
 /* --- Lead Quotations per Lead --- */
 router.get('/:id/quotations', requireDepartment(...salesAndAdmin), quotationController.list);
-router.post('/:id/quotations', requireDepartment(...salesAndAdmin), quotationController.create);
+router.post('/:id/quotations', requireDepartment(...quotationAdmins), quotationController.create);
 
 module.exports = router;
