@@ -601,9 +601,9 @@ async function create(leadIdOrBody, bodyOrUser, userParam) {
     round_off,
     grand_total,
     amount_in_words,
-    terms_and_conditions: Array.isArray(body.terms_and_conditions) && body.terms_and_conditions.length > 0
+    terms_and_conditions: Array.isArray(body.terms_and_conditions)
       ? body.terms_and_conditions
-      : defaultTerms,
+      : [],
     company_name: body.company_name || company?.legal_name || company?.trade_name || '',
     company_regd_address:
       body.company_regd_address ||

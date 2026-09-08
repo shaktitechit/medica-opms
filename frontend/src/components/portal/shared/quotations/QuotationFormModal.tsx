@@ -7,7 +7,6 @@ import {
   FileText,
   Building2,
   UserCheck,
-  RotateCcw,
   ShieldCheck,
   RefreshCw,
   CheckSquare,
@@ -17,11 +16,13 @@ import {
   Search,
   Check,
   ShieldAlert,
+  ChevronDown,
+  ChevronUp,
+  Minus,
 } from "lucide-react";
 import {
   useCreateLeadQuotationMutation,
   useUpdateLeadQuotationMutation,
-  useGetDefaultQuotationTermsQuery,
   useListTermsAndConditionsQuery,
   useListProductsQuery,
   useListPartiesQuery,
@@ -652,12 +653,6 @@ export function QuotationFormModal({
     );
   }, [usersList]);
 
-  // Default terms fetched dynamically from the database
-  const { data: dbDefaultTerms, refetch: refetchDbTerms } = useGetDefaultQuotationTermsQuery(
-    undefined,
-    { skip: !open }
-  );
-
   // Master Terms & Conditions sets list for multi-selection
   const { data: masterTermsData } = useListTermsAndConditionsQuery(
     { limit: 100 },
@@ -672,7 +667,9 @@ export function QuotationFormModal({
     return [];
   }, [masterTermsData]);
 
-  const [selectedSetIds, setSelectedSetIds] = useState<string[]>([]);
+  const [termsSearch, setTermsSearch] = useState("");
+  const [termsTypeFilter, setTermsTypeFilter] = useState<string>("all");
+  const [expandedSetIds, setExpandedSetIds] = useState<string[]>([]);
 
   const { data: leadsData } = useListLeadsQuery({ limit: 200 }, { skip: !open });
   const leadsList = useMemo(() => {
@@ -941,7 +938,7 @@ export function QuotationFormModal({
       setTerms(
         quotation.terms_and_conditions && quotation.terms_and_conditions.length > 0
           ? quotation.terms_and_conditions
-          : (dbDefaultTerms || [])
+          : []
       );
     } else if (lead) {
       // New quotation from Lead
@@ -1010,9 +1007,7 @@ export function QuotationFormModal({
         ]);
         setSubject(`Offer For ${lead.requirement || "Medical Equipment"}`);
       }
-      if (dbDefaultTerms && dbDefaultTerms.length > 0) {
-        setTerms(dbDefaultTerms);
-      }
+      setTerms([]);
     } else {
       setSelectedLeadId("");
       setSelectedPartyId("");
@@ -1048,11 +1043,9 @@ export function QuotationFormModal({
         },
       ]);
       setSubject("Offer For Medical Equipment");
-      if (dbDefaultTerms && dbDefaultTerms.length > 0) {
-        setTerms(dbDefaultTerms);
-      }
+      setTerms([]);
     }
-  }, [open, quotation, lead, dbDefaultTerms, autoNextRefNo]);
+  }, [open, quotation, lead, autoNextRefNo]);
 
   const handleSelectAdminUser = (userId: string) => {
     if (!userId) {
@@ -1199,43 +1192,91 @@ export function QuotationFormModal({
     setTerms((prev) => prev.map((t, idx) => (idx === index ? val : t)));
   };
 
-  const handleToggleTermsSet = (setId: string) => {
-    const nextSetIds = selectedSetIds.includes(setId)
-      ? selectedSetIds.filter((id) => id !== setId)
-      : [...selectedSetIds, setId];
-
-    setSelectedSetIds(nextSetIds);
-
-    const compiled: string[] = [];
-    masterTermsSets.forEach((set) => {
-      if (nextSetIds.includes(set._id)) {
-        (set.terms_text || []).forEach((t) => {
-          if (t.text && t.text.trim()) {
-            compiled.push(t.text.trim());
-          }
-        });
+  const filteredTermsSets = useMemo(() => {
+    return masterTermsSets.filter((set) => {
+      if (termsTypeFilter !== "all" && set.type !== termsTypeFilter) {
+        return false;
       }
+      if (!termsSearch.trim()) return true;
+      const q = termsSearch.toLowerCase().trim();
+      const titleMatch = set.title?.toLowerCase().includes(q);
+      const codeMatch = set.code?.toLowerCase().includes(q);
+      const textMatch = (set.terms_text || []).some((t) =>
+        t.text?.toLowerCase().includes(q)
+      );
+      return titleMatch || codeMatch || textMatch;
     });
+  }, [masterTermsSets, termsTypeFilter, termsSearch]);
 
-    setTerms(compiled);
+  const getSetLines = (set: TermsAndConditionsRecord): string[] => {
+    return (set.terms_text || [])
+      .filter((t) => t.is_active !== false && t.text && t.text.trim())
+      .map((t) => t.text.trim());
   };
 
-  const handleSelectAllSets = () => {
-    const allIds = masterTermsSets.map((s) => s._id);
-    setSelectedSetIds(allIds);
-    const compiled: string[] = [];
-    masterTermsSets.forEach((set) => {
-      (set.terms_text || []).forEach((t) => {
-        if (t.text && t.text.trim()) {
-          compiled.push(t.text.trim());
+  const getSetSelectionStatus = (set: TermsAndConditionsRecord): "none" | "all" | "partial" => {
+    const lines = getSetLines(set);
+    if (lines.length === 0) return "none";
+    const presentCount = lines.filter((l) => terms.some((t) => t.trim() === l)).length;
+    if (presentCount === lines.length) return "all";
+    if (presentCount > 0) return "partial";
+    return "none";
+  };
+
+  const handleToggleTermsSet = (set: TermsAndConditionsRecord) => {
+    const setLines = getSetLines(set);
+    if (setLines.length === 0) return;
+    const status = getSetSelectionStatus(set);
+
+    if (status === "all") {
+      // Deselecting: remove all lines belonging to this set
+      setTerms((prev) => prev.filter((t) => !setLines.includes(t.trim())));
+    } else {
+      // Selecting: add all missing lines from this set
+      setTerms((prev) => {
+        const existing = new Set(prev.map((t) => t.trim()));
+        const toAdd = setLines.filter((l) => !existing.has(l));
+        return [...prev, ...toAdd];
+      });
+    }
+  };
+
+  const handleToggleClause = (clauseText: string) => {
+    const trimmed = clauseText.trim();
+    if (!trimmed) return;
+    setTerms((prev) => {
+      const exists = prev.some((t) => t.trim() === trimmed);
+      if (exists) {
+        return prev.filter((t) => t.trim() !== trimmed);
+      } else {
+        return [...prev, trimmed];
+      }
+    });
+  };
+
+  const handleToggleExpandSet = (setId: string) => {
+    setExpandedSetIds((prev) =>
+      prev.includes(setId) ? prev.filter((id) => id !== setId) : [...prev, setId]
+    );
+  };
+
+  const handleSelectAllFilteredSets = () => {
+    const linesToAdd: string[] = [];
+    filteredTermsSets.forEach((set) => {
+      getSetLines(set).forEach((l) => {
+        if (!linesToAdd.includes(l)) {
+          linesToAdd.push(l);
         }
       });
     });
-    setTerms(compiled);
+    setTerms((prev) => {
+      const existing = new Set(prev.map((t) => t.trim()));
+      const toAdd = linesToAdd.filter((l) => !existing.has(l));
+      return [...prev, ...toAdd];
+    });
   };
 
-  const handleDeselectAllSets = () => {
-    setSelectedSetIds([]);
+  const handleClearAllTerms = () => {
     setTerms([]);
   };
 
@@ -1245,16 +1286,6 @@ export function QuotationFormModal({
 
   const handleRemoveTerm = (index: number) => {
     setTerms((prev) => prev.filter((_, idx) => idx !== index));
-  };
-
-  const handleResetTerms = async () => {
-    const res = await refetchDbTerms();
-    if (res.data && res.data.length > 0) {
-      setTerms(res.data);
-      toast.success("Terms reset to default database standard conditions");
-    } else {
-      toast.info("No default terms configured in database");
-    }
   };
 
   // Form Submit
@@ -2147,15 +2178,17 @@ export function QuotationFormModal({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleResetTerms}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-300 cursor-pointer"
-                    title="Reset to default standard conditions"
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                    Reset Default
-                  </button>
+                  {terms.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearAllTerms}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 dark:border-white/10 dark:bg-slate-800 dark:text-rose-400 cursor-pointer"
+                      title="Clear all terms"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Clear All
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={handleAddTerm}
@@ -2177,76 +2210,178 @@ export function QuotationFormModal({
               {showTerms && (
                 <div className="mt-4 space-y-4">
                   {/* Master Terms Sets Multi-Selector Panel */}
-                  <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-3 dark:border-blue-900/40 dark:bg-blue-950/20">
-                    <div className="flex items-center justify-between mb-2">
+                  <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-3.5 dark:border-blue-900/40 dark:bg-blue-950/20">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                       <label className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
                         <Layers className="h-3.5 w-3.5 text-blue-600" />
-                        Select Terms &amp; Conditions Sets ({selectedSetIds.length} Selected)
+                        Select From Terms &amp; Conditions Master ({masterTermsSets.length} Sets Available)
                       </label>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={handleSelectAllSets}
-                          className="text-[10px] font-bold text-blue-600 hover:underline dark:text-blue-400 cursor-pointer"
+                          onClick={handleSelectAllFilteredSets}
+                          className="text-[11px] font-bold text-blue-600 hover:underline dark:text-blue-400 cursor-pointer"
                         >
                           Select All
                         </button>
                         <span className="text-slate-300 dark:text-slate-700">•</span>
                         <button
                           type="button"
-                          onClick={handleDeselectAllSets}
-                          className="text-[10px] font-semibold text-slate-500 hover:underline dark:text-slate-400 cursor-pointer"
+                          onClick={handleClearAllTerms}
+                          className="text-[11px] font-semibold text-slate-500 hover:underline dark:text-slate-400 cursor-pointer"
                         >
-                          Clear All
+                          Deselect All
                         </button>
                       </div>
                     </div>
 
-                    {masterTermsSets.length === 0 ? (
-                      <div className="text-xs text-slate-500 py-1">
-                        No master terms sets found in database. You can add custom condition lines below.
+                    {/* Filter & Search Controls */}
+                    <div className="flex flex-wrap items-center gap-2 mb-3">
+                      <div className="relative flex-1 min-w-[200px]">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                        <input
+                          type="text"
+                          value={termsSearch}
+                          onChange={(e) => setTermsSearch(e.target.value)}
+                          placeholder="Search terms sets or clauses..."
+                          className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-xs text-slate-900 focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-white"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1 overflow-x-auto">
+                        {(["all", "quotation", "order", "invoice", "general"] as const).map((type) => (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => setTermsTypeFilter(type)}
+                            className={`rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                              termsTypeFilter === type
+                                ? "bg-blue-600 text-white shadow-xs"
+                                : "bg-white/80 text-slate-600 hover:bg-white dark:bg-slate-800/80 dark:text-slate-300 border border-slate-200 dark:border-white/10"
+                            }`}
+                          >
+                            {type}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {filteredTermsSets.length === 0 ? (
+                      <div className="text-xs text-slate-500 py-3 text-center bg-white/50 rounded-lg dark:bg-slate-900/40">
+                        No matching terms sets found. Try adjusting your search or category filter.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                        {masterTermsSets.map((set) => {
-                          const isChecked = selectedSetIds.includes(set._id);
-                          const lineCount = set.terms_text?.length || 0;
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-[340px] overflow-y-auto pr-1">
+                        {filteredTermsSets.map((set) => {
+                          const status = getSetSelectionStatus(set);
+                          const activeLines = getSetLines(set);
+                          const isExpanded = expandedSetIds.includes(set._id);
+
                           return (
-                            <button
+                            <div
                               key={set._id}
-                              type="button"
-                              onClick={() => handleToggleTermsSet(set._id)}
-                              className={`flex items-start gap-2 rounded-lg border p-2.5 text-left transition cursor-pointer ${
-                                isChecked
-                                  ? "border-blue-500 bg-white dark:bg-slate-900 shadow-2xs text-blue-900 dark:text-white"
-                                  : "border-slate-200 bg-white/70 hover:bg-white dark:border-white/10 dark:bg-slate-800/50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                              className={`rounded-lg border transition ${
+                                status === "all"
+                                  ? "border-blue-500 bg-white dark:bg-slate-900 shadow-2xs"
+                                  : status === "partial"
+                                  ? "border-blue-300 bg-blue-50/70 dark:border-blue-800 dark:bg-blue-950/40"
+                                  : "border-slate-200 bg-white/70 hover:bg-white dark:border-white/10 dark:bg-slate-800/50 dark:hover:bg-slate-800"
                               }`}
                             >
-                              <div className="mt-0.5 shrink-0 text-blue-600">
-                                {isChecked ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4 text-slate-400" />}
+                              <div className="flex items-start justify-between gap-2 p-2.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleTermsSet(set)}
+                                  className="flex items-start gap-2 flex-1 text-left cursor-pointer"
+                                >
+                                  <div className="mt-0.5 shrink-0 text-blue-600">
+                                    {status === "all" ? (
+                                      <CheckSquare className="h-4 w-4" />
+                                    ) : status === "partial" ? (
+                                      <div className="h-4 w-4 rounded border border-blue-600 bg-blue-600 flex items-center justify-center text-white">
+                                        <Minus className="h-3 w-3 stroke-[3]" />
+                                      </div>
+                                    ) : (
+                                      <Square className="h-4 w-4 text-slate-400" />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-xs font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+                                      <span>{set.title}</span>
+                                      <span className="rounded-full bg-slate-100 px-1.5 py-0.2 text-[9px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400 uppercase shrink-0">
+                                        {set.type}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                      {activeLines.length} {activeLines.length === 1 ? "clause" : "clauses"}
+                                      {status === "partial" && " • partially selected"}
+                                      {status === "all" && " • fully selected"}
+                                    </div>
+                                  </div>
+                                </button>
+
+                                {activeLines.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleExpandSet(set._id)}
+                                    className="shrink-0 p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                    title={isExpanded ? "Collapse clauses" : "Expand clauses"}
+                                  >
+                                    {isExpanded ? (
+                                      <ChevronUp className="h-4 w-4" />
+                                    ) : (
+                                      <ChevronDown className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                )}
                               </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="text-xs font-bold truncate flex items-center gap-1">
-                                  {set.title}
-                                  {set.is_default && (
-                                    <span className="rounded-full bg-amber-100 px-1.5 py-0.2 text-[9px] font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300 shrink-0">
-                                      Default
-                                    </span>
-                                  )}
+
+                              {/* Expanded Individual Clauses */}
+                              {isExpanded && activeLines.length > 0 && (
+                                <div className="border-t border-slate-100 bg-slate-50/80 p-2 space-y-1.5 dark:border-white/5 dark:bg-slate-900/70 rounded-b-lg">
+                                  {activeLines.map((clause, cIdx) => {
+                                    const isClauseSelected = terms.some((t) => t.trim() === clause);
+                                    return (
+                                      <button
+                                        key={cIdx}
+                                        type="button"
+                                        onClick={() => handleToggleClause(clause)}
+                                        className={`w-full flex items-start gap-2 p-1.5 rounded-md text-left text-xs transition cursor-pointer ${
+                                          isClauseSelected
+                                            ? "bg-blue-100/70 text-blue-900 dark:bg-blue-950/70 dark:text-blue-200 font-medium"
+                                            : "hover:bg-white text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                        }`}
+                                      >
+                                        <div className="mt-0.5 shrink-0 text-blue-600">
+                                          {isClauseSelected ? (
+                                            <CheckSquare className="h-3.5 w-3.5" />
+                                          ) : (
+                                            <Square className="h-3.5 w-3.5 text-slate-400" />
+                                          )}
+                                        </div>
+                                        <div className="text-[11px] leading-snug line-clamp-2">
+                                          {clause}
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
                                 </div>
-                                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                  {lineCount} {lineCount === 1 ? "line" : "lines"} • <span className="uppercase">{set.type}</span>
-                                </div>
-                              </div>
-                            </button>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
                     )}
                   </div>
 
-                  {/* Individual Condition Lines Editor */}
+                  {/* Individual Condition Lines Editor (Printed on official PDF) */}
                   <div className="space-y-3">
+                    <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                      <span>Proposal Condition Clauses ({terms.length} Lines)</span>
+                      <span className="text-[10px] font-normal text-slate-400">
+                        These clauses will be printed on the official quotation.
+                      </span>
+                    </div>
+
                     {terms.map((term, idx) => (
                       <div
                         key={idx}
@@ -2275,8 +2410,8 @@ export function QuotationFormModal({
                     ))}
 
                     {terms.length === 0 && (
-                      <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl p-4 dark:border-white/10">
-                        No condition lines selected or defined. Select master terms sets above or click &apos;+ Add Condition&apos;.
+                      <div className="py-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl p-4 dark:border-white/10">
+                        No terms and conditions selected. Choose one or multiple master sets above or click &apos;+ Add Condition&apos; to write custom terms.
                       </div>
                     )}
                   </div>
