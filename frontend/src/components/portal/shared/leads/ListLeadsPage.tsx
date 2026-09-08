@@ -50,6 +50,10 @@ import {
   leadEstimatedValue,
   LEAD_STATUS_CONFIG,
   LEAD_PRIORITY_CONFIG,
+  isSuperAdmin,
+  isAdminDept,
+  getUserDepartment,
+  getDeptLabel,
 } from "./leadUtils";
 import { AssignLeadModal } from "./AssignLeadModal";
 import { FollowUpModal } from "./FollowUpModal";
@@ -84,6 +88,7 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [salesUserFilter, setSalesUserFilter] = useState<string>("all");
+  const [assignedDeptFilter, setAssignedDeptFilter] = useState<string>("all");
   const [cityFilter, setCityFilter] = useState<string>("");
   const [followUpFilter, setFollowUpFilter] = useState<"today" | "overdue" | "upcoming" | "">("");
   const [fromDate, setFromDate] = useState<string>("");
@@ -103,6 +108,7 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
 
   const isAdmin = isLeadAdmin(authUser, portalHome);
   const isSales = !isAdmin;
+  const isSA = isSuperAdmin(authUser);
   const showPricing = canViewLeadPricing(authUser, portalHome);
   const tableColSpan = showPricing ? 12 : 11;
 
@@ -121,11 +127,13 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
       status: activeTab !== "all" ? activeTab : undefined,
       priority: priorityFilter !== "all" ? priorityFilter : undefined,
       source: sourceFilter !== "all" ? sourceFilter : undefined,
-      assigned_to: isSales
-        ? authUserId
-        : salesUserFilter !== "all"
-        ? salesUserFilter
-        : undefined,
+      // Super admin: optional dept/user filters (sees all leads)
+      // Admin / Sales / Finance: backend scopes to leads assigned to self only
+      ...(isSA && assignedDeptFilter !== "all"
+        ? { assigned_dept: assignedDeptFilter }
+        : isSA && salesUserFilter !== "all"
+        ? { assigned_to: salesUserFilter }
+        : {}),
       city: cityFilter.trim() || undefined,
       follow_up_filter: followUpFilter || undefined,
       from_date: fromDate || undefined,
@@ -139,8 +147,8 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
       priorityFilter,
       sourceFilter,
       salesUserFilter,
-      isSales,
-      authUserId,
+      assignedDeptFilter,
+      isSA,
       cityFilter,
       followUpFilter,
       fromDate,
@@ -164,11 +172,20 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
     : (usersData as { data?: Array<{ _id: string; name: string; department?: string }> })?.data || [];
   const salesUsers = users.filter((u) => u.department === "sales");
 
+  // Dept filter tabs shown only to super_admin
+  const DEPT_FILTER_TABS = [
+    { id: "all", label: "All Depts" },
+    { id: "sales", label: getDeptLabel("sales") },
+    { id: "admin", label: getDeptLabel("admin") },
+    { id: "finance", label: getDeptLabel("finance") },
+  ];
+
   const clearFilters = () => {
     setSearch("");
     setPriorityFilter("all");
     setSourceFilter("all");
     setSalesUserFilter("all");
+    setAssignedDeptFilter("all");
     setCityFilter("");
     setFollowUpFilter("");
     setFromDate("");
@@ -181,6 +198,7 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
     priorityFilter !== "all" ||
     sourceFilter !== "all" ||
     salesUserFilter !== "all" ||
+    assignedDeptFilter !== "all" ||
     Boolean(cityFilter) ||
     Boolean(followUpFilter) ||
     Boolean(fromDate) ||
@@ -247,6 +265,37 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Department Filter Strip — super_admin only */}
+      {isSA && (
+        <div className="flex items-center gap-2 px-1 pt-1">
+          <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 shrink-0">
+            Dept:
+          </span>
+          <div className="flex gap-1.5 overflow-x-auto">
+            {DEPT_FILTER_TABS.map((tab) => {
+              const isActive = assignedDeptFilter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setAssignedDeptFilter(tab.id);
+                    setPage(1);
+                  }}
+                  className={`whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition-all ${
+                    isActive
+                      ? "border-violet-500 bg-violet-50 text-violet-700 dark:border-violet-400 dark:bg-violet-950/40 dark:text-violet-300"
+                      : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-white/10 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Status Tab Strip */}
       <div className="flex overflow-x-auto border-b border-slate-200 dark:border-white/10">
@@ -365,10 +414,10 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
               </select>
             </div>
 
-            {isAdmin && (
+            {isSA && (
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                  Assigned Executive
+                  Assigned To
                 </label>
                 <select
                   value={salesUserFilter}
@@ -378,13 +427,15 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
                   }}
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-white"
                 >
-                  <option value="all">All Sales Reps</option>
+                  <option value="all">All Users</option>
                   <option value="unassigned">Unassigned Only</option>
-                  {salesUsers.map((u) => (
-                    <option key={u._id} value={u._id}>
-                      {u.name}
-                    </option>
-                  ))}
+                  {users
+                    .filter((u) => ["sales", "admin", "finance"].includes(u.department || ""))
+                    .map((u) => (
+                      <option key={u._id} value={u._id}>
+                        {u.name} ({getDeptLabel(u.department || "")})
+                      </option>
+                    ))}
                 </select>
               </div>
             )}
@@ -571,11 +622,37 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
                         </span>
                       </td>
 
-                      {/* Assigned To */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {lead.assigned_to ? (
-                          <div className="font-semibold text-slate-800 dark:text-slate-200">
-                            {lead.assigned_to.name}
+                      {/* Assigned To (multi-dept) */}
+                      <td className="px-4 py-3">
+                        {lead.assigned_sales ||
+                        lead.assigned_admin ||
+                        lead.assigned_finance ||
+                        lead.assigned_to ? (
+                          <div className="max-w-[220px] space-y-0.5 text-[11px] font-semibold text-slate-800 dark:text-slate-200">
+                            {lead.assigned_sales?.name ? (
+                              <div>
+                                <span className="font-normal text-slate-400">Sales:</span>{" "}
+                                {lead.assigned_sales.name}
+                              </div>
+                            ) : null}
+                            {lead.assigned_admin?.name ? (
+                              <div>
+                                <span className="font-normal text-slate-400">Admin:</span>{" "}
+                                {lead.assigned_admin.name}
+                              </div>
+                            ) : null}
+                            {lead.assigned_finance?.name ? (
+                              <div>
+                                <span className="font-normal text-slate-400">Finance:</span>{" "}
+                                {lead.assigned_finance.name}
+                              </div>
+                            ) : null}
+                            {!lead.assigned_sales &&
+                            !lead.assigned_admin &&
+                            !lead.assigned_finance &&
+                            lead.assigned_to?.name ? (
+                              <div>{lead.assigned_to.name}</div>
+                            ) : null}
                           </div>
                         ) : (
                           <span className="text-[11px] italic text-slate-400">
@@ -676,11 +753,11 @@ export function ListLeadsPage({ portalHome = "/admin" }: Props) {
                             </button>
                           )}
 
-                          {isAdmin && !isLeadClosed && (
+                          {!isLeadClosed && (
                             <button
                               type="button"
                               onClick={() => setAssignTarget(lead)}
-                              title="Assign Executive"
+                              title="Assign to Department"
                               className="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/50"
                             >
                               <UserCheck className="h-4 w-4" />

@@ -128,6 +128,9 @@ const leadSchema = new mongoose.Schema(
     },
 
     assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+    assigned_sales: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+    assigned_admin: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+    assigned_finance: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
     assigned_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     assigned_at: Date,
 

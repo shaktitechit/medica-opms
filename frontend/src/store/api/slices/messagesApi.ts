@@ -75,6 +75,7 @@ export const messagesApi = medicaApi.injectEndpoints({
       unknown,
       {
         recipient: string;
+        from?: string;
         subject: string;
         body: string;
         templateName?: string;

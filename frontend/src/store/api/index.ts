@@ -46,3 +46,5 @@ export * from "./slices/leadMastersApi";
 export * from "./slices/zonesApi";
 export * from "./slices/companyInfoApi";
 export * from "./slices/leadQuotationsApi";
+export * from "./slices/quotationsApi";
+export * from "./slices/termsAndConditionsApi";

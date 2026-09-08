@@ -29,7 +29,7 @@ import {
   type LeadSalesPerformance,
 } from "@/store/api";
 import { useAppSelector } from "@/store/hooks";
-import { formatCurrencyINR, isLeadAdmin, canViewLeadPricing } from "./leadUtils";
+import { formatCurrencyINR, isSuperAdmin, getUserDepartment, getDeptLabel, canViewLeadPricing } from "./leadUtils";
 import { ExecutiveLeadDetailsModal } from "./ExecutiveLeadDetailsModal";
 
 type Props = {
@@ -41,25 +41,22 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
   const [selectedUser, setSelectedUser] = useState<string>("all");
   const [detailsExecutive, setDetailsExecutive] = useState<LeadSalesPerformance | null>(null);
 
-  const isAdmin = isLeadAdmin(authUser, portalHome);
-  const isSales = !isAdmin;
+  const isSA = isSuperAdmin(authUser);
+  const userDept = getUserDepartment(authUser);
+  /** Non–SA: personal metrics only (backend scopes to self). SA: optional assignee filter. */
+  const isPersonalView = !isSA;
   const showPricing = canViewLeadPricing(authUser, portalHome);
 
-  const authUserId = authUser?._id
-    ? String(authUser._id)
-    : authUser?.id
-    ? String(authUser.id)
-    : undefined;
-
-  const { data: usersData } = useListUsersQuery(undefined, { skip: isSales });
+  const { data: usersData } = useListUsersQuery(undefined, { skip: !isSA });
   const users = Array.isArray(usersData)
     ? usersData
     : (usersData as { data?: Array<{ _id: string; name: string; department?: string }> })?.data || [];
-  const salesUsers = users.filter((u) => u.department === "sales");
+  const assignableUsers = users.filter((u) =>
+    ["sales", "admin", "finance"].includes(u.department || "")
+  );
 
-  const queryParam = isSales
-    ? (authUserId ? { assigned_to: authUserId } : undefined)
-    : (selectedUser !== "all" ? { assigned_to: selectedUser } : undefined);
+  const queryParam =
+    isSA && selectedUser !== "all" ? { assigned_to: selectedUser } : undefined;
 
   const {
     data: stats,
@@ -75,17 +72,17 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
     data: salesPerf,
     isLoading: loadingPerf,
     refetch: refetchPerf,
-  } = useGetLeadSalesPerformanceQuery(queryParam, { skip: isSales });
+  } = useGetLeadSalesPerformanceQuery(queryParam, { skip: isPersonalView });
   const {
     data: sourcePerf,
     isLoading: loadingSource,
     refetch: refetchSource,
-  } = useGetLeadSourcePerformanceQuery();
+  } = useGetLeadSourcePerformanceQuery(queryParam);
 
   const handleRefreshAll = () => {
     refetchStats();
     refetchFunnel();
-    if (!isSales) refetchPerf();
+    if (!isPersonalView) refetchPerf();
     refetchSource();
   };
 
@@ -103,27 +100,29 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
             </Link>
             <div>
               <h1 className="text-base font-bold tracking-tight text-slate-900 dark:text-white">
-                {isSales ? "My Lead Funnel & Performance Analytics" : "Lead Funnel & Performance Analytics"}
+                {isPersonalView
+                  ? `My Lead Funnel & Performance (${getDeptLabel(userDept)})`
+                  : "Lead Funnel & Performance Analytics"}
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {isSales
-                  ? "Personal pipeline conversion metrics and lead source performance"
-                  : "Pipeline conversion metrics, marketing channel ROI, and sales rep scorecards"}
+                {isPersonalView
+                  ? "Personal pipeline metrics for leads assigned to you"
+                  : "Pipeline conversion, channel ROI, and assignee scorecards (Sales / Admin / Finance)"}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2.5">
-            {isAdmin && (
+            {isSA && (
               <select
                 value={selectedUser}
                 onChange={(e) => setSelectedUser(e.target.value)}
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-slate-200"
               >
-                <option value="all">All Sales Executives</option>
-                {salesUsers.map((u) => (
+                <option value="all">All Assignees</option>
+                {assignableUsers.map((u) => (
                   <option key={u._id} value={u._id}>
-                    {u.name}
+                    {u.name} ({getDeptLabel(u.department || "")})
                   </option>
                 ))}
               </select>
@@ -280,15 +279,15 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
         </div>
       </div>
 
-      {/* Sales Performance: Personal Summary for Sales Reps */}
-      {isSales && stats && (
+      {/* Personal Summary for non–super-admin assignees */}
+      {isPersonalView && stats && (
         <div className="rounded-2xl border border-blue-500/20 bg-gradient-to-br from-blue-50/50 via-white to-indigo-50/30 p-6 shadow-sm dark:border-blue-500/10 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
           <div className="border-b border-slate-100 pb-4 dark:border-white/10">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              My Sales Performance & Metrics
+              My Performance & Metrics
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Personal conversion yield, active pipeline velocity, and follow-up track record
+              Conversion yield, active pipeline, and follow-up track record for leads assigned to you
             </p>
           </div>
 
@@ -341,104 +340,159 @@ export function LeadReportsDashboard({ portalHome = "/admin" }: Props) {
         </div>
       )}
 
-      {/* Sales Performance by Rep (Managers and Admins Only) */}
-      {!isSales && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-900">
-          <div className="border-b border-slate-100 pb-4 dark:border-white/10">
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              Sales Executive Performance Leaderboard
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Conversion efficiency, pipeline velocity, and follow-up discipline per representative
-            </p>
-          </div>
+      {/* Department-wise Assignee Leaderboards (Super Admin Only) */}
+      {!isPersonalView &&
+        (
+          [
+            {
+              id: "sales" as const,
+              title: "Sales Leaderboard",
+              subtitle: "Performance for Sales department assignees",
+              accent: "border-blue-200 dark:border-blue-900/40",
+              headerBg: "bg-blue-50/80 dark:bg-blue-950/30",
+              headerText: "text-blue-800 dark:text-blue-200",
+            },
+            {
+              id: "admin" as const,
+              title: "Admin Leaderboard",
+              subtitle: "Performance for Admin department assignees",
+              accent: "border-indigo-200 dark:border-indigo-900/40",
+              headerBg: "bg-indigo-50/80 dark:bg-indigo-950/30",
+              headerText: "text-indigo-800 dark:text-indigo-200",
+            },
+            {
+              id: "finance" as const,
+              title: "Finance Leaderboard",
+              subtitle: "Performance for Finance department assignees",
+              accent: "border-emerald-200 dark:border-emerald-900/40",
+              headerBg: "bg-emerald-50/80 dark:bg-emerald-950/30",
+              headerText: "text-emerald-800 dark:text-emerald-200",
+            },
+          ] as const
+        ).map((deptBoard) => {
+          const rows = (salesPerf || [])
+            .filter((sp) => (sp.department || "") === deptBoard.id)
+            .slice()
+            .sort((a, b) => (b.total_leads || 0) - (a.total_leads || 0));
+          const colSpan = showPricing ? 13 : 11;
 
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
-              <thead className="border-b border-slate-100 bg-slate-50/80 font-bold uppercase text-slate-500 dark:border-white/5 dark:bg-slate-800/40 dark:text-slate-400">
-                <tr>
-                  <th className="px-4 py-3">Sales Executive</th>
-                  <th className="px-4 py-3 text-center">Total Leads</th>
-                  <th className="px-4 py-3 text-center">Qualified</th>
-                  <th className="px-4 py-3 text-center">Won</th>
-                  <th className="px-4 py-3 text-center">Lost</th>
-                  <th className="px-4 py-3 text-center">Conv. Rate</th>
-                  <th className="px-4 py-3 text-center">Pipeline Qty</th>
-                  {showPricing && <th className="px-4 py-3 text-right">Pipeline Value</th>}
-                  <th className="px-4 py-3 text-center">Won Qty</th>
-                  {showPricing && <th className="px-4 py-3 text-right">Won Value</th>}
-                  <th className="px-4 py-3 text-center">Lost Qty</th>
-                  <th className="px-4 py-3 text-center">Follow-ups Done</th>
-                  <th className="px-4 py-3 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {!salesPerf || salesPerf.length === 0 ? (
-                  <tr>
-                    <td colSpan={showPricing ? 13 : 11} className="py-8 text-center text-slate-400">
-                      No sales executive performance data available.
-                    </td>
-                  </tr>
-                ) : (
-                  salesPerf.map((sp) => (
-                    <tr key={sp.user_id} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02]">
-                      <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">
-                        {sp.name}
-                        <div className="text-[11px] text-slate-400 font-normal">{sp.email}</div>
-                      </td>
-                      <td className="px-4 py-3 text-center font-bold">{sp.total_leads}</td>
-                      <td className="px-4 py-3 text-center text-blue-600 dark:text-blue-400 font-semibold">
-                        {sp.qualified_leads}
-                      </td>
-                      <td className="px-4 py-3 text-center text-emerald-600 dark:text-emerald-400 font-semibold">
-                        {sp.won_leads}
-                      </td>
-                      <td className="px-4 py-3 text-center text-rose-600 dark:text-rose-400 font-semibold">
-                        {sp.lost_leads}
-                      </td>
-                      <td className="px-4 py-3 text-center font-bold text-slate-900 dark:text-white">
-                        {sp.conversion_rate}%
-                      </td>
-                      <td className="px-4 py-3 text-center font-semibold text-indigo-600 dark:text-indigo-400">
-                        {(sp.pipeline_qty ?? sp.pipeline_quantity ?? 0).toLocaleString()}
-                      </td>
-                      {showPricing && (
-                        <td className="px-4 py-3 text-right font-semibold text-indigo-700 dark:text-indigo-300">
-                          {formatCurrencyINR(sp.pipeline_value)}
-                        </td>
-                      )}
-                      <td className="px-4 py-3 text-center font-bold text-emerald-600 dark:text-emerald-400">
-                        {(sp.won_qty ?? sp.won_quantity ?? 0).toLocaleString()}
-                      </td>
-                      {showPricing && (
-                        <td className="px-4 py-3 text-right font-bold text-emerald-700 dark:text-emerald-300">
-                          {formatCurrencyINR(sp.won_value)}
-                        </td>
-                      )}
-                      <td className="px-4 py-3 text-center font-semibold text-rose-600 dark:text-rose-400">
-                        {(sp.lost_qty ?? sp.lost_quantity ?? 0).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-center font-semibold text-slate-700 dark:text-slate-300">
-                        {sp.completed_followups}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => setDetailsExecutive(sp)}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 text-xs font-bold text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition border border-blue-200 dark:border-blue-800"
-                        >
-                          <Eye className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                          View Details
-                        </button>
-                      </td>
+          return (
+            <div
+              key={deptBoard.id}
+              className={`rounded-2xl border bg-white p-6 shadow-sm dark:bg-slate-900 ${deptBoard.accent}`}
+            >
+              <div className="border-b border-slate-100 pb-4 dark:border-white/10">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                      {deptBoard.title}
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {deptBoard.subtitle}
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ${deptBoard.headerBg} ${deptBoard.headerText}`}
+                  >
+                    {rows.length} assignee{rows.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
+                  <thead
+                    className={`border-b border-slate-100 font-bold uppercase text-slate-500 dark:border-white/5 dark:text-slate-400 ${deptBoard.headerBg}`}
+                  >
+                    <tr>
+                      <th className="px-4 py-3">Assignee</th>
+                      <th className="px-4 py-3 text-center">Total Leads</th>
+                      <th className="px-4 py-3 text-center">Qualified</th>
+                      <th className="px-4 py-3 text-center">Won</th>
+                      <th className="px-4 py-3 text-center">Lost</th>
+                      <th className="px-4 py-3 text-center">Conv. Rate</th>
+                      <th className="px-4 py-3 text-center">Pipeline Qty</th>
+                      {showPricing && <th className="px-4 py-3 text-right">Pipeline Value</th>}
+                      <th className="px-4 py-3 text-center">Won Qty</th>
+                      {showPricing && <th className="px-4 py-3 text-right">Won Value</th>}
+                      <th className="px-4 py-3 text-center">Lost Qty</th>
+                      <th className="px-4 py-3 text-center">Follow-ups Done</th>
+                      <th className="px-4 py-3 text-center">Action</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                    {rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={colSpan} className="py-8 text-center text-slate-400">
+                          No {getDeptLabel(deptBoard.id)} assignees with performance data.
+                        </td>
+                      </tr>
+                    ) : (
+                      rows.map((sp) => (
+                        <tr
+                          key={sp.user_id}
+                          className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02]"
+                        >
+                          <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">
+                            {sp.name}
+                            <div className="text-[11px] font-normal text-slate-400">
+                              {sp.email}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-center font-bold">{sp.total_leads}</td>
+                          <td className="px-4 py-3 text-center font-semibold text-blue-600 dark:text-blue-400">
+                            {sp.qualified_leads}
+                          </td>
+                          <td className="px-4 py-3 text-center font-semibold text-emerald-600 dark:text-emerald-400">
+                            {sp.won_leads}
+                          </td>
+                          <td className="px-4 py-3 text-center font-semibold text-rose-600 dark:text-rose-400">
+                            {sp.lost_leads}
+                          </td>
+                          <td className="px-4 py-3 text-center font-bold text-slate-900 dark:text-white">
+                            {sp.conversion_rate}%
+                          </td>
+                          <td className="px-4 py-3 text-center font-semibold text-indigo-600 dark:text-indigo-400">
+                            {(sp.pipeline_qty ?? sp.pipeline_quantity ?? 0).toLocaleString()}
+                          </td>
+                          {showPricing && (
+                            <td className="px-4 py-3 text-right font-semibold text-indigo-700 dark:text-indigo-300">
+                              {formatCurrencyINR(sp.pipeline_value)}
+                            </td>
+                          )}
+                          <td className="px-4 py-3 text-center font-bold text-emerald-600 dark:text-emerald-400">
+                            {(sp.won_qty ?? sp.won_quantity ?? 0).toLocaleString()}
+                          </td>
+                          {showPricing && (
+                            <td className="px-4 py-3 text-right font-bold text-emerald-700 dark:text-emerald-300">
+                              {formatCurrencyINR(sp.won_value)}
+                            </td>
+                          )}
+                          <td className="px-4 py-3 text-center font-semibold text-rose-600 dark:text-rose-400">
+                            {(sp.lost_qty ?? sp.lost_quantity ?? 0).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-center font-semibold text-slate-700 dark:text-slate-300">
+                            {sp.completed_followups}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setDetailsExecutive(sp)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/50"
+                            >
+                              <Eye className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                              View Details
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
 
       {/* Source Performance & ROI */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-900">

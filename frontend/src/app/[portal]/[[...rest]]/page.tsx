@@ -48,6 +48,7 @@ import {
   LeadDetailPage,
   LeadFollowUpsPage,
   LeadReportsDashboard,
+  ListQuotationsPage,
 } from "@/components/portal";
 import CreateOrderPage from "@/components/portal/sales/CreateOrderPage";
 import {
@@ -80,6 +81,21 @@ export default function PortalCatchAllPage() {
 
   if (restArr.length === 0) {
     return <PortalOverview portal={portal} />;
+  }
+
+  // ── QUOTATIONS (ADMIN, FINANCE & SUPER_ADMIN PORTALS ONLY) ───────────────
+  if (restArr[0] === "quotations") {
+    if (portal === "admin" || portal === "finance" || portal === "super_admin") {
+      const portalHome = `/${portal}`;
+      const portalLabel = `${portal === "super_admin" ? "Super Admin" : portal.charAt(0).toUpperCase() + portal.slice(1)} Portal`;
+      return <ListQuotationsPage portalHome={portalHome} portalLabel={portalLabel} />;
+    }
+    return (
+      <PortalSectionPlaceholder
+        portal={portal}
+        title="Quotation Master (Admin, Finance & Super Admin Only)"
+      />
+    );
   }
 
   // ── LEADS (UNIVERSAL PORTAL ROUTING) ────────────────────────────────────

@@ -57,6 +57,7 @@ const activityLogSchema = new mongoose.Schema(
         "approved",
         "rejected",
         "assigned",
+        "reassigned",
         "status_changed",
         "flagged",
         "resolved",

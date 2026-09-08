@@ -187,6 +187,85 @@ export type AuthUserLike = {
   permissionCodes?: string[];
 } | null | undefined;
 
+/** Departments that can be assigned leads */
+export const LEAD_ASSIGNABLE_DEPTS = ["sales", "admin", "finance"] as const;
+export type LeadAssignableDept = (typeof LEAD_ASSIGNABLE_DEPTS)[number];
+
+/** Lead field name for a department assignee slot */
+export function assignFieldForDept(
+  dept: string
+): "assigned_sales" | "assigned_admin" | "assigned_finance" | null {
+  if (dept === "sales") return "assigned_sales";
+  if (dept === "admin") return "assigned_admin";
+  if (dept === "finance") return "assigned_finance";
+  return null;
+}
+
+export type LeadAssigneeLike = {
+  _id: string;
+  name: string;
+  email?: string;
+  department?: string;
+} | null | undefined;
+
+/** Compact label for list/detail: "Sales: A · Admin: B · Finance: C" */
+export function formatLeadAssignees(lead: {
+  assigned_sales?: LeadAssigneeLike;
+  assigned_admin?: LeadAssigneeLike;
+  assigned_finance?: LeadAssigneeLike;
+  assigned_to?: LeadAssigneeLike;
+} | null | undefined): string {
+  if (!lead) return "Unassigned";
+  const parts: string[] = [];
+  if (lead.assigned_sales?.name) parts.push(`Sales: ${lead.assigned_sales.name}`);
+  if (lead.assigned_admin?.name) parts.push(`Admin: ${lead.assigned_admin.name}`);
+  if (lead.assigned_finance?.name) parts.push(`Finance: ${lead.assigned_finance.name}`);
+  if (parts.length) return parts.join(" · ");
+  if (lead.assigned_to?.name) return lead.assigned_to.name;
+  return "Unassigned";
+}
+
+/** Returns true if the user is a super_admin */
+export function isSuperAdmin(user: AuthUserLike): boolean {
+  if (!user) return false;
+  return user.department === "super_admin" || user.role === "super_admin";
+}
+
+/** Returns true if the user is in the admin department (but NOT super_admin) */
+export function isAdminDept(user: AuthUserLike): boolean {
+  if (!user) return false;
+  return (user.department === "admin" || user.role === "admin") && !isSuperAdmin(user);
+}
+
+/** Returns true if the user can manage / filter all leads (super_admin only) */
+export function canViewAllLeads(user: AuthUserLike): boolean {
+  return isSuperAdmin(user);
+}
+
+/** Returns the normalized department string for the user */
+export function getUserDepartment(user: AuthUserLike): string {
+  return user?.department || user?.role || "sales";
+}
+
+/** Human-readable label for a department */
+export function getDeptLabel(dept: string): string {
+  switch (dept) {
+    case "sales": return "Sales";
+    case "admin": return "Admin";
+    case "finance": return "Finance";
+    case "super_admin": return "Super Admin";
+    default: return dept.charAt(0).toUpperCase() + dept.slice(1);
+  }
+}
+
+/** Checks if user can assign to a given target department */
+export function canAssignToDept(user: AuthUserLike, targetDept: string): boolean {
+  if (!user) return false;
+  if (isSuperAdmin(user)) return true; // super_admin can assign to any dept
+  // Admin (and sales/finance) only their own dept; admin is further locked to self in UI
+  return getUserDepartment(user) === targetDept;
+}
+
 /**
  * Checks if the user is an administrator or manager for leads.
  */
@@ -239,7 +318,7 @@ export function canScheduleFollowUp(status: LeadStatus | string): boolean {
  * Quotations cannot be created once a lead is Won, Lost, or Converted.
  */
 export function canCreateQuotation(status: LeadStatus | string): boolean {
-  return status !== "won" && status !== "lost" && status !== "converted";
+  return status !== "lost";
 }
 
 /**

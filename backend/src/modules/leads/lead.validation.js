@@ -45,6 +45,9 @@ function assertCreate(body) {
   if (body.assigned_to) {
     assertObjectId(body.assigned_to, 'assigned_to');
   }
+  for (const field of ['assigned_sales', 'assigned_admin', 'assigned_finance']) {
+    if (body[field]) assertObjectId(body[field], field);
+  }
   if (body.party_id) {
     assertObjectId(body.party_id, 'party_id');
   }
@@ -66,6 +69,9 @@ function assertUpdate(body) {
   if (body.assigned_to) {
     assertObjectId(body.assigned_to, 'assigned_to');
   }
+  for (const field of ['assigned_sales', 'assigned_admin', 'assigned_finance']) {
+    if (body[field]) assertObjectId(body[field], field);
+  }
   if (body.party_id) {
     assertObjectId(body.party_id, 'party_id');
   }
@@ -75,10 +81,21 @@ function assertAssign(body) {
   if (!body || typeof body !== 'object') {
     throw new ApiError(400, 'Request body is required');
   }
-  if (!body.assigned_to) {
-    throw new ApiError(400, 'assigned_to user ID is required');
+  const hasLegacy = Boolean(body.assigned_to);
+  const hasSlots =
+    body.assigned_sales !== undefined ||
+    body.assigned_admin !== undefined ||
+    body.assigned_finance !== undefined;
+  if (!hasLegacy && !hasSlots) {
+    throw new ApiError(
+      400,
+      'assigned_to or at least one of assigned_sales, assigned_admin, assigned_finance is required'
+    );
   }
-  assertObjectId(body.assigned_to, 'assigned_to');
+  if (body.assigned_to) assertObjectId(body.assigned_to, 'assigned_to');
+  for (const field of ['assigned_sales', 'assigned_admin', 'assigned_finance']) {
+    if (body[field]) assertObjectId(body[field], field);
+  }
 }
 
 function assertStatusChange(body) {

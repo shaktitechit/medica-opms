@@ -115,6 +115,9 @@ export type LeadRecord = {
   status: LeadStatus;
   priority: LeadPriority;
   assigned_to?: { _id: string; name: string; email: string; phone?: string; department?: string };
+  assigned_sales?: { _id: string; name: string; email: string; phone?: string; department?: string };
+  assigned_admin?: { _id: string; name: string; email: string; phone?: string; department?: string };
+  assigned_finance?: { _id: string; name: string; email: string; phone?: string; department?: string };
   assigned_by?: { _id: string; name: string; email: string };
   assigned_at?: string;
   party_id?: {
@@ -143,9 +146,18 @@ export type LeadRecord = {
 
 export type LeadInputPayload = Omit<
   Partial<LeadRecord>,
-  "assigned_to" | "source_id" | "party_id" | "contact_person_id"
+  | "assigned_to"
+  | "assigned_sales"
+  | "assigned_admin"
+  | "assigned_finance"
+  | "source_id"
+  | "party_id"
+  | "contact_person_id"
 > & {
   assigned_to?: string | { _id: string; name?: string; email?: string; phone?: string; department?: string };
+  assigned_sales?: string | { _id: string; name?: string; email?: string; phone?: string; department?: string };
+  assigned_admin?: string | { _id: string; name?: string; email?: string; phone?: string; department?: string };
+  assigned_finance?: string | { _id: string; name?: string; email?: string; phone?: string; department?: string };
   source_id?: string | { _id: string; name?: string };
   party_id?: string | { _id: string; party_name?: string };
   contact_person_id?: string;
@@ -250,6 +262,7 @@ export type LeadSalesPerformance = {
   user_id: string;
   name: string;
   email: string;
+  department?: string;
   total_leads: number;
   qualified_leads: number;
   quotations: number;
@@ -295,6 +308,7 @@ export type ListLeadsQueryArgs = {
   priority?: string;
   source?: string;
   assigned_to?: string;
+  assigned_dept?: string;
   scope?: string;
   city?: string;
   state?: string;
@@ -405,7 +419,14 @@ export const leadsApi = medicaApi.injectEndpoints({
 
     assignLead: build.mutation<
       LeadRecord,
-      { id: string; assigned_to: string; notes?: string }
+      {
+        id: string;
+        assigned_to?: string;
+        assigned_sales?: string | null;
+        assigned_admin?: string | null;
+        assigned_finance?: string | null;
+        notes?: string;
+      }
     >({
       query: ({ id, ...body }) => ({
         url: `/leads/${id}/assign`,
@@ -635,8 +656,14 @@ export const leadsApi = medicaApi.injectEndpoints({
       providesTags: [{ type: "Lead" as const, id: "SALES_PERFORMANCE" }],
     }),
 
-    getLeadSourcePerformance: build.query<LeadSourcePerformance[], void>({
-      query: () => "/leads/reports/source-performance",
+    getLeadSourcePerformance: build.query<
+      LeadSourcePerformance[],
+      { assigned_to?: string } | void
+    >({
+      query: (params) => ({
+        url: "/leads/reports/source-performance",
+        params: params || undefined,
+      }),
       transformResponse: (res: ApiEnvelope<LeadSourcePerformance[]>) => unwrapEnvelope(res),
       providesTags: [{ type: "Lead" as const, id: "SOURCE_PERFORMANCE" }],
     }),

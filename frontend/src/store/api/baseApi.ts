@@ -57,6 +57,8 @@ export const medicaApi = createApi({
     "LeadMaster",
     "LeadFollowUp",
     "LeadQuotation",
+    "Quotation",
+    "TermsAndConditions",
   ],
   endpoints: () => ({}),
 });

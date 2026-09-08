@@ -45,6 +45,7 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
     { segments: ["leads"], label: "Lead Manager", icon: "UserPlus" },
+    { segments: ["quotations"], label: "Quotation Master", icon: "FileText" },
     {
       segments: ["work-planner"],
       label: "Work Planner",
@@ -113,6 +114,8 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
       ],
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
+    { segments: ["leads"], label: "Lead Manager", icon: "UserPlus" },
+    { segments: ["quotations"], label: "Quotation Master", icon: "FileText" },
     {
       segments: ["work-planner"],
       label: "Work Planner",
@@ -209,6 +212,7 @@ export const PORTAL_NAV: Record<PortalKey, readonly PortalNavLeaf[]> = {
     },
     { segments: ["create-order"], label: "Create Order", icon: "FilePlus" },
     { segments: ["leads"], label: "Lead Manager", icon: "UserPlus" },
+    { segments: ["quotations"], label: "Quotation Master", icon: "FileText" },
     {
       segments: ["work-planner"],
       label: "Work Planner",

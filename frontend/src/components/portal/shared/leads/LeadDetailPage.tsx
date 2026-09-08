@@ -38,6 +38,9 @@ import {
   RotateCcw,
   Trophy,
   Calendar,
+  Check,
+  X,
+  Lock,
 } from "lucide-react";
 import {
   useGetLeadQuery,
@@ -49,6 +52,9 @@ import {
   useListLeadQuotationsQuery,
   useUpdateLeadQuotationMutation,
   useDeleteLeadQuotationMutation,
+  useSubmitLeadQuotationForApprovalMutation,
+  useApproveLeadQuotationMutation,
+  useRejectLeadQuotationMutation,
   type LeadRecord,
   type LeadFollowUpRecord,
   type LeadQuotationRecord,
@@ -59,9 +65,18 @@ import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { FilePreviewModal } from "@/components/portal/shared/FilePreviewModal";
 import {
+  isAssignedSignatory,
+  canViewQuotationPdf,
+  canEmailQuotation,
+  canEditQuotation,
+  canSubmitForApproval,
+  isDraftVisible,
+} from "../quotations/quotationUtils";
+import {
   formatCurrencyINR,
   formatLeadDate,
   formatLeadDateTime,
+  formatLeadAssignees,
   isFollowUpOverdue,
   isFollowUpToday,
   isLeadAdmin,
@@ -147,6 +162,9 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
   const [deleteAttachment] = useDeleteAttachmentMutation();
   const [deleteLeadQuotation, { isLoading: isDeletingQuotation }] = useDeleteLeadQuotationMutation();
   const [updateLeadQuotation, { isLoading: isUpdatingQuotation }] = useUpdateLeadQuotationMutation();
+  const [submitLeadQuotationForApproval, { isLoading: isSubmittingQuotation }] = useSubmitLeadQuotationForApprovalMutation();
+  const [approveLeadQuotation, { isLoading: isApprovingQuotation }] = useApproveLeadQuotationMutation();
+  const [rejectLeadQuotation, { isLoading: isRejectingQuotation }] = useRejectLeadQuotationMutation();
   const [changeStatus, { isLoading: isChangingStatus }] = useChangeLeadStatusMutation();
 
   const handleQuotationStatusChange = async (quotationId: string, newStatus: string) => {
@@ -165,6 +183,41 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
       refetch();
     } catch (err) {
       toast.error(mutationRejectedMessage(err) || "Failed to update quotation status");
+    }
+  };
+
+  const handleSubmitLeadQuotationForApproval = async (quotationId: string, qNo: string) => {
+    try {
+      await submitLeadQuotationForApproval({ quotationId, leadId }).unwrap();
+      toast.success(`Quotation ${qNo} submitted for signatory approval`);
+      refetchQuotations();
+      refetch();
+    } catch (err) {
+      toast.error(mutationRejectedMessage(err) || "Failed to submit quotation for approval");
+    }
+  };
+
+  const handleApproveLeadQuotation = async (quotationId: string, qNo: string) => {
+    try {
+      await approveLeadQuotation({ quotationId, leadId }).unwrap();
+      toast.success(`Quotation ${qNo} approved successfully`);
+      refetchQuotations();
+      refetch();
+    } catch (err) {
+      toast.error(mutationRejectedMessage(err) || "Failed to approve quotation");
+    }
+  };
+
+  const handleRejectLeadQuotation = async (quotationId: string, qNo: string) => {
+    const reason = window.prompt(`Reason for rejecting quotation ${qNo}:`);
+    if (reason === null) return;
+    try {
+      await rejectLeadQuotation({ quotationId, leadId, rejection_reason: reason || "Rejected by signatory" }).unwrap();
+      toast.success(`Quotation ${qNo} rejected`);
+      refetchQuotations();
+      refetch();
+    } catch (err) {
+      toast.error(mutationRejectedMessage(err) || "Failed to reject quotation");
     }
   };
 
@@ -285,10 +338,10 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
                 Source: {lead.source}
               </span>
 
-              {/* Assigned Executive */}
-              <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-800 dark:border-white/10 dark:bg-slate-800/60 dark:text-slate-200">
-                <UserCheck className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                {lead.assigned_to ? lead.assigned_to.name : "Unassigned"}
+              {/* Assigned (multi-dept) */}
+              <span className="inline-flex max-w-md items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-800 dark:border-white/10 dark:bg-slate-800/60 dark:text-slate-200">
+                <UserCheck className="h-3.5 w-3.5 shrink-0 text-blue-600 dark:text-blue-400" />
+                <span className="truncate">{formatLeadAssignees(lead)}</span>
               </span>
             </div>
           </div>
@@ -316,7 +369,7 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
               </button>
             )}
 
-            {isAdmin && !isClosed && (
+            {!isClosed && (
               <button
                 type="button"
                 onClick={() => setAssignOpen(true)}
@@ -419,9 +472,15 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
           {/* Step 2: Assigned */}
           {(() => {
             const hasAssigned =
-              Boolean(lead.assigned_to) ||
+              Boolean(
+                lead.assigned_to ||
+                  lead.assigned_sales ||
+                  lead.assigned_admin ||
+                  lead.assigned_finance
+              ) ||
               ["assigned", "follow_up", "quotation", "won", "converted"].includes(lead.status);
             const isCurrent = lead.status === "assigned";
+            const assigneeLabel = formatLeadAssignees(lead);
             return (
               <div className={`relative flex items-center gap-3 rounded-xl border p-3 transition-all ${
                 isCurrent
@@ -444,8 +503,11 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
                     2. Assigned
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                    {lead.assigned_to?.name ||
-                      (lead.assigned_at ? formatLeadDate(lead.assigned_at) : "Assign executive")}
+                    {assigneeLabel !== "Unassigned"
+                      ? assigneeLabel
+                      : lead.assigned_at
+                        ? formatLeadDate(lead.assigned_at)
+                        : "Assign executive"}
                   </div>
                 </div>
               </div>
@@ -1176,233 +1238,334 @@ export function LeadDetailPage({ leadId, portalHome = "/admin" }: Props) {
                   )}
                 </div>
               ) : (
-                quotations.map((q) => (
-                  <div
-                    key={q._id}
-                    className="flex flex-col gap-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 transition-all hover:border-blue-300 dark:border-white/5 dark:bg-slate-800/40 dark:hover:border-blue-800"
-                  >
-                    {/* Top Row: Ref No, Subject, Status Badge, and Process Stepper */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-white/5 pb-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-extrabold text-blue-700 dark:text-blue-400">
-                          {q.ref_no || q.quotation_no}
-                        </span>
-                        <span className="text-xs text-slate-400">•</span>
-                        <span className="text-xs font-semibold text-slate-900 dark:text-white">
-                          {q.subject || "Medical Equipment Quotation"}
-                        </span>
-                        <span
-                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${
-                            q.status === "accepted"
-                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300/60"
-                              : q.status === "sent"
-                              ? "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300/60"
-                              : q.status === "rejected"
-                              ? "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300/60"
-                              : "bg-slate-200/70 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300"
-                          }`}
-                        >
-                          {q.status}
-                        </span>
-                      </div>
+                quotations
+                  .filter((q) => isDraftVisible(authUser, q as unknown as any))
+                  .map((q) => {
+                  const isSignatory = isAssignedSignatory(authUser, q);
+                  const canViewPdf = canViewQuotationPdf(authUser, q);
+                  const canEmail = canEmailQuotation(q);
+                  const canEdit = canEditQuotation(authUser, q);
+                  const isPending = q.approval_status === "pending_approval" || q.status === "pending_approval";
+                  const isApproved = q.approval_status === "approved" || q.status === "approved";
+                  const canSubmit = canSubmitForApproval(authUser, q as unknown as any);
 
-                      {/* Process Stage Stepper */}
-                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                        <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md ${q.status ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 font-bold" : ""}`}>
-                          1. Draft
-                        </span>
-                        <span>→</span>
-                        <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md ${["sent", "accepted", "rejected"].includes(q.status) ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 font-bold" : "opacity-60"}`}>
-                          2. Sent
-                        </span>
-                        <span>→</span>
-                        <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md ${q.status === "accepted" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold" : q.status === "rejected" ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-bold" : "opacity-60"}`}>
-                          3. Decision {q.status === "accepted" ? "✓" : q.status === "rejected" ? "✗" : ""}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Middle Row: Quotation Specs & Totals */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-                        <span>
-                          Date: <strong>{formatLeadDate(q.quotation_date)}</strong>
-                        </span>
-                        {q.validity_days && (
-                          <span>
-                            Validity: <strong>{q.validity_days} Days</strong>
+                  return (
+                    <div
+                      key={q._id}
+                      className="flex flex-col gap-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 transition-all hover:border-blue-300 dark:border-white/5 dark:bg-slate-800/40 dark:hover:border-blue-800"
+                    >
+                      {/* Top Row: Ref No, Subject, Status Badge, and Process Stepper */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-white/5 pb-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-extrabold text-blue-700 dark:text-blue-400">
+                            {q.ref_no || q.quotation_no}
                           </span>
-                        )}
-                        <span>
-                          Items: <strong>{q.items?.length || 0}</strong>
-                        </span>
-                        <span>
-                          Customer: <strong>{q.customer_name}</strong>
-                        </span>
+                          <span className="text-xs text-slate-400">•</span>
+                          <span className="text-xs font-semibold text-slate-900 dark:text-white">
+                            {q.subject || "Medical Equipment Quotation"}
+                          </span>
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide flex items-center gap-1 ${
+                              isPending
+                                ? "bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300/60"
+                                : isApproved
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300/60"
+                                : q.status === "accepted"
+                                ? "bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-300 border border-teal-300/60"
+                                : q.status === "sent"
+                                ? "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300/60"
+                                : q.status === "rejected"
+                                ? "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300/60"
+                                : "bg-slate-200/70 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300"
+                            }`}
+                          >
+                            {isPending && <Clock className="h-3 w-3" />}
+                            {isPending ? "Pending Approval" : isApproved ? "Approved" : q.status}
+                          </span>
+                        </div>
+
+                        {/* Process Stage Stepper */}
+                        <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                          <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md ${q.status ? "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200 font-bold" : ""}`}>
+                            1. Draft
+                          </span>
+                          <span>→</span>
+                          <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md ${isPending ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold animate-pulse" : isApproved || ["sent", "accepted", "rejected"].includes(q.status) ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold" : "opacity-60"}`}>
+                            2. Approval {isApproved ? "✓" : ""}
+                          </span>
+                          <span>→</span>
+                          <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md ${["sent", "accepted", "rejected"].includes(q.status) ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 font-bold" : "opacity-60"}`}>
+                            3. Sent
+                          </span>
+                          <span>→</span>
+                          <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md ${q.status === "accepted" ? "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 font-bold" : q.status === "rejected" ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-bold" : "opacity-60"}`}>
+                            4. Decision {q.status === "accepted" ? "✓" : q.status === "rejected" ? "✗" : ""}
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="text-xs text-slate-700 dark:text-slate-300">
-                        Grand Total: <strong className="text-sm font-extrabold text-slate-900 dark:text-white">{formatCurrencyINR(q.grand_total)}</strong>
-                        <span className="text-[11px] text-slate-400 ml-1.5">(incl. {formatCurrencyINR(q.total_gst)} GST)</span>
-                      </div>
-                    </div>
+                      {/* Middle Row: Quotation Specs & Signatory Info */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          <span>
+                            Date: <strong>{formatLeadDate(q.quotation_date)}</strong>
+                          </span>
+                          {q.validity_days && (
+                            <span>
+                              Validity: <strong>{q.validity_days} Days</strong>
+                            </span>
+                          )}
+                          <span>
+                            Items: <strong>{q.items?.length || 0}</strong>
+                          </span>
+                          <span>
+                            Signatory: <strong>{q.signatory_name || "Signatory"}</strong>
+                          </span>
+                        </div>
 
-                    {/* Bottom Row: Process Actions Bar */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-white/5">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {canManageQuotations(authUser, portalHome) && (
-                          <>
-                            {/* Process Action Buttons */}
-                            {q.status === "draft" && (
+                        <div className="text-xs text-slate-700 dark:text-slate-300">
+                          Grand Total: <strong className="text-sm font-extrabold text-slate-900 dark:text-white">{formatCurrencyINR(q.grand_total)}</strong>
+                          <span className="text-[11px] text-slate-400 ml-1.5">(incl. {formatCurrencyINR(q.total_gst)} GST)</span>
+                        </div>
+                      </div>
+
+                      {/* Bottom Row: Process Actions Bar */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-white/5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {/* Signatory Approval Buttons */}
+                          {isPending && isSignatory && (
+                            <div className="flex items-center gap-1.5 bg-amber-50 dark:bg-amber-950/40 p-1 rounded-xl border border-amber-200/80 dark:border-amber-900/40">
+                              <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 px-1">
+                                Signatory Action:
+                              </span>
                               <button
                                 type="button"
-                                onClick={() => setEmailingQuotation(q)}
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer"
-                                title="Email quotation directly to client"
+                                disabled={isApprovingQuotation || isRejectingQuotation}
+                                onClick={() => handleApproveLeadQuotation(q._id, q.ref_no || q.quotation_no)}
+                                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 cursor-pointer disabled:opacity-50"
                               >
-                                <Mail className="h-3.5 w-3.5" />
-                                Email Quotation
+                                <Check className="h-3.5 w-3.5" /> Approve
                               </button>
-                            )}
+                              <button
+                                type="button"
+                                disabled={isApprovingQuotation || isRejectingQuotation}
+                                onClick={() => handleRejectLeadQuotation(q._id, q.ref_no || q.quotation_no)}
+                                className="inline-flex items-center gap-1 rounded-lg bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-200 dark:bg-rose-950 dark:text-rose-300 cursor-pointer disabled:opacity-50"
+                              >
+                                <X className="h-3.5 w-3.5" /> Reject
+                              </button>
+                            </div>
+                          )}
 
-                            {q.status === "sent" && (
-                              <>
+                          {canManageQuotations(authUser, portalHome) && (
+                            <>
+                              {/* Process Action Buttons */}
+                              {canSubmit && (
+                                <button
+                                  type="button"
+                                  disabled={isSubmittingQuotation}
+                                  onClick={() => handleSubmitLeadQuotationForApproval(q._id, q.ref_no || q.quotation_no)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer disabled:opacity-50"
+                                  title="Submit quotation for signatory approval"
+                                >
+                                  <Send className="h-3.5 w-3.5" />
+                                  Send for Approval
+                                </button>
+                              )}
+
+                              {q.status === "approved" && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!canEmail) {
+                                      toast.warning("Quotation must be approved by assigned signatory before sending email.");
+                                      return;
+                                    }
+                                    setEmailingQuotation(q);
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition cursor-pointer ${
+                                    canEmail
+                                      ? "bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+                                      : "bg-slate-400 hover:bg-slate-500 opacity-60"
+                                  }`}
+                                  title={canEmail ? "Email quotation directly to client" : "Email workflow locked until assigned signatory approves"}
+                                >
+                                  {canEmail ? <Mail className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                                  Email Quotation
+                                </button>
+                              )}
+
+                              {q.status === "sent" && (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={isUpdatingQuotation || quotationLocked}
+                                    onClick={() => handleQuotationStatusChange(q._id, "accepted")}
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-400 cursor-pointer"
+                                    title={quotationLocked ? "Quotation status is locked after conversion" : "Customer accepted this proposal"}
+                                  >
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                    Accept Proposal
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isUpdatingQuotation || quotationLocked}
+                                    onClick={() => handleQuotationStatusChange(q._id, "rejected")}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-600 shadow-xs hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900/40 dark:bg-slate-800 dark:text-rose-400 cursor-pointer"
+                                    title={quotationLocked ? "Quotation status is locked after conversion" : "Customer rejected this proposal"}
+                                  >
+                                    <XCircle className="h-3.5 w-3.5" />
+                                    Reject
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!canEmail) {
+                                        if (q.status === "accepted" || q.status === "rejected" || q.status === "expired") {
+                                          toast.warning(`Email cannot be sent because this quotation is ${q.status}.`);
+                                        } else {
+                                          toast.warning("Quotation must be approved by assigned signatory before sending email.");
+                                        }
+                                        return;
+                                      }
+                                      setEmailingQuotation(q);
+                                    }}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-300 cursor-pointer"
+                                    title="Resend email to client"
+                                  >
+                                    <Mail className="h-3.5 w-3.5 text-slate-500" />
+                                    Resend Email
+                                  </button>
+                                </>
+                              )}
+
+                              {q.status === "accepted" && (
+                                <button
+                                  type="button"
+                                  disabled={quotationLocked}
+                                  onClick={() => {
+                                    if (quotationLocked) return;
+                                    setConvertQuotationId(q._id);
+                                    setConvertOpen(true);
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold shadow-xs transition ${
+                                    quotationLocked
+                                      ? "cursor-not-allowed bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-500"
+                                      : "cursor-pointer bg-teal-600 text-white hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400"
+                                  }`}
+                                  title={
+                                    quotationLocked
+                                      ? "This lead is already converted to an order"
+                                      : "Convert accepted proposal to formal customer order"
+                                  }
+                                >
+                                  <ShoppingCart className="h-3.5 w-3.5" />
+                                  {quotationLocked ? "Order Converted" : "Convert to Order"}
+                                </button>
+                              )}
+
+                              {q.status === "rejected" && (
                                 <button
                                   type="button"
                                   disabled={isUpdatingQuotation || quotationLocked}
-                                  onClick={() => handleQuotationStatusChange(q._id, "accepted")}
-                                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-400 cursor-pointer"
-                                  title={quotationLocked ? "Quotation status is locked after conversion" : "Customer accepted this proposal"}
+                                  onClick={() => handleQuotationStatusChange(q._id, "draft")}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
+                                  title={quotationLocked ? "Quotation status is locked after conversion" : "Reopen quotation as draft for revisions"}
                                 >
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                  Accept Proposal
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                  Reopen as Draft
                                 </button>
-                                <button
-                                  type="button"
-                                  disabled={isUpdatingQuotation || quotationLocked}
-                                  onClick={() => handleQuotationStatusChange(q._id, "rejected")}
-                                  className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-600 shadow-xs hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900/40 dark:bg-slate-800 dark:text-rose-400 cursor-pointer"
-                                  title={quotationLocked ? "Quotation status is locked after conversion" : "Customer rejected this proposal"}
-                                >
-                                  <XCircle className="h-3.5 w-3.5" />
-                                  Reject
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEmailingQuotation(q)}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-300 cursor-pointer"
-                                  title="Resend email to client"
-                                >
-                                  <Mail className="h-3.5 w-3.5 text-slate-500" />
-                                  Resend Email
-                                </button>
-                              </>
-                            )}
+                              )}
 
-                            {q.status === "accepted" && (
-                              <button
-                                type="button"
-                                disabled={quotationLocked}
-                                onClick={() => {
-                                  if (quotationLocked) return;
-                                  setConvertQuotationId(q._id);
-                                  setConvertOpen(true);
-                                }}
-                                className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold shadow-xs transition ${
-                                  quotationLocked
-                                    ? "cursor-not-allowed bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-500"
-                                    : "cursor-pointer bg-teal-600 text-white hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-400"
-                                }`}
-                                title={
-                                  quotationLocked
-                                    ? "This lead is already converted to an order"
-                                    : "Convert accepted proposal to formal customer order"
-                                }
-                              >
-                                <ShoppingCart className="h-3.5 w-3.5" />
-                                {quotationLocked ? "Order Converted" : "Convert to Order"}
-                              </button>
-                            )}
-
-                            {q.status === "rejected" && (
-                              <button
-                                type="button"
+                              {/* Direct Status Selector */}
+                              <select
+                                value={q.status}
                                 disabled={isUpdatingQuotation || quotationLocked}
-                                onClick={() => handleQuotationStatusChange(q._id, "draft")}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
-                                title={quotationLocked ? "Quotation status is locked after conversion" : "Reopen quotation as draft for revisions"}
+                                onChange={(e) => handleQuotationStatusChange(q._id, e.target.value)}
+                                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                title={quotationLocked ? "Quotation status is locked after conversion" : "Change quotation workflow stage"}
                               >
-                                <RotateCcw className="h-3.5 w-3.5" />
-                                Reopen as Draft
+                                <option value="pending_approval">Status: Pending Approval</option>
+                                <option value="approved">Status: Approved</option>
+                                <option value="draft">Status: Draft</option>
+                                <option value="sent">Status: Sent</option>
+                                <option value="accepted">Status: Accepted</option>
+                                <option value="rejected">Status: Rejected</option>
+                                <option value="expired">Status: Expired</option>
+                              </select>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Tool Actions: View, Edit, Delete */}
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!canViewPdf) {
+                                toast.warning("PDF preview is locked for non-signatories until approved.");
+                                return;
+                              }
+                              setViewingQuotation(q);
+                            }}
+                            className={`inline-flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-semibold shadow-sm transition cursor-pointer ${
+                              canViewPdf
+                                ? "bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+                                : "bg-amber-500 text-white hover:bg-amber-600"
+                            }`}
+                            title={canViewPdf ? "View Letterhead Preview & Print" : "PDF view restricted until assigned signatory approves"}
+                          >
+                            {canViewPdf ? <Eye className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                            {canViewPdf ? "View / Print" : "PDF Locked"}
+                          </button>
+
+                          {canManageQuotations(authUser, portalHome) && !quotationLocked && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!canEdit) {
+                                    toast.warning("Approved quotations can only be edited by the assigned signatory.");
+                                    return;
+                                  }
+                                  setEditingQuotation(q);
+                                }}
+                                className={`rounded-xl border border-slate-200 bg-white p-1.5 transition cursor-pointer dark:border-white/10 dark:bg-slate-800 ${
+                                  canEdit
+                                    ? "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+                                    : "text-slate-300 dark:text-slate-600 opacity-50"
+                                }`}
+                                title={canEdit ? "Edit Quotation" : "Only the assigned signatory can edit approved quotations"}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
                               </button>
-                            )}
 
-                            {/* Direct Status Selector */}
-                            <select
-                              value={q.status}
-                              disabled={isUpdatingQuotation || quotationLocked}
-                              onChange={(e) => handleQuotationStatusChange(q._id, e.target.value)}
-                              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
-                              title={quotationLocked ? "Quotation status is locked after conversion" : "Change quotation workflow stage"}
-                            >
-                              <option value="draft">Status: Draft</option>
-                              <option value="sent">Status: Sent</option>
-                              <option value="accepted">Status: Accepted</option>
-                              <option value="rejected">Status: Rejected</option>
-                              <option value="expired">Status: Expired</option>
-                            </select>
-                          </>
-                        )}
-                      </div>
-
-                      {/* Tool Actions: View, Edit, Delete */}
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setViewingQuotation(q)}
-                          className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 cursor-pointer"
-                          title="View Letterhead Preview & Print"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          View / Print
-                        </button>
-
-                        {canManageQuotations(authUser, portalHome) && !quotationLocked && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => setEditingQuotation(q)}
-                              className="rounded-xl border border-slate-200 bg-white p-1.5 text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 cursor-pointer"
-                              title="Edit Quotation"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-
-                            <button
-                              type="button"
-                              disabled={isDeletingQuotation}
-                              onClick={async () => {
-                                if (!window.confirm(`Delete quotation ${q.ref_no || q.quotation_no}?`)) return;
-                                try {
-                                  await deleteLeadQuotation({ quotationId: q._id, leadId }).unwrap();
-                                  toast.success("Quotation deleted successfully");
-                                  refetchQuotations();
-                                  refetch();
-                                } catch (err) {
-                                  toast.error(mutationRejectedMessage(err) || "Failed to delete quotation");
-                                }
-                              }}
-                              className="rounded-xl border border-slate-200 bg-white p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:bg-slate-800 dark:hover:bg-rose-950/40 cursor-pointer disabled:opacity-50"
-                              title="Delete Quotation"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </>
-                        )}
+                              <button
+                                type="button"
+                                disabled={isDeletingQuotation}
+                                onClick={async () => {
+                                  if (!window.confirm(`Delete quotation ${q.ref_no || q.quotation_no}?`)) return;
+                                  try {
+                                    await deleteLeadQuotation({ quotationId: q._id, leadId }).unwrap();
+                                    toast.success("Quotation deleted successfully");
+                                    refetchQuotations();
+                                    refetch();
+                                  } catch (err) {
+                                    toast.error(mutationRejectedMessage(err) || "Failed to delete quotation");
+                                  }
+                                }}
+                                className="rounded-xl border border-slate-200 bg-white p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 dark:border-white/10 dark:bg-slate-800 dark:hover:bg-rose-950/40 cursor-pointer disabled:opacity-50"
+                                title="Delete Quotation"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

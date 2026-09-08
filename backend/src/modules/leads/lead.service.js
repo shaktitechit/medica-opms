@@ -19,6 +19,9 @@ const { ALLOWED_STATUS_TRANSITIONS } = require('./lead.constants');
 
 const LEAD_POPULATE = [
   { path: 'assigned_to', select: 'name email phone department' },
+  { path: 'assigned_sales', select: 'name email phone department' },
+  { path: 'assigned_admin', select: 'name email phone department' },
+  { path: 'assigned_finance', select: 'name email phone department' },
   { path: 'assigned_by', select: 'name email department' },
   { path: 'created_by', select: 'name email department' },
   { path: 'updated_by', select: 'name email department' },
@@ -29,6 +32,39 @@ const LEAD_POPULATE = [
   { path: 'conversion.order_id', select: 'order_no grand_total status lifecycle_status' },
   { path: 'products.product', select: 'product_name sku base_price unit' },
 ];
+
+/** Maps department → lead assignee field (sales/admin/finance can coexist). */
+const DEPT_ASSIGN_FIELD = {
+  sales: 'assigned_sales',
+  admin: 'assigned_admin',
+  finance: 'assigned_finance',
+};
+
+function refId(value) {
+  if (!value) return null;
+  if (typeof value === 'object' && value._id) return String(value._id);
+  return String(value);
+}
+
+function assignFieldForDept(department) {
+  return DEPT_ASSIGN_FIELD[department] || null;
+}
+
+/** True if user is any dept assignee or legacy assigned_to. */
+function userIsLeadAssignee(lead, userId) {
+  const uid = String(userId);
+  return (
+    refId(lead.assigned_to) === uid ||
+    refId(lead.assigned_sales) === uid ||
+    refId(lead.assigned_admin) === uid ||
+    refId(lead.assigned_finance) === uid
+  );
+}
+
+/** Prefer sales → admin → finance → legacy assigned_to for primary display sync. */
+function primaryAssigneeFromDeptSlots(lead) {
+  return lead.assigned_sales || lead.assigned_admin || lead.assigned_finance || lead.assigned_to || undefined;
+}
 
 /**
  * Checks whether user has permission to manage all leads or is restricted to their assigned leads.
@@ -42,6 +78,18 @@ function isLeadManager(user) {
     user.department === 'admin' ||
     user.department === 'super_admin'
   );
+}
+
+function isSuperAdminUser(user) {
+  if (!user) return false;
+  return user.department === 'super_admin' || user.role === 'super_admin';
+}
+
+/** Visibility: only the assigned person (any dept slot) or super_admin. */
+function assertCanAccessLead(lead, user, action = 'view') {
+  if (isSuperAdminUser(user)) return;
+  if (userIsLeadAssignee(lead, user._id)) return;
+  throw new ApiError(403, `You do not have permission to ${action} this lead`);
 }
 
 /**
@@ -110,39 +158,83 @@ async function checkDuplicates({ phone, email, company_name } = {}) {
  * List leads with server-side pagination, filters and sorting.
  */
 async function list(query = {}, user) {
-  const { Lead } = getModels();
+  const { Lead, User } = getModels();
   const andConditions = [{ deletedAt: null }];
 
-  const canManageAll = isLeadManager(user);
+  const isSuperAdmin = isSuperAdminUser(user);
 
-  // Scoping for sales users vs managers
-  if (!canManageAll) {
-    const userObjectId = mongoose.Types.ObjectId.isValid(user._id)
-      ? new mongoose.Types.ObjectId(user._id)
-      : user._id;
+  const userObjectId = mongoose.Types.ObjectId.isValid(user._id)
+    ? new mongoose.Types.ObjectId(user._id)
+    : user._id;
 
-    if (query.scope === 'unassigned') {
-      andConditions.push({ assigned_to: null });
-    } else {
+  if (isSuperAdmin) {
+    // Super admin sees ALL leads. Optionally filter by dept or specific user.
+    if (query.assigned_dept && query.assigned_dept !== 'all') {
+      const deptField = assignFieldForDept(query.assigned_dept);
+      const deptUsers = await User.find({
+        department: query.assigned_dept,
+        deletedAt: null,
+      })
+        .select('_id')
+        .lean();
+      const deptUserIds = deptUsers.map((u) => u._id);
+      if (deptField) {
+        andConditions.push({
+          $or: [
+            { [deptField]: { $in: deptUserIds } },
+            { assigned_to: { $in: deptUserIds } },
+          ],
+        });
+      } else {
+        andConditions.push({ assigned_to: { $in: deptUserIds } });
+      }
+    } else if (query.assigned_to) {
+      if (query.assigned_to === 'unassigned') {
+        andConditions.push({
+          assigned_to: null,
+          assigned_sales: null,
+          assigned_admin: null,
+          assigned_finance: null,
+        });
+      } else {
+        const assignedObjId = mongoose.Types.ObjectId.isValid(query.assigned_to)
+          ? new mongoose.Types.ObjectId(query.assigned_to)
+          : query.assigned_to;
+        andConditions.push({
+          $or: [
+            { assigned_to: assignedObjId },
+            { assigned_to: String(query.assigned_to) },
+            { assigned_sales: assignedObjId },
+            { assigned_admin: assignedObjId },
+            { assigned_finance: assignedObjId },
+          ],
+        });
+      }
+    }
+  } else {
+    // Sales / Admin / Finance: only leads assigned to THIS user (not peers).
+    const deptField = assignFieldForDept(user.department);
+    const selfMatch = [
+      { assigned_sales: userObjectId },
+      { assigned_sales: String(user._id) },
+      { assigned_admin: userObjectId },
+      { assigned_admin: String(user._id) },
+      { assigned_finance: userObjectId },
+      { assigned_finance: String(user._id) },
+      { assigned_to: userObjectId },
+      { assigned_to: String(user._id) },
+    ];
+    // Prefer own dept slot when present, but still match if assigned on any slot
+    if (deptField) {
       andConditions.push({
         $or: [
-          { assigned_to: userObjectId },
-          { assigned_to: String(user._id) },
-          { created_by: userObjectId },
-          { created_by: String(user._id) },
+          { [deptField]: userObjectId },
+          { [deptField]: String(user._id) },
+          ...selfMatch,
         ],
       });
-    }
-  } else if (query.assigned_to) {
-    if (query.assigned_to === 'unassigned') {
-      andConditions.push({ assigned_to: null });
     } else {
-      const assignedObjId = mongoose.Types.ObjectId.isValid(query.assigned_to)
-        ? new mongoose.Types.ObjectId(query.assigned_to)
-        : query.assigned_to;
-      andConditions.push({
-        $or: [{ assigned_to: assignedObjId }, { assigned_to: String(query.assigned_to) }],
-      });
+      andConditions.push({ $or: selfMatch });
     }
   }
 
@@ -270,13 +362,7 @@ async function get(id, user) {
   const row = await Lead.findOne({ _id: id, deletedAt: null }).populate(LEAD_POPULATE).lean();
   if (!row) throw new ApiError(404, 'Lead not found');
 
-  if (!isLeadManager(user)) {
-    const assignedId = row.assigned_to?._id ? String(row.assigned_to._id) : (row.assigned_to ? String(row.assigned_to) : null);
-    const createdById = row.created_by?._id ? String(row.created_by._id) : (row.created_by ? String(row.created_by) : null);
-    if (assignedId && assignedId !== String(user._id) && createdById !== String(user._id)) {
-      throw new ApiError(403, 'You do not have permission to view this lead');
-    }
-  }
+  assertCanAccessLead(row, user, 'view');
 
   return toPlain(row);
 }
@@ -285,11 +371,31 @@ async function get(id, user) {
  * Create a new lead.
  */
 async function create(body, user) {
-  const { Lead } = getModels();
+  const { Lead, User } = getModels();
 
-  const assigned_to = isLeadManager(user)
-    ? (body.assigned_to || undefined)
-    : user._id;
+  const isSuperAdmin = user.department === 'super_admin' || user.role === 'super_admin';
+
+  let assigned_sales = body.assigned_sales || undefined;
+  let assigned_admin = body.assigned_admin || undefined;
+  let assigned_finance = body.assigned_finance || undefined;
+
+  // Non–super-admin: lock own dept slot to self (other slots untouched / ignored).
+  if (!isSuperAdmin) {
+    const field = assignFieldForDept(user.department);
+    if (field === 'assigned_sales') assigned_sales = user._id;
+    if (field === 'assigned_admin') assigned_admin = user._id;
+    if (field === 'assigned_finance') assigned_finance = user._id;
+  } else if (body.assigned_to && !assigned_sales && !assigned_admin && !assigned_finance) {
+    // Legacy single assigned_to from SA form → route into dept slot
+    const target = await User.findById(body.assigned_to).select('department').lean();
+    const field = target ? assignFieldForDept(target.department) : null;
+    if (field === 'assigned_sales') assigned_sales = body.assigned_to;
+    else if (field === 'assigned_admin') assigned_admin = body.assigned_to;
+    else if (field === 'assigned_finance') assigned_finance = body.assigned_to;
+  }
+
+  const assigned_to =
+    assigned_sales || assigned_admin || assigned_finance || body.assigned_to || undefined;
   const status = body.status || (assigned_to ? 'assigned' : 'new');
   const assigned_at = assigned_to ? new Date() : undefined;
   const assigned_by = assigned_to ? user._id : undefined;
@@ -320,6 +426,9 @@ async function create(body, user) {
         status,
         priority: body.priority || 'medium',
         assigned_to,
+        assigned_sales,
+        assigned_admin,
+        assigned_finance,
         assigned_by,
         assigned_at,
         party_id: body.party_id || undefined,
@@ -352,9 +461,14 @@ async function create(body, user) {
     new_value: plain,
   });
 
-  // Notify assigned sales user if assigned immediately
-  if (plain.assigned_to && String(plain.assigned_to) !== String(user._id)) {
-    await notificationService.createForUser(plain.assigned_to, {
+  // Notify newly assigned users (other than creator)
+  const notifyIds = [assigned_sales, assigned_admin, assigned_finance]
+    .filter(Boolean)
+    .map(String)
+    .filter((id, idx, arr) => arr.indexOf(id) === idx && id !== String(user._id));
+
+  for (const uid of notifyIds) {
+    await notificationService.createForUser(uid, {
       title: 'New Lead Assigned',
       message: `You have been assigned Lead #${plain.lead_no} (${plain.name} - ${plain.company_name || 'Individual'})`,
       type: 'info',
@@ -375,15 +489,11 @@ async function update(id, body, user) {
   const lead = await Lead.findOne({ _id: id, deletedAt: null });
   if (!lead) throw new ApiError(404, 'Lead not found');
 
-  if (!isLeadManager(user)) {
+  if (!isSuperAdminUser(user)) {
     if (['won', 'lost', 'converted'].includes(lead.status)) {
       throw new ApiError(400, 'Cannot edit a closed (won/lost/converted) lead');
     }
-    const assignedId = lead.assigned_to ? String(lead.assigned_to) : null;
-    const createdById = lead.created_by ? String(lead.created_by) : null;
-    if (assignedId && assignedId !== String(user._id) && createdById !== String(user._id)) {
-      throw new ApiError(403, 'You do not have permission to update this lead');
-    }
+    assertCanAccessLead(lead, user, 'update');
   }
 
   const allowedUpdates = [
@@ -404,6 +514,9 @@ async function update(id, body, user) {
     'priority',
     'status',
     'assigned_to',
+    'assigned_sales',
+    'assigned_admin',
+    'assigned_finance',
     'lost_info',
     'next_follow_up_at',
     'party_id',
@@ -418,6 +531,15 @@ async function update(id, body, user) {
     if (body[field] !== undefined) {
       lead[field] = body[field];
     }
+  }
+
+  // Keep primary assigned_to in sync with dept slots when those change
+  if (
+    body.assigned_sales !== undefined ||
+    body.assigned_admin !== undefined ||
+    body.assigned_finance !== undefined
+  ) {
+    lead.assigned_to = primaryAssigneeFromDeptSlots(lead);
   }
 
   lead.updated_by = user._id;
@@ -440,22 +562,102 @@ async function update(id, body, user) {
 }
 
 /**
- * Assign or reassign lead to a sales user.
+ * Assign or reassign lead to sales / admin / finance slots (can coexist).
+ * Accepts either:
+ * - { assigned_to } — routes into the target user's department slot
+ * - { assigned_sales?, assigned_admin?, assigned_finance? } — set specific slots
  */
-async function assign(id, { assigned_to, notes }, user) {
+async function assign(id, body, user) {
   const { Lead, User } = getModels();
   const lead = await Lead.findOne({ _id: id, deletedAt: null });
   if (!lead) throw new ApiError(404, 'Lead not found');
 
-  if (!isLeadManager(user)) {
-    throw new ApiError(403, 'Only managers and administrators can assign/reassign leads');
+  const notes = body?.notes;
+  const isSuperAdmin = user.department === 'super_admin' || user.role === 'super_admin';
+
+  const updates = {};
+
+  // Build intended slot updates
+  if (body.assigned_sales !== undefined) updates.assigned_sales = body.assigned_sales || null;
+  if (body.assigned_admin !== undefined) updates.assigned_admin = body.assigned_admin || null;
+  if (body.assigned_finance !== undefined) updates.assigned_finance = body.assigned_finance || null;
+
+  if (body.assigned_to) {
+    const targetUser = await User.findById(body.assigned_to).lean();
+    if (!targetUser) throw new ApiError(404, 'Target user not found');
+
+    if (!isSuperAdmin) {
+      // Non–SA: may only assign self into own dept slot
+      if (String(body.assigned_to) !== String(user._id)) {
+        throw new ApiError(403, 'You can only assign leads to yourself');
+      }
+      const field = assignFieldForDept(user.department);
+      if (!field) {
+        throw new ApiError(400, 'Your department cannot be assigned leads');
+      }
+      updates[field] = user._id;
+    } else {
+      const field = assignFieldForDept(targetUser.department);
+      if (!field) {
+        if (targetUser.department === 'super_admin') {
+          // Map SA self-assign into admin slot as fallback
+          updates.assigned_admin = body.assigned_to;
+        } else {
+          throw new ApiError(
+            400,
+            `Cannot assign leads to users in the '${targetUser.department}' department`
+          );
+        }
+      } else {
+        updates[field] = body.assigned_to;
+      }
+    }
   }
 
-  const targetUser = await User.findById(assigned_to).lean();
-  if (!targetUser) throw new ApiError(404, 'Target sales user not found');
+  if (Object.keys(updates).length === 0) {
+    throw new ApiError(
+      400,
+      'Provide assigned_to or at least one of assigned_sales, assigned_admin, assigned_finance'
+    );
+  }
 
-  const oldAssignee = lead.assigned_to;
-  lead.assigned_to = assigned_to;
+  // Validate each target user + authz (only super_admin may edit any slot)
+  for (const [field, userId] of Object.entries(updates)) {
+    if (!userId) continue;
+    const targetUser = await User.findById(userId).lean();
+    if (!targetUser) throw new ApiError(404, `Target user not found for ${field}`);
+
+    const expectedDept = Object.entries(DEPT_ASSIGN_FIELD).find(([, f]) => f === field)?.[0];
+    if (expectedDept && targetUser.department !== expectedDept && targetUser.department !== 'super_admin') {
+      throw new ApiError(
+        400,
+        `${field} must be a user in the '${expectedDept}' department`
+      );
+    }
+
+    if (!isSuperAdmin) {
+      if (String(userId) !== String(user._id)) {
+        throw new ApiError(403, 'You can only assign leads to yourself');
+      }
+      const ownField = assignFieldForDept(user.department);
+      if (field !== ownField) {
+        throw new ApiError(403, `You can only update the ${ownField} assignment`);
+      }
+    }
+  }
+
+  const oldSlots = {
+    assigned_sales: lead.assigned_sales,
+    assigned_admin: lead.assigned_admin,
+    assigned_finance: lead.assigned_finance,
+    assigned_to: lead.assigned_to,
+  };
+
+  for (const [field, userId] of Object.entries(updates)) {
+    lead[field] = userId;
+  }
+
+  lead.assigned_to = primaryAssigneeFromDeptSlots(lead);
   lead.assigned_by = user._id;
   lead.assigned_at = new Date();
   lead.last_activity_at = new Date();
@@ -467,11 +669,16 @@ async function assign(id, { assigned_to, notes }, user) {
 
   await lead.save();
 
-  const isReassignment = Boolean(oldAssignee && String(oldAssignee) !== String(assigned_to));
+  const changedSlots = Object.keys(updates);
+  const isReassignment = changedSlots.some((field) => {
+    const prev = oldSlots[field];
+    return prev && String(prev) !== String(updates[field]);
+  });
   const actionName = isReassignment ? 'reassigned' : 'assigned';
-  const actionMsg = isReassignment
-    ? `Lead #${lead.lead_no} reassigned to ${targetUser.name}`
-    : `Lead #${lead.lead_no} assigned to ${targetUser.name}`;
+  const slotLabels = changedSlots
+    .map((f) => f.replace('assigned_', ''))
+    .join(', ');
+  const actionMsg = `Lead #${lead.lead_no} ${actionName} (${slotLabels})`;
 
   await activityService.create({
     actor: user._id,
@@ -479,13 +686,23 @@ async function assign(id, { assigned_to, notes }, user) {
     entity_id: lead._id,
     action: actionName,
     message: notes ? `${actionMsg}. Note: ${notes}` : actionMsg,
-    old_value: { assigned_to: oldAssignee },
-    new_value: { assigned_to },
+    old_value: oldSlots,
+    new_value: {
+      assigned_sales: lead.assigned_sales,
+      assigned_admin: lead.assigned_admin,
+      assigned_finance: lead.assigned_finance,
+      assigned_to: lead.assigned_to,
+    },
   });
 
-  // Notify new assignee
-  if (String(assigned_to) !== String(user._id)) {
-    await notificationService.createForUser(assigned_to, {
+  // Notify newly set assignees (excluding actor)
+  const notifyIds = Object.values(updates)
+    .filter(Boolean)
+    .map(String)
+    .filter((uid, idx, arr) => arr.indexOf(uid) === idx && uid !== String(user._id));
+
+  for (const uid of notifyIds) {
+    await notificationService.createForUser(uid, {
       title: isReassignment ? 'Lead Reassigned to You' : 'New Lead Assigned',
       message: `Lead #${lead.lead_no} (${lead.name}) has been ${actionName} to you`,
       type: 'info',
@@ -507,22 +724,16 @@ async function changeStatus(id, { status, remarks }, user) {
   const lead = await Lead.findOne({ _id: id, deletedAt: null });
   if (!lead) throw new ApiError(404, 'Lead not found');
 
-  const canManage = isLeadManager(user);
-  if (!canManage) {
-    const assignedId = lead.assigned_to ? String(lead.assigned_to) : null;
-    const createdById = lead.created_by ? String(lead.created_by) : null;
-    if (assignedId && assignedId !== String(user._id) && createdById !== String(user._id)) {
-      throw new ApiError(403, 'You do not have permission to change this lead status');
-    }
-  }
+  const canOverrideTransitions = isSuperAdminUser(user);
+  assertCanAccessLead(lead, user, 'change status on');
 
   const currentStatus = lead.status;
   if (currentStatus === status) {
     return toPlain(await Lead.findById(id).populate(LEAD_POPULATE).lean());
   }
 
-  // Validate transitions unless user has override privileges
-  if (!canManage) {
+  // Validate transitions unless super_admin
+  if (!canOverrideTransitions) {
     const allowed = ALLOWED_STATUS_TRANSITIONS[currentStatus] || [];
     if (!allowed.includes(status)) {
       throw new ApiError(
@@ -829,8 +1040,8 @@ async function convert(id, body = {}, user) {
       expected_delivery_date: orderData.delivery_date ? new Date(orderData.delivery_date) : undefined,
       party: targetPartyId,
       lead: lead._id,
-      assigned_sales_user: lead.assigned_to || user._id,
-      current_assignee: lead.assigned_to || user._id,
+      assigned_sales_user: lead.assigned_sales || lead.assigned_to || user._id,
+      current_assignee: lead.assigned_sales || lead.assigned_to || user._id,
       current_department: 'sales',
       pending_with_role: 'sales',
       order_items: items,

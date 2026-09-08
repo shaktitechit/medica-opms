@@ -44,10 +44,13 @@ import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import {
   formatLeadDate,
   formatCurrencyINR,
+  formatLeadAssignees,
   isFollowUpOverdue,
   isFollowUpToday,
   isLeadAdmin,
-  canAssignLead,
+  isSuperAdmin,
+  getUserDepartment,
+  getDeptLabel,
   canDeleteLead,
   canScheduleFollowUp,
   canViewLeadPricing,
@@ -80,6 +83,9 @@ type LeadRow = {
   source: string;
   assigned_to_id?: string;
   assigned_to_name?: string;
+  assigned_sales_id?: string;
+  assigned_admin_id?: string;
+  assigned_finance_id?: string;
   total_quantity: number;
   estimated_value: number;
   products_list: LeadProductItem[];
@@ -157,7 +163,7 @@ const COLUMNS: {
     widthPdf: 1.0,
   },
   { key: "source", label: "Source*", headerLetter: "H", type: "text", widthPdf: 1.2 },
-  { key: "assigned_to_name", label: "Assigned To", headerLetter: "I", type: "select", widthPdf: 1.3 },
+  { key: "assigned_to_name", label: "Assigned (Sales / Admin / Finance)", headerLetter: "I", type: "text", widthPdf: 2.0 },
   { key: "total_quantity", label: "Est. Qty", headerLetter: "J", type: "number", widthPdf: 0.9 },
   { key: "estimated_value", label: "Est. Value", headerLetter: "K", type: "number", widthPdf: 1.2 },
   { key: "products_summary", label: "Requirements & Products (- Qty)", headerLetter: "L", type: "text", widthPdf: 2.2 },
@@ -177,9 +183,10 @@ export function GoogleSheetLeadsModal({
 }: GoogleSheetLeadsModalProps) {
   const authUser = useAppSelector((state) => state.auth?.user);
   const isAdmin = isLeadAdmin(authUser, portalHome);
-  const isSales = !isAdmin;
+  const isSA = isSuperAdmin(authUser);
+  const userDept = getUserDepartment(authUser);
   const showPricing = canViewLeadPricing(authUser, portalHome);
-  const canAssign = canAssignLead(authUser, portalHome);
+  /** Super admin can freely reassign all dept slots; others use Assign modal (self only). */
   const canDelete = canDeleteLead(authUser, portalHome);
 
   const visibleColumns = useMemo(() => {
@@ -191,12 +198,6 @@ export function GoogleSheetLeadsModal({
       headerLetter: String.fromCharCode(65 + i),
     }));
   }, [showPricing]);
-
-  const authUserId = authUser?._id
-    ? String(authUser._id)
-    : authUser?.id
-    ? String(authUser.id)
-    : undefined;
 
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [selectedCell, setSelectedCell] = useState<SelectedCell>(null);
@@ -241,7 +242,7 @@ export function GoogleSheetLeadsModal({
     status: 120,
     priority: 100,
     source: 130,
-    assigned_to_name: 150,
+    assigned_to_name: 220,
     total_quantity: 90,
     estimated_value: 120,
     products_summary: 260,
@@ -253,13 +254,12 @@ export function GoogleSheetLeadsModal({
     createdAt: 110,
   });
 
-  // Query args with User/Admin scoping
+  // Backend scopes: SA sees all; others only leads assigned to themselves
   const queryArgs = useMemo(() => {
     return {
       paginate: "false" as const,
-      assigned_to: isSales ? authUserId : undefined,
     };
-  }, [isSales, authUserId]);
+  }, []);
 
   // RTK Queries & Mutations
   const { data: leadsData, isLoading, isFetching, refetch } = useListLeadsQuery(
@@ -276,16 +276,10 @@ export function GoogleSheetLeadsModal({
   const rawUsers = Array.isArray(usersData)
     ? usersData
     : (usersData as { data?: Array<{ _id: string; name: string; department?: string }> })?.data || [];
-  const salesUsers = useMemo(() => {
-    return rawUsers.filter((u) => u.department === "sales" || !u.department);
-  }, [rawUsers]);
-
-  const userMap = useMemo(() => {
-    const map = new Map<string, { _id: string; name: string }>();
-    rawUsers.forEach((u) => {
-      if (u._id) map.set(u._id, u);
-    });
-    return map;
+  const assignableUsers = useMemo(() => {
+    return rawUsers.filter((u) =>
+      ["sales", "admin", "finance"].includes(u.department || "")
+    );
   }, [rawUsers]);
 
   // Transform backend leads into flattened LeadRow array
@@ -304,17 +298,22 @@ export function GoogleSheetLeadsModal({
           ? lead.products.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0)
           : 0;
 
-        const assignedId = lead.assigned_to
-          ? typeof lead.assigned_to === "object"
-            ? lead.assigned_to._id
-            : String(lead.assigned_to)
-          : undefined;
+        const refId = (
+          v: { _id: string; name?: string } | string | undefined | null
+        ): string | undefined => {
+          if (!v) return undefined;
+          return typeof v === "object" ? v._id : String(v);
+        };
 
-        const assignedName = lead.assigned_to
-          ? typeof lead.assigned_to === "object"
-            ? lead.assigned_to.name
-            : userMap.get(String(lead.assigned_to))?.name || "Assigned"
-          : "";
+        const assignedSalesId = refId(lead.assigned_sales);
+        const assignedAdminId = refId(lead.assigned_admin);
+        const assignedFinanceId = refId(lead.assigned_finance);
+        const assignedId =
+          assignedSalesId ||
+          assignedAdminId ||
+          assignedFinanceId ||
+          refId(lead.assigned_to);
+        const assignedName = formatLeadAssignees(lead);
 
         const productsSummary = formatProductsSummary(lead.products, lead.requirement);
 
@@ -330,6 +329,9 @@ export function GoogleSheetLeadsModal({
           source: lead.source || "",
           assigned_to_id: assignedId,
           assigned_to_name: assignedName,
+          assigned_sales_id: assignedSalesId,
+          assigned_admin_id: assignedAdminId,
+          assigned_finance_id: assignedFinanceId,
           total_quantity: totalQty,
           estimated_value: leadEstimatedValue(lead),
           products_list: lead.products || [],
@@ -348,7 +350,7 @@ export function GoogleSheetLeadsModal({
       });
       setLocalRows(rows);
     }
-  }, [rawItems, userMap]);
+  }, [rawItems]);
 
   // Sync formula bar input back to selected cell
   useEffect(() => {
@@ -422,9 +424,13 @@ export function GoogleSheetLeadsModal({
         return;
       }
 
-      // Access control check for Assignment
-      if (colKey === "assigned_to_name" && !canAssign) {
-        toast.error("Only administrators can reassign leads to executives");
+      // Assignment is managed via AssignLeadModal (multi-dept slots); not inline-editable
+      if (colKey === "assigned_to_name") {
+        toast.error(
+          isSA
+            ? "Use the Assign button to update Sales / Admin / Finance assignees"
+            : "You can only assign yourself via the Assign button"
+        );
         return;
       }
 
@@ -475,11 +481,6 @@ export function GoogleSheetLeadsModal({
             ...(originalRow.raw.billing_address || {}),
             [colKey]: parsedVal,
           };
-        } else if (colKey === "assigned_to_name") {
-          const userObj = rawUsers.find((u) => u.name === parsedVal || u._id === parsedVal);
-          if (userObj) {
-            patchPayload.assigned_to = userObj._id;
-          }
         } else if (colKey === "lost_reason") {
           patchPayload.lost_info = {
             ...(originalRow.raw.lost_info || {}),
@@ -507,7 +508,7 @@ export function GoogleSheetLeadsModal({
         setSavingRows((prev) => ({ ...prev, [leadId]: false }));
       }
     },
-    [localRows, rawUsers, updateLead, refetch, canAssign, isAdmin, showPricing]
+    [localRows, updateLead, refetch, isSA, isAdmin, showPricing]
   );
 
   // Quick Delete Row (Admin only)
@@ -575,7 +576,7 @@ export function GoogleSheetLeadsModal({
       filterStatus !== "all" ||
       filterPriority !== "all" ||
       filterSource !== "all" ||
-      (isAdmin && filterSalesUser !== "all") ||
+      (isSA && filterSalesUser !== "all") ||
       filterFollowUpState !== "all" ||
       filterDatePreset !== "all" ||
       filterStartDate.trim() !== "" ||
@@ -590,7 +591,7 @@ export function GoogleSheetLeadsModal({
     filterPriority,
     filterSource,
     filterSalesUser,
-    isAdmin,
+    isSA,
     filterFollowUpState,
     filterDatePreset,
     filterStartDate,
@@ -657,11 +658,23 @@ export function GoogleSheetLeadsModal({
     }
 
     // 5. Assigned Sales User Filter (Admin only)
-    if (isAdmin && filterSalesUser !== "all") {
+    if (isSA && filterSalesUser !== "all") {
       if (filterSalesUser === "unassigned") {
-        rows = rows.filter((r) => !r.assigned_to_id);
+        rows = rows.filter(
+          (r) =>
+            !r.assigned_sales_id &&
+            !r.assigned_admin_id &&
+            !r.assigned_finance_id &&
+            !r.assigned_to_id
+        );
       } else {
-        rows = rows.filter((r) => r.assigned_to_id === filterSalesUser);
+        rows = rows.filter(
+          (r) =>
+            r.assigned_sales_id === filterSalesUser ||
+            r.assigned_admin_id === filterSalesUser ||
+            r.assigned_finance_id === filterSalesUser ||
+            r.assigned_to_id === filterSalesUser
+        );
       }
     }
 
@@ -780,7 +793,7 @@ export function GoogleSheetLeadsModal({
     filterPriority,
     filterSource,
     filterSalesUser,
-    isAdmin,
+    isSA,
     filterFollowUpState,
     filterDatePreset,
     filterStartDate,
@@ -865,12 +878,14 @@ export function GoogleSheetLeadsModal({
                 {/* Role Badge */}
                 <span
                   className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                    isAdmin
+                    isSA
                       ? "bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800"
                       : "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
                   }`}
                 >
-                  {isAdmin ? "Admin Access" : "My Leads (Sales)"}
+                  {isSA
+                    ? "Super Admin — All Leads"
+                    : `My Leads (${getDeptLabel(userDept)})`}
                 </span>
 
                 {/* Cloud Sync Status */}
@@ -889,9 +904,9 @@ export function GoogleSheetLeadsModal({
                 </div>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {isAdmin
-                  ? "Full administrative access: edit leads, change any stage, reassign sales executives, and manage records"
-                  : "Sales representative access: view and update your assigned leads, qualify prospects, and schedule follow-ups"}
+                {isSA
+                  ? "Full access: edit leads, set Sales / Admin / Finance assignees together, and manage records"
+                  : `View and update leads assigned to you in ${getDeptLabel(userDept)}. Assignee is locked to yourself.`}
               </p>
             </div>
           </div>
@@ -1006,7 +1021,7 @@ export function GoogleSheetLeadsModal({
                     !selectedCell ||
                     visibleColumns.find((c) => c.key === selectedCell.colKey)?.readonly ||
                     localRows.find((r) => r._id === selectedCell.leadId)?.status === "converted" ||
-                    (selectedCell.colKey === "assigned_to_name" && !canAssign) ||
+                    (selectedCell.colKey === "assigned_to_name") ||
                     (selectedCell.colKey === "next_follow_up_at" &&
                       !canScheduleFollowUp(
                         localRows.find((r) => r._id === selectedCell.leadId)?.status || "new"
@@ -1130,9 +1145,9 @@ export function GoogleSheetLeadsModal({
                     <FileSpreadsheet className="h-10 w-10 text-slate-300 mb-2" />
                     <p className="font-semibold">No leads found in this view</p>
                     <p className="text-xs text-slate-500">
-                      {isSales
-                        ? "You currently have no leads assigned to you"
-                        : "Try adjusting your search query or filters"}
+                      {isSA
+                        ? "Try adjusting your search query or filters"
+                        : `No leads assigned to you in ${getDeptLabel(userDept)}`}
                     </p>
                   </div>
                 ) : (
@@ -1198,11 +1213,15 @@ export function GoogleSheetLeadsModal({
                               <CalendarPlus className="h-3.5 w-3.5" />
                             </button>
                           )}
-                          {canAssign && !isRowConverted && (
+                          {!isRowConverted && (
                             <button
                               type="button"
                               onClick={() => setAssignTarget(row.raw)}
-                              title="Assign Executive"
+                              title={
+                                isSA
+                                  ? "Assign Sales / Admin / Finance"
+                                  : "Assign to Me"
+                              }
                               className="rounded p-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/50"
                             >
                               <UserCheck className="h-3.5 w-3.5" />
@@ -1320,26 +1339,12 @@ export function GoogleSheetLeadsModal({
                                   </select>
                                 )
                               ) : col.key === "assigned_to_name" ? (
-                                canAssign && !isRowConverted ? (
-                                  <select
-                                    value={row.assigned_to_id || ""}
-                                    onChange={(e) =>
-                                      saveCell(row._id, "assigned_to_name", e.target.value)
-                                    }
-                                    className="w-full bg-transparent border-0 px-1 py-0.5 text-xs text-slate-800 dark:text-white focus:bg-white dark:focus:bg-slate-800 rounded focus:ring-1 focus:ring-emerald-500 truncate"
-                                  >
-                                    <option value="">Unassigned</option>
-                                    {salesUsers.map((u) => (
-                                      <option key={u._id} value={u._id}>
-                                        {u.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <span className="text-slate-700 dark:text-slate-300 truncate">
-                                    {row.assigned_to_name || "Unassigned"}
-                                  </span>
-                                )
+                                <span
+                                  className="block truncate text-slate-700 dark:text-slate-300"
+                                  title={row.assigned_to_name || "Unassigned"}
+                                >
+                                  {row.assigned_to_name || "Unassigned"}
+                                </span>
                               ) : col.key === "products_summary" ? (
                                 <div className="w-full truncate text-xs">
                                   {row.products_list && row.products_list.length > 0 ? (
@@ -1591,22 +1596,22 @@ export function GoogleSheetLeadsModal({
                   </select>
                 </div>
 
-                {/* Assigned Sales Rep (Admin only) */}
-                {isAdmin && (
+                {/* Assigned filter — super admin only (sees all leads) */}
+                {isSA && (
                   <div>
                     <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Assigned Executive
+                      Assigned User
                     </label>
                     <select
                       value={filterSalesUser}
                       onChange={(e) => setFilterSalesUser(e.target.value)}
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                     >
-                      <option value="all">All Executives</option>
+                      <option value="all">All Assignees</option>
                       <option value="unassigned">Unassigned Only</option>
-                      {salesUsers.map((u) => (
+                      {assignableUsers.map((u) => (
                         <option key={u._id} value={u._id}>
-                          {u.name}
+                          {u.name} ({getDeptLabel(u.department || "")})
                         </option>
                       ))}
                     </select>
@@ -1733,7 +1738,7 @@ export function GoogleSheetLeadsModal({
         </div>
 
         {/* Sub-modals for Action buttons inside the sheet */}
-        {assignTarget && canAssign && (
+        {assignTarget && (
           <AssignLeadModal
             lead={assignTarget}
             open={Boolean(assignTarget)}

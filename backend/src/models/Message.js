@@ -8,6 +8,7 @@ const messageSchema = new mongoose.Schema(
   {
     order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", index: true },
     recipient: { type: String, required: true, index: true },
+    from: { type: String },
     cc: { type: mongoose.Schema.Types.Mixed },
     channel: { type: String, enum: ['email', 'whatsapp'], required: true, index: true },
     status: {

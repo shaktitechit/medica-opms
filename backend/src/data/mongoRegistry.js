@@ -1964,6 +1964,7 @@ function registerModels() {
           "approved",
           "rejected",
           "assigned",
+          "reassigned",
           "status_changed",
           "flagged",
           "resolved",
@@ -2054,6 +2055,7 @@ function registerModels() {
     {
       order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", index: true },
       recipient: { type: String, required: true, index: true },
+      from: { type: String },
       cc: { type: mongoose.Schema.Types.Mixed },
       channel: { type: String, enum: ['email', 'whatsapp'], required: true, index: true },
       status: {
@@ -2604,6 +2606,9 @@ function registerModels() {
       },
 
       assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+      assigned_sales: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+      assigned_admin: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+      assigned_finance: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
       assigned_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       assigned_at: Date,
 
@@ -2701,7 +2706,8 @@ function registerModels() {
     {
       quotation_no: { type: String, required: true, unique: true, index: true },
       ref_no: { type: String, trim: true, default: '' },
-      lead: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', required: true, index: true },
+      customer_ref: { type: String, trim: true, default: '' },
+      lead: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', default: null, index: true },
       party_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Party', default: null },
       quotation_date: { type: Date, default: Date.now },
       valid_until: { type: Date },
@@ -2762,10 +2768,20 @@ function registerModels() {
       signatory_phone: { type: String, default: '' },
       signatory_email: { type: String, default: '' },
       signatory_designation: { type: String, default: '' },
+      signatory_user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+      approval_status: {
+        type: String,
+        enum: ['pending_approval', 'approved', 'rejected'],
+        default: 'pending_approval',
+        index: true,
+      },
+      approved_at: { type: Date, default: null },
+      approved_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      rejection_reason: { type: String, default: '' },
       status: {
         type: String,
-        enum: ['draft', 'sent', 'accepted', 'rejected', 'expired'],
-        default: 'draft',
+        enum: ['draft', 'pending_approval', 'approved', 'sent', 'accepted', 'rejected', 'expired'],
+        default: 'pending_approval',
         index: true,
       },
       created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
@@ -2889,6 +2905,55 @@ function registerModels() {
           },
           { timestamps: true }
         )
+      ),
+    TermsAndConditions:
+      mongoose.models.TermsAndConditions ||
+      mongoose.model(
+        'TermsAndConditions',
+        (() => {
+          const schema = new mongoose.Schema(
+            {
+              title: { type: String, required: true, trim: true, index: true },
+              code: { type: String, trim: true, lowercase: true },
+              type: { type: String, enum: ['quotation', 'order', 'invoice', 'general'], default: 'general', index: true },
+              description: { type: String, trim: true },
+              is_active: { type: Boolean, default: true, index: true },
+              is_default: { type: Boolean, default: false, index: true },
+              created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+              updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+              deletedAt: { type: Date, default: null, index: true },
+            },
+            { timestamps: true }
+          );
+          schema.plugin(softDeletePlugin);
+          return schema;
+        })()
+      ),
+    TermsText:
+      mongoose.models.TermsText ||
+      mongoose.model(
+        'TermsText',
+        (() => {
+          const schema = new mongoose.Schema(
+            {
+              terms_and_conditions_id: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'TermsAndConditions',
+                required: true,
+                index: true,
+              },
+              text: { type: String, required: true, trim: true },
+              sequence: { type: Number, default: 1 },
+              is_active: { type: Boolean, default: true, index: true },
+              created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+              updated_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+              deletedAt: { type: Date, default: null, index: true },
+            },
+            { timestamps: true }
+          );
+          schema.plugin(softDeletePlugin);
+          return schema;
+        })()
       ),
   };
 }

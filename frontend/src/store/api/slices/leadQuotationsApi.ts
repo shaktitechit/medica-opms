@@ -5,7 +5,8 @@
 import { medicaApi } from "../baseApi";
 import { unwrapEnvelope, type ApiEnvelope } from "../unwrap";
 
-export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected" | "expired";
+export type QuotationStatus = "draft" | "pending_approval" | "approved" | "sent" | "accepted" | "rejected" | "expired";
+export type QuotationApprovalStatus = "pending_approval" | "approved" | "rejected";
 
 export type LeadQuotationItem = {
   _id?: string;
@@ -32,6 +33,7 @@ export type LeadQuotationRecord = {
   _id: string;
   quotation_no: string;
   ref_no?: string;
+  customer_ref?: string;
   lead: string | { _id: string; lead_no?: string; organization_name?: string };
   party_id?: string;
   quotation_date: string;
@@ -73,6 +75,11 @@ export type LeadQuotationRecord = {
   signatory_phone?: string;
   signatory_email?: string;
   signatory_designation?: string;
+  signatory_user?: string | { _id: string; name?: string; email?: string; department?: string };
+  approval_status?: QuotationApprovalStatus;
+  approved_at?: string;
+  approved_by?: string | { _id: string; name?: string };
+  rejection_reason?: string;
   status: QuotationStatus;
   created_by?: {
     _id: string;
@@ -87,6 +94,7 @@ export type LeadQuotationRecord = {
 export type CreateQuotationPayload = {
   quotation_no?: string;
   ref_no?: string;
+  customer_ref?: string;
   quotation_date?: string;
   valid_until?: string;
   validity_days?: number;
@@ -131,6 +139,8 @@ export type CreateQuotationPayload = {
   signatory_phone?: string;
   signatory_email?: string;
   signatory_designation?: string;
+  signatory_user?: string;
+  approval_status?: QuotationApprovalStatus;
   status?: QuotationStatus;
 };
 
@@ -199,6 +209,64 @@ export const leadQuotationsApi = medicaApi.injectEndpoints({
       ],
     }),
 
+    submitLeadQuotationForApproval: build.mutation<
+      LeadQuotationRecord,
+      { quotationId: string; leadId?: string }
+    >({
+      query: ({ quotationId }) => ({
+        url: `/leads/quotations/${quotationId}/submit-for-approval`,
+        method: "POST",
+      }),
+      transformResponse: (raw: ApiEnvelope<LeadQuotationRecord>) =>
+        unwrapEnvelope(raw) as LeadQuotationRecord,
+      invalidatesTags: (_res, _err, { quotationId, leadId }) => [
+        { type: "LeadQuotation", id: quotationId },
+        { type: "Quotation", id: quotationId },
+        { type: "Quotation", id: "LIST" },
+        ...(leadId ? [{ type: "LeadQuotation" as const, id: `LEAD_${leadId}` }] : []),
+        "Activity",
+      ],
+    }),
+
+    approveLeadQuotation: build.mutation<
+      LeadQuotationRecord,
+      { quotationId: string; leadId?: string }
+    >({
+      query: ({ quotationId }) => ({
+        url: `/leads/quotations/${quotationId}/approve`,
+        method: "POST",
+      }),
+      transformResponse: (raw: ApiEnvelope<LeadQuotationRecord>) =>
+        unwrapEnvelope(raw) as LeadQuotationRecord,
+      invalidatesTags: (_res, _err, { quotationId, leadId }) => [
+        { type: "LeadQuotation", id: quotationId },
+        { type: "Quotation", id: quotationId },
+        { type: "Quotation", id: "LIST" },
+        ...(leadId ? [{ type: "LeadQuotation" as const, id: `LEAD_${leadId}` }] : []),
+        "Activity",
+      ],
+    }),
+
+    rejectLeadQuotation: build.mutation<
+      LeadQuotationRecord,
+      { quotationId: string; leadId?: string; reason?: string; rejection_reason?: string }
+    >({
+      query: ({ quotationId, reason, rejection_reason }) => ({
+        url: `/leads/quotations/${quotationId}/reject`,
+        method: "POST",
+        body: { reason: reason || rejection_reason },
+      }),
+      transformResponse: (raw: ApiEnvelope<LeadQuotationRecord>) =>
+        unwrapEnvelope(raw) as LeadQuotationRecord,
+      invalidatesTags: (_res, _err, { quotationId, leadId }) => [
+        { type: "LeadQuotation", id: quotationId },
+        { type: "Quotation", id: quotationId },
+        { type: "Quotation", id: "LIST" },
+        ...(leadId ? [{ type: "LeadQuotation" as const, id: `LEAD_${leadId}` }] : []),
+        "Activity",
+      ],
+    }),
+
     getDefaultQuotationTerms: build.query<string[], void>({
       query: () => ({
         url: "/leads/quotations/default-terms",
@@ -235,5 +303,8 @@ export const {
   useGetDefaultQuotationTermsQuery,
   useCreateLeadQuotationMutation,
   useUpdateLeadQuotationMutation,
+  useSubmitLeadQuotationForApprovalMutation,
+  useApproveLeadQuotationMutation,
+  useRejectLeadQuotationMutation,
   useDeleteLeadQuotationMutation,
 } = leadQuotationsApi;

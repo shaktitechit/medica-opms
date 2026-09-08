@@ -1,7 +1,60 @@
+/**
+ * @fileoverview Lead analytics / reporting aggregates (dashboard, funnel, performance).
+ * Visibility: super_admin sees all; others only leads assigned to them (any dept slot).
+ * @module modules/leads/leadReport.service
+ */
 const mongoose = require('mongoose');
 const { getModels } = require('../../data/mongoRegistry');
-const { toPlain } = require('../../utils/mongoJson');
 const { isLeadManager } = require('./lead.service');
+
+function isSuperAdminUser(user) {
+  if (!user) return false;
+  return user.department === 'super_admin' || user.role === 'super_admin';
+}
+
+function toObjectId(id) {
+  if (!id) return null;
+  return mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : id;
+}
+
+/** Match leads where user is on any assignee slot (or legacy assigned_to). */
+function assigneeMatchOr(userId) {
+  const oid = toObjectId(userId);
+  const sid = String(userId);
+  return [
+    { assigned_sales: oid },
+    { assigned_sales: sid },
+    { assigned_admin: oid },
+    { assigned_admin: sid },
+    { assigned_finance: oid },
+    { assigned_finance: sid },
+    { assigned_to: oid },
+    { assigned_to: sid },
+  ];
+}
+
+function leadAssignedToUser(lead, userId) {
+  const uid = String(userId);
+  const ids = [
+    lead.assigned_sales,
+    lead.assigned_admin,
+    lead.assigned_finance,
+    lead.assigned_to,
+  ]
+    .filter(Boolean)
+    .map((v) => String(v));
+  return ids.includes(uid);
+}
+
+function applyAssigneeScope(q, query, user) {
+  if (isSuperAdminUser(user)) {
+    if (query.assigned_to && query.assigned_to !== 'all') {
+      q.$or = assigneeMatchOr(query.assigned_to);
+    }
+    return;
+  }
+  q.$or = assigneeMatchOr(user._id);
+}
 
 /**
  * Get dashboard KPI counters for leads.
@@ -10,25 +63,7 @@ async function getDashboardStats(query = {}, user) {
   const { Lead } = getModels();
   const q = { deletedAt: null };
 
-  const canManageAll = isLeadManager(user);
-
-  if (!canManageAll) {
-    const userObjectId = (user && user._id && mongoose.Types.ObjectId.isValid(user._id))
-      ? new mongoose.Types.ObjectId(user._id)
-      : null;
-
-    q.$or = [
-      { assigned_to: userObjectId || user._id },
-      { assigned_to: String(user._id) },
-      { created_by: userObjectId || user._id },
-      { created_by: String(user._id) },
-    ];
-  } else if (query.assigned_to && query.assigned_to !== 'all') {
-    const assignedObjId = mongoose.Types.ObjectId.isValid(query.assigned_to)
-      ? new mongoose.Types.ObjectId(query.assigned_to)
-      : query.assigned_to;
-    q.$or = [{ assigned_to: assignedObjId }, { assigned_to: String(query.assigned_to) }];
-  }
+  applyAssigneeScope(q, query, user);
 
   // Period / Date filter
   if (query.from || query.to) {
@@ -70,7 +105,6 @@ async function getDashboardStats(query = {}, user) {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
   const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-  // Query all matching leads once to compute counts, values, and quantities with 100% precision
   const allLeads = await Lead.find(q)
     .select('status estimated_value products.quantity next_follow_up_at')
     .lean();
@@ -148,25 +182,7 @@ async function getSalesFunnel(query = {}, user) {
   const { Lead } = getModels();
   const q = { deletedAt: null };
 
-  const canManageAll = isLeadManager(user);
-
-  if (!canManageAll) {
-    const userObjectId = (user && user._id && mongoose.Types.ObjectId.isValid(user._id))
-      ? new mongoose.Types.ObjectId(user._id)
-      : null;
-
-    q.$or = [
-      { assigned_to: userObjectId || user._id },
-      { assigned_to: String(user._id) },
-      { created_by: userObjectId || user._id },
-      { created_by: String(user._id) },
-    ];
-  } else if (query.assigned_to && query.assigned_to !== 'all') {
-    const assignedObjId = mongoose.Types.ObjectId.isValid(query.assigned_to)
-      ? new mongoose.Types.ObjectId(query.assigned_to)
-      : query.assigned_to;
-    q.$or = [{ assigned_to: assignedObjId }, { assigned_to: String(query.assigned_to) }];
-  }
+  applyAssigneeScope(q, query, user);
 
   const leads = await Lead.find(q).select('status estimated_value products.quantity').lean();
   const total = leads.length || 1;
@@ -212,34 +228,34 @@ async function getSalesFunnel(query = {}, user) {
 }
 
 /**
- * Get sales performance breakdown by Sales Executive.
+ * Performance breakdown by assignee (sales / admin / finance). Super admin sees all.
  */
 async function getSalesPerformance(query = {}, user) {
   const { Lead, LeadFollowUp, User } = getModels();
 
-  if (!isLeadManager(user)) {
+  if (!isSuperAdminUser(user) && !isLeadManager(user)) {
     query.assigned_to = String(user._id);
   }
 
   const matchQ = { deletedAt: null };
   if (query.assigned_to && query.assigned_to !== 'all') {
-    matchQ.assigned_to = new mongoose.Types.ObjectId(query.assigned_to);
+    matchQ.$or = assigneeMatchOr(query.assigned_to);
   }
 
   const userFilter = {
-    department: 'sales',
+    department: { $in: ['sales', 'admin', 'finance'] },
     is_active: true,
   };
-  if (!isLeadManager(user)) {
+  if (!isSuperAdminUser(user)) {
     userFilter._id = user._id;
   }
 
-  const salesUsers = await User.find(userFilter)
-    .select('name email')
-    .lean();
+  const assignees = await User.find(userFilter).select('name email department').lean();
 
   const leads = await Lead.find(matchQ)
-    .select('assigned_to status estimated_value next_follow_up_at products')
+    .select(
+      'assigned_to assigned_sales assigned_admin assigned_finance status estimated_value next_follow_up_at products'
+    )
     .lean();
 
   const followUps = await LeadFollowUp.find({ deletedAt: null })
@@ -249,9 +265,9 @@ async function getSalesPerformance(query = {}, user) {
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
 
-  const performance = salesUsers.map((su) => {
+  const performance = assignees.map((su) => {
     const uidStr = String(su._id);
-    const userLeads = leads.filter((l) => l.assigned_to && String(l.assigned_to) === uidStr);
+    const userLeads = leads.filter((l) => leadAssignedToUser(l, uidStr));
     const totalLeads = userLeads.length;
 
     const qualifiedLeads = userLeads.filter((l) =>
@@ -324,6 +340,7 @@ async function getSalesPerformance(query = {}, user) {
       user_id: su._id,
       name: su.name,
       email: su.email,
+      department: su.department,
       total_leads: totalLeads,
       qualified_leads: qualifiedLeads,
       quotations,
@@ -354,25 +371,7 @@ async function getLeadSourcePerformance(query = {}, user) {
   const { Lead, LeadSource } = getModels();
   const q = { deletedAt: null };
 
-  const canManageAll = isLeadManager(user);
-
-  if (!canManageAll) {
-    const userObjectId = (user && user._id && mongoose.Types.ObjectId.isValid(user._id))
-      ? new mongoose.Types.ObjectId(user._id)
-      : null;
-
-    q.$or = [
-      { assigned_to: userObjectId || user._id },
-      { assigned_to: String(user._id) },
-      { created_by: userObjectId || user._id },
-      { created_by: String(user._id) },
-    ];
-  } else if (query.assigned_to && query.assigned_to !== 'all') {
-    const assignedObjId = mongoose.Types.ObjectId.isValid(query.assigned_to)
-      ? new mongoose.Types.ObjectId(query.assigned_to)
-      : query.assigned_to;
-    q.$or = [{ assigned_to: assignedObjId }, { assigned_to: String(query.assigned_to) }];
-  }
+  applyAssigneeScope(q, query, user);
 
   const [leads, sources] = await Promise.all([
     Lead.find(q).select('source status estimated_value products').lean(),
@@ -382,7 +381,6 @@ async function getLeadSourcePerformance(query = {}, user) {
   const sourceMap = new Map();
   sources.forEach((s) => sourceMap.set(s.name, s.name));
 
-  // Also include any ad-hoc sources already present in leads
   leads.forEach((l) => {
     if (l.source && !sourceMap.has(l.source)) {
       sourceMap.set(l.source, l.source);
@@ -465,7 +463,6 @@ async function getLeadSourcePerformance(query = {}, user) {
     };
   });
 
-  // Sort by highest total leads
   report.sort((a, b) => b.total_leads - a.total_leads);
 
   return report;

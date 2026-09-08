@@ -22,6 +22,7 @@ async function createAndQueueMessage(messageData) {
   const msg = await Message.create({
     order: messageData.order || undefined,
     recipient: messageData.recipient,
+    from: messageData.from || (messageData.templateParams && messageData.templateParams.from) || undefined,
     channel: messageData.channel,
     status: 'pending',
     subject: messageData.subject,
@@ -82,10 +83,11 @@ async function processMessageJob(messageId) {
     if (msg.channel === 'email') {
       const attachments = msg.attachments || (msg.templateParams && msg.templateParams.attachments) || [];
       const cc = msg.cc || (msg.templateParams && msg.templateParams.cc) || [];
+      const from = msg.from || (msg.templateParams && msg.templateParams.from) || undefined;
       if (msg.templateName) {
-        result = await emailHelper.sendTemplateEmail(msg.recipient, msg.templateName, msg.templateParams || {}, attachments, cc);
+        result = await emailHelper.sendTemplateEmail(msg.recipient, msg.templateName, msg.templateParams || {}, attachments, cc, from);
       } else {
-        result = await emailHelper.sendEmail(msg.recipient, msg.subject || 'Notification', msg.body, msg.body, attachments, cc);
+        result = await emailHelper.sendEmail(msg.recipient, msg.subject || 'Notification', msg.body, msg.body, attachments, cc, from);
       }
     } else if (msg.channel === 'whatsapp') {
       if (msg.templateName) {

@@ -81,6 +81,8 @@ export { LeadFollowUpsPage } from "./shared/leads/LeadFollowUpsPage";
 export { LeadReportsDashboard } from "./shared/leads/LeadReportsDashboard";
 export { default as LeadManagerStatsWidgets } from "./shared/leads/LeadManagerStatsWidgets";
 
+export { ListQuotationsPage } from "./shared/quotations";
+
 export { default as ProfilePage } from "./shared/ProfilePage";
 export { default as PortalOverviewShell } from "./shared/PortalOverviewShell";
 export { usePortalDashboardKpi } from "./shared/usePortalDashboardKpi";

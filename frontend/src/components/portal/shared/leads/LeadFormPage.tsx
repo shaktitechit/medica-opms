@@ -44,7 +44,7 @@ import { toast } from "@/lib/toast";
 import { mutationRejectedMessage } from "@/lib/mutationMessages";
 import { PortalBusyOverlay } from "@/components/portal/shared/PortalBusyOverlay";
 import { useAppSelector } from "@/store/hooks";
-import { isLeadAdmin, formatCurrencyINR, leadLineValue } from "./leadUtils";
+import { isLeadAdmin, formatCurrencyINR, leadLineValue, isSuperAdmin, getUserDepartment, getDeptLabel } from "./leadUtils";
 
 type Props = {
   mode: "create" | "edit";
@@ -215,6 +215,10 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
   const authUser = useAppSelector((state) => state.auth.user);
   const isAdmin = isLeadAdmin(authUser, portalHome);
   const isSales = !isAdmin;
+  const isSA = isSuperAdmin(authUser);
+  const userDept = getUserDepartment(authUser);
+  // Visibility: non–SA only see leads assigned to themselves (backend).
+  // Super admin: pick any dept slots. Others: auto-assign to self on create.
 
   // Fetch lead data if edit mode
   const { data: existingLead, isLoading: loadingLead } = useGetLeadQuery(
@@ -251,7 +255,9 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
 
   const [source, setSource] = useState<string>("Website");
   const [priority, setPriority] = useState<LeadPriority>("medium");
-  const [assignedTo, setAssignedTo] = useState<string>("");
+  const [assignedSales, setAssignedSales] = useState<string>("");
+  const [assignedAdmin, setAssignedAdmin] = useState<string>("");
+  const [assignedFinance, setAssignedFinance] = useState<string>("");
   const [tagsInput, setTagsInput] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
 
@@ -288,10 +294,20 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
 
       setSource(existingLead.source || "Website");
       setPriority(existingLead.priority || "medium");
-      setAssignedTo(
-        typeof existingLead.assigned_to === "object"
-          ? existingLead.assigned_to._id
-          : existingLead.assigned_to || ""
+      setAssignedSales(
+        typeof existingLead.assigned_sales === "object"
+          ? existingLead.assigned_sales?._id || ""
+          : existingLead.assigned_sales || ""
+      );
+      setAssignedAdmin(
+        typeof existingLead.assigned_admin === "object"
+          ? existingLead.assigned_admin?._id || ""
+          : existingLead.assigned_admin || ""
+      );
+      setAssignedFinance(
+        typeof existingLead.assigned_finance === "object"
+          ? existingLead.assigned_finance?._id || ""
+          : existingLead.assigned_finance || ""
       );
       setTagsInput(Array.isArray(existingLead.tags) ? existingLead.tags.join(", ") : "");
       setNotes(existingLead.notes || "");
@@ -351,7 +367,10 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
   const users = Array.isArray(usersData)
     ? usersData
     : (usersData as { data?: Array<{ _id: string; name: string; department?: string }> })?.data || [];
-  const salesUsers = users.filter((u) => u.department === "sales" || u.department === "admin");
+
+  const salesUsers = users.filter((u) => u.department === "sales");
+  const adminUsers = users.filter((u) => u.department === "admin");
+  const financeUsers = users.filter((u) => u.department === "finance");
 
   const sourcesList =
     Array.isArray(sourcesData) && sourcesData.length > 0
@@ -518,9 +537,16 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
     }
 
     const authUserId = authUser?._id ? String(authUser._id) : authUser?.id ? String(authUser.id) : undefined;
-    const effectiveAssignedTo = isSales
-      ? (mode === "create" ? authUserId : undefined)
-      : (assignedTo || undefined);
+    // Super admin: set any combination of dept slots. Others: auto-self on create (backend).
+    const assignmentFields = isSA
+      ? {
+          assigned_sales: assignedSales || undefined,
+          assigned_admin: assignedAdmin || undefined,
+          assigned_finance: assignedFinance || undefined,
+        }
+      : mode === "create"
+        ? { assigned_to: authUserId }
+        : {};
 
     const payload: LeadInputPayload = {
       name: name.trim(),
@@ -543,7 +569,7 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
       expected_closing_date: expectedClosingDate ? expectedClosingDate : undefined,
       source: source.trim(),
       priority,
-      assigned_to: effectiveAssignedTo,
+      ...assignmentFields,
       contacts: contacts
         .filter((c) => c.name?.trim() || c.phone?.trim() || c.email?.trim())
         .map((c) => ({
@@ -1222,23 +1248,44 @@ export function LeadFormPage({ mode, leadId, portalHome = "/admin" }: Props) {
               </select>
             </div>
 
-            {!isSales && (
+            {/* Assign To — super_admin can set all three slots; others auto-assign to self */}
+            {isSA && (
+              <div className="col-span-full grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {(
+                  [
+                    { label: "Sales", value: assignedSales, set: setAssignedSales, list: salesUsers },
+                    { label: "Admin", value: assignedAdmin, set: setAssignedAdmin, list: adminUsers },
+                    { label: "Finance", value: assignedFinance, set: setAssignedFinance, list: financeUsers },
+                  ] as const
+                ).map((slot) => (
+                  <div key={slot.label}>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Assigned {slot.label}
+                    </label>
+                    <select
+                      value={slot.value}
+                      onChange={(e) => slot.set(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-white"
+                    >
+                      <option value="">Unassigned...</option>
+                      {slot.list.map((u) => (
+                        <option key={u._id} value={u._id}>
+                          {u.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!isSA && mode === "create" && (
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Assign to Sales User
+                  Assigned To
                 </label>
-                <select
-                  value={assignedTo}
-                  onChange={(e) => setAssignedTo(e.target.value)}
-                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none dark:border-white/10 dark:bg-slate-800 dark:text-white"
-                >
-                  <option value="">Leave unassigned...</option>
-                  {salesUsers.map((u) => (
-                    <option key={u._id} value={u._id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="mt-1.5 flex h-[38px] items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-700 dark:border-white/10 dark:bg-slate-800/50 dark:text-slate-300">
+                  You ({getDeptLabel(userDept)}) — auto-assigned
+                </div>
               </div>
             )}
 
