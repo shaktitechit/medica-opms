@@ -124,8 +124,9 @@ export function AssignLeadModal({ lead, open, onClose, onSuccess }: Props) {
       finance: [],
     };
     for (const u of allUsers) {
-      if (u.department === "sales" || u.department === "admin" || u.department === "finance") {
-        map[u.department].push(u);
+      const dept = String(u.department || "") as DeptSlot | string;
+      if (dept === "sales" || dept === "admin" || dept === "finance") {
+        map[dept].push(u);
       }
     }
     return map;
