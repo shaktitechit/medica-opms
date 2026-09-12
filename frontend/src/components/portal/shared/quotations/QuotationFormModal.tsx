@@ -77,6 +77,66 @@ export type CatalogProduct = {
   unit?: string;
 };
 
+/** Resolve API product refs that may be a plain string or hydrated `{ name }` object. */
+function refDisplayLabel(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (typeof value === "string") {
+    const s = value.trim();
+    // Bare ObjectIds are not useful for search/display
+    if (/^[0-9a-fA-F]{24}$/.test(s)) return "";
+    return s;
+  }
+  if (typeof value === "object") {
+    const o = value as { name?: unknown; label?: unknown; title?: unknown };
+    for (const key of ["name", "label", "title"] as const) {
+      const v = o[key];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+  }
+  return "";
+}
+
+function pickCatalogProducts(raw: unknown): CatalogProduct[] {
+  let rows: unknown[] = [];
+  if (Array.isArray(raw)) {
+    rows = raw;
+  } else if (raw && typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    if (Array.isArray(o.items)) rows = o.items;
+    else if (Array.isArray(o.data)) rows = o.data;
+    else if (Array.isArray(o.products)) rows = o.products;
+  }
+
+  return rows
+    .map((row): CatalogProduct | null => {
+      if (!row || typeof row !== "object") return null;
+      const p = row as Record<string, unknown>;
+      const id = p._id ?? p.id;
+      if (id == null || id === "") return null;
+      const name = typeof p.product_name === "string" ? p.product_name.trim() : "";
+      if (!name) return null;
+      return {
+        _id: String(id),
+        product_name: name,
+        sku: typeof p.sku === "string" ? p.sku : undefined,
+        hsn_code: typeof p.hsn_code === "string" ? p.hsn_code : undefined,
+        base_price: p.base_price != null ? Number(p.base_price) : undefined,
+        minimum_sale_rate:
+          p.minimum_sale_rate != null ? Number(p.minimum_sale_rate) : undefined,
+        mrp: p.mrp != null ? Number(p.mrp) : undefined,
+        gst_percent: p.gst_percent != null ? Number(p.gst_percent) : undefined,
+        default_gst_rate:
+          p.default_gst_rate != null ? Number(p.default_gst_rate) : undefined,
+        brand: refDisplayLabel(p.brand) || undefined,
+        manufacturer: refDisplayLabel(p.manufacturer) || undefined,
+        product_group: refDisplayLabel(p.product_group) || undefined,
+        description: typeof p.description === "string" ? p.description : undefined,
+        unit: typeof p.unit === "string" ? p.unit : undefined,
+      };
+    })
+    .filter((p): p is CatalogProduct => p != null);
+}
+
 export type PartyItem = {
   _id?: string;
   id?: string;
@@ -302,9 +362,11 @@ function PartySearchAutocomplete({
 function QuickProductSearchAndAdd({
   products,
   onAddProduct,
+  isLoading = false,
 }: {
   products: CatalogProduct[];
   onAddProduct: (product: CatalogProduct) => void;
+  isLoading?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -350,7 +412,7 @@ function QuickProductSearchAndAdd({
   };
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div ref={containerRef} className="relative z-30 w-full">
       <div className="relative">
         <input
           type="text"
@@ -365,6 +427,7 @@ function QuickProductSearchAndAdd({
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
+              e.stopPropagation();
               if (filteredProducts.length > 0) {
                 handleSelect(filteredProducts[0]);
               }
@@ -372,8 +435,15 @@ function QuickProductSearchAndAdd({
               setIsOpen(false);
             }
           }}
-          placeholder="🔍 Quick search product from catalog to add (type product name, SKU, brand)..."
-          className="w-full rounded-xl border border-blue-200 bg-white py-2 pl-9 pr-8 text-xs font-semibold text-slate-800 placeholder-slate-400 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-white/10 dark:bg-slate-900 dark:text-white"
+          placeholder={
+            isLoading
+              ? "Loading catalog products..."
+              : products.length === 0
+                ? "No catalog products available"
+                : "Quick search product from catalog to add (name, SKU, brand)..."
+          }
+          disabled={isLoading || products.length === 0}
+          className="w-full rounded-xl border border-blue-200 bg-white py-2 pl-9 pr-8 text-xs font-semibold text-slate-800 placeholder-slate-400 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-slate-900 dark:text-white"
         />
         <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-blue-500">
           <Sparkles className="h-3.5 w-3.5" />
@@ -393,7 +463,7 @@ function QuickProductSearchAndAdd({
       </div>
 
       {isOpen && search.trim().length > 0 && (
-        <div className="absolute left-0 right-0 z-40 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl dark:border-white/10 dark:bg-slate-900">
+        <div className="absolute left-0 right-0 z-50 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl dark:border-white/10 dark:bg-slate-900">
           <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
             <span>Matching Catalog Products ({filteredProducts.length})</span>
             <span className="text-[9px] text-blue-600 font-semibold dark:text-blue-400">
@@ -404,6 +474,11 @@ function QuickProductSearchAndAdd({
           {filteredProducts.length === 0 ? (
             <div className="px-4 py-3 text-center text-xs text-slate-500 dark:text-slate-400">
               No products found matching &quot;{search}&quot;
+              {products.length > 0 ? (
+                <span className="block mt-1 text-[10px] text-slate-400">
+                  Searched {products.length} catalog items
+                </span>
+              ) : null}
             </div>
           ) : (
             filteredProducts.map((p) => {
@@ -412,7 +487,11 @@ function QuickProductSearchAndAdd({
                 <button
                   key={p._id}
                   type="button"
-                  onClick={() => handleSelect(p)}
+                  onMouseDown={(e) => {
+                    // Prevent input blur/outside handlers from swallowing the selection
+                    e.preventDefault();
+                    handleSelect(p);
+                  }}
                   className="flex w-full items-center justify-between px-3 py-2 text-left text-xs transition border-b border-slate-50 dark:border-white/5 last:border-0 hover:bg-blue-50/70 dark:hover:bg-blue-950/40 cursor-pointer"
                 >
                   <div className="min-w-0 flex-1 pr-3">
@@ -420,27 +499,27 @@ function QuickProductSearchAndAdd({
                       <span className="font-bold text-slate-900 dark:text-white truncate">
                         {p.product_name}
                       </span>
-                      {p.sku && (
+                      {p.sku ? (
                         <span className="rounded bg-slate-100 px-1.5 py-0.2 font-mono text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                           {p.sku}
                         </span>
-                      )}
-                      {p.brand && (
+                      ) : null}
+                      {p.brand ? (
                         <span className="rounded-full bg-blue-50 px-1.5 py-0.2 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
                           {p.brand}
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
-                      {p.hsn_code && <span>HSN: {p.hsn_code}</span>}
-                      {p.unit && <span>Unit: {p.unit}</span>}
-                      {p.product_group && <span>Group: {p.product_group}</span>}
+                      {p.hsn_code ? <span>HSN: {p.hsn_code}</span> : null}
+                      {p.unit ? <span>Unit: {p.unit}</span> : null}
+                      {p.product_group ? <span>Group: {p.product_group}</span> : null}
                     </div>
                   </div>
 
                   <div className="shrink-0 text-right">
                     <div className="font-bold text-blue-600 dark:text-blue-400">
-                      ₹{price.toLocaleString("en-IN")}
+                      ₹{Number(price || 0).toLocaleString("en-IN")}
                     </div>
                     <div className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                       <Plus className="h-3 w-3" /> Add to Quote
@@ -564,7 +643,8 @@ function ProductRowAutocomplete({
                 <button
                   key={p._id}
                   type="button"
-                  onClick={() => {
+                  onMouseDown={(e) => {
+                    e.preventDefault();
                     onSelect(p._id);
                     setSearch("");
                     setIsOpen(false);
@@ -617,12 +697,11 @@ export function QuotationFormModal({
   const isEditing = Boolean(quotation?._id);
   const authUser = useAppSelector((state) => state.auth.user);
 
-  const { data: productsData } = useListProductsQuery({ limit: "500" });
-  const products = (
-    Array.isArray(productsData)
-      ? productsData
-      : (productsData as { items?: unknown[] })?.items || []
-  ) as CatalogProduct[];
+  const { data: productsData, isFetching: isFetchingProducts } = useListProductsQuery(
+    { limit: "2000" },
+    { skip: !open }
+  );
+  const products = useMemo(() => pickCatalogProducts(productsData), [productsData]);
 
   const { data: partiesData } = useListPartiesQuery({ limit: "500" }, { skip: !open });
   const parties = useMemo(() => pickParties(partiesData), [partiesData]);
@@ -1192,6 +1271,17 @@ export function QuotationFormModal({
     setTerms((prev) => prev.map((t, idx) => (idx === index ? val : t)));
   };
 
+  const handleMoveTerm = (index: number, direction: "up" | "down") => {
+    setTerms((prev) => {
+      const target = direction === "up" ? index - 1 : index + 1;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      const [item] = next.splice(index, 1);
+      next.splice(target, 0, item);
+      return next;
+    });
+  };
+
   const filteredTermsSets = useMemo(() => {
     return masterTermsSets.filter((set) => {
       if (termsTypeFilter !== "all" && set.type !== termsTypeFilter) {
@@ -1211,6 +1301,8 @@ export function QuotationFormModal({
   const getSetLines = (set: TermsAndConditionsRecord): string[] => {
     return (set.terms_text || [])
       .filter((t) => t.is_active !== false && t.text && t.text.trim())
+      .slice()
+      .sort((a, b) => (a.sequence || 0) - (b.sequence || 0))
       .map((t) => t.text.trim());
   };
 
@@ -1828,14 +1920,20 @@ export function QuotationFormModal({
               </div>
 
               {/* Quick Search & Add from Catalog */}
-              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/40 p-3 dark:border-blue-900/40 dark:bg-blue-950/20">
+              <div className="relative z-20 mb-4 overflow-visible rounded-xl border border-blue-200 bg-blue-50/40 p-3 dark:border-blue-900/40 dark:bg-blue-950/20">
                 <div className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300 mb-1.5 flex items-center gap-1.5">
                   <Sparkles className="h-3.5 w-3.5 text-blue-600" />
                   Quick Search &amp; Add Products from Catalog
+                  {products.length > 0 && (
+                    <span className="ml-1 rounded-full bg-blue-100 px-1.5 py-0.2 text-[10px] font-semibold normal-case tracking-normal text-blue-700 dark:bg-blue-900/60 dark:text-blue-300">
+                      {products.length} items
+                    </span>
+                  )}
                 </div>
                 <QuickProductSearchAndAdd
                   products={products}
                   onAddProduct={handleQuickAddProduct}
+                  isLoading={isFetchingProducts}
                 />
               </div>
 
@@ -2398,14 +2496,34 @@ export function QuotationFormModal({
                             minHeight="50px"
                           />
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveTerm(idx)}
-                          className="rounded-lg p-1.5 text-rose-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/50 cursor-pointer mt-1"
-                          title="Delete Condition"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <div className="flex flex-col gap-0.5 shrink-0 mt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleMoveTerm(idx, "up")}
+                            disabled={idx === 0}
+                            className="rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed dark:hover:bg-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                            title="Move up"
+                          >
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveTerm(idx, "down")}
+                            disabled={idx === terms.length - 1}
+                            className="rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed dark:hover:bg-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                            title="Move down"
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTerm(idx)}
+                            className="rounded-md p-1 text-rose-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/50 cursor-pointer"
+                            title="Delete Condition"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
 

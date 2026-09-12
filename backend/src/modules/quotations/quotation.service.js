@@ -27,6 +27,50 @@ function isQuotationManager(user) {
 }
 
 /**
+ * Resolve a stable ActivityLog target for a quotation.
+ * Standalone quotations may have no lead — always fall back to the quotation itself.
+ */
+function resolveQuotationActivityTarget(quotation) {
+  const leadId =
+    quotation?.lead && typeof quotation.lead === 'object'
+      ? quotation.lead._id || quotation.lead.id
+      : quotation?.lead;
+
+  if (leadId) {
+    return { entity_type: 'lead', entity_id: leadId };
+  }
+
+  return {
+    entity_type: 'lead_quotation',
+    entity_id: quotation._id,
+  };
+}
+
+/**
+ * Persist quotation activity without failing the primary mutation if logging breaks.
+ */
+async function logQuotationActivity({ quotation, user, action, message, old_value, new_value }) {
+  const target = resolveQuotationActivityTarget(quotation);
+  try {
+    await activityService.create({
+      entity_type: target.entity_type,
+      entity_id: target.entity_id,
+      action,
+      actor: user._id,
+      message,
+      old_value,
+      new_value,
+    });
+  } catch (err) {
+    logger.error(`[Quotation Service] Activity log failed (${action}): ${err.message}`, {
+      quotation_id: quotation?._id,
+      entity_type: target.entity_type,
+      entity_id: target.entity_id,
+    });
+  }
+}
+
+/**
  * Converts a positive number to Indian currency words format (Lakhs / Crores).
  * @param {number} num
  * @returns {string}
@@ -655,11 +699,10 @@ async function create(leadIdOrBody, bodyOrUser, userParam) {
     await lead.save();
 
     // Log activity
-    await activityService.create({
-      entity_type: 'lead',
-      entity_id: lead._id,
+    await logQuotationActivity({
+      quotation,
+      user,
       action: 'generated',
-      actor: user._id,
       message: `Generated Quotation #${quotation.quotation_no} (Ref: ${quotation.ref_no}) for ₹${quotation.grand_total.toLocaleString('en-IN')}`,
       new_value: {
         quotation_id: quotation._id,
@@ -790,11 +833,10 @@ async function update(id, body, user) {
     message = `Quotation #${quotation.quotation_no} marked as '${body.status.toUpperCase()}'`;
   }
 
-  await activityService.create({
-    entity_type: 'lead',
-    entity_id: quotation.lead,
+  await logQuotationActivity({
+    quotation,
+    user,
     action: actionType,
-    actor: user._id,
     message,
     new_value: {
       quotation_id: quotation._id,
@@ -822,11 +864,10 @@ async function submitForApproval(id, user) {
   quotation.updated_by = user._id;
   await quotation.save();
 
-  await activityService.create({
-    entity_type: 'lead',
-    entity_id: quotation.lead,
-    action: 'submitted_for_approval',
-    actor: user._id,
+  await logQuotationActivity({
+    quotation,
+    user,
+    action: 'submitted',
     message: `Submitted Quotation #${quotation.quotation_no} for signatory approval`,
     new_value: {
       quotation_id: quotation._id,
@@ -881,11 +922,10 @@ async function remove(id, user) {
   quotation.updated_by = user._id;
   await quotation.save();
 
-  await activityService.create({
-    entity_type: 'lead',
-    entity_id: quotation.lead,
+  await logQuotationActivity({
+    quotation,
+    user,
     action: 'deleted',
-    actor: user._id,
     message: `Deleted Quotation #${quotation.quotation_no}`,
     new_value: {
       quotation_id: quotation._id,
@@ -925,11 +965,10 @@ async function approve(id, user) {
   quotation.updated_by = user._id;
   await quotation.save();
 
-  await activityService.create({
-    entity_type: 'lead',
-    entity_id: quotation.lead,
+  await logQuotationActivity({
+    quotation,
+    user,
     action: 'approved',
-    actor: user._id,
     message: `Signatory ${user.name || user.email} approved Quotation #${quotation.quotation_no}`,
     new_value: {
       quotation_id: quotation._id,
@@ -997,11 +1036,10 @@ async function reject(id, reason, user) {
   quotation.updated_by = user._id;
   await quotation.save();
 
-  await activityService.create({
-    entity_type: 'lead',
-    entity_id: quotation.lead,
+  await logQuotationActivity({
+    quotation,
+    user,
     action: 'rejected',
-    actor: user._id,
     message: `Signatory ${user.name || user.email} rejected Quotation #${quotation.quotation_no}. Reason: ${reason || 'N/A'}`,
     new_value: {
       quotation_id: quotation._id,

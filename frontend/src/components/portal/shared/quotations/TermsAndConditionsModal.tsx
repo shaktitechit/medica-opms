@@ -132,12 +132,15 @@ export function TermsAndConditionsModal({ open, onClose }: Props) {
       description: item.description || "",
       is_default: Boolean(item.is_default),
       is_active: Boolean(item.is_active),
-      terms_text: (item.terms_text || []).map((t, idx) => ({
-        _id: t._id,
-        text: t.text,
-        sequence: t.sequence || idx + 1,
-        is_active: t.is_active !== undefined ? t.is_active : true,
-      })),
+      terms_text: (item.terms_text || [])
+        .slice()
+        .sort((a, b) => (a.sequence || 0) - (b.sequence || 0))
+        .map((t, idx) => ({
+          _id: t._id,
+          text: t.text,
+          sequence: t.sequence || idx + 1,
+          is_active: t.is_active !== undefined ? t.is_active : true,
+        })),
     });
     setIsFormOpen(true);
   };
@@ -202,6 +205,23 @@ export function TermsAndConditionsModal({ open, onClose }: Props) {
     } catch {
       toast.error("Failed to save Terms & Conditions");
     }
+  };
+
+  const handleMoveFormTerm = (index: number, direction: "up" | "down") => {
+    setFormData((prev) => {
+      const target = direction === "up" ? index - 1 : index + 1;
+      if (target < 0 || target >= prev.terms_text.length) return prev;
+      const nextLines = [...prev.terms_text];
+      const [item] = nextLines.splice(index, 1);
+      nextLines.splice(target, 0, item);
+      return {
+        ...prev,
+        terms_text: nextLines.map((line, idx) => ({
+          ...line,
+          sequence: idx + 1,
+        })),
+      };
+    });
   };
 
   // Quick inline add text line to an existing Terms record
@@ -450,14 +470,17 @@ export function TermsAndConditionsModal({ open, onClose }: Props) {
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            {item.terms_text.map((textLine, idx) => (
+                            {item.terms_text
+                              .slice()
+                              .sort((a, b) => (a.sequence || 0) - (b.sequence || 0))
+                              .map((textLine, idx) => (
                               <div
                                 key={textLine._id || idx}
                                 className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-2xs dark:border-white/10 dark:bg-slate-800"
                               >
                                 <div className="flex items-start gap-2.5 flex-1 min-w-0">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-800 dark:bg-blue-950 dark:text-blue-300 mt-0.5">
-                                    {textLine.sequence || idx + 1}
+                                    {idx + 1}
                                   </span>
                                   <RichTextDisplay content={textLine.text} className="flex-1" />
                                 </div>
@@ -648,7 +671,7 @@ export function TermsAndConditionsModal({ open, onClose }: Props) {
                     <div className="space-y-2">
                       {formData.terms_text.map((line, idx) => (
                         <div
-                          key={idx}
+                          key={line._id || `term-line-${idx}`}
                           className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 dark:border-white/10 dark:bg-slate-800/40"
                         >
                           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-800 dark:bg-blue-950 dark:text-blue-300 mt-1">
@@ -669,19 +692,41 @@ export function TermsAndConditionsModal({ open, onClose }: Props) {
                               minHeight="55px"
                             />
                           </div>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setFormData((p) => ({
-                                ...p,
-                                terms_text: p.terms_text.filter((_, i) => i !== idx),
-                              }))
-                            }
-                            className="rounded-lg p-1.5 text-rose-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/50 cursor-pointer mt-1"
-                            title="Remove Line"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          <div className="flex flex-col gap-0.5 shrink-0 mt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => handleMoveFormTerm(idx, "up")}
+                              disabled={idx === 0}
+                              className="rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed dark:hover:bg-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                              title="Move up"
+                            >
+                              <ChevronUp className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMoveFormTerm(idx, "down")}
+                              disabled={idx === formData.terms_text.length - 1}
+                              className="rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed dark:hover:bg-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                              title="Move down"
+                            >
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setFormData((p) => ({
+                                  ...p,
+                                  terms_text: p.terms_text
+                                    .filter((_, i) => i !== idx)
+                                    .map((x, i) => ({ ...x, sequence: i + 1 })),
+                                }))
+                              }
+                              className="rounded-md p-1 text-rose-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/50 cursor-pointer"
+                              title="Remove Line"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

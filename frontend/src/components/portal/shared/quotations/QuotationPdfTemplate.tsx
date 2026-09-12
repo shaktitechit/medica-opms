@@ -135,6 +135,34 @@ export default function QuotationPdfTemplate({
             box-sizing: border-box !important;
           }
         }
+        #quotation-pdf-root .quotation-pdf-rich-term p,
+        #quotation-pdf-root .quotation-pdf-rich-term div {
+          margin: 0 0 2px 0;
+        }
+        #quotation-pdf-root .quotation-pdf-rich-term ul,
+        #quotation-pdf-root .quotation-pdf-rich-term ol {
+          margin: 1px 0 2px 0;
+          padding-left: 14px;
+        }
+        #quotation-pdf-root .quotation-pdf-rich-term li {
+          margin: 0 0 1px 0;
+        }
+        #quotation-pdf-root .quotation-pdf-rich-term b,
+        #quotation-pdf-root .quotation-pdf-rich-term strong {
+          font-weight: 700;
+        }
+        #quotation-pdf-root .quotation-pdf-rich-term i,
+        #quotation-pdf-root .quotation-pdf-rich-term em {
+          font-style: italic;
+        }
+        #quotation-pdf-root .quotation-pdf-rich-term u {
+          text-decoration: underline;
+        }
+        #quotation-pdf-root .quotation-pdf-rich-term s,
+        #quotation-pdf-root .quotation-pdf-rich-term strike,
+        #quotation-pdf-root .quotation-pdf-rich-term del {
+          text-decoration: line-through;
+        }
       `}</style>
 
       <div
@@ -548,14 +576,20 @@ export default function QuotationPdfTemplate({
             >
               General Terms &amp; Conditions
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               {terms.map((term, index) => (
                 <div key={index} style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", fontSize: "7.5px", lineHeight: "11.5px" }}>
                   <span style={{ width: "16px", fontWeight: 700, color: "#1e3a5f", flexShrink: 0 }}>
                     {index + 1})
                   </span>
-                  <span
-                    style={{ color: "#334155", wordBreak: "break-word" }}
+                  <div
+                    className="quotation-pdf-rich-term"
+                    style={{
+                      color: "#334155",
+                      wordBreak: "break-word",
+                      flex: 1,
+                      minWidth: 0,
+                    }}
                     dangerouslySetInnerHTML={{
                       __html: term.replace(/^\d+\)\s*/, ""),
                     }}

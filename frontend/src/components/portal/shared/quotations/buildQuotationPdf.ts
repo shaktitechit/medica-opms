@@ -93,6 +93,474 @@ async function loadLogo(url?: string): Promise<string | null> {
   }
 }
 
+/** Rich-text run styling produced by the terms RichTextEditor (contentEditable HTML). */
+type RichTextStyle = {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strike: boolean;
+  color: [number, number, number];
+  highlight: [number, number, number] | null;
+};
+
+type RichTextRun = {
+  text: string;
+  style: RichTextStyle;
+};
+
+type RichTextLine = {
+  runs: RichTextRun[];
+  indentMm: number;
+  prefix: string;
+};
+
+const DEFAULT_RICH_STYLE: RichTextStyle = {
+  bold: false,
+  italic: false,
+  underline: false,
+  strike: false,
+  color: TEXT,
+  highlight: null,
+};
+
+function isHtmlContent(value: string): boolean {
+  return /<[a-z][\s\S]*>/i.test(value);
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/<br\s*\/?>/gi, "\n");
+}
+
+function parseCssColor(value: string | null | undefined): [number, number, number] | null {
+  if (!value) return null;
+  const v = value.trim().toLowerCase();
+  if (v === "transparent" || v === "inherit" || v === "initial") return null;
+
+  const hex = v.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const h = hex[1];
+    if (h.length === 3) {
+      return [
+        parseInt(h[0] + h[0], 16),
+        parseInt(h[1] + h[1], 16),
+        parseInt(h[2] + h[2], 16),
+      ];
+    }
+    return [
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16),
+    ];
+  }
+
+  const rgb = v.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgb) {
+    return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+  }
+
+  return null;
+}
+
+function cloneRichStyle(style: RichTextStyle): RichTextStyle {
+  return {
+    ...style,
+    color: [...style.color] as [number, number, number],
+    highlight: style.highlight
+      ? ([...style.highlight] as [number, number, number])
+      : null,
+  };
+}
+
+function applyNodeStyle(el: Element, style: RichTextStyle): RichTextStyle {
+  const next = cloneRichStyle(style);
+  const tag = el.tagName.toLowerCase();
+
+  if (tag === "b" || tag === "strong") next.bold = true;
+  if (tag === "i" || tag === "em") next.italic = true;
+  if (tag === "u") next.underline = true;
+  if (tag === "s" || tag === "strike" || tag === "del") next.strike = true;
+
+  if (tag === "font") {
+    const faceColor = parseCssColor(el.getAttribute("color"));
+    if (faceColor) next.color = faceColor;
+  }
+
+  const inline = (el.getAttribute("style") || "").toLowerCase();
+  if (inline.includes("font-weight") && /bold|[5-9]00/.test(inline)) next.bold = true;
+  if (inline.includes("font-style") && inline.includes("italic")) next.italic = true;
+  if (inline.includes("text-decoration") && inline.includes("underline")) next.underline = true;
+  if (
+    inline.includes("text-decoration") &&
+    (inline.includes("line-through") || inline.includes("strikethrough"))
+  ) {
+    next.strike = true;
+  }
+
+  const colorMatch = inline.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
+  if (colorMatch) {
+    const parsed = parseCssColor(colorMatch[1]);
+    if (parsed) next.color = parsed;
+  }
+
+  const bgMatch = inline.match(
+    /(?:^|;)\s*(?:background(?:-color)?)\s*:\s*([^;]+)/i
+  );
+  if (bgMatch) {
+    const parsed = parseCssColor(bgMatch[1]);
+    if (parsed) next.highlight = parsed;
+  }
+
+  return next;
+}
+
+function pushRun(runs: RichTextRun[], text: string, style: RichTextStyle) {
+  if (!text) return;
+  const last = runs[runs.length - 1];
+  if (
+    last &&
+    last.style.bold === style.bold &&
+    last.style.italic === style.italic &&
+    last.style.underline === style.underline &&
+    last.style.strike === style.strike &&
+    last.style.color[0] === style.color[0] &&
+    last.style.color[1] === style.color[1] &&
+    last.style.color[2] === style.color[2] &&
+    ((last.style.highlight === null && style.highlight === null) ||
+      (last.style.highlight &&
+        style.highlight &&
+        last.style.highlight[0] === style.highlight[0] &&
+        last.style.highlight[1] === style.highlight[1] &&
+        last.style.highlight[2] === style.highlight[2]))
+  ) {
+    last.text += text;
+    return;
+  }
+  runs.push({ text, style: cloneRichStyle(style) });
+}
+
+function flushLine(
+  lines: RichTextLine[],
+  runs: RichTextRun[],
+  indentMm: number,
+  prefix: string
+) {
+  const meaningful = runs.some((r) => r.text.trim().length > 0);
+  if (!meaningful && !prefix) {
+    runs.length = 0;
+    return;
+  }
+  lines.push({
+    runs: runs.map((r) => ({ text: r.text, style: cloneRichStyle(r.style) })),
+    indentMm,
+    prefix,
+  });
+  runs.length = 0;
+}
+
+/**
+ * Converts rich-editor HTML (or plain text) into drawable PDF lines with style runs.
+ */
+function parseRichTextToLines(raw: string): RichTextLine[] {
+  const cleaned = raw.replace(/^\d+\)\s*/, "").trim();
+  if (!cleaned) return [];
+
+  if (!isHtmlContent(cleaned) || typeof DOMParser === "undefined") {
+    return [
+      {
+        runs: [{ text: decodeHtmlEntities(cleaned), style: cloneRichStyle(DEFAULT_RICH_STYLE) }],
+        indentMm: 0,
+        prefix: "",
+      },
+    ];
+  }
+
+  const doc = new DOMParser().parseFromString(
+    `<div id="rich-root">${cleaned}</div>`,
+    "text/html"
+  );
+  const root = doc.getElementById("rich-root");
+  if (!root) {
+    return [
+      {
+        runs: [{ text: decodeHtmlEntities(cleaned.replace(/<[^>]+>/g, "")), style: cloneRichStyle(DEFAULT_RICH_STYLE) }],
+        indentMm: 0,
+        prefix: "",
+      },
+    ];
+  }
+
+  const lines: RichTextLine[] = [];
+  const currentRuns: RichTextRun[] = [];
+  let listCounters: number[] = [];
+
+  const walk = (
+    node: Node,
+    style: RichTextStyle,
+    listDepth: number,
+    listType: "ul" | "ol" | null,
+    pendingPrefix: { value: string }
+  ) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = (node.textContent || "").replace(/\u00a0/g, " ");
+      if (!text) return;
+      // Collapse excessive whitespace but keep intentional spaces
+      const normalized = text.replace(/[ \t\f\v]+/g, " ");
+      if (!normalized) return;
+      pushRun(currentRuns, normalized, style);
+      return;
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+
+    if (tag === "br") {
+      flushLine(lines, currentRuns, listDepth * 3, pendingPrefix.value);
+      pendingPrefix.value = "";
+      return;
+    }
+
+    if (tag === "ul" || tag === "ol") {
+      if (currentRuns.length) {
+        flushLine(lines, currentRuns, listDepth * 3, pendingPrefix.value);
+        pendingPrefix.value = "";
+      }
+      if (tag === "ol") listCounters.push(0);
+      for (const child of Array.from(el.childNodes)) {
+        walk(child, style, listDepth + 1, tag, pendingPrefix);
+      }
+      if (tag === "ol") listCounters.pop();
+      return;
+    }
+
+    if (tag === "li") {
+      if (currentRuns.length) {
+        flushLine(lines, currentRuns, Math.max(0, listDepth - 1) * 3, pendingPrefix.value);
+        pendingPrefix.value = "";
+      }
+      let prefix = "• ";
+      if (listType === "ol") {
+        const idx = listCounters.length - 1;
+        listCounters[idx] = (listCounters[idx] || 0) + 1;
+        prefix = `${listCounters[idx]}. `;
+      }
+      pendingPrefix.value = prefix;
+      const nextStyle = applyNodeStyle(el, style);
+      for (const child of Array.from(el.childNodes)) {
+        walk(child, nextStyle, listDepth, listType, pendingPrefix);
+      }
+      flushLine(lines, currentRuns, Math.max(0, listDepth - 1) * 3 + (listDepth > 0 ? 3 : 0), pendingPrefix.value);
+      pendingPrefix.value = "";
+      return;
+    }
+
+    if (tag === "div" || tag === "p" || tag === "h1" || tag === "h2" || tag === "h3") {
+      if (currentRuns.length) {
+        flushLine(lines, currentRuns, listDepth * 3, pendingPrefix.value);
+        pendingPrefix.value = "";
+      }
+      const nextStyle = applyNodeStyle(el, style);
+      for (const child of Array.from(el.childNodes)) {
+        walk(child, nextStyle, listDepth, listType, pendingPrefix);
+      }
+      flushLine(lines, currentRuns, listDepth * 3, pendingPrefix.value);
+      pendingPrefix.value = "";
+      return;
+    }
+
+    const nextStyle = applyNodeStyle(el, style);
+    for (const child of Array.from(el.childNodes)) {
+      walk(child, nextStyle, listDepth, listType, pendingPrefix);
+    }
+  };
+
+  walk(root, cloneRichStyle(DEFAULT_RICH_STYLE), 0, null, { value: "" });
+  flushLine(lines, currentRuns, 0, "");
+
+  return lines.filter(
+    (line) => line.prefix || line.runs.some((r) => r.text.trim().length > 0)
+  );
+}
+
+function helveticaStyle(style: RichTextStyle): "normal" | "bold" | "italic" | "bolditalic" {
+  if (style.bold && style.italic) return "bolditalic";
+  if (style.bold) return "bold";
+  if (style.italic) return "italic";
+  return "normal";
+}
+
+function measureStyledWidth(pdf: JsPDF, text: string, style: RichTextStyle, fontSize: number): number {
+  pdf.setFont("helvetica", helveticaStyle(style));
+  pdf.setFontSize(fontSize);
+  return pdf.getTextWidth(text);
+}
+
+function splitTokenToFit(
+  pdf: JsPDF,
+  text: string,
+  style: RichTextStyle,
+  fontSize: number,
+  maxW: number
+): { fit: string; rest: string } {
+  if (maxW <= 0) return { fit: text.slice(0, 1), rest: text.slice(1) };
+  if (measureStyledWidth(pdf, text, style, fontSize) <= maxW) {
+    return { fit: text, rest: "" };
+  }
+  let lo = 1;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (measureStyledWidth(pdf, text.slice(0, mid), style, fontSize) <= maxW) lo = mid;
+    else hi = mid - 1;
+  }
+  const count = Math.max(1, lo);
+  return { fit: text.slice(0, count), rest: text.slice(count) };
+}
+
+/**
+ * Draws rich-editor HTML/plain text into the PDF and returns height consumed (mm).
+ * Supports bold/italic/underline/strikethrough, colors, highlights, and lists.
+ */
+function drawRichTextBlock(
+  pdf: JsPDF,
+  rawHtml: string,
+  startX: number,
+  startY: number,
+  maxWidth: number,
+  options: {
+    fontSize?: number;
+    lineHeight?: number;
+    /** Called before each visual row; may add a page and must return the Y to draw at. */
+    ensureSpace?: (neededH: number, proposedY: number) => number;
+  } = {}
+): { height: number; endY: number } {
+  const fontSize = options.fontSize ?? 6.5;
+  const lineHeight = options.lineHeight ?? 2.8;
+  const lines = parseRichTextToLines(rawHtml);
+  if (lines.length === 0) return { height: 0, endY: startY };
+
+  let y = startY;
+  const originY = startY;
+
+  for (const line of lines) {
+    const baseX = startX + line.indentMm;
+    const width = Math.max(18, maxWidth - line.indentMm);
+    const prefixW = line.prefix
+      ? measureStyledWidth(pdf, line.prefix, DEFAULT_RICH_STYLE, fontSize)
+      : 0;
+
+    type Placed = { text: string; style: RichTextStyle; x: number; w: number };
+    const visualRows: Array<{ prefix: string; cells: Placed[] }> = [];
+    let cells: Placed[] = [];
+    let cursor = baseX + prefixW;
+    let rowHasPrefix = Boolean(line.prefix);
+
+    const pushVisualRow = () => {
+      visualRows.push({
+        prefix: rowHasPrefix ? line.prefix : "",
+        cells,
+      });
+      cells = [];
+      cursor = baseX;
+      rowHasPrefix = false;
+    };
+
+    const tokens: Array<{ text: string; style: RichTextStyle; isSpace: boolean }> = [];
+    for (const run of line.runs) {
+      for (const part of run.text.split(/(\s+)/)) {
+        if (!part) continue;
+        tokens.push({ text: part, style: run.style, isSpace: /^\s+$/.test(part) });
+      }
+    }
+
+    if (tokens.length === 0 && line.prefix) {
+      visualRows.push({ prefix: line.prefix, cells: [] });
+    }
+
+    for (const token of tokens) {
+      if (token.isSpace && cells.length === 0) continue;
+
+      let remaining = token.text;
+      while (remaining) {
+        const rightEdge = baseX + width;
+        const available = rightEdge - cursor;
+
+        if (!token.isSpace && available < 1.5 && cells.length > 0) {
+          pushVisualRow();
+          continue;
+        }
+
+        const { fit, rest } = splitTokenToFit(pdf, remaining, token.style, fontSize, Math.max(available, 1));
+        const fitW = measureStyledWidth(pdf, fit, token.style, fontSize);
+
+        if (!token.isSpace && fitW > available && cells.length > 0 && rest === remaining) {
+          // Nothing fits on this row — wrap first
+          pushVisualRow();
+          continue;
+        }
+
+        cells.push({ text: fit, style: token.style, x: cursor, w: fitW });
+        cursor += fitW;
+        remaining = rest;
+
+        if (remaining) pushVisualRow();
+      }
+    }
+
+    if (cells.length > 0 || (visualRows.length === 0 && line.prefix)) {
+      pushVisualRow();
+    }
+
+    for (const visual of visualRows) {
+      if (options.ensureSpace) {
+        y = options.ensureSpace(lineHeight, y);
+      }
+
+      if (visual.prefix) {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(fontSize);
+        pdf.setTextColor(...TEXT);
+        pdf.text(visual.prefix, baseX, y);
+      }
+
+      for (const cell of visual.cells) {
+        if (cell.style.highlight) {
+          pdf.setFillColor(...cell.style.highlight);
+          pdf.rect(cell.x, y - fontSize * 0.28, cell.w, lineHeight * 0.85, "F");
+        }
+        pdf.setFont("helvetica", helveticaStyle(cell.style));
+        pdf.setFontSize(fontSize);
+        pdf.setTextColor(...cell.style.color);
+        pdf.text(cell.text, cell.x, y);
+
+        if (cell.style.underline) {
+          pdf.setDrawColor(...cell.style.color);
+          pdf.setLineWidth(0.15);
+          pdf.line(cell.x, y + 0.4, cell.x + cell.w, y + 0.4);
+        }
+        if (cell.style.strike) {
+          pdf.setDrawColor(...cell.style.color);
+          pdf.setLineWidth(0.15);
+          pdf.line(cell.x, y - 0.7, cell.x + cell.w, y - 0.7);
+        }
+      }
+
+      y += lineHeight;
+    }
+
+    y += 0.35;
+  }
+
+  return { height: y - originY, endY: y };
+}
+
 /**
  * Builds a vector-based jsPDF document for Quotation.
  */
@@ -502,20 +970,35 @@ export async function buildQuotationPdf(input: BuildQuotationPdfInput): Promise<
     pdf.line(M, currentY + 4.5, PAGE_W - M, currentY + 4.5);
     currentY += 6.5;
 
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(6.5);
-    pdf.setTextColor(...TEXT);
-
     for (let i = 0; i < terms.length; i += 1) {
-      const termRaw = terms[i].replace(/^\d+\)\s*/, "").trim();
-      const wrapped = pdf.splitTextToSize(`${i + 1})  ${termRaw}`, CONTENT_W - 4);
-      const needH = wrapped.length * 2.8 + 1;
-      checkPageBreak(needH);
+      checkPageBreak(4);
 
-      pdf.text(wrapped, M + 1, currentY);
-      currentY += needH;
+      const indexLabel = `${i + 1})`;
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(6.5);
+      pdf.setTextColor(...NAVY);
+      pdf.text(indexLabel, M + 1, currentY);
+      const indexW = pdf.getTextWidth(indexLabel) + 1.5;
+
+      const drawn = drawRichTextBlock(
+        pdf,
+        terms[i],
+        M + 1 + indexW,
+        currentY,
+        CONTENT_W - 4 - indexW,
+        {
+          fontSize: 6.5,
+          lineHeight: 2.8,
+          ensureSpace: (neededH, proposedY) => {
+            currentY = proposedY;
+            checkPageBreak(neededH);
+            return currentY;
+          },
+        }
+      );
+      currentY = drawn.endY + 0.8;
     }
-    currentY += 4;
+    currentY += 3;
   }
 
   // COMPANY BANK DETAILS
